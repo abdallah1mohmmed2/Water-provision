@@ -1,0 +1,29 @@
+name: Unzip Source Code
+
+# تشغيل الأمر يدوياً أو عند رفع الملف المضغوط
+on:
+  workflow_dispatch: 
+
+permissions:
+  contents: write # إعطاء الصلاحية للبوت لتعديل الملفات
+
+jobs:
+  unzip-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: جلب ملفات المستودع
+        uses: actions/checkout@v4
+
+      - name: فك ضغط الملف وحذفه
+        run: |
+          unzip saqia_source.zip
+          rm saqia_source.zip
+
+      - name: حفظ الملفات المفكوكة ورفعها للمستودع
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "استخراج ملفات مشروع السقاية آلياً عبر GitHub Actions"
+          git push
+￼Enter
