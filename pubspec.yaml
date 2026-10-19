@@ -1,0 +1,36 @@
+name: saqia_station
+publish_to: 'none'
+description: نظام ساقية لإدارة محطة ضخ مياه الري
+version: 2.0.0+1
+environment:
+  sdk: '>=3.9.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  sqflite: ^2.3.3+1
+  sqflite_common_ffi: ^2.3.3
+  sqflite_common_ffi_web: ^0.4.5+3
+  path: ^1.9.0
+  intl: ^0.20.3
+  pdf: ^3.11.1
+  printing: ^5.13.4
+  file_picker: ^10.3.3
+  path_provider: ^2.1.5
+  share_plus: ^10.1.2
+  http: ^1.2.2
+  crypto: ^3.0.6
+  uuid: ^4.5.1
+  connectivity_plus: ^6.1.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/db/001_initial.sql
+    - assets/fonts/NotoNaskhArabic-Regular.ttf
+    - assets/fonts/NotoNaskhArabic-Bold.ttf

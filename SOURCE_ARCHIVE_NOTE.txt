@@ -1,0 +1,20 @@
+Saqia Station - Flutter source after Android build
+
+Included:
+- Full Dart/Flutter source, assets, tests, docs and server
+- Generated android/ directory used for the APK build
+- (v23) third_party/ was NOT in the archive; the local dependency overrides were removed from pubspec.yaml and the stale pubspec.lock deleted.
+  Run `flutter pub get` to regenerate it. If the Android build then fails on compileSdk 36 with file_picker / flutter_plugin_android_lifecycle,
+  restore the patched copies of those two packages and re-add dependency_overrides.
+- pubspec.yaml and pubspec.lock
+
+Signing:
+- No project-specific signing key (.jks/.keystore/key.properties) existed in the supplied project or was created during this build.
+- android/app/build.gradle.kts uses the generated debug signing configuration for the release build.
+- For production distribution, configure a private release keystore in key.properties without committing it to source control.
+
+Excluded only generated caches/intermediates:
+- build/
+- .dart_tool/
+- .idea/
+These exclusions do not remove anything from the working project and can be regenerated with flutter pub get and flutter build apk.
