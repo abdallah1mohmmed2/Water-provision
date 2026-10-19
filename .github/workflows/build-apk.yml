@@ -1,7 +1,7 @@
 name: Build Flutter APK
 
 on:
-  workflow_dispatch: # يتيح لك تشغيل البناء يدوياً بضغطة زر
+  workflow_dispatch:
 
 jobs:
   build:
@@ -10,16 +10,18 @@ jobs:
       - name: جلب الكود المصدري
         uses: actions/checkout@v4
 
-      - name: إعداد بيئة Java
+      - name: إعداد بيئة Java مع التخزين المؤقت
         uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
+          cache: 'gradle' # يحفظ أدوات بناء الأندرويد لتسريعها في المرات القادمة
 
-      - name: إعداد بيئة Flutter
+      - name: إعداد بيئة Flutter مع التخزين المؤقت
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true # يحفظ بيئة فلاتر بالكامل لتجنب إعادة تحميلها
 
       - name: جلب الحزم والمكتبات
         run: flutter pub get
