@@ -39,7 +39,7 @@ class SaqiaTheme {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.black.withOpacity(.07)),
+          borderSide: BorderSide(color: Colors.black.withValues(alpha: .07)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -90,7 +90,7 @@ class SaqiaTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white.withOpacity(.05),
+        fillColor: Colors.white.withValues(alpha: .05),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide.none,
