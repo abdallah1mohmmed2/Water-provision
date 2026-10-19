@@ -9624,6 +9624,8 @@ class _PerformanceState extends State<PerformancePage> {
   );
 }
 
+}
+
 class BackupPage extends StatefulWidget {
   final StationRepository r;
   const BackupPage(this.r, {super.key});
