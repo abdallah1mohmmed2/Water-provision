@@ -17,5 +17,13 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
         
-      - name: Analyze project source
+      - name: Analyze Flutter app
         run: flutter analyze
+
+      - name: Install server dependencies
+        working-directory: server
+        run: dart pub get
+
+      - name: Analyze server package
+        working-directory: server
+        run: dart analyze
