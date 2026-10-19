@@ -789,7 +789,7 @@ class StationRepository {
           FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
           WHERE $personalAccountWhere AND je.status='posted'),0) balance
       FROM $table x WHERE x.id=?
-    ''', args: [id, id, id]);
+    ''', [id, id, id]);
     if (rows.isEmpty) return {'irrigation_minutes': 0, 'irrigation_total': 0, 'earnings': 0, 'paid': 0, 'balance': 0};
     return rows.first;
   }
@@ -1691,8 +1691,7 @@ class StationRepository {
             a.add(category);
           }
           if (status != null) {
-            w = w.replace("status='posted'", 'status=?');
-            a.insert(0, status);
+            w = w.replaceAll("status='posted'", "status=?");
           }
           return db.query(
             'SELECT category,COUNT(*) count,SUM(amount) total FROM expenses WHERE $w GROUP BY category ORDER BY total DESC',
