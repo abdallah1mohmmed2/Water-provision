@@ -26,4 +26,4 @@ jobs:
           git add .
           git commit -m "استخراج ملفات مشروع السقاية آلياً عبر GitHub Actions"
           git push
-￼Enter
+
