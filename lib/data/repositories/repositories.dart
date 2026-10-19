@@ -15,11 +15,12 @@ class StationRepository {
     accounting = AccountingService(db);
   }
 
-  Future<List<Map<String, Object?>>> beneficiaries([String q = '']) => db.query(
+  // تم التصحيح: استخدام rawQuery بدلاً من query للاستعلامات المباشرة، وحذف args:
+  Future<List<Map<String, Object?>>> beneficiaries([String q = '']) => db.rawQuery(
     '''SELECT b.*,
     (${BalanceSql.beneficiary('b')}) balance
     FROM beneficiaries b WHERE b.status='active' AND (b.name LIKE ? OR COALESCE(b.phone,'') LIKE ? OR COALESCE(b.jerba_number,'') LIKE ? OR COALESCE(b.location,'') LIKE ?) ORDER BY b.name''',
-    args: ['%$q%', '%$q%', '%$q%', '%$q%'],
+    ['%$q%', '%$q%', '%$q%', '%$q%'],
   );
 
   Future<int> createBeneficiary({
@@ -38,7 +39,6 @@ class StationRepository {
   }) async {
     if (name.trim().isEmpty) throw ArgumentError('اسم المستفيد مطلوب');
     final now = AppClock.now().toIso8601String();
-    // الإدخال والقيود الافتتاحية في معاملة واحدة: لا يُحفظ رصيد بلا أثر في الأستاذ.
     final id = await db.transaction((tx) async {
       final newId = await tx.insert('beneficiaries', {
         'name': name.trim(),
@@ -99,8 +99,6 @@ class StationRepository {
     'carried_balance',
   };
 
-  /// تعديل بيانات المستفيد. الأعمدة المسموحة فقط؛ وأي تغيير في الرصيد الافتتاحي أو المرحَّل
-  /// يُقيَّد في الأستاذ بقيد فرق في نفس المعاملة (لا يُكتب الرقم مباشرةً دون قيد).
   Future<void> updateBeneficiary(
     int id,
     Map<String, Object?> values,
@@ -113,7 +111,7 @@ class StationRepository {
     if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
       throw ArgumentError('اسم المستفيد مطلوب');
     }
-    final rows = await db.query('SELECT * FROM beneficiaries WHERE id=?', args: [id]);
+    final rows = await db.rawQuery('SELECT * FROM beneficiaries WHERE id=?', [id]);
     if (rows.isEmpty) throw StateError('المستفيد غير موجود');
     final old = rows.first;
     final newValues = {...values, 'updated_at': AppClock.now().toIso8601String()};
@@ -146,11 +144,9 @@ class StationRepository {
     });
   }
 
-  /// الحذف المنطقي للمستفيد مرفوض ما دام رصيده غير صفر (عليه أو له) أو لديه جلسة قيد التشغيل؛
-  /// وإلا يخرج من «حالة الأرصدة» و«المديونيات» وتبقى سقاياه في «المستحق» و«المدفوع».
   Future<void> deleteBeneficiary(int id, int? userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الحذف المنطقي مطلوب');
-    final rows = await db.query('SELECT * FROM beneficiaries WHERE id=?', args: [id]);
+    final rows = await db.rawQuery('SELECT * FROM beneficiaries WHERE id=?', [id]);
     if (rows.isEmpty) throw StateError('المستفيد غير موجود');
     final old = rows.first;
     final bal = (await accounting.beneficiaryBalance(id))['balance'] ?? 0;
@@ -159,9 +155,9 @@ class StationRepository {
         'لا يمكن حذف مستفيد رصيده ${AccountingCalculations.balanceLabel(bal)}؛ سوِّ الرصيد أولًا ثم احذفه',
       );
     }
-    final running = await db.query(
+    final running = await db.rawQuery(
       "SELECT 1 FROM irrigation_sessions WHERE beneficiary_id=? AND status='running' LIMIT 1",
-      args: [id],
+      [id],
     );
     if (running.isNotEmpty) {
       throw StateError('لا يمكن حذف مستفيد لديه جلسة سقي قيد التشغيل');
@@ -174,7 +170,6 @@ class StationRepository {
         where: 'id=?',
         whereArgs: [id],
       );
-      // أدواره وحجوزاته المعلّقة لا معنى لها بعد حذفه.
       await tx.update(
         'queue_entries',
         {'status': 'cancelled', 'updated_at': now, 'skip_reason': 'حذف المستفيد'},
@@ -200,36 +195,34 @@ class StationRepository {
   }
 
   Future<Map<String, Object?>> beneficiaryDetails(int id) async {
-    final b = (await db.query(
+    final b = (await db.rawQuery(
       'SELECT * FROM beneficiaries WHERE id=?',
-      args: [id],
+      [id],
     )).first;
     return {...b, 'balance': await accounting.beneficiaryBalance(id)};
   }
 
-  /// كشف حساب المستفيد. الرصيد الجاري يطابق [AccountingService.beneficiaryBalance]:
-  /// الافتتاحي + السقايات + سلف الديزل − الدفعات − تسليم الديزل (إن كان ائتمانًا ماليًا).
   Future<List<Map<String, Object?>>> beneficiaryStatement(
     int id, {
     DateTime? from,
     DateTime? to,
   }) async {
-    final baseRows = await db.query(
+    final baseRows = await db.rawQuery(
       'SELECT opening_balance,carried_balance FROM beneficiaries WHERE id=?',
-      args: [id],
+      [id],
     );
     if (baseRows.isEmpty) return <Map<String, Object?>>[];
     var running = ((baseRows.first['opening_balance'] as num?)?.round() ?? 0) +
         ((baseRows.first['carried_balance'] as num?)?.round() ?? 0);
     final creditDelivery =
         (await settings())['diesel_delivery_financial_credit'] == 'true';
-    final events = await db.query(
+    final events = await db.rawQuery(
       "SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.cloud_minutes,i.chargeable_minutes,i.total_amount,i.paid_amount,'s' type,i.total_amount debit,0 credit,i.total_amount lah,0 alayh,'سقاية' description FROM irrigations i WHERE i.beneficiary_id=? AND i.status!='cancelled' "
       "UNION ALL SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,'p',0,p.amount,0,p.amount,'دفعة' FROM payments p WHERE p.beneficiary_id=? AND p.status='posted' "
       "UNION ALL SELECT d.id,d.date,d.date,d.date,'diesel_advance',0,0,0,0,0,'a',d.amount,0,d.amount,0,'سلفة ديزل' FROM diesel_movements d WHERE d.beneficiary_id=? AND d.kind='advance' AND d.irrigation_id IS NULL "
       "${creditDelivery ? "UNION ALL SELECT d.id,d.date,d.date,d.date,'diesel_delivery',0,0,0,0,0,'d',0,d.amount,0,d.amount,'تسليم ديزل' FROM diesel_movements d WHERE d.beneficiary_id=? AND d.kind='delivery' " : ''}"
       "ORDER BY date,id",
-      args: [id, id, id, if (creditDelivery) id],
+      [id, id, id, if (creditDelivery) id],
     );
     final result = <Map<String, Object?>>[];
     for (final raw in events) {
@@ -271,14 +264,15 @@ class StationRepository {
       w += ' AND i.system_type=?';
       args.add(systemType);
     }
-    return db.query(
+    return db.rawQuery(
       "SELECT substr(i.date,1,10) day,substr(i.date,1,7) month,substr(i.date,1,4) year,COALESCE(SUM(i.minutes),0) minutes,ROUND(COALESCE(SUM(i.minutes),0)/60.0,2) hours,COUNT(*) sessions,COALESCE(SUM(i.total_amount),0) total FROM irrigations i WHERE $w GROUP BY day,month,year ORDER BY day DESC",
-      args: args,
+      args,
     );
   }
 
+  // تم التصحيح: استبدال args بـ whereArgs في دالة query النظامية
   Future<List<Map<String, Object?>>> cloudPeriods(int irrigationId) async =>
-      db.query('cloud_periods', where: 'irrigation_id=?', args: [irrigationId], orderBy: 'start_datetime');
+      db.query('cloud_periods', where: 'irrigation_id=?', whereArgs: [irrigationId], orderBy: 'start_datetime');
 
   Future<List<Map<String, Object?>>> irrigations({
     DateTime? from,
@@ -306,17 +300,18 @@ class StationRepository {
       w += ' AND i.beneficiary_id=?';
       args.add(beneficiaryId);
     }
-    return db.query(
+    return db.rawQuery(
       'SELECT i.*,COALESCE(b.name,w.name,pt.name) beneficiary_name,p.name pump_name FROM irrigations i LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id LEFT JOIN workers w ON w.id=i.worker_id LEFT JOIN partners pt ON pt.id=i.partner_id JOIN pumps p ON p.id=i.pump_id WHERE $w ORDER BY i.start_datetime DESC',
-      args: args,
+      args,
     );
   }
 
-  Future<List<Map<String, Object?>>> queue() => db.query(
+  Future<List<Map<String, Object?>>> queue() => db.rawQuery(
     "SELECT q.*,b.name beneficiary_name,b.phone FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE q.status IN ('waiting','postponed') ORDER BY q.position,q.cycle_number,q.created_at",
   );
+
   Future<int> enqueue(int beneficiaryId, {int? position, int? userId}) async {
-    final rows = await db.query(
+    final rows = await db.rawQuery(
       "SELECT COALESCE(MAX(position),0)+1 n FROM queue_entries WHERE status IN ('waiting','postponed')",
     );
     final pos = position ?? ((rows.first['n'] as num?)?.toInt() ?? 1);
@@ -339,10 +334,6 @@ class StationRepository {
     return id;
   }
 
-  /// معالجة غياب/تأجيل مستفيد في الدور حسب إعداد «سياسة الغياب»:
-  /// - `postpone`: ينتقل لآخر الدور بحالة «مؤجل».
-  /// - `keep_order`: يحتفظ بمكانه في الدور (يُسجَّل التأجيل والسبب فقط).
-  /// - `cancel`: يُزال من الدور.
   Future<void> postponeQueue(int id, String reason, {int? userId}) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب التأجيل مطلوب');
     var policy = (await settings())['absence_policy'] ?? 'keep_order';
@@ -435,11 +426,10 @@ class StationRepository {
     );
   }
 
-  /// إنهاء دور يدويًا (خُدم خارج النظام): في الطابور الدائري يعود لآخر الدور.
   Future<void> completeQueue(int id, {int? userId}) async {
-    final old = (await db.query(
+    final old = (await db.rawQuery(
       'SELECT * FROM queue_entries WHERE id=?',
-      args: [id],
+      [id],
     )).first;
     final circular = ((await settings())['queue_type'] ?? 'circular') == 'circular';
     if (circular) {
@@ -472,10 +462,11 @@ class StationRepository {
     ),
   );
 
-  Future<List<Map<String, Object?>>> bookings([String? status]) => db.query(
+  Future<List<Map<String, Object?>>> bookings([String? status]) => db.rawQuery(
     "SELECT br.*,b.name beneficiary_name,b.phone FROM booking_requests br JOIN beneficiaries b ON b.id=br.beneficiary_id ${status == null ? '' : 'WHERE br.status=?'} ORDER BY br.created_at",
-    args: status == null ? [] : [status],
+    status == null ? [] : [status],
   );
+
   Future<int> createBooking(
     int beneficiaryId,
     String notes, {
@@ -506,13 +497,12 @@ class StationRepository {
     int? reviewer,
     String? reason,
   }) async {
-    final rows = await db.query(
+    final rows = await db.rawQuery(
       'SELECT * FROM booking_requests WHERE id=?',
-      args: [id],
+      [id],
     );
     if (rows.isEmpty) throw StateError('الحجز غير موجود');
     final old = rows.first;
-    // الحجز المكتمل أو الملغى ثابت؛ لا يُعاد فتحه من هنا.
     if (const {'completed', 'cancelled'}.contains('${old['status']}')) {
       throw StateError('لا يمكن تعديل حجز ${old['status'] == 'completed' ? 'مكتمل' : 'ملغى'}');
     }
@@ -560,9 +550,8 @@ class StationRepository {
     }
   }
 
-  /// تعديل ملاحظات الحجز (لا يغيّر حالته).
   Future<void> updateBookingNotes(int id, String notes, {int? userId}) async {
-    final rows = await db.query('SELECT * FROM booking_requests WHERE id=?', args: [id]);
+    final rows = await db.rawQuery('SELECT * FROM booking_requests WHERE id=?', [id]);
     if (rows.isEmpty) throw StateError('الحجز غير موجود');
     if (const {'completed', 'cancelled'}.contains('${rows.first['status']}')) {
       throw StateError('لا يمكن تعديل حجز مكتمل أو ملغى');
@@ -578,9 +567,10 @@ class StationRepository {
     );
   }
 
-  Future<List<Map<String, Object?>>> sessions() => db.query(
+  Future<List<Map<String, Object?>>> sessions() => db.rawQuery(
     'SELECT s.*,b.name beneficiary_name,p.name pump_name FROM irrigation_sessions s JOIN beneficiaries b ON b.id=s.beneficiary_id JOIN pumps p ON p.id=s.pump_id ORDER BY COALESCE(s.actual_start,s.planned_start) DESC',
   );
+
   Future<int> startSession({
     required int beneficiaryId,
     required int pumpId,
@@ -591,17 +581,17 @@ class StationRepository {
     final configuredPumpId = int.tryParse(set['selected_pump_id'] ?? '');
     if (configuredPumpId == null || configuredPumpId != pumpId)
       throw StateError('يجب استخدام المضخة المحددة في الإعدادات فقط');
-    final active = await db.query(
+    final active = await db.rawQuery(
       "SELECT id FROM irrigation_sessions WHERE pump_id=? AND status='running' LIMIT 1",
-      args: [pumpId],
+      [pumpId],
     );
     if (active.isNotEmpty) throw StateError('المضخة لديها جلسة سقي فعالة');
     if ((set['queue_type'] ?? 'circular') == 'booking') {
       if (bookingId == null)
         throw StateError('لا يمكن بدء جلسة عشوائية في وضع الحجز');
-      final booking = await db.query(
+      final booking = await db.rawQuery(
         "SELECT * FROM booking_requests WHERE id=? AND beneficiary_id=?",
-        args: [bookingId, beneficiaryId],
+        [bookingId, beneficiaryId],
       );
       if (booking.isEmpty ||
           ![
@@ -612,9 +602,9 @@ class StationRepository {
         throw StateError('الحجز غير مجدول أو لا يخص المستفيد المحدد');
     }
     if (queueId != null) {
-      final q = await db.query(
+      final q = await db.rawQuery(
         "SELECT * FROM queue_entries WHERE id=? AND beneficiary_id=? AND status IN ('waiting', 'postponed')",
-        args: [queueId, beneficiaryId],
+        [queueId, beneficiaryId],
       );
       if (q.isEmpty) throw StateError('دور الطابور غير صالح للمستفيد المحدد');
     }
@@ -639,20 +629,18 @@ class StationRepository {
     int? operatorWorkerId,
     int? userId,
   }) async {
-    final s = (await db.query(
+    final s = (await db.rawQuery(
       'SELECT * FROM irrigation_sessions WHERE id=?',
-      args: [sessionId],
+      [sessionId],
     )).first;
     if (s['status'] != 'running') throw StateError('الجلسة ليست قيد التشغيل');
     final end = AppClock.now();
     final pumpId = s['pump_id'] as int;
-    final p = (await db.query(
+    final p = (await db.rawQuery(
       'SELECT * FROM pumps WHERE id=?',
-      args: [pumpId],
+      [pumpId],
     )).first;
     final set = await settings();
-    // لا نغيّر حالة الجلسة هنا: recordIrrigation تُنهيها داخل نفس المعاملة.
-    // عند أي فشل (انتظار/تعارض/فترة مغلقة) تبقى الجلسة قيد التشغيل لإعادة المحاولة.
     final id = await accounting.recordIrrigation(
       stationId: p['station_id'] as int,
       pumpId: pumpId,
@@ -682,12 +670,11 @@ class StationRepository {
     int? userId,
   }) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب تأجيل الجلسة مطلوب');
-    final cur = await db.query(
+    final cur = await db.rawQuery(
       'SELECT status FROM irrigation_sessions WHERE id=?',
-      args: [sessionId],
+      [sessionId],
     );
     if (cur.isEmpty) throw StateError('الجلسة غير موجودة');
-    // لا يُؤجَّل إلا ما هو قيد التشغيل؛ الجلسة المكتملة أو المؤجلة سابقًا ثابتة.
     if (cur.first['status'] != 'running') {
       throw StateError('لا يمكن تأجيل جلسة حالتها ليست «قيد التشغيل»');
     }
@@ -710,7 +697,7 @@ class StationRepository {
     final set = await settings();
     final warning =
         double.tryParse(set['diesel_warning_percent'] ?? '20') ?? 20;
-    final r = await db.query(
+    final r = await db.rawQuery(
       "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
     );
     final stock = (r.first['stock'] as num?)?.toDouble() ?? 0;
@@ -727,14 +714,15 @@ class StationRepository {
   }
 
   Future<double> dieselStock() => accounting.dieselStock();
-  Future<List<Map<String, Object?>>> diesel() => db.query(
+  Future<List<Map<String, Object?>>> diesel() => db.rawQuery(
     'SELECT dm.*,b.name beneficiary_name FROM diesel_movements dm LEFT JOIN beneficiaries b ON b.id=dm.beneficiary_id ORDER BY dm.date DESC',
   );
-  Future<List<Map<String, Object?>>> payments() => db.query(
+  Future<List<Map<String, Object?>>> payments() => db.rawQuery(
     'SELECT p.*,COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,pm.name method_name,c.name cashbox_name FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN cashboxes c ON c.id=p.cashbox_id ORDER BY p.date DESC',
   );
   Future<List<Map<String, Object?>>> expenses() =>
-      db.query('SELECT * FROM expenses ORDER BY date DESC');
+      db.rawQuery('SELECT * FROM expenses ORDER BY date DESC');
+  
   Future<List<Map<String, Object?>>> expenseDetails({DateTime? from, DateTime? to, String? category, String? status}) async {
     final args=<Object?>[];var w='1=1';
     if(from!=null){w+=' AND e.date>=?';args.add(from.toIso8601String());}
@@ -743,11 +731,12 @@ class StationRepository {
     if(status!=null){w+=' AND e.status=?';args.add(status);}
     return db.rawQuery('SELECT e.*,pm.name method_name,c.name cashbox_name FROM expenses e LEFT JOIN payment_methods pm ON pm.id=e.payment_method_id LEFT JOIN cashboxes c ON c.id=e.cashbox_id WHERE $w ORDER BY e.date DESC,e.id DESC',args);
   }
-  Future<List<Map<String, Object?>>> workers() => db.query(
+  
+  Future<List<Map<String, Object?>>> workers() => db.rawQuery(
     "SELECT w.*, ${BalanceSql.workerPersonal('w')} balance FROM workers w WHERE w.active=1 ORDER BY w.name",
   );
-  /// ملخص البطاقة المالية والإحصائية من البيانات المسجلة فعلياً.
-  /// للمستفيد تُقرأ المديونية من صيغة BalanceSql، وللعامل/الشريك من الأستاذ المركزي.
+
+  // تم التصحيح: إزالة args:
   Future<Map<String, Object?>> partyFinancialSummary(String kind, int id) async {
     if (kind == 'beneficiary') {
       final rows = await db.rawQuery('''
@@ -761,7 +750,7 @@ class StationRepository {
             WHERE p.beneficiary_id=? AND p.status='posted'),0) paid,
           (${BalanceSql.beneficiary('b')}) balance
         FROM beneficiaries b WHERE b.id=?
-      ''', args: [id, id, id, id]);
+      ''', [id, id, id, id]);
       if (rows.isEmpty) {
         return {'irrigation_minutes': 0, 'irrigation_total': 0, 'earnings': 0, 'paid': 0, 'balance': 0};
       }
@@ -793,13 +782,15 @@ class StationRepository {
     if (rows.isEmpty) return {'irrigation_minutes': 0, 'irrigation_total': 0, 'earnings': 0, 'paid': 0, 'balance': 0};
     return rows.first;
   }
+
+  // تم التصحيح: استخدام rawQuery وحذف args:
   Future<List<Map<String, Object?>>> partyIrrigations(String kind, int id) async {
     final where = switch (kind) {
       'worker' => 'i.worker_id=?',
       'partner' => 'i.partner_id=?',
       _ => 'i.beneficiary_id=?',
     };
-    return db.query('''
+    return db.rawQuery('''
       SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.minutes,i.cloud_minutes,
              i.chargeable_minutes,i.total_amount,i.paid_amount,i.system_type,
              COALESCE(b.name,w.name,p.name) party_name,
@@ -809,10 +800,9 @@ class StationRepository {
       LEFT JOIN workers w ON w.id=i.worker_id
       LEFT JOIN partners p ON p.id=i.partner_id
       WHERE $where AND i.status!='cancelled'
-      ORDER BY i.start_datetime DESC''', args: [id]);
+      ORDER BY i.start_datetime DESC''', [id]);
   }
 
-  /// كشوف العمال والشركاء تُقرأ من حسابات الذمم في دفتر الأستاذ المركزي.
   Future<List<Map<String, Object?>>> workerTransactions(int id) => _ledgerPartyTransactions(accountCode: '2100.W$id', partyColumn: null, id: id, legacyAccountCode: '2100');
   Future<List<Map<String, Object?>>> partnerTransactions(int id) => _ledgerPartyTransactions(accountCode: '2200.P$id', partyColumn: null, id: id, legacyAccountCode: '2200', legacyPartyColumn: 'partner_id');
 
@@ -834,6 +824,7 @@ class StationRepository {
     }
     return out.reversed.toList();
   }
+
   Future<int> createWorker({
     required String name,
     required String payType,
@@ -847,7 +838,6 @@ class StationRepository {
   }) async {
     if (name.trim().isEmpty) throw ArgumentError('اسم العامل مطلوب');
     final stationId = await accounting.currentStationId();
-    // الإدخال والقيد الافتتاحي في معاملة واحدة: لا يُحفظ رصيد بلا أثر في الأستاذ.
     final id = await db.transaction((tx) async {
       final newId = await tx.insert('workers', {
         'station_id': stationId,
@@ -902,9 +892,9 @@ class StationRepository {
     await db.update('workers', values, 'id=?', [id]);
     await db.audit(userId:userId, operation:'update', table:'workers', recordId:id, oldValues:old, newValues:values);
   }
+
   Future<void> deleteWorker(int id, int? userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الحذف مطلوب');
-    // لا حذف لعامل له رصيد (له أو عليه): يخرج من لوحة التحكم وتبقى حركاته، فتتباعد الأرقام.
     final bal = (await accounting.workerBalance(id))['balance'] ?? 0;
     if (bal != 0) {
       throw StateError('لا يمكن حذف عامل رصيده ${AccountingCalculations.partyDueLabel(bal)}؛ سوِّ حسابه أولًا');
@@ -951,14 +941,14 @@ class StationRepository {
         notes: notes,
       );
     } else {
-      // أي نوع آخر كان يُدخل حركة في الكشف دون قيد محاسبي، فتتباعد الكشوف عن الأستاذ.
       throw ArgumentError('نوع حركة العامل غير مدعوم: $type');
     }
   }
 
-  Future<List<Map<String, Object?>>> partners() => db.query(
+  Future<List<Map<String, Object?>>> partners() => db.rawQuery(
     "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE p.active=1 ORDER BY p.name",
   );
+
   Future<int> createPartner({
     required String name,
     required String mode,
@@ -1021,6 +1011,7 @@ class StationRepository {
     await db.update('partners', values, 'id=?', [id]);
     await db.audit(userId:userId, operation:'update', table:'partners', recordId:id, oldValues:old, newValues:values);
   }
+
   Future<void> deletePartner(int id, int? userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الحذف مطلوب');
     final bal = (await accounting.partnerBalance(id))['balance'] ?? 0;
@@ -1031,13 +1022,13 @@ class StationRepository {
     await db.audit(userId:userId, operation:'logical_delete', table:'partners', recordId:id, reason:reason);
   }
 
-  Future<List<Map<String, Object?>>> paymentMethods() => db.query(
+  Future<List<Map<String, Object?>>> paymentMethods() => db.rawQuery(
     'SELECT pm.*,c.name cashbox_name FROM payment_methods pm LEFT JOIN cashboxes c ON c.id=pm.cashbox_id WHERE pm.active=1 ORDER BY pm.name',
   );
-  Future<List<Map<String, Object?>>> cashboxes() =>
-      db.query('SELECT * FROM cashboxes WHERE active=1 ORDER BY name');
 
-  /// إنشاء صندوق: الرصيد الافتتاحي يُقيَّد في الأستاذ (انظر AccountingService.createCashbox).
+  Future<List<Map<String, Object?>>> cashboxes() =>
+      db.rawQuery('SELECT * FROM cashboxes WHERE active=1 ORDER BY name');
+
   Future<int> createCashbox({
     required String name,
     int openingBalance = 0,
@@ -1052,11 +1043,9 @@ class StationRepository {
     userId: userId,
   );
 
-  /// تعديل اسم الصندوق فقط. الرصيد الافتتاحي والحساب لا يُعدَّلان بعد الإنشاء لأن أرصدة
-  /// وقيودًا قامت عليهما؛ التصحيح يكون بتحويل أو قيد تسوية.
   Future<void> updateCashbox(int id, {required String name, int? userId}) async {
     if (name.trim().isEmpty) throw ArgumentError('اسم الصندوق مطلوب');
-    final rows = await db.query('SELECT * FROM cashboxes WHERE id=?', args: [id]);
+    final rows = await db.rawQuery('SELECT * FROM cashboxes WHERE id=?', [id]);
     if (rows.isEmpty) throw StateError('الصندوق غير موجود');
     await db.update('cashboxes', {'name': name.trim()}, 'id=?', [id]);
     await db.audit(
@@ -1069,23 +1058,22 @@ class StationRepository {
     );
   }
 
-  /// حذف منطقي للصندوق: مرفوض إن كان رصيده غير صفر أو له طرق دفع مفعّلة، أو كان آخر صندوق مفعّل.
   Future<void> deleteCashbox(int id, int? userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الحذف مطلوب');
-    final rows = await db.query('SELECT * FROM cashboxes WHERE id=? AND active=1', args: [id]);
+    final rows = await db.rawQuery('SELECT * FROM cashboxes WHERE id=? AND active=1', [id]);
     if (rows.isEmpty) throw StateError('الصندوق غير موجود');
     final bal = (rows.first['current_balance'] as num?)?.round() ?? 0;
     if (bal != 0) {
       throw StateError('لا يمكن حذف صندوق رصيده $bal؛ حوِّل رصيده إلى صندوق آخر أولًا');
     }
-    final methods = await db.query(
+    final methods = await db.rawQuery(
       'SELECT name FROM payment_methods WHERE cashbox_id=? AND active=1',
-      args: [id],
+      [id],
     );
     if (methods.isNotEmpty) {
       throw StateError('الصندوق مرتبط بطرق دفع مفعّلة (${methods.map((m) => m['name']).join('، ')})؛ احذفها أو انقلها أولًا');
     }
-    final others = await db.query('SELECT COUNT(*) n FROM cashboxes WHERE active=1 AND id<>?', args: [id]);
+    final others = await db.rawQuery('SELECT COUNT(*) n FROM cashboxes WHERE active=1 AND id<>?', [id]);
     if (((others.first['n'] as num?)?.toInt() ?? 0) == 0) {
       throw StateError('لا يمكن حذف آخر صندوق مفعّل');
     }
@@ -1131,12 +1119,11 @@ class StationRepository {
     return id;
   }
 
-  /// حساب الأستاذ للطريقة يُورَّث من صندوقها (مصدر واحد)؛ وبلا صندوق يُشتق من نوعها.
   Future<String> _methodLedgerCode(String type, int? cashboxId) async {
     if (cashboxId != null) {
-      final c = await db.query(
+      final c = await db.rawQuery(
         'SELECT ledger_account_code FROM cashboxes WHERE id=? AND active=1',
-        args: [cashboxId],
+        [cashboxId],
       );
       if (c.isEmpty) throw ArgumentError('الصندوق المرتبط غير موجود أو غير مفعّل');
       final code = c.first['ledger_account_code'] as String?;
@@ -1159,7 +1146,7 @@ class StationRepository {
     int? userId,
   }) async {
     if (name.trim().isEmpty) throw ArgumentError('اسم طريقة الدفع مطلوب');
-    final rows = await db.query('SELECT * FROM payment_methods WHERE id=?', args: [id]);
+    final rows = await db.rawQuery('SELECT * FROM payment_methods WHERE id=?', [id]);
     if (rows.isEmpty) throw StateError('طريقة الدفع غير موجودة');
     final code = await _methodLedgerCode(type, cashboxId);
     final values = {
@@ -1181,12 +1168,11 @@ class StationRepository {
     );
   }
 
-  /// حذف منطقي لطريقة دفع (الدفعات القديمة تبقى مرتبطة بها). لا تُحذف آخر طريقة مفعّلة.
   Future<void> deletePaymentMethod(int id, int? userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الحذف مطلوب');
-    final rows = await db.query('SELECT * FROM payment_methods WHERE id=? AND active=1', args: [id]);
+    final rows = await db.rawQuery('SELECT * FROM payment_methods WHERE id=? AND active=1', [id]);
     if (rows.isEmpty) throw StateError('طريقة الدفع غير موجودة');
-    final others = await db.query('SELECT COUNT(*) n FROM payment_methods WHERE active=1 AND id<>?', args: [id]);
+    final others = await db.rawQuery('SELECT COUNT(*) n FROM payment_methods WHERE active=1 AND id<>?', [id]);
     if (((others.first['n'] as num?)?.toInt() ?? 0) == 0) {
       throw StateError('لا يمكن حذف آخر طريقة دفع مفعّلة');
     }
@@ -1201,9 +1187,10 @@ class StationRepository {
     );
   }
 
-  Future<List<Map<String, Object?>>> transfers() => db.query(
+  Future<List<Map<String, Object?>>> transfers() => db.rawQuery(
     'SELECT t.*,f.name from_cashbox,tb.name to_cashbox FROM cashbox_transfers t LEFT JOIN cashboxes f ON f.id=t.from_cashbox_id LEFT JOIN cashboxes tb ON tb.id=t.to_cashbox_id ORDER BY t.date DESC',
   );
+
   Future<List<Map<String, Object?>>> journal({
     DateTime? from,
     DateTime? to,
@@ -1216,7 +1203,6 @@ class StationRepository {
       args.add(from.toIso8601String());
     }
     if (to != null) {
-      // نهاية اليوم المحدد كاملًا (كان التاريخ بمنتصف الليل يستبعد قيود ذلك اليوم).
       w += ' AND je.date<?';
       args.add(DateTime(to.year, to.month, to.day).add(const Duration(days: 1)).toIso8601String());
     }
@@ -1229,8 +1215,7 @@ class StationRepository {
         args.add(accountCode);
       }
     }
-    // journal_id = رقم القيد (كانت الواجهة تقرؤه وهو غير موجود في النتيجة فتنهار عند الضغط).
-    return db.query(
+    return db.rawQuery(
       'SELECT je.*,je.id journal_id,jl.id line_id,a.code account_code,a.name account_name,a.type account_type,'
       'jl.debit,jl.credit,jl.beneficiary_id,jl.worker_id,jl.partner_id,jl.memo,'
       'COALESCE(b.name,w.name,p.name) party_name '
@@ -1241,7 +1226,7 @@ class StationRepository {
       'LEFT JOIN workers w ON w.id=jl.worker_id '
       'LEFT JOIN partners p ON p.id=jl.partner_id '
       'WHERE $w AND je.status=\'posted\' ORDER BY je.date,je.id,jl.id',
-      args: args,
+      args,
     );
   }
 
@@ -1251,8 +1236,6 @@ class StationRepository {
     DateTime? to,
   }) => journal(from: from, to: to, accountCode: accountCode);
 
-  /// كشف الأستاذ التفصيلي لكل نوع من الأطراف والحركات المالية.
-  /// المصدر الوحيد هنا هو القيود المرحّلة في دفتر اليومية المركزي.
   Future<List<Map<String, Object?>>> ledgerStatement({
     required String kind,
     int? id,
@@ -1272,10 +1255,10 @@ class StationRepository {
     String? movementJoin;
     String? cashAccountCode;
     if (kind == 'cashbox' && id != null) {
-      final box = await db.query('SELECT ledger_account_code FROM cashboxes WHERE id=? LIMIT 1', args: [id]);
+      final box = await db.rawQuery('SELECT ledger_account_code FROM cashboxes WHERE id=? LIMIT 1', [id]);
       cashAccountCode = box.isEmpty ? null : box.first['ledger_account_code'] as String?;
       if (cashAccountCode == null || cashAccountCode!.isEmpty) {
-        final method = await db.query('SELECT ledger_account_code,type FROM payment_methods WHERE cashbox_id=? AND active=1 ORDER BY id LIMIT 1', args: [id]);
+        final method = await db.rawQuery('SELECT ledger_account_code,type FROM payment_methods WHERE cashbox_id=? AND active=1 ORDER BY id LIMIT 1', [id]);
         cashAccountCode = method.isEmpty ? '1000' : (method.first['ledger_account_code'] as String?);
         if (cashAccountCode == null || cashAccountCode!.isEmpty) cashAccountCode = '1000';
       }
@@ -1352,12 +1335,9 @@ class StationRepository {
     }).toList().reversed.toList();
   }
 
-  /// كل حسابات الدليل المحاسبي (المصدر الوحيد لقائمة الأستاذ).
   Future<List<Map<String, Object?>>> accounts() =>
-      db.query('SELECT code,name,type FROM accounts ORDER BY code');
+      db.rawQuery('SELECT code,name,type FROM accounts ORDER BY code');
 
-  /// كشف حساب أستاذ: رصيد أول المدة + الحركات برصيد جارٍ + الإجماليات.
-  /// الرصيد = مدين − دائن (الموجب مدين، السالب دائن) لكل أنواع الحسابات.
   Future<Map<String, Object?>> ledgerStatement(
     String accountCode, {
     DateTime? from,
@@ -1366,11 +1346,11 @@ class StationRepository {
     final f = from == null ? null : DateTime(from.year, from.month, from.day);
     var opening = 0;
     if (f != null) {
-      final r = await db.query(
+      final r = await db.rawQuery(
         'SELECT COALESCE(SUM(jl.debit),0) d,COALESCE(SUM(jl.credit),0) c '
         'FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id '
         "JOIN accounts a ON a.id=jl.account_id WHERE ${(accountCode == '2100' || accountCode == '2200') ? '(a.code=? OR a.parent_id=(SELECT id FROM accounts WHERE code=?))' : 'a.code=?'} AND je.status='posted' AND je.date<?",
-        args: (accountCode == '2100' || accountCode == '2200')
+        (accountCode == '2100' || accountCode == '2200')
             ? [accountCode, accountCode, f.toIso8601String()]
             : [accountCode, f.toIso8601String()],
       );
@@ -1396,8 +1376,9 @@ class StationRepository {
       'rows': rows,
     };
   }
+
   Future<Map<String, String>> settings() => db
-      .query('SELECT key,value FROM settings')
+      .rawQuery('SELECT key,value FROM settings')
       .then(
         (r) => {for (final x in r) x['key'] as String: x['value'] as String},
       );
@@ -1407,9 +1388,9 @@ class StationRepository {
     final configuredPumpId = int.tryParse(set['selected_pump_id'] ?? '');
     final rows = configuredPumpId == null
         ? <Map<String, Object?>>[]
-        : await db.query(
+        : await db.rawQuery(
             'SELECT id,name,station_id,system_type,active FROM pumps WHERE id=? AND active=1 LIMIT 1',
-            args: [configuredPumpId],
+            [configuredPumpId],
           );
     if (rows.isEmpty) {
       throw StateError('المضخة المحددة في الإعدادات غير موجودة أو غير فعالة');
@@ -1419,7 +1400,6 @@ class StationRepository {
     const allowed = {'diesel', 'solar', 'equivalent_hybrid'};
     if (!allowed.contains(type)) throw StateError('نوع المنظومة في الإعدادات غير صالح');
     if (pump['system_type'] != type) {
-      // الإعداد المركزي هو المرجع؛ نصلح نسخة نوع المضخة القديمة بدل السماح بتناقض صامت.
       await db.update('pumps', {'system_type': type}, 'id=?', [pump['id']]);
       pump['system_type'] = type;
     }
@@ -1457,12 +1437,11 @@ class StationRepository {
     });
   }
 
-  /// اختيار المضخة المستخدمة: يحفظ الإعدادين ويطابق نوع المضخة بنوع المنظومة في معاملة واحدة.
   Future<void> selectPump(int pumpId) async {
     final set = await settings();
-    final pump = await db.query(
+    final pump = await db.rawQuery(
       'SELECT id,name FROM pumps WHERE id=? AND active=1',
-      args: [pumpId],
+      [pumpId],
     );
     if (pump.isEmpty) throw ArgumentError('المضخة غير موجودة أو غير مفعّلة');
     final now = AppClock.now().toIso8601String();
@@ -1499,15 +1478,16 @@ class StationRepository {
       'updated_at': AppClock.now().toIso8601String(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
+
   Future<Map<String, Object?>> dashboard() async {
-    final r = await db.query(
+    final r = await db.rawQuery(
       "SELECT (SELECT value FROM settings WHERE key='system_type' LIMIT 1) system_type,(SELECT COUNT(*) FROM beneficiaries WHERE status='active') beneficiaries,(SELECT COUNT(*) FROM queue_entries WHERE status IN ('waiting','postponed')) queue,(SELECT COUNT(*) FROM booking_requests WHERE status IN ('new','under_review')) bookings,(SELECT COUNT(*) FROM irrigation_sessions WHERE status='running') running_sessions,(SELECT COALESCE(SUM(amount),0) FROM expenses WHERE status='posted') expenses,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled') revenue,(SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='posted' AND beneficiary_id IS NOT NULL) paid,(SELECT COALESCE(SUM(bal),0) FROM (SELECT ${await _balanceSql()} bal FROM beneficiaries b WHERE b.status='active')) remaining,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled') due,(SELECT COUNT(*) FROM notifications WHERE read_at IS NULL) unread_notifications,(SELECT COALESCE(SUM(jl.credit-jl.debit),0) FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE (a.code='2100' OR a.parent_id=(SELECT id FROM accounts WHERE code='2100')) AND je.status='posted') worker_due,(SELECT COALESCE(SUM(jl.credit-jl.debit),0) FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE (a.code='2200' OR a.parent_id=(SELECT id FROM accounts WHERE code='2200')) AND je.status='posted') partner_due",
     );
     return r.first;
   }
 
   Future<Map<String, Object?>> currentSession() async {
-    final r = await db.query(
+    final r = await db.rawQuery(
       "SELECT s.*,b.name beneficiary_name,p.name pump_name FROM irrigation_sessions s JOIN beneficiaries b ON b.id=s.beneficiary_id JOIN pumps p ON p.id=s.pump_id WHERE s.status='running' ORDER BY s.actual_start LIMIT 1",
     );
     return r.isEmpty ? {} : r.first;
@@ -1515,10 +1495,11 @@ class StationRepository {
 
   Future<List<Map<String, Object?>>> notifications({
     int? beneficiaryId,
-  }) => db.query(
+  }) => db.rawQuery(
     'SELECT * FROM notifications ${beneficiaryId == null ? '' : 'WHERE beneficiary_id=?'} ORDER BY created_at DESC',
-    args: beneficiaryId == null ? [] : [beneficiaryId],
+    beneficiaryId == null ? [] : [beneficiaryId],
   );
+
   Future<void> notify({
     int? beneficiaryId,
     required String type,
@@ -1534,12 +1515,14 @@ class StationRepository {
     });
     AppAlerts.emit(title, body);
   }
+
   Future<void> markNotificationRead(int id) => db.update(
     'notifications',
     {'read_at': AppClock.now().toIso8601String()},
     'id=?',
     [id],
   );
+
   Future<void> snoozeNotification(int id, {int minutes = 10}) => db.update(
     'notifications',
     {
@@ -1550,7 +1533,8 @@ class StationRepository {
     'id=?',
     [id],
   );
-  Future<List<Map<String, Object?>>> needyBeneficiaries() => db.query(
+
+  Future<List<Map<String, Object?>>> needyBeneficiaries() => db.rawQuery(
     "SELECT * FROM beneficiaries WHERE is_needy=1 AND status='active' ORDER BY name",
   );
 
@@ -1567,13 +1551,13 @@ class StationRepository {
     return {
       'revenue': revenue,
       'expenses': expenses,
-      // مصروف العمال خلال الفترة، ويُعرض منفصلاً عن الرصيد المستحق الحالي.
       'workers': workers,
       'worker_due': await currentLiability('2100'),
       'partner_due': await currentLiability('2200'),
       'distributable': AccountingCalculations.distributableProfit(totalRevenue: revenue, generalExpenses: expenses, workerEntitlements: workers),
     };
   }
+
   Future<List<Map<String, Object?>>> report(
     String key, {
     DateTime? from,
@@ -1647,15 +1631,13 @@ class StationRepository {
         }
       case 'time_comparison':
         {
-          // المقارنة الزمنية تقارن الفترات الزمنية، ولا تختزلها في نوع المنظومة الحالي.
-          // إذا اختير نوع محدد يبقى كمرشح، أما "الكل" فتُظهر كل الأنواع.
           final q = "SELECT substr(i.date,1,7) month,i.system_type,SUM(i.minutes) minutes,SUM(i.chargeable_minutes) chargeable_minutes,COUNT(*) operations,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY month,i.system_type ORDER BY month,i.system_type";
-          return db.query(q, args: args);
+          return db.rawQuery(q, args);
         }
       case 'monthly_financial':
-        return db.query(
+        return db.rawQuery(
           "SELECT substr(date,1,7) month,COALESCE((SELECT SUM(total_amount) FROM irrigations x WHERE substr(x.date,1,7)=substr(i.date,1,7) AND x.status!='cancelled'),0) income,COALESCE((SELECT SUM(amount) FROM expenses e WHERE substr(e.date,1,7)=substr(i.date,1,7) AND e.status='posted'),0) expenses FROM irrigations i WHERE $iw GROUP BY substr(date,1,7) ORDER BY month",
-          args: args,
+          args,
         );
       case 'income':
         return _systemReportWithOverall(
@@ -1663,7 +1645,7 @@ class StationRepository {
           args,
         );
       case 'payment_methods':
-        return db.query(
+        return db.rawQuery(
           "SELECT pm.name method_name,pm.type,pm.account_number,pm.bank_name,COALESCE(SUM(p.amount),0) total FROM payment_methods pm LEFT JOIN payments p ON p.payment_method_id=pm.id AND p.status='posted' GROUP BY pm.id",
         );
       case 'expenses':
@@ -1691,19 +1673,20 @@ class StationRepository {
             a.add(category);
           }
           if (status != null) {
+            // تم التصحيح: استخدام replaceAll لتجنب خطأ لغة Dart
             w = w.replaceAll("status='posted'", "status=?");
           }
-          return db.query(
+          return db.rawQuery(
             'SELECT category,COUNT(*) count,SUM(amount) total FROM expenses WHERE $w GROUP BY category ORDER BY total DESC',
-            args: a,
+            a,
           );
         }
       case 'cashboxes':
-        return db.query(
+        return db.rawQuery(
           "SELECT c.name,SUM(CASE WHEN t.to_cashbox_id=c.id THEN t.amount ELSE 0 END) incoming,SUM(CASE WHEN t.from_cashbox_id=c.id THEN t.amount ELSE 0 END) outgoing,c.current_balance FROM cashboxes c LEFT JOIN cashbox_transfers t ON t.to_cashbox_id=c.id OR t.from_cashbox_id=c.id GROUP BY c.id",
         );
       case 'queue_bookings':
-        return db.query(
+        return db.rawQuery(
           "SELECT 'queue' source,b.name,q.status,q.created_at date FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id UNION ALL SELECT 'booking',b.name,br.status,br.created_at FROM booking_requests br JOIN beneficiaries b ON b.id=br.beneficiary_id ORDER BY date DESC",
         );
       case 'payment_log':
@@ -1726,9 +1709,9 @@ class StationRepository {
             w += ' AND p.payment_method_id=?';
             a.add(paymentMethodId);
           }
-          return db.query(
+          return db.rawQuery(
             'SELECT p.*,COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,pm.name method_name,c.name cashbox_name FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN cashboxes c ON c.id=p.cashbox_id WHERE $w ORDER BY p.date DESC',
-            args: a,
+            a,
           );
         }
       case 'beneficiary_statement':
@@ -1740,11 +1723,11 @@ class StationRepository {
             ? <Map<String, Object?>>[]
             : await beneficiaryStatement(beneficiaryId, from: from, to: to);
       case 'beneficiary_stats':
-        return db.query(
+        return db.rawQuery(
           "SELECT b.id,b.name,COUNT(i.id) irrigations,COALESCE(SUM(i.minutes),0) minutes,COALESCE(SUM(i.total_amount),0) total FROM beneficiaries b LEFT JOIN irrigations i ON i.beneficiary_id=b.id AND i.status!='cancelled' GROUP BY b.id ORDER BY total DESC",
         );
       case 'needy':
-        return db.query(
+        return db.rawQuery(
           "SELECT b.id,b.name,b.phone,${await _balanceSql()} balance FROM beneficiaries b WHERE b.is_needy=1 AND b.status='active' ORDER BY b.name",
         );
       case 'diesel_inventory':
@@ -1760,19 +1743,19 @@ class StationRepository {
           args,
         );
       case 'oil_status':
-        return db.query(
+        return db.rawQuery(
           "SELECT category,SUM(amount) total FROM expenses WHERE status='posted' AND category IN ('oil','grease') GROUP BY category",
         );
       case 'debts':
-        return db.query(
+        return db.rawQuery(
           "SELECT b.id,b.name,${await _balanceSql()} balance FROM beneficiaries b WHERE b.status='active' ORDER BY balance DESC",
         );
       case 'beneficiary_list':
         return beneficiaries();
       case 'revenue_comparison':
-        return db.query(
+        return db.rawQuery(
           "SELECT substr(date,1,7) month,system_type,SUM(total_amount) total FROM irrigations WHERE $iw GROUP BY month,system_type ORDER BY month",
-          args: args,
+          args,
         );
       case 'system_comparison':
         return _systemReportWithOverall(
@@ -1818,7 +1801,7 @@ class StationRepository {
     String sql,
     List<Object?> args,
   ) async {
-    final rows = await db.query(sql, args: args);
+    final rows = await db.rawQuery(sql, args);
     if (rows.isEmpty) return rows;
     int sumInt(String key) =>
         rows.fold<int>(0, (s, r) => s + ((r[key] as num?)?.round() ?? 0));
