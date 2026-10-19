@@ -1,0 +1,34 @@
+name: Build Flutter APK
+
+on:
+  workflow_dispatch: # يتيح لك تشغيل البناء يدوياً بضغطة زر
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: جلب الكود المصدري
+        uses: actions/checkout@v4
+
+      - name: إعداد بيئة Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: إعداد بيئة Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: جلب الحزم والمكتبات
+        run: flutter pub get
+
+      - name: بناء تطبيق الأندرويد (النسخة النهائية)
+        run: flutter build apk --release
+
+      - name: حفظ ملف الـ APK لتمكين تحميله
+        uses: actions/upload-artifact@v4
+        with:
+          name: Saqia-App-Release
+          path: build/app/outputs/flutter-apk/app-release.apk
