@@ -260,7 +260,7 @@ class StationRepository {
       w += ' AND i.beneficiary_id=?';
       args.add(beneficiaryId);
     }
-    if (systemType != null && systemType != 'all') {
+    if (systemType != 'all') {
       w += ' AND i.system_type=?';
       args.add(systemType);
     }
@@ -292,7 +292,7 @@ class StationRepository {
       w += ' AND i.start_datetime<=?';
       args.add(to.toIso8601String());
     }
-    if (systemType != null) {
+    {
       w += ' AND i.system_type=?';
       args.add(systemType);
     }
@@ -1236,7 +1236,7 @@ class StationRepository {
     DateTime? to,
   }) => journal(from: from, to: to, accountCode: accountCode);
 
-  Future<List<Map<String, Object?>>> ledgerStatement({
+  Future<List<Map<String, Object?>>> partyLedgerStatement({
     required String kind,
     int? id,
     DateTime? from,
@@ -1257,7 +1257,7 @@ class StationRepository {
     if (kind == 'cashbox' && id != null) {
       final box = await db.rawQuery('SELECT ledger_account_code FROM cashboxes WHERE id=? LIMIT 1', [id]);
       cashAccountCode = box.isEmpty ? null : box.first['ledger_account_code'] as String?;
-      if (cashAccountCode == null || cashAccountCode!.isEmpty) {
+      if (cashAccountCode == null || cashAccountCode.isEmpty) {
         final method = await db.rawQuery('SELECT ledger_account_code,type FROM payment_methods WHERE cashbox_id=? AND active=1 ORDER BY id LIMIT 1', [id]);
         cashAccountCode = method.isEmpty ? '1000' : (method.first['ledger_account_code'] as String?);
         if (cashAccountCode == null || cashAccountCode!.isEmpty) cashAccountCode = '1000';
@@ -1592,7 +1592,7 @@ class StationRepository {
       iw += ' AND i.beneficiary_id=?';
       args.add(beneficiaryId);
     }
-    if (!allSystems && systemType != null) {
+    if (!allSystems) {
       iw += ' AND i.system_type=?';
       args.add(systemType);
     }
@@ -1606,7 +1606,7 @@ class StationRepository {
           if (beneficiaryId != null) { w += ' AND i.beneficiary_id=?'; a.add(beneficiaryId); }
           if (workerId != null) { w += ' AND i.worker_id=?'; a.add(workerId); }
           if (partnerId != null) { w += ' AND i.partner_id=?'; a.add(partnerId); }
-          if (systemType != null && systemType != 'all') { w += ' AND i.system_type=?'; a.add(systemType); }
+          if (systemType != 'all') { w += ' AND i.system_type=?'; a.add(systemType); }
           return db.rawQuery(
             '''SELECT i.id irrigation_id,i.beneficiary_id,COALESCE(b.name,wk.name,pt.name,'غير محدد') party_name,
                       i.start_datetime,i.end_datetime,i.minutes,i.paid_amount,i.total_amount,
@@ -1733,8 +1733,8 @@ class StationRepository {
       case 'diesel_inventory':
         {
           var rows = await diesel();
-          if (from != null) rows = rows.where((x) => DateTime.tryParse('${x['date']}')?.isAfter(from!.subtract(const Duration(seconds: 1))) ?? true).toList();
-          if (to != null) rows = rows.where((x) => DateTime.tryParse('${x['date']}')?.isBefore(to!.add(const Duration(days: 1))) ?? true).toList();
+          if (from != null) rows = rows.where((x) => DateTime.tryParse('${x['date']}')?.isAfter(from.subtract(const Duration(seconds: 1))) ?? true).toList();
+          if (to != null) rows = rows.where((x) => DateTime.tryParse('${x['date']}')?.isBefore(to.add(const Duration(days: 1))) ?? true).toList();
           return rows;
         }
       case 'activity_overview':
