@@ -9540,6 +9540,7 @@ class _SettingsState extends State<SettingsPage> {
     );
   }
 }
+}
 
 class SettingGroup extends StatelessWidget {
   final String title;
