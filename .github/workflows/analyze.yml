@@ -14,16 +14,12 @@ jobs:
         with:
           channel: 'stable'
           
-      - name: Install dependencies
+      - name: Install App dependencies (تجهيز التطبيق)
         run: flutter pub get
         
-      - name: Analyze Flutter app
-        run: flutter analyze
-
-      - name: Install server dependencies
-        working-directory: server
+      - name: Install Server dependencies (تجهيز الخادم)
+        working-directory: ./server
         run: dart pub get
-
-      - name: Analyze server package
-        working-directory: server
-        run: dart analyze
+        
+      - name: Analyze ALL project source (الفحص الشامل لكل شيء)
+        run: flutter analyze .
