@@ -181,7 +181,7 @@ class _BeneficiaryHomeState extends State<BeneficiaryHome> {
                   Card(
                     child: ListTile(
                       title: Text(
-                        me['name']?.toString() ?? 'المستفيد' : 'المستفيد',
+                        me?['name']?.toString() ?? 'المستفيد',
                       ),
                       subtitle: Text(me?['phone']?.toString() ?? ''),
                     ),
