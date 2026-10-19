@@ -9540,7 +9540,6 @@ class _SettingsState extends State<SettingsPage> {
     );
   }
 }
-}
 
 class SettingGroup extends StatelessWidget {
   final String title;
@@ -9657,8 +9656,6 @@ class _PerformanceState extends State<PerformancePage> {
       ],
     ),
   );
-}
-
 }
 
 class BackupPage extends StatefulWidget {
