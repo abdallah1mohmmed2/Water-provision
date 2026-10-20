@@ -532,9 +532,12 @@ class _ShellState extends State<AdminShell> {
   Set<int> get visible {
     final s = <int>{0, 2, 4, 5, 15};
     if (systemType == 'diesel') s.add(6);
-    if (role == AppRole.manager || role == AppRole.accountant)
+    if (role == AppRole.manager || role == AppRole.accountant) {
       s.addAll({1, 3, 7, 8, 9, 10, 11, 12, 13, 14});
-    if (role == AppRole.manager) s.addAll({16, 17, 18});
+    }
+    if (role == AppRole.manager) {
+      s.addAll({16, 17, 18});
+    }
     return s;
   }
 
@@ -567,11 +570,12 @@ class _ShellState extends State<AdminShell> {
     try {
       final x = await repo.dashboard();
       final cfg = await SystemConfig.load(repo);
-      if (mounted)
+      if (mounted) {
         setState(() {
           counts = x;
           systemType = cfg.type;
         });
+      }
     } catch (_) {}
   }
 
