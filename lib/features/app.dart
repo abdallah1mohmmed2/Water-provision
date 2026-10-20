@@ -352,6 +352,7 @@ class _LoginState extends State<AdminLoginPage> {
     setState(() => loading = true);
     try {
       final user = await AdminService().authenticate(u.text.trim(), p.text);
+      if (!mounted) return;
       if (user == null) {
         setState(() => error = 'اسم المستخدم أو كلمة المرور غير صحيحة');
         return;
