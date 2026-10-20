@@ -1,0 +1,14 @@
+workflows:
+  android-workflow:
+    name: Android Build & Analyze
+    environment:
+      flutter: stable
+    scripts:
+      - name: Install dependencies
+        script: flutter pub get
+      - name: Analyze code
+        script: flutter analyze
+      - name: Build APK
+        script: flutter build apk --release
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
