@@ -287,17 +287,14 @@ class ReportService {
         children: [
           pw.Text('ملخص التقرير', style: pw.TextStyle(font: bold, fontSize: 11)),
           pw.SizedBox(height: 6),
-          // Wrap has a finite intrinsic height. GridView is scrollable and can
-          // claim the remaining page height in the PDF layout, pushing the
-          // report table below the printable area.
-          pw.Wrap(
-            spacing: 5,
-            runSpacing: 5,
+          pw.GridView(
+            crossAxisCount: 3,
+            childAspectRatio: 3.4,
+            crossAxisSpacing: 5,
+            mainAxisSpacing: 5,
             children: [
               for (final card in cards)
                 pw.Container(
-                  width: 155,
-                  height: 46,
                   padding: const pw.EdgeInsets.symmetric(horizontal: 7, vertical: 6),
                   decoration: pw.BoxDecoration(
                     color: PdfColors.white,
