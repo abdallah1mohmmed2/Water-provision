@@ -68,6 +68,8 @@ class ReportService {
     'system_comparison': ['system_type','operations','minutes','total','diesel_cost'],
     'journal': ['date','description','account_code','account_name','debit','credit'],
     'ledger': ['date','description','account_code','account_name','debit','credit'],
+    'worker_transactions': ['date','description','lah','alayh','balance'],
+    'partner_accounts': ['date','description','lah','alayh','balance'],
   };
 
   Future<Uint8List> pdf(
