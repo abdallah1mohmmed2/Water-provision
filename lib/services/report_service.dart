@@ -473,6 +473,7 @@ class ReportService {
         'assets/fonts/NotoNaskhArabic-Bold.ttf',
       )).buffer.asByteData(),
     );
+    final receiptSettings = await repo.settings();
     final doc = pw.Document();
     doc.addPage(
       pw.Page(
@@ -486,7 +487,7 @@ class ReportService {
             children: [
               _reportHeader(
                 title: 'إيصال قبض',
-                station: (await repo.settings())['station_name'] ?? 'محطة ساقية',
+                station: receiptSettings['station_name'] ?? 'محطة ساقية',
                 reportNumber: '#${x['id']}',
                 recordCount: 1,
                 date: AppClock.now(),
