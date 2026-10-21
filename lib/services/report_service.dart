@@ -156,7 +156,7 @@ class ReportService {
       if (chunk.isEmpty) data.add(['لا توجد بيانات']);
       doc.addPage(
         pw.Page(
-          pageFormat: PdfPageFormat.a4.landscape,
+          pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.fromLTRB(24, 22, 24, 20),
           theme: pw.ThemeData.withFont(base: font, bold: bold),
           build: (ctx) => pw.Directionality(
@@ -164,28 +164,33 @@ class ReportService {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.stretch,
               children: [
+                _reportHeader(
+                  title: titles[key] ?? key,
+                  station: station,
+                  reportNumber: '#${(pi + 1).toString().padLeft(4, '0')}',
+                  recordCount: rows.length,
+                  date: AppClock.now(),
+                  font: font,
+                  bold: bold,
+                ),
+                pw.SizedBox(height: 0),
                 pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                  decoration: pw.BoxDecoration(
-                    color: PdfColor.fromHex('#10243E'),
-                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(16)),
-                  ),
+                  height: 7,
                   child: pw.Row(children: [
-                    pw.Container(width: 38, height: 38, decoration: pw.BoxDecoration(color: PdfColor.fromHex('#22C7D6'), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(11))), child: pw.Center(child: pw.Text('س', style: pw.TextStyle(font: bold, fontSize: 20, color: PdfColors.white)))),
-                    pw.SizedBox(width: 12),
-                    pw.Expanded(child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                      pw.Text(titles[key] ?? key, style: pw.TextStyle(font: bold, fontSize: 16, color: PdfColors.white)),
-                      pw.SizedBox(height: 3),
-                      pw.Text(station, style: pw.TextStyle(font: font, fontSize: 8, color: PdfColor.fromHex('#D9E7F5'))),
-                    ])),
-                    pw.Container(padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 7), decoration: pw.BoxDecoration(color: PdfColor.fromHex('#183B5F'), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10))), child: pw.Text('عدد السجلات: ${rows.length}', style: pw.TextStyle(font: bold, fontSize: 8, color: PdfColors.white))),
+                    pw.Expanded(child: pw.Container(color: PdfColor.fromHex('#174A70'))),
+                    pw.Expanded(child: pw.Container(color: PdfColor.fromHex('#087A68'))),
+                    pw.Expanded(child: pw.Container(color: PdfColor.fromHex('#48A23F'))),
                   ]),
                 ),
                 pw.SizedBox(height: 9),
                 pw.Container(
                   padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: pw.BoxDecoration(color: PdfColor.fromHex('#EEF4FA'), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10))),
-                  child: pw.Text(filterText, style: pw.TextStyle(font: font, fontSize: 8, color: PdfColor.fromHex('#34495E'))),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColor.fromHex('#EEF0F2'),
+                    border: pw.Border.all(color: PdfColor.fromHex('#B9C2CA'), width: .7),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(9)),
+                  ),
+                  child: pw.Text(filterText, style: pw.TextStyle(font: font, fontSize: 8, color: PdfColor.fromHex('#182532'))),
                 ),
                 pw.SizedBox(height: 9),
                 pw.Expanded(
@@ -212,10 +217,12 @@ class ReportService {
                     child: pw.Text(_reportNetSummary(rows.last), style: pw.TextStyle(font: bold, fontSize: 9, color: PdfColor.fromHex('#10243E'))),
                   ),
                 pw.SizedBox(height: 7),
-                pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-                  pw.Text('صفحة ${pi + 1} / ${pages.length}', style: pw.TextStyle(font: font, fontSize: 7, color: PdfColor.fromHex('#667788'))),
-                  pw.Text('تقرير مولّد من نظام إدارة المحطة', style: pw.TextStyle(font: font, fontSize: 7, color: PdfColor.fromHex('#667788'))),
-                ]),
+                _reportFooter(
+                  page: pi + 1,
+                  totalPages: pages.length,
+                  font: font,
+                  bold: bold,
+                ),
               ],
             ),
           ),
@@ -231,6 +238,117 @@ class ReportService {
       'duration_ms': AppClock.now().difference(started).inMilliseconds,
     });
     return doc.save();
+  }
+
+  // قالب موحّد قابل لإعادة الاستخدام لرؤوس جميع تقارير PDF.
+  pw.Widget _reportHeader({
+    required String title,
+    required String station,
+    required String reportNumber,
+    required int recordCount,
+    required DateTime date,
+    required pw.Font font,
+    required pw.Font bold,
+  }) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.white,
+        border: pw.Border.all(color: PdfColor.fromHex('#D0D5D9'), width: .6),
+      ),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text('تاريخ التقرير: ${DateFormat('yyyy-MM-dd').format(date)}',
+                    style: pw.TextStyle(font: font, fontSize: 8)),
+                pw.SizedBox(height: 4),
+                pw.Text('رقم التقرير: $reportNumber',
+                    style: pw.TextStyle(font: font, fontSize: 8)),
+                pw.SizedBox(height: 4),
+                pw.Text('عدد السجلات: $recordCount',
+                    style: pw.TextStyle(font: font, fontSize: 8)),
+              ],
+            ),
+          ),
+          pw.SizedBox(width: 8),
+          pw.Expanded(
+            flex: 2,
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
+              children: [
+                pw.Text('إدارة المحطة - نظام السقايات الرقمي',
+                    textAlign: pw.TextAlign.center,
+                    style: pw.TextStyle(font: bold, fontSize: 9)),
+                pw.SizedBox(height: 7),
+                pw.Text(title,
+                    textAlign: pw.TextAlign.center,
+                    style: pw.TextStyle(font: bold, fontSize: 16, color: PdfColor.fromHex('#111827'))),
+                pw.SizedBox(height: 4),
+                pw.Text(station,
+                    textAlign: pw.TextAlign.center,
+                    style: pw.TextStyle(font: bold, fontSize: 10)),
+              ],
+            ),
+          ),
+          pw.SizedBox(width: 8),
+          pw.Container(
+            width: 38,
+            height: 42,
+            alignment: pw.Alignment.center,
+            decoration: pw.BoxDecoration(
+              color: PdfColor.fromHex('#EAF3F2'),
+              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+            ),
+            child: pw.Text('س', style: pw.TextStyle(font: bold, fontSize: 24, color: PdfColor.fromHex('#087A68'))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // تذييل موحّد مع مساحة توقيع وختم وترقيم الصفحات.
+  pw.Widget _reportFooter({
+    required int page,
+    required int totalPages,
+    required pw.Font font,
+    required pw.Font bold,
+  }) {
+    return pw.Column(
+      children: [
+        pw.Container(height: .8, color: PdfColor.fromHex('#687780')),
+        pw.SizedBox(height: 5),
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.end,
+          children: [
+            pw.Container(
+              width: 105,
+              height: 35,
+              alignment: pw.Alignment.bottomCenter,
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColor.fromHex('#C9CED3'), width: .7),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
+              ),
+              child: pw.Text('التوقيع والختم', style: pw.TextStyle(font: font, fontSize: 7)),
+            ),
+            pw.Spacer(),
+            pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.end,
+              children: [
+                pw.Text('التطوير مولّد من النظام - إدارة المحطة',
+                    style: pw.TextStyle(font: bold, fontSize: 7)),
+                pw.SizedBox(height: 3),
+                pw.Text('صفحة $page من $totalPages',
+                    style: pw.TextStyle(font: font, fontSize: 7, color: PdfColor.fromHex('#667788'))),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   String _reportNetSummary(Map<String, Object?> row) {
