@@ -120,7 +120,7 @@ class ReportService {
     // Keep each portrait page close to the reference layout: compact table,
     // summary cards and closing section remain visible without vertical overflow.
     final configuredRows = int.tryParse(set['pdf_rows'] ?? '8') ?? 8;
-    final pageRows = configuredRows < 1 ? 8 : configuredRows.clamp(1, 10);
+    final pageRows = configuredRows < 1 ? 8 : configuredRows.clamp(1, 10).toInt();
     final pages = <List<Map<String, Object?>>>[];
     for (var i = 0; i < rows.length; i += pageRows)
       pages.add(
