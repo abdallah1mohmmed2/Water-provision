@@ -478,25 +478,66 @@ class ReportService {
       pw.Page(
         pageFormat: PdfPageFormat.a5,
         theme: pw.ThemeData.withFont(base: font, bold: bold),
+        margin: const pw.EdgeInsets.all(18),
         build: (c) => pw.Directionality(
           textDirection: pw.TextDirection.rtl,
-          child: pw.Center(
-            child: pw.Column(
-              mainAxisSize: pw.MainAxisSize.min,
-              children: [
-                pw.Text(
-                  'إيصال قبض',
-                  style: pw.TextStyle(font: bold, fontSize: 20),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              _reportHeader(
+                title: 'إيصال قبض',
+                station: (await repo.settings())['station_name'] ?? 'محطة ساقية',
+                reportNumber: '#${x['id']}',
+                recordCount: 1,
+                date: AppClock.now(),
+                font: font,
+                bold: bold,
+              ),
+              pw.SizedBox(height: 5),
+              pw.Container(
+                height: 5,
+                child: pw.Row(children: [
+                  pw.Expanded(child: pw.Container(color: PdfColor.fromHex('#174A70'))),
+                  pw.Expanded(child: pw.Container(color: PdfColor.fromHex('#087A68'))),
+                  pw.Expanded(child: pw.Container(color: PdfColor.fromHex('#48A23F'))),
+                ]),
+              ),
+              pw.SizedBox(height: 16),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(14),
+                decoration: pw.BoxDecoration(
+                  color: PdfColor.fromHex('#EEF0F2'),
+                  border: pw.Border.all(color: PdfColor.fromHex('#B9C2CA')),
+                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(9)),
                 ),
-                pw.SizedBox(height: 12),
-                pw.Text('الطرف: ${x['party_name'] ?? '-'}'),
-                pw.Text('المبلغ: ${x['amount']} ريال'),
-                pw.Text('طريقة الدفع: ${x['method_name']}'),
-                pw.Text('الصندوق: ${x['cashbox_name']}'),
-                pw.Text('التاريخ: ${x['date']}'),
-                pw.Text('المرجع: ${x['reference_number'] ?? '-'}'),
-              ],
-            ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                  children: [
+                    for (final item in <List<String>>[
+                      ['الطرف', '${x['party_name'] ?? '-'}'],
+                      ['المبلغ', '${x['amount']} ريال'],
+                      ['طريقة الدفع', '${x['method_name']}'],
+                      ['الصندوق', '${x['cashbox_name']}'],
+                      ['التاريخ', '${x['date']}'],
+                      ['المرجع', '${x['reference_number'] ?? '-'}'],
+                    ]) ...[
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.symmetric(vertical: 7),
+                        child: pw.Row(
+                          children: [
+                            pw.Expanded(child: pw.Text(item[0], style: pw.TextStyle(font: bold, fontSize: 10))),
+                            pw.Expanded(flex: 2, child: pw.Text(item[1], style: pw.TextStyle(font: font, fontSize: 10))),
+                          ],
+                        ),
+                      ),
+                      pw.Divider(color: PdfColor.fromHex('#D6DCE1')),
+                    ],
+                  ],
+                ),
+              ),
+              pw.Spacer(),
+              _reportFooter(page: 1, totalPages: 1, font: font, bold: bold),
+            ],
           ),
         ),
       ),
