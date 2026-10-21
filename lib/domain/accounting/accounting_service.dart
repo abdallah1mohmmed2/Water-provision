@@ -703,13 +703,21 @@ class AccountingService {
         userId: userId,
         date: start,
       );
-      // أجر العامل يُخصم أولاً من قيمة السقاية، ثم يُوزّع المتبقي على الشركاء.
-      // مثال: 5,000 إيراد - 700 أجر العامل = 4,300 قابلة للتوزيع.
-      var workerEntitlement = 0;
-      if (operatorWorkerId != null) {
-        workerEntitlement = await _accrueWorkerIrrigationTx(
+      // احتساب أجر كل عامل نشط أجره بالساعة أو بالنسبة تلقائيًا،
+      // دون الاعتماد على اختيار عامل في شاشة السقاية أو على نوع صاحب السقاية.
+      // كل استحقاق يُسجل مرة واحدة في كشف العامل والأستاذ.
+      var totalWorkerEntitlement = 0;
+      final wageWorkers = await tx.query(
+        'workers',
+        columns: ['id'],
+        where: "active=1 AND pay_type IN ('hourly', 'percentage')",
+        orderBy: 'id',
+      );
+      for (final wageWorker in wageWorkers) {
+        final wageWorkerId = (wageWorker['id'] as num).toInt();
+        totalWorkerEntitlement += await _accrueWorkerIrrigationTx(
           tx,
-          workerId: operatorWorkerId,
+          workerId: wageWorkerId,
           irrigationId: id,
           amount: totalCharged,
           hours: calc.chargeableMinutes / 60.0,
@@ -717,7 +725,12 @@ class AccountingService {
           userId: userId,
         );
       }
-      final partnerPool = totalCharged - workerEntitlement;
+
+      // في سقاية الشريك لا نخصم أجر العمال مباشرة من قيمة السقاية
+      // عند حساب المبلغ القابل للتوزيع؛ أما في بقية الأنواع فيُخصم مجموع الأجور.
+      final partnerPool = partyType == 'partner'
+          ? totalCharged
+          : (totalCharged - totalWorkerEntitlement).clamp(0, totalCharged);
       if (partnerPool > 0) {
         await _accruePartnersFromIrrigationTx(
           tx,
