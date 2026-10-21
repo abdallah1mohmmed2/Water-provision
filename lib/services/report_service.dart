@@ -117,8 +117,10 @@ class ReportService {
         'assets/fonts/NotoNaskhArabic-Bold.ttf',
       )).buffer.asByteData(),
     );
-    final configuredRows = int.tryParse(set['pdf_rows'] ?? '30') ?? 30;
-    final pageRows = configuredRows < 1 ? 30 : configuredRows;
+    // Keep each portrait page close to the reference layout: compact table,
+    // summary cards and closing section remain visible without vertical overflow.
+    final configuredRows = int.tryParse(set['pdf_rows'] ?? '8') ?? 8;
+    final pageRows = configuredRows < 1 ? 8 : configuredRows.clamp(1, 10);
     final pages = <List<Map<String, Object?>>>[];
     for (var i = 0; i < rows.length; i += pageRows)
       pages.add(
@@ -191,25 +193,23 @@ class ReportService {
                   bold: bold,
                 ),
                 pw.SizedBox(height: 9),
-                pw.Expanded(
-                  child: pw.Container(
-                    decoration: pw.BoxDecoration(
-                      color: PdfColors.white,
-                      border: pw.Border.all(color: PdfColor.fromHex('#B9C2CA'), width: .7),
-                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(9)),
-                    ),
-                    padding: const pw.EdgeInsets.all(5),
-                    child: pw.Table.fromTextArray(
-                      headers: headers.isEmpty ? ['البيان'] : headers,
-                      data: data.isEmpty ? [['لا توجد بيانات']] : data,
-                      headerDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#123C5A')),
-                      headerStyle: pw.TextStyle(font: bold, fontSize: 8, color: PdfColors.white),
-                      cellStyle: pw.TextStyle(font: font, fontSize: 7, color: PdfColor.fromHex('#182532')),
-                      oddRowDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#F0F1F2')),
-                      cellAlignment: pw.Alignment.center,
-                      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 6),
-                      border: pw.TableBorder.symmetric(inside: pw.BorderSide(color: PdfColor.fromHex('#D2D5D8'), width: .45)),
-                    ),
+                pw.Container(
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.white,
+                    border: pw.Border.all(color: PdfColor.fromHex('#B9C2CA'), width: .7),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(9)),
+                  ),
+                  padding: const pw.EdgeInsets.all(5),
+                  child: pw.Table.fromTextArray(
+                    headers: headers.isEmpty ? ['البيان'] : headers,
+                    data: data.isEmpty ? [['لا توجد بيانات']] : data,
+                    headerDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#123C5A')),
+                    headerStyle: pw.TextStyle(font: bold, fontSize: 8, color: PdfColors.white),
+                    cellStyle: pw.TextStyle(font: font, fontSize: 7, color: PdfColor.fromHex('#182532')),
+                    oddRowDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#F0F1F2')),
+                    cellAlignment: pw.Alignment.center,
+                    cellPadding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+                    border: pw.TableBorder.symmetric(inside: pw.BorderSide(color: PdfColor.fromHex('#D2D5D8'), width: .45)),
                   ),
                 ),
                 if (pi == pages.length - 1)
@@ -219,6 +219,7 @@ class ReportService {
                     font: font,
                     bold: bold,
                   ),
+                pw.Spacer(),
                 pw.SizedBox(height: 7),
                 _reportFooter(
                   page: pi + 1,
@@ -420,14 +421,21 @@ class ReportService {
           ),
           pw.SizedBox(width: 8),
           pw.Container(
-            width: 38,
-            height: 42,
+            width: 48,
+            height: 48,
             alignment: pw.Alignment.center,
             decoration: pw.BoxDecoration(
-              color: PdfColor.fromHex('#EAF3F2'),
+              color: PdfColor.fromHex('#F4FAF8'),
               borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
             ),
-            child: pw.Text('س', style: pw.TextStyle(font: bold, fontSize: 24, color: PdfColor.fromHex('#087A68'))),
+            child: pw.SvgImage(
+              svg: '''<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+                <path d="M24 3 C19 12 9 20 9 29 A15 15 0 0 0 39 29 C39 20 29 12 24 3Z" fill="#1598C7"/>
+                <path d="M23 39 C22 29 26 21 34 16" fill="none" stroke="#238B53" stroke-width="2.6" stroke-linecap="round"/>
+                <path d="M25 29 C15 29 14 23 14 21 C21 21 25 24 25 29Z" fill="#55A64A"/>
+                <path d="M29 23 C29 15 35 12 38 12 C38 20 34 23 29 23Z" fill="#368C45"/>
+              </svg>''',
+            ),
           ),
         ],
       ),
