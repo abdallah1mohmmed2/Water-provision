@@ -84,6 +84,7 @@ class ReportService {
     int? paymentMethodId,
     String? category,
     String? status,
+    List<Map<String, Object?>>? sourceRows,
   }) async {
     final started = AppClock.now();
     if (!titles.containsKey(key) || !reportColumns.containsKey(key)) {
@@ -94,7 +95,7 @@ class ReportService {
       throw StateError('تقرير الديزل غير متاح لأن المنظومة الحالية ليست ديزل');
     }
     systemType ??= currentType;
-    final rows = await repo.report(
+    final rows = sourceRows ?? await repo.report(
       key,
       from: from,
       to: to,
@@ -695,6 +696,7 @@ class ReportService {
     int? paymentMethodId,
     String? category,
     String? status,
+    List<Map<String, Object?>>? sourceRows,
   }) async => Printing.layoutPdf(
     onLayout: (_) => pdf(
       key,
@@ -708,6 +710,7 @@ class ReportService {
       paymentMethodId: paymentMethodId,
       category: category,
       status: status,
+      sourceRows: sourceRows,
     ),
   );
 }
