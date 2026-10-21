@@ -183,38 +183,41 @@ class ReportService {
                   ]),
                 ),
                 pw.SizedBox(height: 9),
-                pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: pw.BoxDecoration(
-                    color: PdfColor.fromHex('#EEF0F2'),
-                    border: pw.Border.all(color: PdfColor.fromHex('#B9C2CA'), width: .7),
-                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(9)),
-                  ),
-                  child: pw.Text(filterText, style: pw.TextStyle(font: font, fontSize: 8, color: PdfColor.fromHex('#182532'))),
+                _reportSummary(
+                  key: key,
+                  rows: rows,
+                  filterText: filterText,
+                  font: font,
+                  bold: bold,
                 ),
                 pw.SizedBox(height: 9),
                 pw.Expanded(
                   child: pw.Container(
-                    decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColor.fromHex('#D6E1EC'), width: .6), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(12))),
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.white,
+                      border: pw.Border.all(color: PdfColor.fromHex('#B9C2CA'), width: .7),
+                      borderRadius: const pw.BorderRadius.all(pw.Radius.circular(9)),
+                    ),
                     padding: const pw.EdgeInsets.all(5),
                     child: pw.Table.fromTextArray(
-                      headers: headers,
-                      data: data,
-                      headerDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#1C5D8F')),
-                      headerStyle: pw.TextStyle(font: bold, fontSize: 7, color: PdfColors.white),
-                      cellStyle: pw.TextStyle(font: font, fontSize: 6.5, color: PdfColor.fromHex('#182532')),
-                      oddRowDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#F7FAFD')),
+                      headers: headers.isEmpty ? ['البيان'] : headers,
+                      data: data.isEmpty ? [['لا توجد بيانات']] : data,
+                      headerDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#123C5A')),
+                      headerStyle: pw.TextStyle(font: bold, fontSize: 8, color: PdfColors.white),
+                      cellStyle: pw.TextStyle(font: font, fontSize: 7, color: PdfColor.fromHex('#182532')),
+                      oddRowDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#F0F1F2')),
                       cellAlignment: pw.Alignment.center,
-                      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 5),
-                      border: pw.TableBorder.symmetric(inside: pw.BorderSide(color: PdfColor.fromHex('#DCE6EF'), width: .35)),
+                      cellPadding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+                      border: pw.TableBorder.symmetric(inside: pw.BorderSide(color: PdfColor.fromHex('#D2D5D8'), width: .45)),
                     ),
                   ),
                 ),
-                if (pi == pages.length - 1 && rows.isNotEmpty)
-                  pw.Container(
-                    alignment: pw.Alignment.centerRight,
-                    padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                    child: pw.Text(_reportNetSummary(rows.last), style: pw.TextStyle(font: bold, fontSize: 9, color: PdfColor.fromHex('#10243E'))),
+                if (pi == pages.length - 1)
+                  _reportClosing(
+                    key: key,
+                    rows: rows,
+                    font: font,
+                    bold: bold,
                   ),
                 pw.SizedBox(height: 7),
                 _reportFooter(
@@ -238,6 +241,127 @@ class ReportService {
       'duration_ms': AppClock.now().difference(started).inMilliseconds,
     });
     return doc.save();
+  }
+
+  // ملخص بصري على هيئة بطاقات، مع حقول تتغير حسب نوع التقرير.
+  pw.Widget _reportSummary({
+    required String key,
+    required List<Map<String, Object?>> rows,
+    required String filterText,
+    required pw.Font font,
+    required pw.Font bold,
+  }) {
+    num sumOf(String field) => rows.fold<num>(0, (sum, row) {
+      final value = row[field];
+      if (value is num) return sum + value;
+      return sum + (num.tryParse('$value') ?? 0);
+    });
+    final count = rows.length;
+    final total = sumOf('total_amount') != 0
+        ? sumOf('total_amount')
+        : sumOf('total') != 0
+            ? sumOf('total')
+            : sumOf('amount');
+    final minutes = sumOf('minutes');
+    final paid = sumOf('paid_amount');
+    final cards = <List<String>>[
+      ['عدد السجلات', _format(count)],
+      if (rows.any((r) => r.containsKey('minutes'))) ['إجمالي الدقائق', '${_format(minutes)} دقيقة'],
+      if (rows.any((r) => r.containsKey('total_amount') || r.containsKey('total') || r.containsKey('amount'))) ['الإجمالي', '${_format(total)} ر.س'],
+      if (rows.any((r) => r.containsKey('paid_amount'))) ['إجمالي المدفوع', '${_format(paid)} ر.س'],
+      if (rows.any((r) => r.containsKey('balance'))) ['الرصيد الختامي', _format(rows.isEmpty ? 0 : rows.last['balance'])],
+      ['الفترة والتصفية', filterText],
+    ];
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(9),
+      decoration: pw.BoxDecoration(
+        color: PdfColor.fromHex('#EEF0F2'),
+        border: pw.Border.all(color: PdfColor.fromHex('#AEB7BE'), width: .7),
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(9)),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          pw.Text('ملخص التقرير', style: pw.TextStyle(font: bold, fontSize: 11)),
+          pw.SizedBox(height: 6),
+          pw.GridView(
+            crossAxisCount: 3,
+            childAspectRatio: 3.4,
+            crossAxisSpacing: 5,
+            mainAxisSpacing: 5,
+            children: [
+              for (final card in cards)
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColors.white,
+                    border: pw.Border.all(color: PdfColor.fromHex('#C5C9CD'), width: .6),
+                    borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5)),
+                  ),
+                  child: pw.Column(
+                    mainAxisAlignment: pw.MainAxisAlignment.center,
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Text(card[0], style: pw.TextStyle(font: font, fontSize: 7, color: PdfColor.fromHex('#48545D')),
+                          maxLines: 1, overflow: pw.TextOverflow.clip),
+                      pw.SizedBox(height: 2),
+                      pw.Text(card[1], style: pw.TextStyle(font: bold, fontSize: 9),
+                          maxLines: 2, overflow: pw.TextOverflow.clip),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _reportClosing({
+    required String key,
+    required List<Map<String, Object?>> rows,
+    required pw.Font font,
+    required pw.Font bold,
+  }) {
+    num sumOf(String field) => rows.fold<num>(0, (sum, row) {
+      final value = row[field];
+      if (value is num) return sum + value;
+      return sum + (num.tryParse('$value') ?? 0);
+    });
+    final amount = sumOf('total_amount') != 0
+        ? sumOf('total_amount')
+        : sumOf('total') != 0
+            ? sumOf('total')
+            : sumOf('amount');
+    final paid = sumOf('paid_amount');
+    final hasFinancial = rows.any((r) => r.containsKey('amount') || r.containsKey('total') || r.containsKey('total_amount'));
+    return pw.Container(
+      margin: const pw.EdgeInsets.only(top: 7),
+      decoration: pw.BoxDecoration(
+        color: PdfColor.fromHex('#E5E7E9'),
+        border: pw.Border.all(color: PdfColor.fromHex('#B8BEC3'), width: .7),
+        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(7)),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            color: PdfColor.fromHex('#D1D5D8'),
+            child: pw.Text('الخلاصة والختام', style: pw.TextStyle(font: bold, fontSize: 10)),
+          ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            child: pw.Text(
+              hasFinancial
+                  ? 'إجمالي التقرير: ${_format(amount)} ر.س${rows.any((r) => r.containsKey('paid_amount')) ? '  •  إجمالي المدفوع: ${_format(paid)} ر.س' : ''}'
+                  : 'إجمالي السجلات: ${rows.length}',
+              style: pw.TextStyle(font: bold, fontSize: 9),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // قالب موحّد قابل لإعادة الاستخدام لرؤوس جميع تقارير PDF.
