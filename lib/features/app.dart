@@ -881,9 +881,9 @@ class _QuickActionOrbState extends State<QuickActionOrb>
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final maxX = (constraints.maxWidth - 66).clamp(0.0, double.infinity);
-      final maxY = (constraints.maxHeight - 66).clamp(0.0, double.infinity);
-      position = Offset(position.dx.clamp(8.0, maxX), position.dy.clamp(8.0, maxY));
+      final maxX = (constraints.maxWidth - 66).clamp(0.0, double.infinity).toDouble();
+      final maxY = (constraints.maxHeight - 66).clamp(0.0, double.infinity).toDouble();
+      position = Offset(position.dx.clamp(8.0, maxX).toDouble(), position.dy.clamp(8.0, maxY).toDouble());
       return AnimatedBuilder(
         animation: progress,
         builder: (context, _) => Stack(
@@ -938,8 +938,8 @@ class _QuickActionOrbState extends State<QuickActionOrb>
                 onPanUpdate: (details) {
                   setState(() {
                     position = Offset(
-                      (position.dx + details.delta.dx).clamp(8.0, maxX),
-                      (position.dy + details.delta.dy).clamp(8.0, maxY),
+                      (position.dx + details.delta.dx).clamp(8.0, maxX).toDouble(),
+                      (position.dy + details.delta.dy).clamp(8.0, maxY).toDouble(),
                     );
                   });
                 },
