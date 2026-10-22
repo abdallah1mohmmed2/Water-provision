@@ -3292,6 +3292,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       end = AppClock.now().add(const Duration(hours: 1));
   final paid = TextEditingController(text: '0'),
       reason = TextEditingController();
+  final searchController = TextEditingController();
+  final searchFocusNode = FocusNode();
   final List<Map<String, DateTime>> cloudPeriods = [];
   bool managerOverride = false,
       loading = true,
@@ -3311,6 +3313,15 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   void initState() {
     super.initState();
     load();
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    searchFocusNode.dispose();
+    paid.dispose();
+    reason.dispose();
+    super.dispose();
   }
 
   Future<void> load() async {
@@ -3875,6 +3886,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
           message: message,
         );
       }
+      // جهّز النموذج تلقائياً للسقاية التالية وأعد المؤشر إلى البحث.
+      if (mounted) await newOperation();
     } catch (e) {
       msg(friendlyError(e));
     } finally {
@@ -3883,7 +3896,9 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   }
 
   Future<void> newOperation() async {
+    searchController.clear();
     setState(() {
+      search = '';
       saved = false;
       start = AppClock.now();
       end = AppClock.now().add(const Duration(hours: 1));
@@ -3897,6 +3912,13 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     });
     // أعد تحميل رصيد الديزل والسجل والأدوار والجلسات والرصيد بدل عرض بيانات ما قبل الحفظ.
     await load();
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          searchFocusNode.requestFocus();
+        }
+      });
+    }
   }
 
   void msg(String x) {
@@ -3994,6 +4016,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                   ),
                 ),
                 TextField(
+                  controller: searchController,
+                  focusNode: searchFocusNode,
                   onChanged: (v) => setState(() => search = v),
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search),
