@@ -33,7 +33,12 @@ checks={
  'performance screen': 'class PerformancePage' in app,
  '24 required reports': len(re.findall(r"'[^']+':", report.split('titles = {',1)[1].split('};',1)[0])) >= 24,
  '30 default PDF rows': "pdf_rows" in report and "configuredRows" in report and "30" in report,
- 'no blank report page': 'pages.isEmpty' in report and 'لا توجد بيانات' in report and 'doc.addPage' in report,
+ 'no blank report page': (
+     'pw.MultiPage(' in report
+     and re.search(r'if\s*\(rows\.isEmpty\)\s*_emptyReportState\(', report) is not None
+     and 'لا توجد بيانات مطابقة' in report
+     and 'doc.addPage(' in report
+ ),
  'PDF print path': 'Printing.layoutPdf' in report,
 }
 for k,v in checks.items():

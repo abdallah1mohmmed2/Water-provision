@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "687317604254",
+    "project_id": "water-provision",
+    "storage_bucket": "water-provision.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:687317604254:android:7e04c41f9678734f42a88f",
+        "android_client_info": {
+          "package_name": "com.saqia.saqia_station"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAR7WKhsysYHXVWuG14ipnwp6YMnsmB02w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

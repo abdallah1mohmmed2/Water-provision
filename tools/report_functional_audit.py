@@ -40,7 +40,28 @@ ok('reports UI is scoped to current system', "DropdownMenuItem(value: currentTyp
 ok('reports UI defaults to current system', "type = currentType" in app)
 
 # PDF columns match time comparison shape.
-ok('PDF time comparison columns include month', "'time_comparison': ['month','system_type','minutes','chargeable_minutes','operations','total']" in service)
+time_columns_match = re.search(
+    r"'time_comparison'\s*:\s*\[(.*?)\]",
+    service,
+    re.S,
+)
+time_columns = (
+    re.findall(r"'([^']+)'", time_columns_match.group(1))
+    if time_columns_match is not None
+    else []
+)
+ok(
+    'PDF time comparison columns include month',
+    time_columns
+    == [
+        'month',
+        'system_type',
+        'minutes',
+        'chargeable_minutes',
+        'operations',
+        'total',
+    ],
+)
 
 failed=[n for n,v in checks if not v]
 print(f'REPORT FUNCTIONAL AUDIT: {len(checks)-len(failed)}/{len(checks)} PASS')
