@@ -2339,6 +2339,13 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
               OutlinedButton.icon(
                 onPressed: () => pickDetailDate(true),
                 icon: const Icon(Icons.date_range),
@@ -2348,7 +2355,6 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                       : '${filterFrom!.day}/${filterFrom!.month}/${filterFrom!.year}',
                 ),
               ),
-              const SizedBox(width: 6),
               OutlinedButton.icon(
                 onPressed: () => pickDetailDate(false),
                 icon: const Icon(Icons.event),
@@ -2358,6 +2364,14 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                       : '${filterTo!.day}/${filterTo!.month}/${filterTo!.year}',
                 ),
               ),
+              if (filterFrom != null || filterTo != null)
+                TextButton(
+                  onPressed: () => setState(() {
+                    filterFrom = null;
+                    filterTo = null;
+                  }),
+                  child: const Text('مسح الفلاتر'),
+                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -2493,7 +2507,9 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
         backgroundColor: Theme.of(c).scaffoldBackgroundColor,
         appBar: AppBar(
           title: Text(
-            widget.title,
+            widget.kind == 'beneficiary'
+                ? '$name • ${statusName(data['status'] ?? 'active')} • ${data['phone'] ?? 'لا يوجد هاتف'}'
+                : widget.title,
             style: const TextStyle(fontWeight: FontWeight.w900),
           ),
           actions: [
@@ -2516,86 +2532,6 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             financialPanel(c),
             if (['beneficiary', 'worker', 'partner'].contains(widget.kind))
               irrigationTable(c),
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topRight,
-                  end: Alignment.bottomLeft,
-                  colors: [
-                    Theme.of(c).colorScheme.primaryContainer,
-                    Theme.of(c).colorScheme.surface,
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(30),
-                border: Border.all(
-                  color: Theme.of(c).colorScheme.primary.withValues(alpha: .14),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 70,
-                    height: 70,
-                    decoration: BoxDecoration(
-                      color: Theme.of(c).colorScheme.primary,
-                      borderRadius: BorderRadius.circular(22),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Theme.of(
-                            c,
-                          ).colorScheme.primary.withValues(alpha: .25),
-                          blurRadius: 22,
-                          offset: const Offset(0, 9),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      kindIcon(),
-                      color: Theme.of(c).colorScheme.onPrimary,
-                      size: 34,
-                    ),
-                  ),
-                  const SizedBox(width: 17),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: const TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          kindCaption(),
-                          style: TextStyle(
-                            color: Theme.of(c).colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (data['status'] != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(c).colorScheme.surface,
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      child: Text(
-                        statusName(data['status']),
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                ],
-              ),
-            ),
             const SizedBox(height: 14),
             if (balance != null ||
                 current != null ||
@@ -2665,14 +2601,11 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 },
               ),
             const SizedBox(height: 16),
-            section(c, 'البيانات الأساسية', Icons.badge_rounded, basic),
-            section(
-              c,
-              'الأرصدة والاستحقاقات',
-              Icons.account_balance_rounded,
-              accounting,
-            ),
-            section(c, 'معلومات السجل', Icons.info_outline_rounded, meta),
+            if (widget.kind != 'beneficiary') ...[
+              section(c, 'البيانات الأساسية', Icons.badge_rounded, basic),
+              section(c, 'الأرصدة والاستحقاقات', Icons.account_balance_rounded, accounting),
+              section(c, 'معلومات السجل', Icons.info_outline_rounded, meta),
+            ],
             paymentMethodMovements(c),
             Container(
               padding: const EdgeInsets.all(20),
