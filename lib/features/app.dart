@@ -1401,6 +1401,7 @@ class _DashboardState extends State<DashboardPage> {
   Map<String, Object?>? warning;
   String systemType = 'diesel';
   bool loading = true;
+  late final PageController _statsController = PageController(viewportFraction: .78);
   Future<void> load() async {
     try {
       final a = await widget.r.dashboard(),
@@ -1430,6 +1431,12 @@ class _DashboardState extends State<DashboardPage> {
     load();
   }
 
+  @override
+  void dispose() {
+    _statsController.dispose();
+    super.dispose();
+  }
+
   Widget card(String title, String value, IconData icon, Color color) =>
       Container(
         width: 205,
@@ -1456,100 +1463,191 @@ class _DashboardState extends State<DashboardPage> {
         ),
       );
   @override
-  Widget build(c) {
-    if (loading) return const LoadingView();
+  Widget build(BuildContext c) {
+    if (loading) {
+      return const ColoredBox(
+        color: Color(0xFF080F1B),
+        child: Center(child: CircularProgressIndicator(color: Color(0xFF39FFB6))),
+      );
+    }
     final remaining = (d?['remaining'] as num?)?.round() ?? 0;
-    return PageFrame(
-      title: 'لوحة التحكم',
-      subtitle: 'ملخص تشغيلي ومالي مباشر من قاعدة البيانات',
-      actions: [
-        OutlinedButton.icon(
-          onPressed: load,
-          icon: const Icon(Icons.refresh),
-          label: const Text('تحديث'),
-        ),
-      ],
-      child: ListView(
-        children: [
-          SizedBox(
-            height: 136,
-            child: PageView(
-              scrollDirection: Axis.horizontal,
-              physics: const PageScrollPhysics(),
-              controller: PageController(viewportFraction: .78),
-              children: [
-                card('المستفيدون', '${d?['beneficiaries'] ?? 0}', Icons.people, _blue),
-                card('المنتظرون', '${d?['queue'] ?? 0}', Icons.format_list_numbered, _purple),
-                card('طلبات جديدة', '${d?['bookings'] ?? 0}', Icons.event_note, _cyan),
-                card('جلسات فعالة', '${d?['running_sessions'] ?? 0}', Icons.timer, _green),
-                card('المستحق', money(d?['due']), Icons.request_quote, _blue),
-                card('المدفوع', money(d?['paid']), Icons.payments, _green),
-                card('حالة أرصدة المستفيدين', AccountingCalculations.balanceLabel(remaining), Icons.account_balance_wallet, _purple),
-                card('المصروفات', money(d?['expenses']), Icons.receipt_long, _purple),
-                if (systemType == 'diesel')
-                  card('رصيد الديزل', '${diesel.toStringAsFixed(2)} لتر', Icons.local_gas_station, _cyan),
-                if (systemType != 'diesel')
-                  card('تشغيل المنظومة', '${d?['running_sessions'] ?? 0} جلسة', systemType == 'solar' ? Icons.wb_sunny_rounded : Icons.bolt_rounded, _green),
-              ].map((item) => Padding(
-                padding: const EdgeInsetsDirectional.only(end: 10),
-                child: item,
-              )).toList(),
-            ),
-          ),
-          const SizedBox(height: 22),
-          _DashboardCircularMenu(
-            availableMenu: widget.availableMenu,
-            onOpen: widget.onOpen,
-          ),
-          const SizedBox(height: 22),
-          const SizedBox(height: 6),
-          Center(
-            child: Text(
-              'اسحب أفقيًا لاستعراض بطاقات الملخص الإحصائي',
-              style: TextStyle(color: Theme.of(c).colorScheme.onSurfaceVariant, fontSize: 11),
-            ),
-          ),
-          const SizedBox(height: 18),
-          Card(
-            child: ListTile(
-              leading: Icon(
-                session.isNotEmpty ? Icons.timer : Icons.timer_off,
-                color: session.isNotEmpty ? _green : _blue,
-              ),
-              title: Text(
-                session.isEmpty
-                    ? 'لا توجد جلسة سقي حالية'
-                    : 'جلسة السقي الحالية: ${session['beneficiary_name']}',
-              ),
-              subtitle: Text(
-                session.isEmpty
-                    ? 'المضخة متاحة'
-                    : '${session['pump_name']} • بدأت ${session['actual_start']}',
-              ),
-              trailing: session.isEmpty
-                  ? null
-                  : FilledButton(
-                      onPressed: () => widget.onOpen(4),
-                      child: const Text('فتح الجلسة'),
-                    ),
-            ),
-          ),
-          if (systemType == 'diesel') ...[
-            const SizedBox(height: 10),
-            Card(
-              child: ListTile(
-                leading: Icon(
-                  warning?['warning'] == true ? Icons.warning_amber : Icons.check_circle,
-                  color: warning?['warning'] == true ? Colors.orange : _green,
-                ),
-                title: const Text('تنبيه الديزل'),
-                subtitle: Text('${diesel.toStringAsFixed(2)} لتر متاح من ${warning?['capacity'] ?? 0} لتر'),
-                trailing: warning?['warning'] == true ? const Text('قريب من الحد') : const Text('الحالة طبيعية'),
-              ),
-            ),
-          ],
+    const bg = Color(0xFF080F1B);
+    const panel = Color(0xFF101E2E);
+    const cyan = Color(0xFF00E5FF);
+    const neon = Color(0xFF39FFB6);
+    const muted = Color(0xFF8CA3B8);
 
-        ],
+    Widget statCard(String title, String value, IconData icon, Color color) {
+      return Container(
+        width: 190,
+        height: 116,
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: panel,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withValues(alpha: .32)),
+          boxShadow: [
+            BoxShadow(color: color.withValues(alpha: .07), blurRadius: 18, spreadRadius: 1),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 23),
+            const Spacer(),
+            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: muted, fontSize: 11, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(value, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900)),
+          ],
+        ),
+      );
+    }
+
+    Widget statusPanel({required IconData icon, required Color color, required String title,
+      required String subtitle, Widget? trailing}) {
+      return Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: panel,
+          borderRadius: BorderRadius.circular(19),
+          border: Border.all(color: color.withValues(alpha: .22)),
+          boxShadow: [BoxShadow(color: color.withValues(alpha: .045), blurRadius: 16)],
+        ),
+        child: Row(children: [
+          Container(width: 43, height: 43,
+            decoration: BoxDecoration(color: color.withValues(alpha: .11), borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withValues(alpha: .25))),
+            child: Icon(icon, color: color)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 5),
+            Text(subtitle, style: const TextStyle(color: muted, fontSize: 11, height: 1.45)),
+          ])),
+          if (trailing != null) ...[const SizedBox(width: 8), trailing],
+        ]),
+      );
+    }
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: ColoredBox(
+        color: bg,
+        child: SafeArea(
+          child: RefreshIndicator(
+            color: neon,
+            backgroundColor: panel,
+            onRefresh: load,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(19),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: AlignmentDirectional.topStart,
+                      end: AlignmentDirectional.bottomEnd,
+                      colors: [Color(0xFF123047), Color(0xFF10251F), Color(0xFF101E2E)],
+                    ),
+                    borderRadius: BorderRadius.circular(25),
+                    border: Border.all(color: cyan.withValues(alpha: .38)),
+                    boxShadow: [
+                      BoxShadow(color: cyan.withValues(alpha: .09), blurRadius: 25, spreadRadius: 1),
+                      BoxShadow(color: neon.withValues(alpha: .05), blurRadius: 35),
+                    ],
+                  ),
+                  child: Row(children: [
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('لوحة التحكم', style: TextStyle(color: neon, fontSize: 12, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 7),
+                      const Text('مرحباً بك في ساقية', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 7),
+                      Text('ملخص التشغيل والعمليات اليومية في مكان واحد',
+                        style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 11, height: 1.5)),
+                    ])),
+                    Container(width: 57, height: 57,
+                      decoration: BoxDecoration(shape: BoxShape.circle,
+                        color: cyan.withValues(alpha: .08),
+                        border: Border.all(color: neon.withValues(alpha: .7)),
+                        boxShadow: [BoxShadow(color: neon.withValues(alpha: .12), blurRadius: 18)]),
+                      child: const Icon(Icons.water_drop_rounded, color: neon, size: 30)),
+                  ]),
+                ),
+                const SizedBox(height: 20),
+                Row(children: [
+                  const Expanded(child: Text('ملخص التشغيل', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900))),
+                  const Icon(Icons.swipe_rounded, color: cyan, size: 18),
+                  const SizedBox(width: 5),
+                  const Text('اسحب', style: TextStyle(color: muted, fontSize: 10)),
+                ]),
+                const SizedBox(height: 11),
+                SizedBox(
+                  height: 120,
+                  child: PageView(
+                    controller: _statsController,
+                    scrollDirection: Axis.horizontal,
+                    physics: const PageScrollPhysics(),
+                    children: [
+                      statCard('المستفيدون', '${d?['beneficiaries'] ?? 0}', Icons.people_alt_rounded, cyan),
+                      statCard('المنتظرون', '${d?['queue'] ?? 0}', Icons.format_list_numbered_rounded, neon),
+                      statCard('طلبات جديدة', '${d?['bookings'] ?? 0}', Icons.event_note_rounded, cyan),
+                      statCard('جلسات فعالة', '${d?['running_sessions'] ?? 0}', Icons.timer_rounded, neon),
+                      statCard('المستحق', money(d?['due']), Icons.request_quote_rounded, cyan),
+                      statCard('المدفوع', money(d?['paid']), Icons.payments_rounded, neon),
+                      statCard('حالة الأرصدة', AccountingCalculations.balanceLabel(remaining), Icons.account_balance_wallet_rounded, cyan),
+                      statCard('المصروفات', money(d?['expenses']), Icons.receipt_long_rounded, neon),
+                      if (systemType == 'diesel')
+                        statCard('رصيد الديزل', '${diesel.toStringAsFixed(2)} لتر', Icons.local_gas_station_rounded, cyan),
+                      if (systemType != 'diesel')
+                        statCard('تشغيل المنظومة', '${d?['running_sessions'] ?? 0} جلسة',
+                          systemType == 'solar' ? Icons.wb_sunny_rounded : Icons.bolt_rounded, neon),
+                    ].map((item) => Padding(
+                      padding: const EdgeInsetsDirectional.only(end: 10),
+                      child: item,
+                    )).toList(),
+                  ),
+                ),
+                const SizedBox(height: 23),
+                _DashboardCircularMenu(
+                  availableMenu: widget.availableMenu,
+                  onOpen: widget.onOpen,
+                ),
+                const SizedBox(height: 22),
+                Row(children: [
+                  Container(width: 4, height: 22, decoration: BoxDecoration(color: neon, borderRadius: BorderRadius.circular(4))),
+                  const SizedBox(width: 9),
+                  const Text('حالة التشغيل', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
+                ]),
+                const SizedBox(height: 11),
+                statusPanel(
+                  icon: session.isNotEmpty ? Icons.timer_rounded : Icons.timer_off_rounded,
+                  color: session.isNotEmpty ? neon : cyan,
+                  title: session.isEmpty ? 'لا توجد جلسة سقي حالية' : 'جلسة السقي الحالية: ${session['beneficiary_name']}',
+                  subtitle: session.isEmpty ? 'المضخة متاحة لبدء عملية جديدة' : '${session['pump_name']} • بدأت ${session['actual_start']}',
+                  trailing: session.isEmpty ? null : FilledButton(
+                    onPressed: () => widget.onOpen(4),
+                    style: FilledButton.styleFrom(backgroundColor: neon, foregroundColor: bg),
+                    child: const Text('فتح الجلسة'),
+                  ),
+                ),
+                if (systemType == 'diesel') ...[
+                  const SizedBox(height: 10),
+                  statusPanel(
+                    icon: warning?['warning'] == true ? Icons.warning_amber_rounded : Icons.check_circle_rounded,
+                    color: warning?['warning'] == true ? const Color(0xFFFFB454) : neon,
+                    title: 'تنبيه الديزل',
+                    subtitle: '${diesel.toStringAsFixed(2)} لتر متاح من ${warning?['capacity'] ?? 0} لتر',
+                    trailing: Text(warning?['warning'] == true ? 'قريب من الحد' : 'طبيعي',
+                      style: TextStyle(color: warning?['warning'] == true ? const Color(0xFFFFB454) : neon, fontSize: 10, fontWeight: FontWeight.w900)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
