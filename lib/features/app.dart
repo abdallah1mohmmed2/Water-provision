@@ -3399,7 +3399,10 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     final bal = await widget.r.accounting.beneficiaryBalance(id);
     if (!mounted) return;
     setState(() {
+      partyType = 'beneficiary';
       bid = id;
+      workerId = null;
+      partnerId = null;
       partyBalance = bal['balance'] ?? 0;
       history = h;
       beneficiaryDiesel = d.isEmpty
@@ -3407,6 +3410,38 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
           : (d.first['stock'] as num?)?.toDouble() ?? 0;
       _dropStaleLinks();
     });
+  }
+
+  /// اختيار صاحب الحساب من نتائج البحث الموحد دون مطالبة المستخدم بتحديد الفئة.
+  Future<void> selectParty(String selectedType, int id) async {
+    if (selectedType == 'beneficiary') {
+      await selectBeneficiary(id);
+      return;
+    }
+    if (selectedType == 'worker') {
+      setState(() {
+        partyType = 'worker';
+        bid = null;
+        workerId = id;
+        partnerId = null;
+        history = [];
+        beneficiaryDiesel = 0;
+        _dropStaleLinks();
+      });
+    } else if (selectedType == 'partner') {
+      setState(() {
+        partyType = 'partner';
+        bid = null;
+        workerId = null;
+        partnerId = id;
+        history = [];
+        beneficiaryDiesel = 0;
+        _dropStaleLinks();
+      });
+    } else {
+      return;
+    }
+    await _loadPartyBalance();
   }
 
   // ---- الدور/الحجز/الجلسة: تخص المستفيد المختار فقط ----
@@ -4197,9 +4232,18 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     final p = preview();
     bool keepSelected(Map<String, Object?> x, int? selected) =>
         x['id'] == selected;
-    final filtered = beneficiaries
-        .where((x) => '${x['name'] ?? ''}'.contains(search.trim()))
-        .toList();
+    final query = search.trim().toLowerCase();
+    final matchingParties = <Map<String, Object?>>[
+      ...beneficiaries
+          .where((x) => query.isNotEmpty && '${x['name'] ?? ''}'.toLowerCase().contains(query))
+          .map((x) => <String, Object?>{'type': 'beneficiary', 'row': x}),
+      ...workers
+          .where((x) => query.isNotEmpty && '${x['name'] ?? ''}'.toLowerCase().contains(query))
+          .map((x) => <String, Object?>{'type': 'worker', 'row': x}),
+      ...partners
+          .where((x) => query.isNotEmpty && '${x['name'] ?? ''}'.toLowerCase().contains(query))
+          .map((x) => <String, Object?>{'type': 'partner', 'row': x}),
+    ];
     final selectedHistory = history;
     return PageFrame(
       title: 'سقاية جديدة • ${systemName(type)}',
@@ -4238,7 +4282,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             ]),
           ),
           SectionCard(
-            title: '1. البحث واختيار المستفيد',
+            title: '1. البحث الموحد عن صاحب الحساب',
             icon: Icons.person_search,
             child: Column(
               children: [
@@ -4248,27 +4292,54 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                   onChanged: (v) => setState(() => search = v),
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search),
-                    labelText: 'بحث باسم المستفيد فقط',
-                    hintText: 'اكتب اسم المستفيد',
+                    labelText: 'ابحث بالاسم بين المستفيدين والعمال والشركاء',
+                    hintText: 'اكتب أي جزء من الاسم',
                   ),
                 ),
                 const SizedBox(height: 10),
-                if (bid != null)
+                if (partyType == 'beneficiary' && bid != null)
                   Chip(
                     avatar: const Icon(Icons.person),
-                    label: Text('المستفيد المحدد: ${beneficiaries.firstWhere((x) => x['id'] == bid, orElse: () => <String, Object?>{})['name'] ?? '-'}'),
+                    label: Text('المحدد: ${beneficiaries.firstWhere((x) => x['id'] == bid, orElse: () => <String, Object?>{})['name'] ?? '-'} • مستفيد'),
+                  )
+                else if (partyType == 'worker' && workerId != null)
+                  Chip(
+                    avatar: const Icon(Icons.engineering),
+                    label: Text('المحدد: ${workers.firstWhere((x) => x['id'] == workerId, orElse: () => <String, Object?>{})['name'] ?? '-'} • عامل'),
+                  )
+                else if (partyType == 'partner' && partnerId != null)
+                  Chip(
+                    avatar: const Icon(Icons.handshake),
+                    label: Text('المحدد: ${partners.firstWhere((x) => x['id'] == partnerId, orElse: () => <String, Object?>{})['name'] ?? '-'} • شريك'),
                   ),
-                if (search.trim().isNotEmpty)
-                  ...filtered.where((x) => x['id'] != bid).take(8).map((x) => ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.person_search),
-                    title: Text('${x['name']}'),
-                    onTap: () {
-                      searchController.clear();
-                      setState(() => search = '');
-                      selectBeneficiary(x['id'] as int);
-                    },
-                  )),
+                if (query.isNotEmpty)
+                  ...matchingParties.take(12).map((entry) {
+                    final x = entry['row'] as Map<String, Object?>;
+                    final selectedType = entry['type'] as String;
+                    final category = selectedType == 'beneficiary'
+                        ? 'مستفيد'
+                        : selectedType == 'worker'
+                            ? 'عامل'
+                            : 'شريك';
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(selectedType == 'beneficiary'
+                          ? Icons.person
+                          : selectedType == 'worker'
+                              ? Icons.engineering
+                              : Icons.handshake),
+                      title: Text('${x['name'] ?? '-'}'),
+                      subtitle: Text(category),
+                      trailing: const Icon(Icons.north_west, size: 18),
+                      onTap: () async {
+                        final id = (x['id'] as num?)?.toInt();
+                        if (id == null) return;
+                        searchController.clear();
+                        setState(() => search = '');
+                        await selectParty(selectedType, id);
+                      },
+                    );
+                  }),
                 fieldSelect<int>(
                   'العامل المنفذ (اختياري)',
                   operatorWorkerId,
