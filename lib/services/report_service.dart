@@ -1,6 +1,7 @@
 import '../core/app_clock.dart';
 import 'dart:typed_data';
 import 'package:intl/intl.dart';
+import 'package:arabic_reshaper/arabic_reshaper.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -128,11 +129,11 @@ class ReportService {
     if (sourceHeaders.isEmpty && rows.isNotEmpty) {
       sourceHeaders.addAll(rows.first.keys.take(8));
     }
-    final headers = sourceHeaders.map(_fieldName).toList();
+    final headers = sourceHeaders.map((header) => _shapeArabic(_fieldName(header))).toList();
     final data = rows
         .map(
           (row) => sourceHeaders
-              .map((header) => _formatValue(header, row[header], key))
+              .map((header) => _shapeArabic(_formatValue(header, row[header], key)))
               .toList(),
         )
         .toList();
@@ -791,6 +792,9 @@ class ReportService {
     if (value < 0) return 'إجمالي المتبقي له: ${_format(value.abs())} ريال';
     return 'إجمالي المتبقي: متوازن';
   }
+
+  // Shape Arabic strings for PDF table cells, whose renderer does not shape Arabic glyphs.
+  String _shapeArabic(String value) => ArabicReshaper.instance.reshape(value);
 
   String _fieldName(String key) => {
     'id':'الرقم','date':'التاريخ','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'حالة الرصيد','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','pump_name':'المضخة','queue_position':'رقم الدور',
