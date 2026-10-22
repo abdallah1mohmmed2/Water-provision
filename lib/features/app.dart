@@ -4251,7 +4251,7 @@ int? parseClock(String raw) {
                   onSelectedItemChanged: (v) => ds(() { minute = v; mc.text = minute.toString().padLeft(2, '0'); }),
                   childDelegate: ListWheelChildBuilderDelegate(childCount: 60,
                     builder: (context, v) => Center(child: Text(v.toString().padLeft(2, '0'), style: TextStyle(fontSize: v == minute ? 24 : 18, fontWeight: v == minute ? FontWeight.bold : FontWeight.normal))),
-                )),
+                ))),
               ])),
             ])),
           if (!use24Hour && confirmPeriod) ...[
