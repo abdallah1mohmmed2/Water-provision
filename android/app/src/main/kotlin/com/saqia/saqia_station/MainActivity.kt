@@ -12,11 +12,13 @@ class MainActivity : FlutterActivity() {
     private val channel = "saqia/device_settings"
     private val bubbleChannel = "saqia/floating_bubble"
     private var pendingQuickAction: String? = null
+    private var bubbleMethodChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         pendingQuickAction = intent?.getStringExtra(EXTRA_QUICK_ACTION)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, bubbleChannel).setMethodCallHandler { call, result ->
+        bubbleMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, bubbleChannel)
+        bubbleMethodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "canDrawOverlays" -> result.success(Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this))
                 "isBubbleRunning" -> result.success(FloatingBubbleService.isRunning)
@@ -67,7 +69,16 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getStringExtra(EXTRA_QUICK_ACTION)?.let { pendingQuickAction = it }
+        intent.getStringExtra(EXTRA_QUICK_ACTION)?.let { action ->
+            pendingQuickAction = action
+            bubbleMethodChannel?.invokeMethod("quickAction", action, object : MethodChannel.Result {
+                override fun success(result: Any?) {
+                    if (pendingQuickAction == action) pendingQuickAction = null
+                }
+                override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) = Unit
+                override fun notImplemented() = Unit
+            })
+        }
     }
 
     companion object {
