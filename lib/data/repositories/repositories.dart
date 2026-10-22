@@ -1018,7 +1018,7 @@ class StationRepository {
   Future<int> createPartner({
     required String name,
     required String mode,
-    int shares = 0,
+    double shares = 0,
     double percentage = 0,
     String? phone,
     int opening = 0,
@@ -1850,13 +1850,13 @@ class StationRepository {
         if (from == null || to == null) return <Map<String, Object?>>[];
         final summary = await partnerProfitSummary(from: from, to: to);
         final ps = await partners();
-        final totalShares = ps.fold<int>(0, (sum, p) => sum + ((p['shares_count'] as num?)?.round() ?? 0));
+        final totalShares = ps.fold<double>(0.0, (sum, p) => sum + ((p['shares_count'] as num?)?.toDouble() ?? 0.0));
         final profit = (summary['distributable'] as num?)?.round() ?? 0;
         return ps.map((p) => <String, Object?>{
           'name': p['name'],
           'mode': p['ownership_mode'],
           'basis': p['ownership_mode'] == 'percentage' ? p['ownership_percentage'] : p['shares_count'],
-          'amount': AccountingCalculations.partnerShareByMode(mode: '${p['ownership_mode']}', distributable: profit, partnerShares: (p['shares_count'] as num?)?.round() ?? 0, totalShares: totalShares, percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0),
+          'amount': AccountingCalculations.partnerShareByMode(mode: '${p['ownership_mode']}', distributable: profit, partnerShares: (p['shares_count'] as num?)?.toDouble() ?? 0.0, totalShares: totalShares, percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0),
         }).toList();
       default:
         throw StateError('نوع التقرير غير مدعوم: $key');
