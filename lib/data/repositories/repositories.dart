@@ -212,8 +212,9 @@ class StationRepository {
       [id],
     );
     if (baseRows.isEmpty) return <Map<String, Object?>>[];
-    var running = ((baseRows.first['opening_balance'] as num?)?.round() ?? 0) +
-        ((baseRows.first['carried_balance'] as num?)?.round() ?? 0);
+    final opening = (baseRows.first['opening_balance'] as num?)?.round() ?? 0;
+    final carried = (baseRows.first['carried_balance'] as num?)?.round() ?? 0;
+    var running = opening + carried;
     final creditDelivery =
         (await settings())['diesel_delivery_financial_credit'] == 'true';
     final events = await db.rawQuery(
@@ -243,6 +244,32 @@ class StationRepository {
       if (toExclusive != null && (date == null || !date.isBefore(toExclusive))) continue;
       result.add(row);
     }
+    // Include explicit opening/carried balance rows in the same statement source
+    // used by the detail screen and its PDF export, even when a date filter is set.
+    final openingRow = <String, Object?>{
+      'id': -1,
+      'date': null,
+      'type': 'opening_balance',
+      'description': 'رصيد افتتاحي',
+      'debit': opening > 0 ? opening : 0,
+      'credit': opening < 0 ? -opening : 0,
+      'lah': opening > 0 ? opening : 0,
+      'alayh': opening < 0 ? -opening : 0,
+      'balance': opening,
+    };
+    final carriedRow = <String, Object?>{
+      'id': -2,
+      'date': null,
+      'type': 'carried_balance',
+      'description': 'رصيد مرحّل',
+      'debit': carried > 0 ? carried : 0,
+      'credit': carried < 0 ? -carried : 0,
+      'lah': carried > 0 ? carried : 0,
+      'alayh': carried < 0 ? -carried : 0,
+      'balance': opening + carried,
+    };
+    if (opening != 0) result.insert(0, openingRow);
+    if (carried != 0) result.insert(opening != 0 ? 1 : 0, carriedRow);
     return result;
   }
 
