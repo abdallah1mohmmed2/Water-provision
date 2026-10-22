@@ -657,6 +657,9 @@ class _ShellState extends State<AdminShell> {
       child: Scaffold(
         key: _shellScaffoldKey,
         appBar: AppBar(
+          backgroundColor: index == 0 ? const Color(0xFF080F1B) : null,
+          foregroundColor: index == 0 ? Colors.white : null,
+          elevation: index == 0 ? 0 : null,
           title: Text(
             pages[index],
             style: const TextStyle(fontWeight: FontWeight.w800),
@@ -931,9 +934,28 @@ class _DashboardCircularMenuState extends State<_DashboardCircularMenu>
     with SingleTickerProviderStateMixin {
   double rotation = -math.pi / 2;
   late final AnimationController controller = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 450), value: 1,
+    vsync: this, duration: const Duration(milliseconds: 450),
   );
   late final Animation<double> scale = CurvedAnimation(parent: controller, curve: Curves.easeOutBack);
+
+  @override
+  void initState() {
+    super.initState();
+    controller.forward();
+  }
+
+  void _rotateFromDrag(DragUpdateDetails details) {
+    const center = Offset(143, 143);
+    final previous = details.localPosition - details.delta - center;
+    final current = details.localPosition - center;
+    if (previous.distance < 1 || current.distance < 1) return;
+    final before = math.atan2(previous.dy, previous.dx);
+    final after = math.atan2(current.dy, current.dx);
+    var delta = after - before;
+    if (delta > math.pi) delta -= 2 * math.pi;
+    if (delta < -math.pi) delta += 2 * math.pi;
+    setState(() => rotation += delta);
+  }
   static const _items = <(int, String, IconData, Color)>[
     (5, 'الطابور والحجوزات', Icons.format_list_numbered_rounded, Color(0xFF00E5FF)),
     (1, 'المستفيدون', Icons.people_alt_rounded, Color(0xFF39FFB6)),
@@ -973,7 +995,7 @@ class _DashboardCircularMenuState extends State<_DashboardCircularMenu>
           SizedBox(
             height: 286,
             child: GestureDetector(
-              onPanUpdate: (details) => setState(() => rotation += details.delta.dx / 150),
+              onPanUpdate: _rotateFromDrag,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
