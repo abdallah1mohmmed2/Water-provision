@@ -15,6 +15,7 @@ import '../services/admin_service.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
 import '../services/device_notification_settings.dart';
+import '../services/manual_message_service.dart';
 
 const _blue = Color(0xff287bff),
     _cyan = Color(0xff00d7ff),
@@ -3544,7 +3545,24 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
           (pumpRow.isEmpty ? null : (pumpRow.first['station_id'] as num?))
               ?.toInt() ??
           await widget.r.accounting.currentStationId();
-      await widget.r.accounting.recordIrrigation(
+      final recipientId = partyType == 'beneficiary'
+          ? bid
+          : partyType == 'worker'
+          ? workerId
+          : partnerId;
+      final recipientRows = partyType == 'beneficiary'
+          ? beneficiaries
+          : partyType == 'worker'
+          ? workers
+          : partners;
+      Map<String, Object?>? recipient;
+      for (final row in recipientRows) {
+        if (row['id'] == recipientId) {
+          recipient = row;
+          break;
+        }
+      }
+      final irrigationId = await widget.r.accounting.recordIrrigation(
         stationId: stationId,
         pumpId: pumpId!,
         beneficiaryId: partyType == 'beneficiary' ? bid : null,
@@ -3582,6 +3600,26 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       if (mounted) setState(() => saved = true);
       msg('تم حفظ السقاية والقيد المحاسبي بنجاح');
       await _refreshAfterSave();
+      if (mounted) {
+        final recipientName = recipient?['name']?.toString() ?? 'الطرف';
+        final eventVerb = partyType == 'beneficiary'
+            ? 'تم تسجيل السقاية لكم'
+            : 'تم تسجيل السقاية المرتبطة بحسابكم';
+        final message = [
+          'السلام عليكم $recipientName،',
+          eventVerb,
+          'التاريخ: ${DateFormat('yyyy/MM/dd').format(start)} من ${DateFormat('HH:mm').format(start)} إلى ${DateFormat('HH:mm').format(end)}',
+          'المدة: $minutes دقيقة.',
+          'رقم العملية: $irrigationId.',
+        ].join('\n');
+        await ManualMessageService.offerChoices(
+          context,
+          title: 'تم تسجيل السقاية',
+          recipientName: recipientName,
+          phone: recipient?['phone']?.toString() ?? '',
+          message: message,
+        );
+      }
     } catch (e) {
       msg(friendlyError(e));
     } finally {
@@ -5807,8 +5845,21 @@ class _PaymentsState extends State<PaymentsPage> {
     if (ok == true) {
       try {
         final a = int.parse(amount.text);
+        final recipientRows = target == 'beneficiary'
+            ? bs
+            : target == 'worker'
+            ? ws
+            : ps;
+        Map<String, Object?>? recipient;
+        for (final row in recipientRows) {
+          if (row['id'] == party) {
+            recipient = row;
+            break;
+          }
+        }
+        int paymentId;
         if (target == 'beneficiary') {
-          await widget.r.accounting.receivePayment(
+          paymentId = await widget.r.accounting.receivePayment(
             beneficiaryId: party!,
             amount: a,
             paymentMethodId: method!,
@@ -5817,9 +5868,8 @@ class _PaymentsState extends State<PaymentsPage> {
             referenceNumber: reference.text,
             notes: note.text,
           );
-          // إشعار المستفيد يُنشئه receivePayment نفسه داخل المعاملة؛ لا نضيف إشعارًا ثانيًا هنا.
-        } else if (target == 'worker')
-          await widget.r.accounting.payWorker(
+        } else if (target == 'worker') {
+          paymentId = await widget.r.accounting.payWorker(
             workerId: party!,
             amount: a,
             paymentMethodId: method!,
@@ -5828,8 +5878,8 @@ class _PaymentsState extends State<PaymentsPage> {
             referenceNumber: reference.text,
             notes: note.text,
           );
-        else
-          await widget.r.accounting.payPartner(
+        } else {
+          paymentId = await widget.r.accounting.payPartner(
             partnerId: party!,
             amount: a,
             paymentMethodId: method!,
@@ -5838,21 +5888,25 @@ class _PaymentsState extends State<PaymentsPage> {
             referenceNumber: reference.text,
             notes: note.text,
           );
+        }
         await load();
-        await showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('تمت العملية'),
-            content: const Text(
-              'تم حفظ الدفعة وتحديث الرصيد، وأُرسل إشعار للمستفيد داخل التطبيق عند قبض دفعة منه.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('إغلاق'),
-              ),
-            ],
-          ),
+        if (!mounted) return;
+        final recipientName =
+            recipient?['name']?.toString() ?? targetName(target);
+        final action = target == 'beneficiary'
+            ? 'تم استلام دفعة من حسابكم'
+            : 'تم صرف دفعة لكم';
+        final message = [
+          'السلام عليكم $recipientName،',
+          '$action بمبلغ ${money(a)} بتاريخ ${DateFormat('yyyy/MM/dd HH:mm').format(AppClock.now())}.',
+          'رقم العملية: $paymentId.',
+        ].join('\n');
+        await ManualMessageService.offerChoices(
+          context,
+          title: 'تمت العملية',
+          recipientName: recipientName,
+          phone: recipient?['phone']?.toString() ?? '',
+          message: message,
         );
       } catch (e) {
         msg(friendlyError(e));
@@ -6918,19 +6972,40 @@ class _WorkersState extends State<WorkersPage> {
       ),
     );
     if (ok == true) {
+      int? paymentId;
       if (!await runGuarded(
         context,
-        () => widget.r.workerTransaction(
-          workerId: x['id'] as int,
-          type: type,
-          amount: int.parse(a.text),
-          hours: type == 'accrual' ? (double.tryParse(h.text) ?? 0) : 0,
-          paymentMethodId: type == 'payment' ? pm : null,
-          userId: widget.userId,
-        ),
+        () async {
+          paymentId = await widget.r.workerTransaction(
+            workerId: x['id'] as int,
+            type: type,
+            amount: int.parse(a.text),
+            hours: type == 'accrual' ? (double.tryParse(h.text) ?? 0) : 0,
+            paymentMethodId: type == 'payment' ? pm : null,
+            userId: widget.userId,
+          );
+        },
       ))
         return;
       await load();
+      if (type != 'payment' || !mounted) return;
+      final recipientName = x['name']?.toString() ?? 'العامل';
+      final amountValue = int.parse(a.text);
+      final operationNumber = paymentId == null
+          ? ''
+          : ' رقم العملية: $paymentId.';
+      final message = [
+        'السلام عليكم $recipientName،',
+        'تم صرف مبلغ ${money(amountValue)} لكم بتاريخ ${DateFormat('yyyy/MM/dd HH:mm').format(AppClock.now())}.',
+        operationNumber,
+      ].where((line) => line.isNotEmpty).join('\n');
+      await ManualMessageService.offerChoices(
+        context,
+        title: 'تم دفع مستحق العامل',
+        recipientName: recipientName,
+        phone: x['phone']?.toString() ?? '',
+        message: message,
+      );
     }
   }
 
@@ -7504,15 +7579,29 @@ class _PartnersState extends State<PartnersPage> {
     );
     if (ok == true) {
       try {
-        await widget.r.accounting.payPartner(
+        final amountValue = int.parse(amount.text);
+        final paymentId = await widget.r.accounting.payPartner(
           partnerId: x['id'] as int,
-          amount: int.parse(amount.text),
+          amount: amountValue,
           paymentMethodId: pm!,
           cashboxId: cb!,
           userId: widget.userId,
         );
         await load();
-        msg('تم دفع المستحق وتسجيل القيد');
+        if (!mounted) return;
+        final recipientName = x['name']?.toString() ?? 'الشريك';
+        final message = [
+          'السلام عليكم $recipientName،',
+          'تم صرف مبلغ ${money(amountValue)} لكم بتاريخ ${DateFormat('yyyy/MM/dd HH:mm').format(AppClock.now())}.',
+          'رقم العملية: $paymentId.',
+        ].join('\n');
+        await ManualMessageService.offerChoices(
+          context,
+          title: 'تم دفع مستحق الشريك',
+          recipientName: recipientName,
+          phone: x['phone']?.toString() ?? '',
+          message: message,
+        );
       } catch (e) {
         msg(friendlyError(e));
       }

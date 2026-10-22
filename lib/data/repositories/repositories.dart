@@ -903,7 +903,7 @@ class StationRepository {
     await db.audit(userId:userId, operation:'logical_delete', table:'workers', recordId:id, reason:reason);
   }
 
-  Future<void> workerTransaction({
+  Future<int?> workerTransaction({
     required int workerId,
     required String type,
     required int amount,
@@ -916,7 +916,7 @@ class StationRepository {
     int? userId,
   }) async {
     if (amount <= 0) throw ArgumentError('المبلغ يجب أن يكون أكبر من صفر');
-    if (type == 'accrual' || type == 'salary')
+    if (type == 'accrual' || type == 'salary') {
       await accounting.createWorkerAccrual(
         workerId: workerId,
         amount: amount,
@@ -927,12 +927,13 @@ class StationRepository {
         userId: userId,
         memo: notes,
       );
-    else if (type == 'payment') {
+      return null;
+    } else if (type == 'payment') {
       final src = await accounting.paymentSource(
         paymentMethodId: paymentMethodId,
         cashboxId: cashboxId,
       );
-      await accounting.payWorker(
+      return accounting.payWorker(
         workerId: workerId,
         amount: amount,
         paymentMethodId: src['method']!,
