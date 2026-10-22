@@ -3736,13 +3736,19 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     setState(() {
       selectedDate = DateTime(d.year, d.month, d.day);
       start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, start.hour, start.minute);
-      final dayOffset = end.isAfter(start) ? 0 : 1;
+      final startClock = start.hour * 60 + start.minute;
+      final endClock = end.hour * 60 + end.minute;
+      final dayOffset = endClock <= startClock ? 1 : 0;
       end = DateTime(selectedDate.year, selectedDate.month, selectedDate.day + dayOffset, end.hour, end.minute);
       cloudPeriods.clear();
     });
   }
 
   Future<void> save() async {
+    if (timeStep != 2) {
+      msg('أكمل تحديد وقت البداية والنهاية بالضغط على التالي أولاً');
+      return;
+    }
     if ((partyType == 'beneficiary' && bid == null) ||
         (partyType == 'worker' && workerId == null) ||
         (partyType == 'partner' && partnerId == null) ||
