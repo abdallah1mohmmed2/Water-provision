@@ -1167,63 +1167,37 @@ class _DashboardState extends State<DashboardPage> {
       ],
       child: ListView(
         children: [
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              card(
-                'المستفيدون',
-                '${d?['beneficiaries'] ?? 0}',
-                Icons.people,
-                _blue,
-              ),
-              card(
-                'المنتظرون',
-                '${d?['queue'] ?? 0}',
-                Icons.format_list_numbered,
-                _purple,
-              ),
-              card(
-                'طلبات جديدة',
-                '${d?['bookings'] ?? 0}',
-                Icons.event_note,
-                _cyan,
-              ),
-              card(
-                'جلسات فعالة',
-                '${d?['running_sessions'] ?? 0}',
-                Icons.timer,
-                _green,
-              ),
-              card('المستحق', money(d?['due']), Icons.request_quote, _blue),
-              card('المدفوع', money(d?['paid']), Icons.payments, _green),
-              card(
-                'حالة أرصدة المستفيدين',
-                AccountingCalculations.balanceLabel(remaining),
-                Icons.account_balance_wallet,
-                _purple,
-              ),
-              card(
-                'المصروفات',
-                money(d?['expenses']),
-                Icons.receipt_long,
-                _purple,
-              ),
-              if (systemType == 'diesel')
-                card(
-                  'رصيد الديزل',
-                  '${diesel.toStringAsFixed(2)} لتر',
-                  Icons.local_gas_station,
-                  _cyan,
-                ),
-              if (systemType != 'diesel')
-                card(
-                  'تشغيل المنظومة',
-                  '${d?['running_sessions'] ?? 0} جلسة',
-                  systemType == 'solar' ? Icons.wb_sunny_rounded : Icons.bolt_rounded,
-                  _green,
-                ),
-            ],
+          SizedBox(
+            height: 136,
+            child: PageView(
+              scrollDirection: Axis.horizontal,
+              physics: const PageScrollPhysics(),
+              controller: PageController(viewportFraction: .78),
+              children: [
+                card('المستفيدون', '${d?['beneficiaries'] ?? 0}', Icons.people, _blue),
+                card('المنتظرون', '${d?['queue'] ?? 0}', Icons.format_list_numbered, _purple),
+                card('طلبات جديدة', '${d?['bookings'] ?? 0}', Icons.event_note, _cyan),
+                card('جلسات فعالة', '${d?['running_sessions'] ?? 0}', Icons.timer, _green),
+                card('المستحق', money(d?['due']), Icons.request_quote, _blue),
+                card('المدفوع', money(d?['paid']), Icons.payments, _green),
+                card('حالة أرصدة المستفيدين', AccountingCalculations.balanceLabel(remaining), Icons.account_balance_wallet, _purple),
+                card('المصروفات', money(d?['expenses']), Icons.receipt_long, _purple),
+                if (systemType == 'diesel')
+                  card('رصيد الديزل', '${diesel.toStringAsFixed(2)} لتر', Icons.local_gas_station, _cyan),
+                if (systemType != 'diesel')
+                  card('تشغيل المنظومة', '${d?['running_sessions'] ?? 0} جلسة', systemType == 'solar' ? Icons.wb_sunny_rounded : Icons.bolt_rounded, _green),
+              ].map((item) => Padding(
+                padding: const EdgeInsetsDirectional.only(end: 10),
+                child: item,
+              )).toList(),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Center(
+            child: Text(
+              'اسحب أفقيًا لاستعراض بطاقات الملخص الإحصائي',
+              style: TextStyle(color: Theme.of(c).colorScheme.onSurfaceVariant, fontSize: 11),
+            ),
           ),
           const SizedBox(height: 18),
           Card(
@@ -1264,55 +1238,7 @@ class _DashboardState extends State<DashboardPage> {
               ),
             ),
           ],
-          const SizedBox(height: 18),
-          const Text(
-            'وصول سريع',
-            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              QuickButton(
-                'سقاية جديدة',
-                Icons.water_drop,
-                _blue,
-                () => widget.onOpen(2),
-              ),
-              QuickButton(
-                'قبض دفعة',
-                Icons.payments,
-                _green,
-                () => widget.onOpen(7),
-              ),
-              if (systemType == 'diesel')
-                QuickButton(
-                  'إضافة أو تسليم ديزل',
-                  Icons.local_gas_station,
-                  _cyan,
-                  () => widget.onOpen(6),
-                ),
-              QuickButton(
-                'مصروف جديد',
-                Icons.receipt_long,
-                _purple,
-                () => widget.onOpen(9),
-              ),
-              QuickButton(
-                'جلسة سقي',
-                Icons.timer,
-                _purple,
-                () => widget.onOpen(4),
-              ),
-              QuickButton(
-                'التقارير',
-                Icons.picture_as_pdf,
-                _blue,
-                () => widget.onOpen(14),
-              ),
-            ],
-          ),
+
         ],
       ),
     );
