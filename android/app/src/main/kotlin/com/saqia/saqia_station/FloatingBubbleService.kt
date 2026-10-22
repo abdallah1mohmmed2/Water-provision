@@ -34,6 +34,7 @@ class FloatingBubbleService : Service() {
             return
         }
         addBubble()
+        isRunning = true
     }
 
     private fun makeNotificationChannel() {
@@ -132,8 +133,11 @@ class FloatingBubbleService : Service() {
     override fun onDestroy() {
         bubble?.let { try { manager.removeView(it) } catch (_: Exception) {} }
         bubble = null
+        isRunning = false
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    companion object { @Volatile var isRunning: Boolean = false }
 }
