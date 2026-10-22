@@ -9461,7 +9461,7 @@ class ReportPreviewPage extends StatelessWidget {
   String _title()=>ReportService.titles[keyName]??'تقرير';
   Color _valueColor(String k,Object? v){if(k=='lah'||k=='credit')return _reportGreen;if(k=='alayh'||k=='debit')return _reportOrange;return _reportInk;}
   String _value(String k,Object? v){if(v==null)return '-';if(k=='date'||k.endsWith('_datetime')){final d=DateTime.tryParse('$v');if(d!=null)return '${d.day}/${d.month}/${d.year}';}if(k=='system_type')return systemName('$v');if(k=='status')return statusName(v);if(k=='kind')return movementName('$v');if(k=='ownership_mode')return v=='percentage'?'نسبة ملكية':'عدد حصص';return '$v';}
-  List<MapEntry<String,Object?>> _visible(Map<String,Object?> row)=>row.entries.where((e)=>reportFieldArabic(e.key)!=null&&e.key!='id'&&e.key!='created_at'&&e.key!='updated_at'&&e.key!='journal_entry_id').take(8).toList();
+  List<MapEntry<String,Object?>> _visible(Map<String,Object?> row)=>row.entries.where((e)=>reportFieldArabic(e.key)!=null&&e.key!='id'&&e.key!='created_at'&&e.key!='updated_at'&&e.key!='journal_entry_id').toList();
   Widget _metric(String label, String value, IconData icon, Color color) =>
       Expanded(
         child: Container(
@@ -9497,9 +9497,55 @@ class ReportPreviewPage extends StatelessWidget {
           ),
         ),
       );
-  Widget _rowCard(Map<String,Object?> row,int index){final entries=_visible(row);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .05),blurRadius:12,offset:const Offset(0,4))]),child:Column(children:[Row(children:[Container(width:30,height:30,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${index+1}',style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900)))),const SizedBox(width:10),Expanded(child:Text(_value(entries.isNotEmpty?entries.first.key:'description',entries.isNotEmpty?entries.first.value:null),maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk))),if(row['lah']!=null&&((row['lah'] as num?)?.abs()??0)>0)_badge('له','${row['lah']}',_reportGreen),if(row['alayh']!=null&&((row['alayh'] as num?)?.abs()??0)>0)_badge('عليه','${row['alayh']}',_reportOrange)]),const SizedBox(height:10),Wrap(spacing:18,runSpacing:8,children:[for(final e in entries.skip(1))SizedBox(width:145,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(reportFieldArabic(e.key)??e.key,style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10)),const SizedBox(height:2),Text(_value(e.key,e.value),maxLines:2,overflow:TextOverflow.ellipsis,style:TextStyle(color:_valueColor(e.key,e.value),fontWeight:FontWeight.w700,fontSize:12))]))])]));}
+  Widget _rowCard(Map<String,Object?> row,int index){
+    final entries=_visible(row);
+    return Container(
+      margin:const EdgeInsetsDirectional.only(start:5,end:5,bottom:8),
+      padding:const EdgeInsets.all(15),
+      decoration:BoxDecoration(
+        color:Colors.white,
+        borderRadius:BorderRadius.circular(20),
+        border:Border.all(color:_reportLine),
+        boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha:.05),blurRadius:12,offset:const Offset(0,4))],
+      ),
+      child:SingleChildScrollView(
+        child:Column(
+          crossAxisAlignment:CrossAxisAlignment.stretch,
+          children:[
+            Row(children:[
+              Container(width:30,height:30,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${index+1}',style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900)))),
+              const SizedBox(width:10),
+              Expanded(child:Text(_value(entries.isNotEmpty?entries.first.key:'description',entries.isNotEmpty?entries.first.value:null),softWrap:true,style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk))),
+              if(row['lah']!=null&&((row['lah'] as num?)?.abs()??0)>0)_badge('له','${row['lah']}',_reportGreen),
+              if(row['alayh']!=null&&((row['alayh'] as num?)?.abs()??0)>0)_badge('عليه','${row['alayh']}',_reportOrange),
+            ]),
+            const SizedBox(height:12),
+            Wrap(
+              spacing:14,
+              runSpacing:12,
+              children:[
+                for(final e in entries.skip(1))
+                  SizedBox(
+                    width:145,
+                    child:Column(
+                      crossAxisAlignment:CrossAxisAlignment.start,
+                      mainAxisSize:MainAxisSize.min,
+                      children:[
+                        Text(reportFieldArabic(e.key)??e.key,softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:10)),
+                        const SizedBox(height:3),
+                        Text(_value(e.key,e.value),softWrap:true,style:TextStyle(color:_valueColor(e.key,e.value),fontWeight:FontWeight.w700,fontSize:12,height:1.35)),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
   Widget _badge(String label,String value,Color color)=>Container(margin:const EdgeInsetsDirectional.only(start:5),padding:const EdgeInsets.symmetric(horizontal:9,vertical:5),decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(9)),child:Text('$label $value',style:TextStyle(color:color,fontSize:11,fontWeight:FontWeight.w900)));
-  @override Widget build(BuildContext context){final net=rows.isEmpty?'-':'${rows.last['balance']??'-'}';return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(_title(),style:const TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:12),child:FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))),onPressed:()async{await ReportService(r).printPdf(keyName,from:from,to:to,beneficiaryId:beneficiaryId,workerId:workerId,partnerId:partnerId,cashboxId:cashboxId,paymentMethodId:paymentMethodId,systemType:systemType,category:category,status:status,sourceRows:rows);},icon:const Icon(Icons.print_rounded),label:const Text('PDF')))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(26)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التقرير',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(_title(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(filters.trim().isEmpty?'كل الفترات':filters,style:TextStyle(color:Colors.white.withValues(alpha: .8),fontSize:11))]),),const Icon(Icons.assessment_rounded,color:Colors.white,size:48)])),const SizedBox(height:14),Row(children:[_metric('عدد السجلات','${rows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric('آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(rows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[for(var i=0;i<rows.take(200).length;i++)_rowCard(rows[i],i),if(rows.length>200)Center(child:Text('يتم عرض أول 200 سجل',style:TextStyle(color:_reportInk.withValues(alpha: .55)) ))]])));}
+  @override Widget build(BuildContext context){final net=rows.isEmpty?'-':'${rows.last['balance']??'-'}';return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(_title(),style:const TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:12),child:FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))),onPressed:()async{await ReportService(r).printPdf(keyName,from:from,to:to,beneficiaryId:beneficiaryId,workerId:workerId,partnerId:partnerId,cashboxId:cashboxId,paymentMethodId:paymentMethodId,systemType:systemType,category:category,status:status,sourceRows:rows);},icon:const Icon(Icons.print_rounded),label:const Text('PDF')))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(26)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التقرير',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(_title(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(filters.trim().isEmpty?'كل الفترات':filters,style:TextStyle(color:Colors.white.withValues(alpha: .8),fontSize:11))]),),const Icon(Icons.assessment_rounded,color:Colors.white,size:48)])),const SizedBox(height:14),Row(children:[_metric('عدد السجلات','${rows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric('آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(rows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[SizedBox(height:390,child:PageView.builder(scrollDirection:Axis.horizontal,physics:const PageScrollPhysics(),padEnds:true,itemCount:rows.take(200).length,itemBuilder:(context,index)=>_rowCard(rows[index],index))),if(rows.length>200)Center(child:Text('يتم عرض أول 200 سجل',style:TextStyle(color:_reportInk.withValues(alpha:.55)))),if(rows.length>1)Padding(padding:const EdgeInsets.only(top:8),child:Center(child:Row(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(Icons.swipe_rounded,size:17,color:_reportOliveDark),const SizedBox(width:6),Text('اسحب يمينًا أو يسارًا للتنقل بين السجلات • ${rows.take(200).length} سجل',style:TextStyle(color:_reportInk.withValues(alpha:.65),fontSize:11))])))]])));}
 }
 
 class RevenueComparisonsPage extends StatefulWidget {
