@@ -3281,6 +3281,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   final startTimeController = TextEditingController();
   final endTimeController = TextEditingController();
   final List<Map<String, DateTime>> cloudPeriods = [];
+  final cloudQuickController = TextEditingController();
+  bool quickCloudMode = false;
   DateTime selectedDate = DateTime(AppClock.now().year, AppClock.now().month, AppClock.now().day);
   String? startPeriod;
   String? endPeriod;
@@ -3319,6 +3321,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     endTimeController.dispose();
     paid.dispose();
     reason.dispose();
+    cloudQuickController.dispose();
     super.dispose();
   }
 
@@ -3455,10 +3458,12 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   }
 
   int get minutes => end.difference(start).inMinutes;
-  int get cloudMin => cloudPeriods.fold<int>(
-    0,
-    (sum, p) => sum + p['end']!.difference(p['start']!).inMinutes,
-  );
+  int get cloudMin => quickCloudMode
+      ? (int.tryParse(cloudQuickController.text.trim()) ?? 0)
+      : cloudPeriods.fold<int>(
+          0,
+          (sum, p) => sum + p['end']!.difference(p['start']!).inMinutes,
+        );
   int get waterRate =>
       int.tryParse(settings['diesel_hourly_water_rate'] ?? '0') ?? 0;
   double get liters =>
@@ -3592,7 +3597,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   }
 
   Future<void> addCloudPeriod({int? editingIndex}) async {
-    if (type != 'solar') return;
+    if (type != 'solar' || quickCloudMode) return;
     final existing = editingIndex == null ? null : cloudPeriods[editingIndex];
     final initialStart = existing?['start'] ?? start;
     final initialEnd =
@@ -3751,6 +3756,12 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     }
     if (minutes <= 0) {
       msg('وقت النهاية يجب أن يكون بعد وقت البداية');
+      return;
+    }
+    if (type == 'solar' &&
+        (cloudMin < 0 || cloudMin > minutes ||
+            (quickCloudMode && cloudQuickController.text.trim().isEmpty))) {
+      msg('أدخل دقائق غيم صحيحة لا تتجاوز مدة السقاية');
       return;
     }
     if (useSession && sessionId == null) {
@@ -4170,12 +4181,52 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                 Chip(label: Text('المدة: $minutes دقيقة'), avatar: const Icon(Icons.timelapse)),
                 if (type == 'solar') ...[
                   const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: minutes > 0 ? () => addCloudPeriod() : null,
-                    icon: const Icon(Icons.cloud_outlined),
-                    label: const Text('إضافة فترة غيم'),
+                  ChoiceChip(
+                    avatar: const Icon(Icons.schedule, size: 18),
+                    label: const Text('الغيم من - إلى'),
+                    selected: !quickCloudMode,
+                    onSelected: (selected) {
+                      if (!selected) return;
+                      setState(() {
+                        quickCloudMode = false;
+                        cloudQuickController.clear();
+                      });
+                    },
                   ),
-                  if (cloudPeriods.isNotEmpty)
+                  ChoiceChip(
+                    avatar: const Icon(Icons.bolt, size: 18),
+                    label: const Text('الغيم السريع'),
+                    selected: quickCloudMode,
+                    onSelected: (selected) {
+                      if (!selected) return;
+                      setState(() {
+                        quickCloudMode = true;
+                        cloudPeriods.clear();
+                      });
+                    },
+                  ),
+                  if (quickCloudMode)
+                    SizedBox(
+                      width: 230,
+                      child: TextField(
+                        controller: cloudQuickController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: false, signed: false),
+                        onChanged: (_) => setState(() {}),
+                        decoration: const InputDecoration(
+                          labelText: 'الغيم السريع (بالدقائق)',
+                          hintText: 'مثال: 10',
+                          suffixText: 'دقيقة',
+                          prefixIcon: Icon(Icons.remove_circle_outline),
+                        ),
+                      ),
+                    ),
+                  if (!quickCloudMode)
+                    OutlinedButton.icon(
+                      onPressed: minutes > 0 ? () => addCloudPeriod() : null,
+                      icon: const Icon(Icons.cloud_outlined),
+                      label: const Text('إضافة فترة غيم'),
+                    ),
+                  if (!quickCloudMode && cloudPeriods.isNotEmpty)
                     ...cloudPeriods.asMap().entries.map((entry) {
                       final i = entry.key;
                       final p = entry.value;
@@ -4190,7 +4241,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                             setState(() => cloudPeriods.removeAt(i)),
                       );
                     }),
-                  if (cloudPeriods.isNotEmpty)
+                  if (cloudMin > 0)
                     Chip(
                       avatar: const Icon(Icons.remove_circle_outline),
                       label: Text(
