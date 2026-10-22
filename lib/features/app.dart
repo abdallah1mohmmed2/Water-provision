@@ -3987,11 +3987,6 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       title: 'سقاية جديدة • ${systemName(type)}',
       subtitle: 'عملية مخصصة للمنظومة الحالية مرتبطة بالحساب والقيد المحاسبي',
       actions: [
-        OutlinedButton.icon(
-          onPressed: load,
-          icon: const Icon(Icons.refresh),
-          label: const Text('تحديث'),
-        ),
         if (saved)
           OutlinedButton.icon(
             onPressed: newOperation,
@@ -8875,8 +8870,8 @@ class ReportsPage extends StatefulWidget {
   final StationRepository r;
   const ReportsPage(this.r, {super.key});
   static const keys = [
-    'irrigations','cash_flow','time_comparison','monthly_financial','income',
-    'payment_methods','expenses','cashboxes','queue_bookings','payment_log',
+    'irrigations','time_comparison','monthly_financial','income',
+    'payment_methods','expenses','cashboxes','queue_bookings',
     'beneficiary_statement','beneficiary_detailed','beneficiary_stats','needy',
     'diesel_inventory','activity_overview','oil_status','debts','beneficiary_list',
     'revenue_comparison','system_comparison','journal','ledger',
@@ -8912,7 +8907,7 @@ class _ReportsState extends State<ReportsPage> {
       Navigator.push(context, MaterialPageRoute(builder: (_) => MonthlyFinancialReportPage(widget.r, initialFrom: from, initialTo: to)));
       return;
     }
-    if (k == 'cashboxes' || k == 'cash_flow') {
+    if (k == 'cashboxes') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => CashboxesTransfersReportPage(widget.r, initialFrom: from, initialTo: to)));
       return;
@@ -8922,7 +8917,7 @@ class _ReportsState extends State<ReportsPage> {
       Navigator.push(context, MaterialPageRoute(builder: (_) => DebtsReportPage(widget.r)));
       return;
     }
-    if (k == 'income' || k == 'payment_log') {
+    if (k == 'income') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueCollectionsReportPage(widget.r, initialFrom: from, initialTo: to, initialSystemType: type)));
       return;
@@ -8987,10 +8982,10 @@ class _ReportsState extends State<ReportsPage> {
   }
   Future<void> printR(String k) async {try{final rows = await _rows(k);if(!mounted)return;await ReportService(widget.r).printPdf(k,from:from,to:to,beneficiaryId:bid,workerId:wid,partnerId:pid,systemType:type,cashboxId:cid,paymentMethodId:mid,category:category,status:status,sourceRows:rows);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}}
   Widget sel<T>(String label,T? v,List<DropdownMenuItem<T>> items,ValueChanged<T?> f)=>SizedBox(width:205,child:DropdownButtonFormField<T>(value:v,items:items,onChanged:f,decoration:InputDecoration(labelText:label,filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(14),borderSide:BorderSide.none))));
-  IconData _icon(String k)=>switch(k){'irrigations'=>Icons.water_drop_rounded,'cash_flow'=>Icons.swap_vert_rounded,'expenses'=>Icons.receipt_long_rounded,'journal'=>Icons.menu_book_rounded,'ledger'=>Icons.account_balance_rounded,'worker_transactions'=>Icons.engineering_rounded,'partner_accounts'=>Icons.groups_rounded,'beneficiary_statement'=>Icons.person_pin_rounded,'monthly_financial'=>Icons.insights_rounded,'cashboxes'=>Icons.account_balance_wallet_rounded,_=>Icons.analytics_rounded};
+  IconData _icon(String k)=>switch(k){'irrigations'=>Icons.water_drop_rounded,'expenses'=>Icons.receipt_long_rounded,'journal'=>Icons.menu_book_rounded,'ledger'=>Icons.account_balance_rounded,'worker_transactions'=>Icons.engineering_rounded,'partner_accounts'=>Icons.groups_rounded,'beneficiary_statement'=>Icons.person_pin_rounded,'monthly_financial'=>Icons.insights_rounded,'cashboxes'=>Icons.account_balance_wallet_rounded,_=>Icons.analytics_rounded};
   String _group(String k)=>switch(k){
     'irrigations'||'time_comparison'||'income'||'monthly_financial'||'revenue_comparison'||'system_comparison'=>'السقايات والإيرادات',
-    'cash_flow'||'expenses'||'cashboxes'||'payment_methods'||'payment_log'||'oil_status'||'diesel_inventory'=>'المالية والحركة',
+    'expenses'||'cashboxes'||'payment_methods'||'oil_status'||'diesel_inventory'=>'المالية والحركة',
     'beneficiary_statement'||'beneficiary_detailed'||'beneficiary_stats'||'beneficiary_list'||'needy'||'debts'=>'كشوف الحساب',
     'journal'||'ledger'=>'دفتر الأستاذ',
     'worker_transactions'||'partner_accounts'||'partner_profit_distribution'||'queue_bookings'||'activity_overview'=>'التشغيل والمتابعة',
@@ -8998,7 +8993,6 @@ class _ReportsState extends State<ReportsPage> {
   };
   String _description(String k)=>switch(k){
     'irrigations'=>'تفاصيل كل سقاية ومدتها ومبلغها والمدفوع منها',
-    'cash_flow'=>'حركة القبض والصرف خلال الفترة المحددة',
     'time_comparison'=>'مقارنة الدقائق والعمليات بين الأشهر والمنظومات',
     'monthly_financial'=>'الدخل والمصروفات شهرياً بصورة مختصرة',
     'income'=>'مصادر الدخل حسب نوع المنظومة',
@@ -9006,7 +9000,6 @@ class _ReportsState extends State<ReportsPage> {
     'expenses'=>'توزيع المصروفات حسب التصنيف',
     'cashboxes'=>'الوارد والمنصرف والرصيد الحالي لكل صندوق',
     'queue_bookings'=>'حالة الطابور وطلبات الحجز',
-    'payment_log'=>'سجل القبض والدفع مع الجهة والصندوق',
     'beneficiary_statement'=>'كشف له وعليه للمستفيد مع الرصيد الجاري',
     'beneficiary_detailed'=>'تفاصيل حركات المستفيد والسقايات والدفعات',
     'beneficiary_stats'=>'عدد السقايات والدقائق والإجمالي لكل مستفيد',
