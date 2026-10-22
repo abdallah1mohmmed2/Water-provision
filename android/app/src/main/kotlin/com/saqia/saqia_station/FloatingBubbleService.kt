@@ -16,13 +16,17 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import kotlin.math.abs
 
 class FloatingBubbleService : Service() {
     private lateinit var manager: WindowManager
-    private var bubble: View? = null
+    private var overlay: LinearLayout? = null
+    private var menu: LinearLayout? = null
+    private var params: WindowManager.LayoutParams? = null
+    private var expanded = false
 
     override fun onCreate() {
         super.onCreate()
@@ -34,11 +38,10 @@ class FloatingBubbleService : Service() {
             return
         }
         addBubble()
+        isRunning = true
     }
 
-    // Keep the user-enabled bubble alive when the app task is dismissed.
-    // Android may still stop it under force-stop or system restrictions.
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
 
     private fun makeNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -57,7 +60,7 @@ class FloatingBubbleService : Service() {
         return NotificationCompat.Builder(this, "saqia_floating_bubble")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentTitle("فقاعة ساقية مفعّلة")
-            .setContentText("اضغط لفتح ساقية. لإيقافها، استخدم المفتاح في إعدادات التطبيق.")
+            .setContentText("اضغط على الفقاعة لعرض اختصارات العمليات.")
             .setContentIntent(pending)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -66,13 +69,25 @@ class FloatingBubbleService : Service() {
 
     private fun dp(n: Int) = (n * resources.displayMetrics.density).toInt()
 
+    private fun rounded(color: Int, radius: Float = 16f): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(radius.toInt()).toFloat()
+        }
+
     private fun addBubble() {
-        val view = TextView(this).apply {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.START
+            setPadding(0, 0, 0, 0)
+        }
+
+        val bubble = TextView(this).apply {
             text = "س"
             textSize = 19f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
-            contentDescription = "فتح تطبيق ساقية"
+            contentDescription = "عرض اختصارات ساقية"
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(Color.rgb(39, 105, 84))
@@ -80,13 +95,51 @@ class FloatingBubbleService : Service() {
             }
             elevation = dp(5).toFloat()
         }
+
+        val actions = listOf(
+            "سقاية جديدة" to "irrigation",
+            "صرف وقبض" to "cash",
+            "حجز دور" to "queue",
+            "إضافة مستفيد" to "beneficiary",
+            "إضافة مصروف" to "expense"
+        )
+        val actionMenu = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            background = rounded(Color.WHITE, 14f)
+            elevation = dp(8).toFloat()
+            setPadding(dp(7), dp(6), dp(7), dp(6))
+        }
+        actions.forEach { (label, action) ->
+            val item = TextView(this).apply {
+                text = label
+                textSize = 14f
+                gravity = Gravity.CENTER_VERTICAL
+                setTextColor(Color.rgb(30, 41, 59))
+                background = rounded(Color.rgb(241, 245, 249), 10f)
+                setPadding(dp(12), 0, dp(12), 0)
+                minHeight = dp(42)
+                contentDescription = label
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { openAction(action) }
+            }
+            actionMenu.addView(item, LinearLayout.LayoutParams(dp(166), dp(42)).apply {
+                bottomMargin = dp(4)
+            })
+        }
+        root.addView(bubble, LinearLayout.LayoutParams(dp(48), dp(48)))
+        root.addView(actionMenu, LinearLayout.LayoutParams(dp(180), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(6)
+        })
+
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else
             @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
-        val p = WindowManager.LayoutParams(
+        val windowParams = WindowManager.LayoutParams(
             dp(48), dp(48), type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -98,11 +151,13 @@ class FloatingBubbleService : Service() {
         var originX = 0
         var originY = 0
         var dragged = false
-        view.setOnTouchListener { v, e ->
+        bubble.setOnTouchListener { v, e ->
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = e.rawX; downY = e.rawY
-                    originX = p.x; originY = p.y
+                    downX = e.rawX
+                    downY = e.rawY
+                    originX = windowParams.x
+                    originY = windowParams.y
                     dragged = false
                     true
                 }
@@ -110,34 +165,50 @@ class FloatingBubbleService : Service() {
                     val dx = (e.rawX - downX).toInt()
                     val dy = (e.rawY - downY).toInt()
                     if (abs(dx) > dp(5) || abs(dy) > dp(5)) dragged = true
-                    p.x = originX + dx; p.y = originY + dy
-                    try { manager.updateViewLayout(v, p) } catch (_: Exception) {}
+                    windowParams.x = (originX + dx).coerceAtLeast(0)
+                    windowParams.y = (originY + dy).coerceAtLeast(0)
+                    try { manager.updateViewLayout(root, windowParams) } catch (_: Exception) {}
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!dragged) {
-                        startActivity(Intent(this, MainActivity::class.java).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        })
-                    }
+                    if (!dragged) toggleMenu(root, actionMenu, windowParams)
                     true
                 }
                 else -> false
             }
         }
         try {
-            manager.addView(view, p)
-            bubble = view
-            isRunning = true
+            manager.addView(root, windowParams)
+            overlay = root
+            menu = actionMenu
+            params = windowParams
         } catch (_: Exception) {
-            isRunning = false
             stopSelf()
         }
     }
 
+    private fun toggleMenu(root: LinearLayout, actionMenu: LinearLayout, windowParams: WindowManager.LayoutParams) {
+        expanded = !expanded
+        actionMenu.visibility = if (expanded) View.VISIBLE else View.GONE
+        windowParams.width = if (expanded) dp(180) else dp(48)
+        windowParams.height = if (expanded) WindowManager.LayoutParams.WRAP_CONTENT else dp(48)
+        try { manager.updateViewLayout(root, windowParams) } catch (_: Exception) {}
+    }
+
+    private fun openAction(action: String) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(MainActivity.EXTRA_QUICK_ACTION, action)
+        }
+        try { startActivity(intent) } catch (_: Exception) {}
+    }
+
     override fun onDestroy() {
-        bubble?.let { try { manager.removeView(it) } catch (_: Exception) {} }
-        bubble = null
+        overlay?.let { try { manager.removeView(it) } catch (_: Exception) {} }
+        overlay = null
+        menu = null
+        params = null
+        expanded = false
         isRunning = false
         super.onDestroy()
     }
