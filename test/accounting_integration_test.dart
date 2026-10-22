@@ -3,6 +3,7 @@
 // القيد العكسي عند الإلغاء، وتاريخ القيد = تاريخ العملية.
 // ملاحظة: كُتبت دون تشغيل (لا يوجد Flutter SDK في بيئة الكتابة) — شغّلها بـ flutter test.
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -621,6 +622,50 @@ void main() {
     expect(integrity.single['integrity_check'], 'ok');
     final violations = await db.query('PRAGMA foreign_key_check');
     expect(violations, isEmpty);
+  });
+
+  test('استعادة ملف SQLite سليم من النوع المطابق تعمل مع بقاء رفض النوع المختلف', () async {
+    final backupService = BackupService(svc);
+    final databasePath = await backupService.databasePath();
+    final temp = await Directory.systemTemp.createTemp('water-restore-test-');
+    final source = File('${temp.path}/solar-backup.db');
+    final originalSettings = await svc.settings();
+    final originalType = originalSettings['system_type'] ?? 'diesel';
+    final originalStationName = originalSettings['station_name'] ?? '';
+    try {
+      await db.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
+      await db.query('PRAGMA wal_checkpoint(TRUNCATE)');
+      await db.close();
+      await File(databasePath).copy(source.path);
+
+      await db.db;
+      await db.update('settings', {'value': 'محطة مؤقتة بعد النسخ'}, 'key=?', ['station_name']);
+      final wrongType = await backupService.validateDatabaseFile(
+        source.path,
+        expectedSystemType: 'diesel',
+      );
+      expect(wrongType['valid'], isFalse);
+
+      final result = await backupService.restoreDatabaseFromFile(
+        source.path,
+        rollbackDirectory: temp,
+      );
+      expect(result['restored'], isTrue, reason: '${result['error']}');
+      expect(result['system_type'], 'solar');
+      expect((await db.query("SELECT value FROM settings WHERE key='system_type'")).single['value'], 'solar');
+      expect((await db.query("SELECT value FROM settings WHERE key='station_name'")).single['value'], originalStationName);
+      expect((await db.query('PRAGMA integrity_check')).single.values.single, 'ok');
+      expect(await db.query('PRAGMA foreign_key_check'), isEmpty);
+
+      // أعد إعداد الاختبارات اللاحقة إلى قيمها الأصلية.
+      await db.update('settings', {'value': originalType}, 'key=?', ['system_type']);
+    } finally {
+      await db.close();
+      await temp.delete(recursive: true);
+      await db.db;
+      await db.update('settings', {'value': originalType}, 'key=?', ['system_type']);
+      await db.update('settings', {'value': originalStationName}, 'key=?', ['station_name']);
+    }
   });
 
   test('الصندوق والشريك الجديدان يتبعان محطة المضخة المحددة لا الرقم 1', () async {

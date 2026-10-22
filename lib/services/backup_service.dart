@@ -126,6 +126,16 @@ class BackupService {
         await db.close();
         return {'valid': false, 'error': 'النسخة تخص منظومة $backupType بينما هذه المحطة تعمل على $expectedSystemType'};
       }
+      final integrity = await db.rawQuery('PRAGMA integrity_check');
+      if (integrity.isEmpty || integrity.first.values.first != 'ok') {
+        await db.close();
+        return {'valid': false, 'error': 'قاعدة SQLite داخل النسخة غير سليمة'};
+      }
+      final foreignKeyIssues = await db.rawQuery('PRAGMA foreign_key_check');
+      if (foreignKeyIssues.isNotEmpty) {
+        await db.close();
+        return {'valid': false, 'error': 'النسخة تحتوي مراجع غير مرتبطة بين الجداول'};
+      }
       await db.close();
       return {'valid': true, 'system_type': backupType};
     } catch (e) {
@@ -142,16 +152,31 @@ class BackupService {
     if (result == null || result.files.single.path == null)
       return {'restored': false, 'cancelled': true};
     final source = result.files.single.path!;
-    final currentSettings = await accounting.database.query("SELECT value FROM settings WHERE key='system_type' LIMIT 1");
-    final expectedSystemType = currentSettings.isEmpty ? 'diesel' : '${currentSettings.first['value']}';
-    final check = await validateDatabaseFile(source, expectedSystemType: expectedSystemType);
+    return restoreDatabaseFromFile(source);
+  }
+
+  Future<Map<String, dynamic>> restoreDatabaseFromFile(
+    String source, {
+    Directory? rollbackDirectory,
+  }) async {
+    final currentSettings = await accounting.database.query(
+      "SELECT value FROM settings WHERE key='system_type' LIMIT 1",
+    );
+    final expectedSystemType = currentSettings.isEmpty
+        ? 'diesel'
+        : '${currentSettings.first['value']}';
+    final check = await validateDatabaseFile(
+      source,
+      expectedSystemType: expectedSystemType,
+    );
     if (check['valid'] != true) return {'restored': false, ...check};
+    final restoredSystemType = expectedSystemType;
 
     final dbPath = await databasePath();
     final current = File(dbPath);
     final wal = File('$dbPath-wal');
     final shm = File('$dbPath-shm');
-    final dir = await getTemporaryDirectory();
+    final dir = rollbackDirectory ?? await getTemporaryDirectory();
     final rollback = File(
       p.join(
         dir.path,
@@ -173,17 +198,22 @@ class BackupService {
 
       // فتح قاعدة النسخة فعليًا قبل إعلان النجاح.
       await accounting.database.db;
-      final installedCheck = await validateDatabaseFile(dbPath, expectedSystemType: expectedSystemType);
+      await accounting.database.query('PRAGMA wal_checkpoint(TRUNCATE)');
+      await accounting.database.close();
+      // افحص الملف وهو مغلق؛ فتحه للقراءة فقط ثم إغلاقه أثناء بقاء اتصال
+      // التطبيق مفتوحًا قد يغلق مقبض SQLite الذي يحتفظ به AppDatabase.
+      final installedCheck = await validateDatabaseFile(dbPath, expectedSystemType: restoredSystemType);
       if (installedCheck['valid'] != true) {
         throw StateError('${installedCheck['error'] ?? 'النسخة المستعادة غير صالحة'}');
       }
+      await accounting.database.db;
       await accounting.database.insert('backup_records', {
         'path': source,
         'created_at': DateTime.now().toIso8601String(),
         'status': 'restored',
-        'notes': 'تم استعادة قاعدة SQLite والتحقق منها بعد إعادة فتح الاتصال',
+        'notes': 'تم استعادة قاعدة SQLite والتحقق منها؛ نوع المنظومة: $restoredSystemType',
       });
-      return {'restored': true, 'path': source};
+      return {'restored': true, 'path': source, 'system_type': restoredSystemType};
     } catch (e) {
       try {
         await accounting.database.close();
