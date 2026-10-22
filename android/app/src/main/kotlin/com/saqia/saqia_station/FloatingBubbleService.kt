@@ -34,10 +34,11 @@ class FloatingBubbleService : Service() {
             return
         }
         addBubble()
-        isRunning = true
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
+    // Keep the user-enabled bubble alive when the app task is dismissed.
+    // Android may still stop it under force-stop or system restrictions.
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     private fun makeNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -127,7 +128,9 @@ class FloatingBubbleService : Service() {
         try {
             manager.addView(view, p)
             bubble = view
+            isRunning = true
         } catch (_: Exception) {
+            isRunning = false
             stopSelf()
         }
     }
