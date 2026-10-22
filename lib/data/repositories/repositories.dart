@@ -1707,7 +1707,7 @@ class StationRepository {
         );
       case 'income':
         return _systemReportWithOverall(
-          "SELECT system_type,COUNT(*) operations,SUM(water_amount) water_income,SUM(diesel_amount) diesel_income,SUM(total_amount) total FROM irrigations WHERE $iw GROUP BY system_type",
+          "SELECT i.system_type,COUNT(*) operations,SUM(i.water_amount) water_income,SUM(i.diesel_amount) diesel_income,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY i.system_type",
           args,
         );
       case 'payment_methods':
@@ -1805,7 +1805,7 @@ class StationRepository {
         }
       case 'activity_overview':
         return _systemReportWithOverall(
-          "SELECT system_type,COUNT(*) operations,SUM(minutes) minutes,SUM(total_amount) total FROM irrigations WHERE $iw GROUP BY system_type",
+          "SELECT i.system_type,COUNT(*) operations,SUM(i.minutes) minutes,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY i.system_type",
           args,
         );
       case 'oil_status':
@@ -1820,12 +1820,12 @@ class StationRepository {
         return beneficiaries();
       case 'revenue_comparison':
         return db.rawQuery(
-          "SELECT substr(date,1,7) month,system_type,SUM(total_amount) total FROM irrigations WHERE $iw GROUP BY month,system_type ORDER BY month",
+          "SELECT substr(i.date,1,7) AS month,i.system_type,SUM(i.total_amount) AS total FROM irrigations i WHERE $iw GROUP BY substr(i.date,1,7),i.system_type ORDER BY month,i.system_type",
           args,
         );
       case 'system_comparison':
         return _systemReportWithOverall(
-          "SELECT system_type,COUNT(*) operations,SUM(minutes) minutes,SUM(total_amount) total,SUM(diesel_amount) diesel_cost FROM irrigations WHERE $iw GROUP BY system_type",
+          "SELECT i.system_type,COUNT(*) operations,SUM(i.minutes) minutes,SUM(i.total_amount) total,SUM(i.diesel_amount) diesel_cost FROM irrigations i WHERE $iw GROUP BY i.system_type",
           args,
         );
       case 'journal':
