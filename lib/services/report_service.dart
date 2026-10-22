@@ -539,10 +539,13 @@ class ReportService {
       'partner_accounts',
       'debts',
     }.contains(key);
+    final balanceMovements = rows.where((row) =>
+      !const ['opening_balance', 'carried_balance'].contains(row['type'])
+    ).toList();
     final netSummary = isBalanceReport &&
-            rows.isNotEmpty &&
-            rows.last.containsKey('balance')
-        ? _reportNetSummary(rows.last)
+            balanceMovements.isNotEmpty &&
+            balanceMovements.last.containsKey('balance')
+        ? _reportNetSummary(balanceMovements.last)
         : null;
     return pw.Container(
       margin: const pw.EdgeInsets.only(top: 10),
