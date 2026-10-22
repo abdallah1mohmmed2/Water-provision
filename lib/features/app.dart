@@ -787,6 +787,18 @@ class _ShellState extends State<AdminShell> {
             ),
           ),
         ),
+        bottomNavigationBar: _NeonBottomBar(
+          currentIndex: index,
+          isManager: role == AppRole.manager,
+          canFinance: visible.contains(8),
+          onSelect: (target) {
+            if (target == -1) {
+              Scaffold.of(context).openDrawer();
+            } else {
+              go(target);
+            }
+          },
+        ),
         body: Stack(
           children: [
             Positioned.fill(
@@ -853,7 +865,7 @@ class _ShellState extends State<AdminShell> {
   ][i];
   Widget _page(int i, {Key? key}) {
     final w = switch (i) {
-      0 => DashboardPage(repo, onOpen: go),
+      0 => DashboardPage(repo, onOpen: go, availableMenu: visible.toList()),
       1 => BeneficiariesPage(
         repo,
         key: _beneficiariesKey,
@@ -898,9 +910,186 @@ class _ShellState extends State<AdminShell> {
       ),
       17 => BackupPage(repo),
       18 => PerformancePage(repo),
-      _ => DashboardPage(repo, onOpen: go),
+      _ => DashboardPage(repo, onOpen: go, availableMenu: visible.toList()),
     };
     return KeyedSubtree(key: key, child: w);
+  }
+}
+
+class _DashboardCircularMenu extends StatefulWidget {
+  final List<int> availableMenu;
+  final ValueChanged<int> onOpen;
+  const _DashboardCircularMenu({required this.availableMenu, required this.onOpen});
+
+  @override
+  State<_DashboardCircularMenu> createState() => _DashboardCircularMenuState();
+}
+
+class _DashboardCircularMenuState extends State<_DashboardCircularMenu>
+    with SingleTickerProviderStateMixin {
+  double rotation = -math.pi / 2;
+  late final AnimationController controller = AnimationController(
+    vsync: this, duration: const Duration(milliseconds: 450), value: 1,
+  );
+  late final Animation<double> scale = CurvedAnimation(parent: controller, curve: Curves.easeOutBack);
+  static const _items = <(int, String, IconData, Color)>[
+    (5, 'الطابور والحجوزات', Icons.format_list_numbered_rounded, Color(0xFF00E5FF)),
+    (1, 'المستفيدون', Icons.people_alt_rounded, Color(0xFF39FFB6)),
+    (10, 'العمال', Icons.engineering_rounded, Color(0xFF00E5FF)),
+    (11, 'الشركاء', Icons.handshake_rounded, Color(0xFF39FFB6)),
+    (2, 'سقاية جديدة', Icons.water_drop_rounded, Color(0xFF00E5FF)),
+    (7, 'المدفوعات', Icons.payments_rounded, Color(0xFF39FFB6)),
+    (9, 'المصروفات', Icons.receipt_long_rounded, Color(0xFF00E5FF)),
+  ];
+
+  @override
+  void dispose() { controller.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _items.where((item) => widget.availableMenu.contains(item.$1)).toList();
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF08111F),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: .30)),
+        boxShadow: [
+          BoxShadow(color: const Color(0xFF00E5FF).withValues(alpha: .08), blurRadius: 26, spreadRadius: 1),
+          BoxShadow(color: const Color(0xFF39FFB6).withValues(alpha: .05), blurRadius: 38),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(children: [
+            const Icon(Icons.bolt_rounded, color: Color(0xFF39FFB6)),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('العمليات السريعة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17))),
+            Text('اسحب لتدويرها', style: TextStyle(color: Colors.white.withValues(alpha: .55), fontSize: 10)),
+          ]),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 286,
+            child: GestureDetector(
+              onPanUpdate: (details) => setState(() => rotation += details.delta.dx / 150),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 222, height: 222,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF0D1B2B),
+                      border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: .55), width: 1.4),
+                      boxShadow: [BoxShadow(color: const Color(0xFF00E5FF).withValues(alpha: .12), blurRadius: 24, spreadRadius: 2)],
+                    ),
+                  ),
+                  ...List.generate(items.length, (i) {
+                    final item = items[i];
+                    final angle = rotation + 2 * math.pi * i / items.length;
+                    final dx = 104 * math.cos(angle);
+                    final dy = 104 * math.sin(angle);
+                    return Transform.translate(
+                      offset: Offset(dx, dy),
+                      child: ScaleTransition(
+                        scale: scale,
+                        child: Transform.rotate(
+                          angle: -rotation,
+                          child: SizedBox(
+                            width: 78, height: 78,
+                            child: Material(
+                              color: const Color(0xFF111F30),
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: () => widget.onOpen(item.$1),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: item.$4.withValues(alpha: .78)),
+                                    boxShadow: [BoxShadow(color: item.$4.withValues(alpha: .14), blurRadius: 14)],
+                                  ),
+                                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                    Icon(item.$3, color: item.$4, size: 24),
+                                    const SizedBox(height: 4),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                                      child: Text(item.$2, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700)),
+                                    ),
+                                  ]),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  Container(
+                    width: 66, height: 66,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: const LinearGradient(colors: [Color(0xFF123047), Color(0xFF10251F)]),
+                      border: Border.all(color: const Color(0xFF39FFB6), width: 1.7),
+                      boxShadow: [BoxShadow(color: const Color(0xFF39FFB6).withValues(alpha: .2), blurRadius: 18)],
+                    ),
+                    child: const Icon(Icons.water_drop_rounded, color: Color(0xFF39FFB6), size: 30),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NeonBottomBar extends StatelessWidget {
+  final int currentIndex;
+  final bool isManager, canFinance;
+  final ValueChanged<int> onSelect;
+  const _NeonBottomBar({required this.currentIndex, required this.isManager, required this.canFinance, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    final destinations = <(int, String, IconData)>[
+      (0, 'الرئيسية', Icons.home_rounded),
+      if (isManager || canFinance) (14, 'التقارير', Icons.analytics_rounded),
+      if (canFinance) (8, 'المالية', Icons.account_balance_wallet_rounded),
+      if (isManager) (16, 'الإعدادات', Icons.settings_rounded),
+      (-1, 'المزيد', Icons.menu_rounded),
+    ];
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF08111F),
+        border: Border(top: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: .25))),
+        boxShadow: [BoxShadow(color: const Color(0xFF00E5FF).withValues(alpha: .07), blurRadius: 18, offset: const Offset(0, -4))],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            for (final item in destinations)
+              Expanded(
+                child: InkWell(
+                  onTap: () => onSelect(item.$1),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 2),
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(item.$3, color: currentIndex == item.$1 ? const Color(0xFF39FFB6) : const Color(0xFF8296AA), size: 22),
+                      const SizedBox(height: 3),
+                      Text(item.$2, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: currentIndex == item.$1 ? const Color(0xFF39FFB6) : const Color(0xFFB5C3D1), fontSize: 10, fontWeight: currentIndex == item.$1 ? FontWeight.w900 : FontWeight.w600)),
+                    ]),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1197,7 +1386,8 @@ class ErrorBox extends StatelessWidget {
 class DashboardPage extends StatefulWidget {
   final StationRepository r;
   final void Function(int) onOpen;
-  const DashboardPage(this.r, {required this.onOpen, super.key});
+  final List<int> availableMenu;
+  const DashboardPage(this.r, {required this.onOpen, this.availableMenu = const [1, 2, 3, 5, 7, 9, 10, 11, 8, 14, 16, 17], super.key});
   @override
   State<DashboardPage> createState() => _DashboardState();
 }
@@ -1304,6 +1494,12 @@ class _DashboardState extends State<DashboardPage> {
               )).toList(),
             ),
           ),
+          const SizedBox(height: 22),
+          _DashboardCircularMenu(
+            availableMenu: widget.availableMenu,
+            onOpen: widget.onOpen,
+          ),
+          const SizedBox(height: 22),
           const SizedBox(height: 6),
           Center(
             child: Text(
