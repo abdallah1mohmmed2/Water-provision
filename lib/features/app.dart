@@ -4021,10 +4021,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     bool keepSelected(Map<String, Object?> x, int? selected) =>
         x['id'] == selected;
     final filtered = beneficiaries
-        .where(
-          (x) =>
-              keepSelected(x, bid) || '${x['name'] ?? ''}'.contains(search),
-        )
+        .where((x) => '${x['name'] ?? ''}'.contains(search.trim()))
         .toList();
     final selectedHistory = history;
     return PageFrame(
@@ -4079,17 +4076,22 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                fieldSelect<int>(
-                  'المستفيد',
-                  bid,
-                  filtered.map((x) => DropdownMenuItem(
-                    value: x['id'] as int,
-                    child: Text('${x['name']}'),
-                  )).toList(),
-                  (v) {
-                    if (v != null) selectBeneficiary(v);
-                  },
-                ),
+                if (bid != null)
+                  Chip(
+                    avatar: const Icon(Icons.person),
+                    label: Text('المستفيد المحدد: ${beneficiaries.firstWhere((x) => x['id'] == bid, orElse: () => <String, Object?>{})['name'] ?? '-'}'),
+                  ),
+                if (search.trim().isNotEmpty)
+                  ...filtered.where((x) => x['id'] != bid).take(8).map((x) => ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.person_search),
+                    title: Text('${x['name']}'),
+                    onTap: () {
+                      searchController.clear();
+                      setState(() => search = '');
+                      selectBeneficiary(x['id'] as int);
+                    },
+                  )),
                 fieldSelect<int>(
                   'العامل المنفذ (اختياري)',
                   operatorWorkerId,
