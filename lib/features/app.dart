@@ -1363,11 +1363,18 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
   String paymentMovementFilter = 'all';
   DateTime? paymentFrom, paymentTo;
   List<Map<String, Object?>> paymentReceipts = [], paymentDisbursements = [];
+  final PageController _financialSummaryController = PageController(viewportFraction: .84);
 
   @override
   void initState() {
     super.initState();
     load();
+  }
+
+  @override
+  void dispose() {
+    _financialSummaryController.dispose();
+    super.dispose();
   }
 
   List<Map<String, Object?>> _paymentRows() {
@@ -2238,7 +2245,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                       physics: const PageScrollPhysics(),
                       padEnds: false,
                       itemCount: items.length,
-                      controller: PageController(viewportFraction: .84),
+                      controller: _financialSummaryController,
                       itemBuilder: (_, index) => Padding(
                         padding: const EdgeInsetsDirectional.only(end: 10),
                         child: items[index],
