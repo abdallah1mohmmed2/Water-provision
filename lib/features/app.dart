@@ -1,4 +1,4 @@
-import '../core/app_clock.dart';
+import 'dart:math' as math;\nimport '../core/app_clock.dart';
 import '../core/app_prefs.dart';
 import '../core/period_ranges.dart';
 import 'dart:async';
@@ -732,9 +732,21 @@ class _ShellState extends State<AdminShell> {
             ),
           ),
         ),
-        body: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
-          child: _page(index, key: ValueKey(index)),
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: _page(index, key: ValueKey(index)),
+              ),
+            ),
+            QuickActionOrb(
+              onIrrigation: () => go(2),
+              onCash: () => go(7),
+              onQueue: () => go(5),
+              canCash: visible.contains(7),
+            ),
+          ],
         ),
       ),
     );
@@ -818,6 +830,157 @@ class _ShellState extends State<AdminShell> {
     };
     return KeyedSubtree(key: key, child: w);
   }
+}
+
+/// زر إجراءات سريع قابل للسحب، مع قائمة دائرية وحركة متدرجة حول الزر.
+class QuickActionOrb extends StatefulWidget {
+  final VoidCallback onIrrigation, onCash, onQueue;
+  final bool canCash;
+  const QuickActionOrb({
+    required this.onIrrigation,
+    required this.onCash,
+    required this.onQueue,
+    required this.canCash,
+    super.key,
+  });
+
+  @override
+  State<QuickActionOrb> createState() => _QuickActionOrbState();
+}
+
+class _QuickActionOrbState extends State<QuickActionOrb>
+    with SingleTickerProviderStateMixin {
+  Offset position = const Offset(18, 110);
+  bool expanded = false;
+  late final AnimationController controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+    reverseDuration: const Duration(milliseconds: 260),
+  );
+  late final Animation<double> progress = CurvedAnimation(
+    parent: controller,
+    curve: Curves.easeOutBack,
+    reverseCurve: Curves.easeInCubic,
+  );
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void toggle() {
+    setState(() => expanded = !expanded);
+    if (expanded) {
+      controller.forward();
+    } else {
+      controller.reverse();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final maxX = (constraints.maxWidth - 66).clamp(0.0, double.infinity);
+      final maxY = (constraints.maxHeight - 66).clamp(0.0, double.infinity);
+      position = Offset(position.dx.clamp(8.0, maxX), position.dy.clamp(8.0, maxY));
+      return AnimatedBuilder(
+        animation: progress,
+        builder: (context, _) => Stack(
+          children: [
+            if (expanded)
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: toggle,
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            for (final action in <({IconData icon, String label, Color color, VoidCallback run, double angle})>[
+              (icon: Icons.water_drop_rounded, label: 'سقاية جديدة', color: const Color(0xff10b981), run: widget.onIrrigation, angle: -2.35),
+              if (widget.canCash) (icon: Icons.account_balance_wallet_rounded, label: 'صرف وقبض', color: const Color(0xff0ea5e9), run: widget.onCash, angle: -3.93),
+              (icon: Icons.format_list_numbered_rounded, label: 'حجز دور', color: const Color(0xff8b5cf6), run: widget.onQueue, angle: -5.50),
+            ])
+              Positioned(
+                left: position.dx + 33 + (expanded ? 94 * progress.value * math.cos(action.angle) : 0) - 25,
+                top: position.dy + 33 + (expanded ? 94 * progress.value * math.sin(action.angle) : 0) - 25,
+                child: IgnorePointer(
+                  ignoring: !expanded || progress.value < 0.8,
+                  child: Opacity(
+                    opacity: progress.value.clamp(0.0, 1.0),
+                    child: Tooltip(
+                      message: action.label,
+                      child: Material(
+                        color: action.color,
+                        elevation: 9,
+                        shape: const CircleBorder(),
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: () {
+                            toggle();
+                            action.run();
+                          },
+                          child: SizedBox(
+                            width: 50,
+                            height: 50,
+                            child: Icon(action.icon, color: Colors.white, size: 24),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            Positioned(
+              left: position.dx,
+              top: position.dy,
+              child: GestureDetector(
+                onPanUpdate: (details) {
+                  setState(() {
+                    position = Offset(
+                      (position.dx + details.delta.dx).clamp(8.0, maxX),
+                      (position.dy + details.delta.dy).clamp(8.0, maxY),
+                    );
+                  });
+                },
+                child: Material(
+                  color: const Color(0xff172554),
+                  elevation: 12,
+                  shadowColor: const Color(0x6610b981),
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: toggle,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      width: 62,
+                      height: 62,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: expanded
+                              ? const [Color(0xff0ea5e9), Color(0xff6366f1)]
+                              : const [Color(0xff10b981), Color(0xff0ea5e9)],
+                        ),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.8), width: 2),
+                      ),
+                      child: AnimatedRotation(
+                        turns: expanded ? 0.125 : 0,
+                        duration: const Duration(milliseconds: 260),
+                        child: Icon(expanded ? Icons.close_rounded : Icons.add_rounded, color: Colors.white, size: 32),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }
 
 class PageFrame extends StatelessWidget {
