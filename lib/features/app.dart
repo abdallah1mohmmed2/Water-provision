@@ -4424,7 +4424,6 @@ int? parseClock(String raw) {
           .where((x) => query.isNotEmpty && '${x['name'] ?? ''}'.toLowerCase().contains(query))
           .map((x) => <String, Object?>{'type': 'partner', 'row': x}),
     ];
-    final selectedHistory = history;
     return PageFrame(
       title: 'سقاية جديدة • ${systemName(type)}',
       subtitle: 'عملية مخصصة للمنظومة الحالية مرتبطة بالحساب والقيد المحاسبي',
@@ -4435,37 +4434,90 @@ int? parseClock(String raw) {
             icon: const Icon(Icons.add),
             label: const Text('عملية جديدة'),
           ),
-        FilledButton.icon(
-          onPressed: loading || saved ? null : save,
-          icon: const Icon(Icons.save),
-          label: const Text('حفظ السقاية'),
-        ),
       ],
       child: ListView(
         children: [
-          Container(
-            margin: const EdgeInsets.only(bottom: 14),
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [_reportOliveDark, _reportOlive]),
-              borderRadius: BorderRadius.circular(24),
+          SectionCard(
+            title: '3. الدور وطريقة الوقت',
+            icon: Icons.alt_route_rounded,
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                if (!canLink)
+                  const Chip(
+                    avatar: Icon(Icons.info_outline),
+                    label: Text(
+                      'الربط بالدور والحجز والجلسة متاح عند اختيار مستفيد فقط',
+                    ),
+                  ),
+                Container(
+                  constraints: const BoxConstraints(
+                    minWidth: 280,
+                    maxWidth: 520,
+                  ),
+                  child: fieldSelect<int>(
+                    queueType == 'booking' ? 'الدور المحجوز' : 'الدور الحالي',
+                    queueType == 'booking' ? bookingId : queueId,
+                    [
+                      const DropdownMenuItem(
+                        value: null,
+                        child: Text('بدون ربط بالدور'),
+                      ),
+                      if (queueType == 'booking')
+                        for (final x in linkBookings)
+                          DropdownMenuItem(
+                            value: x['id'] as int,
+                            child: Text(
+                              'الدور • ${x['beneficiary_name']} • ${x['scheduled_start'] ?? 'الموعد غير محدد'}',
+                            ),
+                          )
+                      else
+                        for (final x in linkQueue)
+                          DropdownMenuItem(
+                            value: x['id'] as int,
+                            child: Text(
+                              'الدور ${x['position']} • ${x['beneficiary_name']}',
+                            ),
+                          ),
+                    ],
+                    (v) => setState(() {
+                      queueId = queueType == 'circular' ? v : null;
+                      bookingId = queueType == 'booking' ? v : null;
+                    }),
+                  ),
+                ),
+                fieldSelect<int>('جلسة سقي محفوظة', sessionId, [
+                  const DropdownMenuItem(value: null, child: Text('بدون جلسة')),
+                  for (final x in linkSessions)
+                    DropdownMenuItem(
+                      value: x['id'] as int,
+                      child: Text(
+                        '${statusName(x['status'])} • ${x['actual_start'] ?? x['planned_start'] ?? ''}',
+                      ),
+                    ),
+                ], (v) => setState(() => sessionId = v)),
+                SizedBox(
+                  width: 220,
+                  child: SwitchListTile(
+                    value: useSession,
+                    onChanged: canLink
+                        ? (v) => setState(() => useSession = v)
+                        : null,
+                    title: const Text('استخدام وقت جلسة السقي'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
             ),
-            child: Row(children: [
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('إعداد العملية', style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 11)),
-                const SizedBox(height: 5),
-                Text('سقاية ${systemName(type)}', style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 5),
-                Text(type == 'diesel' ? 'حساب المياه والوقود ورصيد الديزل' : type == 'solar' ? 'حساب السقي وفترات الغيم والمحاسبة الشمسية' : 'حساب السقي وفق إعدادات النوع الثالث', style: TextStyle(color: Colors.white.withValues(alpha: .82), fontSize: 10)),
-              ])),
-              Container(width: 52, height: 52, decoration: BoxDecoration(color: Colors.white.withValues(alpha: .14), borderRadius: BorderRadius.circular(17)), child: Icon(type == 'diesel' ? Icons.local_gas_station_rounded : type == 'solar' ? Icons.wb_sunny_rounded : Icons.bolt_rounded, color: Colors.white, size: 28)),
-            ]),
           ),
           SectionCard(
-            title: '1. البحث الموحد عن صاحب الحساب',
-            icon: Icons.person_search,
+            title: 'بيانات التشغيل',
+            icon: Icons.settings_input_component,
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+
                 TextField(
                   controller: searchController,
                   focusNode: searchFocusNode,
@@ -4520,49 +4572,11 @@ int? parseClock(String raw) {
                       },
                     );
                   }),
-                fieldSelect<int>(
-                  'العامل المنفذ (اختياري)',
-                  operatorWorkerId,
-                  workers.map((x) => DropdownMenuItem(
-                    value: x['id'] as int,
-                    child: Text('${x['name']} • ${x['pay_type'] == 'hourly' ? 'بالساعة' : x['pay_type'] == 'percentage' ? 'نسبة' : 'راتب شهري'}'),
-                  )).toList(),
-                  (v) => setState(() => operatorWorkerId = v),
-                ),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    Metric(
-                      'أول سقاية',
-                      selectedHistory.isEmpty
-                          ? 'لا توجد'
-                          : '${selectedHistory.last['date'] ?? '-'}',
-                      _blue,
-                    ),
-                    Metric(
-                      'عدد السقايات',
-                      '${selectedHistory.length}',
-                      _purple,
-                    ),
-                    if (partyType == 'beneficiary' && type == 'diesel')
-                      Metric(
-                        'رصيد ديزل المستفيد',
-                        '${beneficiaryDiesel.toStringAsFixed(2)} لتر',
-                        _cyan,
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          SectionCard(
-            title: '2. بيانات التشغيل',
-            icon: Icons.settings_input_component,
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
+
+                const Divider(height: 28),
+                const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت السقاية وفترات الغيم', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                const SizedBox(height: 10),
+
                 OutlinedButton.icon(
                   onPressed: () => pickDate(true),
                   icon: const Icon(Icons.event),
@@ -4651,173 +4665,28 @@ int? parseClock(String raw) {
                       ),
                     ),
                 ],
+
               ],
             ),
           ),
-          SectionCard(
-            title: '3. الدور وطريقة الوقت',
-            icon: Icons.alt_route_rounded,
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                if (!canLink)
-                  const Chip(
-                    avatar: Icon(Icons.info_outline),
-                    label: Text(
-                      'الربط بالدور والحجز والجلسة متاح عند اختيار مستفيد فقط',
-                    ),
-                  ),
-                Container(
-                  constraints: const BoxConstraints(
-                    minWidth: 280,
-                    maxWidth: 520,
-                  ),
-                  child: fieldSelect<int>(
-                    queueType == 'booking' ? 'الدور المحجوز' : 'الدور الحالي',
-                    queueType == 'booking' ? bookingId : queueId,
-                    [
-                      const DropdownMenuItem(
-                        value: null,
-                        child: Text('بدون ربط بالدور'),
-                      ),
-                      if (queueType == 'booking')
-                        for (final x in linkBookings)
-                          DropdownMenuItem(
-                            value: x['id'] as int,
-                            child: Text(
-                              'الدور • ${x['beneficiary_name']} • ${x['scheduled_start'] ?? 'الموعد غير محدد'}',
-                            ),
-                          )
-                      else
-                        for (final x in linkQueue)
-                          DropdownMenuItem(
-                            value: x['id'] as int,
-                            child: Text(
-                              'الدور ${x['position']} • ${x['beneficiary_name']}',
-                            ),
-                          ),
-                    ],
-                    (v) => setState(() {
-                      queueId = queueType == 'circular' ? v : null;
-                      bookingId = queueType == 'booking' ? v : null;
-                    }),
-                  ),
-                ),
-                fieldSelect<int>('جلسة سقي محفوظة', sessionId, [
-                  const DropdownMenuItem(value: null, child: Text('بدون جلسة')),
-                  for (final x in linkSessions)
-                    DropdownMenuItem(
-                      value: x['id'] as int,
-                      child: Text(
-                        '${statusName(x['status'])} • ${x['actual_start'] ?? x['planned_start'] ?? ''}',
-                      ),
-                    ),
-                ], (v) => setState(() => sessionId = v)),
-                SizedBox(
-                  width: 220,
-                  child: SwitchListTile(
-                    value: useSession,
-                    onChanged: canLink
-                        ? (v) => setState(() => useSession = v)
-                        : null,
-                    title: const Text('استخدام وقت جلسة السقي'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          SectionCard(
-            title: '4. السعر والخصومات والدفع',
-            icon: Icons.calculate,
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                if (type == 'diesel') ...[
-                  Metric('سعر المياه', money(waterRate), _blue),
-                  Metric('سعر الديزل', money(dieselPrice), _purple),
-                ],
-                if (type == 'solar') ...[
-                  Metric('السعر الشمسي', money(solarRate), _cyan),
-                ],
-                if (type == 'equivalent_hybrid') ...[
-                  Metric('سعر النوع الثالث', money(thirdRate), _cyan),
-                ],
-                if (partyType == 'beneficiary')
-                  SizedBox(
-                    width: 230,
-                    child: TextField(
-                      controller: paid,
-                      onChanged: (_) => setState(() {}),
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'المدفوع الآن',
-                        hintText: 'بالريال',
-                      ),
-                    ),
-                  )
-                else
-                  const Chip(
-                    avatar: Icon(Icons.info_outline),
-                    label: Text(
-                      'الدفعة المرافقة للمستفيد فقط؛ يُسدَّد حساب العامل أو الشريك من شاشة المدفوعات',
-                    ),
-                  ),
-                if (partyType == 'beneficiary' &&
-                    (int.tryParse(paid.text) ?? 0) > 0 &&
-                    methods.isNotEmpty)
-                  SizedBox(
-                    width: 230,
-                    child: DropdownButtonFormField<int>(
-                      value: payMethod,
-                      items: [
-                        for (final x in methods)
-                          DropdownMenuItem(
-                            value: x['id'] as int,
-                            child: Text('${x['name']}'),
-                          ),
-                      ],
-                      onChanged: (v) => setState(() => payMethod = v),
-                      decoration: const InputDecoration(
-                        labelText: 'طريقة الدفع',
-                      ),
-                    ),
-                  ),
-                if (widget.manager || !overrideManagerOnly)
-                  SizedBox(
-                    width: 240,
-                    child: Column(
-                      children: [
-                        CheckboxListTile(
-                          value: managerOverride,
-                          onChanged: (v) =>
-                              setState(() => managerOverride = v ?? false),
-                          title: const Text('تجاوز مدة الانتظار'),
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        if (managerOverride)
-                          TextField(
-                            controller: reason,
-                            decoration: const InputDecoration(
-                              labelText: 'سبب التجاوز *',
-                              hintText: 'السبب مطلوب للتدقيق',
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-              ],
+          Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 16),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: loading || saved ? null : save,
+                icon: const Icon(Icons.save_rounded),
+                label: const Text('حفظ سقاية جديدة'),
+              ),
             ),
           ),
           SectionCard(
             title: '5. المعاينة قبل الحفظ',
             icon: Icons.receipt_long,
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
                 Metric(
                   'القابل للمحاسبة',
                   '${p['القابل للمحاسبة']} دقيقة',
@@ -4841,7 +4710,8 @@ int? parseClock(String raw) {
                       ? Colors.orange
                       : _green,
                 ),
-              ],
+                ],
+              ),
             ),
           ),
           if (saved)
@@ -4855,13 +4725,6 @@ int? parseClock(String raw) {
                 ),
               ),
             ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.lock_outline, color: _green),
-              title: const Text('تثبيت الأسعار'),
-              subtitle: const Text(
-                'تُحفظ أسعار العملية كنسخة تاريخية مستقلة، فلا تتغير حسابات السقاية عند تعديل الأسعار لاحقًا.',
-              ),
             ),
           ),
         ],
