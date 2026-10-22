@@ -4167,6 +4167,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       timeStep = 0;
       paid.text = '0';
       cloudPeriods.clear();
+      quickCloudMode = false;
+      cloudQuickController.clear();
       reason.clear();
       managerOverride = false;
       queueId = null;
