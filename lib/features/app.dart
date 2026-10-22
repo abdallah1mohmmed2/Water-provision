@@ -1,11 +1,6 @@
-import 'dart:math' as math;
-import '../core/app_clock.dart';
-import '../core/app_prefs.dart';
-import '../core/period_ranges.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/services.dart';
-
-const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -19,6 +14,8 @@ import '../services/backup_service.dart';
 import '../services/report_service.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
+
+const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
 
 const _blue = Color(0xff287bff),
     _cyan = Color(0xff00d7ff),
@@ -1150,7 +1147,6 @@ class _DashboardState extends State<DashboardPage> {
   void initState() {
     super.initState();
     load();
-    _loadBubbleState();
   }
 
   Widget card(String title, String value, IconData icon, Color color) =>
@@ -9673,6 +9669,7 @@ class _SettingsState extends State<SettingsPage> {
   void initState() {
     super.initState();
     load();
+    _loadBubbleState();
   }
 
   Future<void> edit(
