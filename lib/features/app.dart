@@ -3603,7 +3603,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         }
       }
       final previousBalance = partyType == 'beneficiary'
-          ? (await widget.r.accounting.beneficiaryBalance(bid))['balance'] ?? 0
+          ? (await widget.r.accounting.beneficiaryBalance(bid!))['balance'] ?? 0
           : 0;
       final irrigationId = await widget.r.accounting.recordIrrigation(
         stationId: stationId,
@@ -3652,7 +3652,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             [irrigationId],
           );
           final row = irrigationRows.isEmpty ? <String, Object?>{} : irrigationRows.first;
-          final currentBalance = (await widget.r.accounting.beneficiaryBalance(bid))['balance'] ?? 0;
+          final currentBalance = (await widget.r.accounting.beneficiaryBalance(bid!))['balance'] ?? 0;
           String balanceText(int value) => value > 0
               ? 'عليه $value ريال'
               : value < 0
