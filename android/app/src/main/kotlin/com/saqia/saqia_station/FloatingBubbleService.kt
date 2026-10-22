@@ -37,6 +37,8 @@ class FloatingBubbleService : Service() {
         isRunning = true
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
+
     private fun makeNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel("saqia_floating_bubble", "فقاعة ساقية", NotificationManager.IMPORTANCE_LOW)
