@@ -2175,6 +2175,26 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
         ? 'partner_accounts'
         : 'beneficiary_detailed';
     try {
+      // For beneficiary details, print the same statement rows already loaded
+      // for this screen, keeping opening/carried balances visible with date filters.
+      final sourceRows = widget.kind == 'beneficiary'
+          ? history.reversed.where((row) {
+              if (const ['opening_balance', 'carried_balance'].contains(row['type'])) {
+                return true;
+              }
+              final rawDate = DateTime.tryParse('${row['date'] ?? ''}');
+              if (rawDate == null) return filterFrom == null && filterTo == null;
+              if (filterFrom != null &&
+                  rawDate.isBefore(DateTime(filterFrom!.year, filterFrom!.month, filterFrom!.day))) {
+                return false;
+              }
+              if (filterTo != null &&
+                  rawDate.isAfter(DateTime(filterTo!.year, filterTo!.month, filterTo!.day, 23, 59, 59))) {
+                return false;
+              }
+              return true;
+            }).toList()
+          : null;
       await ReportService(widget.r).printPdf(
         key,
         from: filterFrom,
@@ -2182,6 +2202,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
         beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
         workerId: widget.kind == 'worker' ? widget.id : null,
         partnerId: widget.kind == 'partner' ? widget.id : null,
+        sourceRows: sourceRows,
       );
     } catch (e) {
       if (mounted)
