@@ -3278,7 +3278,13 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       reason = TextEditingController();
   final searchController = TextEditingController();
   final searchFocusNode = FocusNode();
+  final startTimeController = TextEditingController();
+  final endTimeController = TextEditingController();
   final List<Map<String, DateTime>> cloudPeriods = [];
+  DateTime selectedDate = DateTime(AppClock.now().year, AppClock.now().month, AppClock.now().day);
+  String? startPeriod;
+  String? endPeriod;
+  int timeStep = 0;
   bool managerOverride = false,
       loading = true,
       saved = false,
@@ -3296,6 +3302,12 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   @override
   void initState() {
     super.initState();
+    final now = AppClock.now();
+    selectedDate = DateTime(now.year, now.month, now.day);
+    start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, now.hour, now.minute);
+    end = start.add(const Duration(hours: 1));
+    startTimeController.text = _hm12(start);
+    endTimeController.text = _hm12(end);
     load();
   }
 
@@ -3303,6 +3315,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   void dispose() {
     searchController.dispose();
     searchFocusNode.dispose();
+    startTimeController.dispose();
+    endTimeController.dispose();
     paid.dispose();
     reason.dispose();
     super.dispose();
@@ -3627,84 +3641,104 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   String _hm(DateTime d) =>
       '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 
+  String _hm12(DateTime d) {
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    return '${h.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+
+  int? _parseTimeMinutes(String raw) {
+    final match = RegExp(r'^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$').firstMatch(raw);
+    if (match == null) return null;
+    final h = int.tryParse(match.group(1)!);
+    final m = int.tryParse(match.group(2)!);
+    if (h == null || h < 1 || h > 12 || m == null || m < 0 || m > 59) return null;
+    return h * 60 + m;
+  }
+
+  int _to24Hour(int minutes, String period) => ((minutes ~/ 60) % 12) + (period == 'pm' ? 12 : 0);
+  String _oppositePeriod(String period) => period == 'am' ? 'pm' : 'am';
+
+  void _updateEndPeriodFromTime() {
+    final a = _parseTimeMinutes(startTimeController.text);
+    final b = _parseTimeMinutes(endTimeController.text);
+    if (a == null || b == null || startPeriod == null) return;
+    final startHour = (a ~/ 60) % 12;
+    final endHour = (b ~/ 60) % 12;
+    final crossesTwelve = (endHour == 0 && startHour != 0) || b < a;
+    endPeriod = crossesTwelve ? _oppositePeriod(startPeriod!) : startPeriod;
+  }
+
+  void _applyManualEndTime() {
+    final value = _parseTimeMinutes(endTimeController.text);
+    if (value == null || endPeriod == null) {
+      msg('أدخل وقت نهاية صحيحاً');
+      return;
+    }
+    _updateEndPeriodFromTime();
+    final hour = _to24Hour(value, endPeriod!);
+    final endClock = hour * 60 + value % 60;
+    final startClock = start.hour * 60 + start.minute;
+    final dayOffset = endClock <= startClock ? 1 : 0;
+    end = DateTime(selectedDate.year, selectedDate.month, selectedDate.day + dayOffset, hour, value % 60);
+    cloudPeriods.removeWhere((p) => p['start']!.isBefore(start) || p['end']!.isAfter(end));
+  }
+
+  void nextTimeStep() {
+    if (timeStep == 0) {
+      if (startPeriod == null) {
+        msg('اختر صباحاً أو مساءً لوقت البداية قبل المتابعة');
+        return;
+      }
+      final value = _parseTimeMinutes(startTimeController.text);
+      if (value == null) {
+        msg('أدخل وقت بداية صحيحاً مثل 08:30');
+        return;
+      }
+      final hour = _to24Hour(value, startPeriod!);
+      setState(() {
+        start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour, value % 60);
+        if (_parseTimeMinutes(endTimeController.text) == null) {
+          endTimeController.text = _hm12(start.add(const Duration(hours: 1)));
+        }
+        _updateEndPeriodFromTime();
+        final endValue = _parseTimeMinutes(endTimeController.text)!;
+        final endHour = _to24Hour(endValue, endPeriod!);
+        final endClock = endHour * 60 + endValue % 60;
+        end = DateTime(selectedDate.year, selectedDate.month, selectedDate.day + (endClock <= start.hour * 60 + start.minute ? 1 : 0), endHour, endValue % 60);
+        timeStep = 1;
+      });
+    } else if (timeStep == 1) {
+      final value = _parseTimeMinutes(endTimeController.text);
+      if (value == null) {
+        msg('أدخل وقت نهاية صحيحاً مثل 09:30');
+        return;
+      }
+      setState(() {
+        _applyManualEndTime();
+        if (minutes > 0) timeStep = 2;
+      });
+      if (minutes <= 0) msg('وقت النهاية يجب أن يكون بعد وقت البداية');
+    } else {
+      setState(() => timeStep = 0);
+    }
+  }
+
   Future<void> pickDate(bool isStart) async {
     final d = await showDatePicker(
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
-      initialDate: isStart ? start : end,
+      initialDate: selectedDate,
       locale: const Locale('ar'),
+      helpText: 'اختيار تاريخ السقاية',
     );
     if (d == null) return;
-    final tStart = TimeOfDay.fromDateTime(start);
-    final tEnd = TimeOfDay.fromDateTime(end);
-    final startDt = DateTime(
-      d.year,
-      d.month,
-      d.day,
-      tStart.hour,
-      tStart.minute,
-    );
-    // التاريخ الظاهر واحد للسقاية، لكن وقت النهاية قد يقع في اليوم التالي.
-    // نثبت ذلك في DateTime بدل محاولة استنتاجه لاحقاً من النص المعروض.
-    final crosses =
-        (tEnd.hour * 60 + tEnd.minute) <= (tStart.hour * 60 + tStart.minute);
-    final endDt = DateTime(
-      d.year,
-      d.month,
-      d.day + (crosses ? 1 : 0),
-      tEnd.hour,
-      tEnd.minute,
-    );
     setState(() {
-      start = startDt;
-      end = endDt;
+      selectedDate = DateTime(d.year, d.month, d.day);
+      start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, start.hour, start.minute);
+      final dayOffset = end.isAfter(start) ? 0 : 1;
+      end = DateTime(selectedDate.year, selectedDate.month, selectedDate.day + dayOffset, end.hour, end.minute);
       cloudPeriods.clear();
-    });
-  }
-
-  Future<void> pickTime(bool isStart) async {
-    final t = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(isStart ? start : end),
-      helpText: 'اختيار الوقت',
-    );
-    if (t == null) return;
-    setState(() {
-      if (isStart) {
-        final nextStart = DateTime(
-          start.year,
-          start.month,
-          start.day,
-          t.hour,
-          t.minute,
-        );
-        final endMinutes = end.hour * 60 + end.minute;
-        final startMinutes = t.hour * 60 + t.minute;
-        // إذا أصبح وقت النهاية مساوياً أو أسبق من البداية، فهو تلقائياً في اليوم التالي.
-        final nextEnd = DateTime(
-          start.year,
-          start.month,
-          start.day + (endMinutes <= startMinutes ? 1 : 0),
-          end.hour,
-          end.minute,
-        );
-        start = nextStart;
-        end = nextEnd;
-      } else {
-        final startMinutes = start.hour * 60 + start.minute;
-        final endMinutes = t.hour * 60 + t.minute;
-        end = DateTime(
-          start.year,
-          start.month,
-          start.day + (endMinutes <= startMinutes ? 1 : 0),
-          t.hour,
-          t.minute,
-        );
-      }
-      cloudPeriods.removeWhere(
-        (p) => p['start']!.isBefore(start) || p['end']!.isAfter(end),
-      );
     });
   }
 
@@ -3941,9 +3975,15 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     setState(() {
       search = '';
       saved = false;
-      // استمر من نهاية السقاية السابقة؛ وعند عدم وجود سلسلة ابدأ بالوقت الحالي.
-      start = nextStartFromPreviousEnd ?? AppClock.now();
+      // يبقى التاريخ المختار ثابتاً طوال بقاء شاشة السقاية مفتوحة.
+      final clock = nextStartFromPreviousEnd ?? AppClock.now();
+      start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, clock.hour, clock.minute);
       end = start.add(const Duration(hours: 1));
+      startTimeController.text = _hm12(start);
+      endTimeController.text = _hm12(end);
+      startPeriod = null;
+      endPeriod = null;
+      timeStep = 0;
       paid.text = '0';
       cloudPeriods.clear();
       reason.clear();
@@ -3977,9 +4017,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     final filtered = beneficiaries
         .where(
           (x) =>
-              keepSelected(x, bid) ||
-              '${x['name']} ${x['phone'] ?? ''} ${x['jerba_number'] ?? ''} ${x['location'] ?? ''}'
-                  .contains(search),
+              keepSelected(x, bid) || '${x['name'] ?? ''}'.contains(search),
         )
         .toList();
     final selectedHistory = history;
@@ -4024,127 +4062,37 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             icon: Icons.person_search,
             child: Column(
               children: [
-                DropdownButtonFormField<String>(
-                  value: partyType,
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'beneficiary',
-                      child: Text('مستفيد'),
-                    ),
-                    DropdownMenuItem(value: 'worker', child: Text('عامل')),
-                    DropdownMenuItem(value: 'partner', child: Text('شريك')),
-                  ],
-                  onChanged: (v) {
-                    setState(() {
-                      partyType = v!;
-                      workerId = null;
-                      if (partyType != 'beneficiary') operatorWorkerId = null;
-                      partnerId = null;
-                      history = [];
-                      partyBalance = 0;
-                      // الدفعة المرافقة للمستفيد فقط.
-                      paid.text = '0';
-                      _dropStaleLinks();
-                    });
-                    _reloadParty();
-                  },
-                  decoration: const InputDecoration(
-                    labelText: 'صاحب حساب السقاية',
-                  ),
-                ),
                 TextField(
                   controller: searchController,
                   focusNode: searchFocusNode,
                   onChanged: (v) => setState(() => search = v),
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search),
-                    labelText:
-                        'بحث سريع بالاسم أو الهاتف أو رقم الجربة أو الموقع',
+                    labelText: 'بحث باسم المستفيد فقط',
+                    hintText: 'اكتب اسم المستفيد',
                   ),
                 ),
                 const SizedBox(height: 10),
-                if (partyType == 'beneficiary')
-                  fieldSelect<int>(
-                    'المستفيد',
-                    bid,
-                    filtered
-                        .map(
-                          (x) => DropdownMenuItem(
-                            value: x['id'] as int,
-                            child: Text(
-                              '${x['name']} • ${x['jerba_number'] ?? 'بدون رقم جربة'}',
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    (v) {
-                      if (v != null) selectBeneficiary(v);
-                    },
-                  ),
-                if (partyType == 'worker')
-                  fieldSelect<int>(
-                    'العامل',
-                    workerId,
-                    workers
-                        .where(
-                          (x) =>
-                              keepSelected(x, workerId) ||
-                              '${x['name']} ${x['phone'] ?? ''}'.contains(
-                                search,
-                              ),
-                        )
-                        .map(
-                          (x) => DropdownMenuItem(
-                            value: x['id'] as int,
-                            child: Text('${x['name']}'),
-                          ),
-                        )
-                        .toList(),
-                    (v) {
-                      setState(() {
-                        workerId = v;
-                        partyBalance = 0;
-                      });
-                      _loadPartyBalance();
-                    },
-                  ),
-                if (partyType == 'beneficiary')
-                  fieldSelect<int>(
-                    'العامل المنفذ (اختياري)',
-                    operatorWorkerId,
-                    workers.map((x) => DropdownMenuItem(
-                      value: x['id'] as int,
-                      child: Text('${x['name']} • ${x['pay_type'] == 'hourly' ? 'بالساعة' : x['pay_type'] == 'percentage' ? 'نسبة' : 'راتب شهري'}'),
-                    )).toList(),
-                    (v) => setState(() => operatorWorkerId = v),
-                  ),
-                if (partyType == 'partner')
-                  fieldSelect<int>(
-                    'الشريك',
-                    partnerId,
-                    partners
-                        .where(
-                          (x) =>
-                              keepSelected(x, partnerId) ||
-                              '${x['name']} ${x['phone'] ?? ''}'.contains(
-                                search,
-                              ),
-                        )
-                        .map(
-                          (x) => DropdownMenuItem(
-                            value: x['id'] as int,
-                            child: Text('${x['name']}'),
-                          ),
-                        )
-                        .toList(),
-                    (v) {
-                      setState(() {
-                        partnerId = v;
-                        partyBalance = 0;
-                      });
-                      _loadPartyBalance();
-                    },
-                  ),
+                fieldSelect<int>(
+                  'المستفيد',
+                  bid,
+                  filtered.map((x) => DropdownMenuItem(
+                    value: x['id'] as int,
+                    child: Text('${x['name']}'),
+                  )).toList(),
+                  (v) {
+                    if (v != null) selectBeneficiary(v);
+                  },
+                ),
+                fieldSelect<int>(
+                  'العامل المنفذ (اختياري)',
+                  operatorWorkerId,
+                  workers.map((x) => DropdownMenuItem(
+                    value: x['id'] as int,
+                    child: Text('${x['name']} • ${x['pay_type'] == 'hourly' ? 'بالساعة' : x['pay_type'] == 'percentage' ? 'نسبة' : 'راتب شهري'}'),
+                  )).toList(),
+                  (v) => setState(() => operatorWorkerId = v),
+                ),
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
@@ -4179,20 +4127,46 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                DateButton('التاريخ', start, () => pickDate(true)),
-                DateButton('وقت البداية', start, () => pickTime(true)),
-                DateButton('وقت النهاية', end, () => pickTime(false)),
-                if (end.year != start.year ||
-                    end.month != start.month ||
-                    end.day != start.day)
-                  const Chip(
-                    avatar: Icon(Icons.nights_stay_outlined),
-                    label: Text('وقت النهاية في اليوم التالي'),
-                  ),
-                Chip(
-                  label: Text('المدة: $minutes دقيقة'),
-                  avatar: const Icon(Icons.timelapse),
+                OutlinedButton.icon(
+                  onPressed: () => pickDate(true),
+                  icon: const Icon(Icons.event),
+                  label: Text('تاريخ جديد: ${selectedDate.year}/${selectedDate.month.toString().padLeft(2, '0')}/${selectedDate.day.toString().padLeft(2, '0')}'),
                 ),
+                const SizedBox(height: 8),
+                if (timeStep == 0) ...[
+                  const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت البداية', style: TextStyle(fontWeight: FontWeight.w800))),
+                  SizedBox(width: 240, child: TextField(
+                    controller: startTimeController,
+                    keyboardType: TextInputType.datetime,
+                    decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '08:30'),
+                  )),
+                  Wrap(spacing: 8, children: [
+                    ChoiceChip(label: const Text('صباحاً'), selected: startPeriod == 'am', onSelected: (_) => setState(() { startPeriod = 'am'; _updateEndPeriodFromTime(); })),
+                    ChoiceChip(label: const Text('مساءً'), selected: startPeriod == 'pm', onSelected: (_) => setState(() { startPeriod = 'pm'; _updateEndPeriodFromTime(); })),
+                  ]),
+                ] else if (timeStep == 1) ...[
+                  const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت النهاية', style: TextStyle(fontWeight: FontWeight.w800))),
+                  SizedBox(width: 240, child: TextField(
+                    controller: endTimeController,
+                    keyboardType: TextInputType.datetime,
+                    decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '09:30'),
+                    onChanged: (_) => setState(_updateEndPeriodFromTime),
+                  )),
+                  Chip(avatar: const Icon(Icons.schedule), label: Text('الفترة تلقائياً: ${endPeriod == 'am' ? 'صباحاً' : 'مساءً'}')),
+                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.arrow_back), label: const Text('تعديل وقت البداية')),
+                ] else ...[
+                  Text('البداية: ${_hm12(start)} ${start.hour < 12 ? 'صباحاً' : 'مساءً'}'),
+                  Text('النهاية: ${_hm12(end)} ${end.hour < 12 ? 'صباحاً' : 'مساءً'}'),
+                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.edit), label: const Text('تعديل الوقت')),
+                ],
+                FilledButton.icon(
+                  onPressed: nextTimeStep,
+                  icon: Icon(timeStep == 2 ? Icons.edit : Icons.arrow_forward),
+                  label: Text(timeStep == 0 ? 'التالي إلى وقت النهاية' : timeStep == 1 ? 'تأكيد الوقت' : 'تعديل الوقت'),
+                ),
+                if (end.year != start.year || end.month != start.month || end.day != start.day)
+                  const Chip(avatar: Icon(Icons.nights_stay_outlined), label: Text('وقت النهاية في اليوم التالي')),
+                Chip(label: Text('المدة: $minutes دقيقة'), avatar: const Icon(Icons.timelapse)),
                 if (type == 'solar') ...[
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
