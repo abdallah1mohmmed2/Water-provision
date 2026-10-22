@@ -237,7 +237,6 @@ class ReportService {
               headers: headers,
               data: data,
               headerCount: 1,
-              tableDirection: pw.TextDirection.rtl,
               headerDecoration: pw.BoxDecoration(
                 color: PdfColor.fromHex('#123A4A'),
               ),
