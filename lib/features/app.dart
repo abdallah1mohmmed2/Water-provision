@@ -3701,23 +3701,23 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                       ),
                     )
                   else ...[
-                    TextField(
-                      controller: startController,
-                      keyboardType: TextInputType.datetime,
-                      decoration: const InputDecoration(
-                        labelText: 'بداية الغيم (ساعة:دقيقة)',
-                        hintText: '13:10',
-                      ),
-                    ),
+                    Row(children: [
+                      Expanded(child: TextField(controller: startController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'بداية الغيم (ساعة:دقيقة)', hintText: '13:10'))),
+                      IconButton(tooltip: 'لاقط وقت هجين لبداية الغيم', icon: const Icon(Icons.schedule), onPressed: () async {
+                        final initial = parseCloudTime(startController.text) ?? start;
+                        final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار بداية الغيم', use24Hour: true);
+                        if (selected != null) { startController.text = '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}'; dialogSetState(() {}); }
+                      }),
+                    ]),
                     const SizedBox(height: 10),
-                    TextField(
-                      controller: endController,
-                      keyboardType: TextInputType.datetime,
-                      decoration: const InputDecoration(
-                        labelText: 'نهاية الغيم (ساعة:دقيقة)',
-                        hintText: '13:20',
-                      ),
-                    ),
+                    Row(children: [
+                      Expanded(child: TextField(controller: endController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'نهاية الغيم (ساعة:دقيقة)', hintText: '13:20'))),
+                      IconButton(tooltip: 'لاقط وقت هجين لنهاية الغيم', icon: const Icon(Icons.schedule), onPressed: () async {
+                        final initial = parseCloudTime(endController.text) ?? start.add(const Duration(minutes: 15));
+                        final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار نهاية الغيم', use24Hour: true);
+                        if (selected != null) { endController.text = '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}'; dialogSetState(() {}); }
+                      }),
+                    ]),
                     const SizedBox(height: 6),
                     const Text(
                       'استخدم صيغة 24 ساعة، مثل 13:10 إلى 13:20.',
@@ -3752,7 +3752,15 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                   });
                   return;
                 }
-                int? parseClock(String raw) {
+                DateTime? parseCloudTime(String raw) {
+                   final match = RegExp(r'^\s*(\d{1,2})\s*:\s*(\d{1,2})\s*$').firstMatch(raw.trim());
+                   if (match == null) return null;
+                   final h = int.tryParse(match.group(1)!);
+                   final m = int.tryParse(match.group(2)!);
+                   if (h == null || h < 0 || h > 23 || m == null || m < 0 || m > 59) return null;
+                   return DateTime(start.year, start.month, start.day, h, m);
+                 }
+                 int? parseClock(String raw) {
                   final match = RegExp(
                     r'^\s*(\d{1,2})\s*:\s*(\d{1,2})\s*$',
                   ).firstMatch(raw.trim());
@@ -3840,6 +3848,87 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       }
       cloudPeriods.sort((a, b) => a['start']!.compareTo(b['start']!));
     });
+  }
+
+  Future<TimeOfDay?> _showHybridTimePicker({required DateTime initial, required String title, bool use24Hour = false}) async {
+    var hour = use24Hour ? initial.hour : (initial.hour % 12 == 0 ? 12 : initial.hour % 12);
+    var minute = initial.minute;
+    var period = initial.hour < 12 ? 'am' : 'pm';
+    var inputMode = false;
+    final hc = TextEditingController(text: hour.toString().padLeft(2, '0'));
+    final mc = TextEditingController(text: minute.toString().padLeft(2, '0'));
+    final hw = FixedExtentScrollController(initialItem: hour - (use24Hour ? 0 : 1));
+    final mw = FixedExtentScrollController(initialItem: minute);
+    final result = await showDialog<TimeOfDay>(context: context, builder: (dc) =>
+      StatefulBuilder(builder: (context, ds) => AlertDialog(
+        title: Text(title),
+        content: SizedBox(width: 340, child: Column(mainAxisSize: MainAxisSize.min, children: [
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('التدوير'), icon: Icon(Icons.swap_vert)),
+              ButtonSegment(value: true, label: Text('الكتابة'), icon: Icon(Icons.keyboard)),
+            ],
+            selected: {inputMode},
+            onSelectionChanged: (s) => ds(() {
+              inputMode = s.first;
+              hc.text = hour.toString().padLeft(2, '0');
+              mc.text = minute.toString().padLeft(2, '0');
+            }),
+          ),
+          const SizedBox(height: 12),
+          if (inputMode)
+            Row(children: [
+              Expanded(child: TextField(controller: hc, keyboardType: TextInputType.number, textAlign: TextAlign.center, maxLength: 2, decoration: const InputDecoration(labelText: 'الساعة', counterText: ''))),
+              const Text(':', style: TextStyle(fontSize: 24)),
+              Expanded(child: TextField(controller: mc, keyboardType: TextInputType.number, textAlign: TextAlign.center, maxLength: 2, decoration: const InputDecoration(labelText: 'الدقيقة', counterText: ''))),
+            ])
+          else
+            SizedBox(height: 145, child: Row(children: [
+              Expanded(child: Column(children: [
+                const Text('الساعة'),
+                Expanded(child: ListWheelScrollView.useDelegate(controller: hw, itemExtent: 40, physics: const FixedExtentScrollPhysics(),
+                  onSelectedItemChanged: (i) => ds(() { hour = i + (use24Hour ? 0 : 1); hc.text = hour.toString().padLeft(2, '0'); }),
+                  childDelegate: ListWheelChildBuilderDelegate(childCount: use24Hour ? 24 : 12,
+                    builder: (context, i) { final v = i + (use24Hour ? 0 : 1); return Center(child: Text(v.toString().padLeft(2, '0'), style: TextStyle(fontSize: v == hour ? 24 : 18, fontWeight: v == hour ? FontWeight.bold : FontWeight.normal))); }),
+                )),
+              ])),
+              const Text(':', style: TextStyle(fontSize: 24)),
+              Expanded(child: Column(children: [
+                const Text('الدقيقة'),
+                Expanded(child: ListWheelScrollView.useDelegate(controller: mw, itemExtent: 40, physics: const FixedExtentScrollPhysics(),
+                  onSelectedItemChanged: (v) => ds(() { minute = v; mc.text = minute.toString().padLeft(2, '0'); }),
+                  childDelegate: ListWheelChildBuilderDelegate(childCount: 60,
+                    builder: (context, v) => Center(child: Text(v.toString().padLeft(2, '0'), style: TextStyle(fontSize: v == minute ? 24 : 18, fontWeight: v == minute ? FontWeight.bold : FontWeight.normal))),
+                )),
+              ])),
+            ])),
+          if (!use24Hour) ...[
+            const SizedBox(height: 10),
+            Wrap(spacing: 8, children: [
+              ChoiceChip(label: const Text('صباحاً'), selected: period == 'am', onSelected: (_) => ds(() => period = 'am')),
+              ChoiceChip(label: const Text('مساءً'), selected: period == 'pm', onSelected: (_) => ds(() => period = 'pm')),
+            ]),
+            const Text('اختر صباحاً أو مساءً ثم أكد الوقت.', style: TextStyle(fontSize: 12)),
+          ],
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dc), child: const Text('إلغاء')),
+          FilledButton.icon(onPressed: () {
+            if (inputMode) {
+              final ih = int.tryParse(hc.text.trim()), im = int.tryParse(mc.text.trim());
+              if (ih == null || ih < (use24Hour ? 0 : 1) || ih > (use24Hour ? 23 : 12) || im == null || im < 0 || im > 59) {
+                ScaffoldMessenger.of(dc).showSnackBar(SnackBar(content: Text(use24Hour ? 'أدخل ساعة 00–23 ودقيقة 00–59' : 'أدخل ساعة 01–12 ودقيقة 00–59')));
+                return;
+              }
+              hour = ih; minute = im;
+            }
+            Navigator.pop(dc, TimeOfDay(hour: use24Hour ? hour : (hour % 12) + (period == 'pm' ? 12 : 0), minute: minute));
+          }, icon: const Icon(Icons.check), label: const Text('تأكيد الوقت')),
+        ],
+      )),
+    );
+    hc.dispose(); mc.dispose(); hw.dispose(); mw.dispose();
+    return result;
   }
 
   String _hm(DateTime d) =>
@@ -4391,23 +4480,36 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                 const SizedBox(height: 8),
                 if (timeStep == 0) ...[
                   const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت البداية', style: TextStyle(fontWeight: FontWeight.w800))),
-                  SizedBox(width: 240, child: TextField(
-                    controller: startTimeController,
-                    keyboardType: TextInputType.datetime,
-                    decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '08:30'),
-                  )),
+                  Row(children: [
+                    SizedBox(width: 240, child: TextField(controller: startTimeController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '08:30'))),
+                    IconButton(tooltip: 'لاقط وقت هجين للبداية', icon: const Icon(Icons.schedule), onPressed: () async {
+                      final value = _parseTimeMinutes(startTimeController.text);
+                      final hour24 = value == null ? start.hour : _to24Hour(value, startPeriod ?? (start.hour < 12 ? 'am' : 'pm'));
+                      final picked = await _showHybridTimePicker(initial: DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour24, value == null ? start.minute : value % 60), title: 'اختيار وقت البداية');
+                      if (picked != null) setState(() {
+                        startTimeController.text = '${(picked.hour % 12 == 0 ? 12 : picked.hour % 12).toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                        startPeriod = picked.hour < 12 ? 'am' : 'pm'; _updateEndPeriodFromTime();
+                      });
+                    }),
+                  ]),
                   Wrap(spacing: 8, children: [
                     ChoiceChip(label: const Text('صباحاً'), selected: startPeriod == 'am', onSelected: (_) => setState(() { startPeriod = 'am'; _updateEndPeriodFromTime(); })),
                     ChoiceChip(label: const Text('مساءً'), selected: startPeriod == 'pm', onSelected: (_) => setState(() { startPeriod = 'pm'; _updateEndPeriodFromTime(); })),
                   ]),
                 ] else if (timeStep == 1) ...[
                   const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت النهاية', style: TextStyle(fontWeight: FontWeight.w800))),
-                  SizedBox(width: 240, child: TextField(
-                    controller: endTimeController,
-                    keyboardType: TextInputType.datetime,
-                    decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '09:30'),
-                    onChanged: (_) => setState(_updateEndPeriodFromTime),
-                  )),
+                  Row(children: [
+                    SizedBox(width: 240, child: TextField(controller: endTimeController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '09:30'), onChanged: (_) => setState(_updateEndPeriodFromTime))),
+                    IconButton(tooltip: 'لاقط وقت هجين للنهاية', icon: const Icon(Icons.schedule), onPressed: () async {
+                      final value = _parseTimeMinutes(endTimeController.text);
+                      final hour24 = value == null ? end.hour : _to24Hour(value, endPeriod ?? (end.hour < 12 ? 'am' : 'pm'));
+                      final picked = await _showHybridTimePicker(initial: DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour24, value == null ? end.minute : value % 60), title: 'اختيار وقت النهاية');
+                      if (picked != null) setState(() {
+                        endTimeController.text = '${(picked.hour % 12 == 0 ? 12 : picked.hour % 12).toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                        _updateEndPeriodFromTime();
+                      });
+                    }),
+                  ]),
                   Chip(avatar: const Icon(Icons.schedule), label: Text('الفترة تلقائياً: ${endPeriod == 'am' ? 'صباحاً' : 'مساءً'}')),
                   TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.arrow_back), label: const Text('تعديل وقت البداية')),
                 ] else ...[
