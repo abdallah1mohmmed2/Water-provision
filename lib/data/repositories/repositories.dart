@@ -641,6 +641,8 @@ class StationRepository {
       [pumpId],
     )).first;
     final set = await settings();
+    final beneficiaryId = s['beneficiary_id'] as int;
+    final previousBalance = (await accounting.beneficiaryBalance(beneficiaryId))['balance'] ?? 0;
     final id = await accounting.recordIrrigation(
       stationId: p['station_id'] as int,
       pumpId: pumpId,
@@ -661,6 +663,61 @@ class StationRepository {
       sessionId: sessionId,
       userId: userId,
     );
+
+    // أرسل إشعارًا ماليًا كاملًا بعد نجاح حفظ السقاية وتحديث الأستاذ.
+    try {
+      final irrigationRows = await db.rawQuery(
+        'SELECT i.*,b.name beneficiary_name,p.name pump_name FROM irrigations i '
+        'LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id '
+        'LEFT JOIN pumps p ON p.id=i.pump_id WHERE i.id=?',
+        [id],
+      );
+      final row = irrigationRows.isEmpty ? <String, Object?>{} : irrigationRows.first;
+      final currentBalance = (await accounting.beneficiaryBalance(beneficiaryId))['balance'] ?? 0;
+      String balanceText(int value) => value > 0
+          ? 'عليه $value ريال'
+          : value < 0
+              ? 'له ${value.abs()} ريال'
+              : 'متوازن (0 ريال)';
+      String timeText(Object? value) {
+        final raw = '${value ?? ''}'.replaceFirst('T', ' ');
+        return raw.length >= 16 ? raw.substring(0, 16) : raw;
+      }
+      final system = switch ('${row['system_type'] ?? set['system_type'] ?? ''}') {
+        'diesel' => 'ديزل',
+        'solar' => 'شمسي',
+        'equivalent_hybrid' => 'النوع الثالث',
+        _ => 'غير محدد',
+      };
+      final startText = timeText(row['start_datetime'] ?? s['actual_start']);
+      final endText = timeText(row['end_datetime'] ?? end.toIso8601String());
+      final minutes = (row['minutes'] as num?)?.round() ?? 0;
+      final cloud = (row['cloud_minutes'] as num?)?.round() ?? 0;
+      final water = (row['water_amount'] as num?)?.round() ?? 0;
+      final diesel = (row['diesel_amount'] as num?)?.round() ?? 0;
+      final total = (row['total_amount'] as num?)?.round() ?? 0;
+      final paid = (row['paid_amount'] as num?)?.round() ?? 0;
+      await notify(
+        beneficiaryId: beneficiaryId,
+        type: 'irrigation',
+        title: 'تفاصيل السقاية والرصيد',
+        body: [
+          'المستفيد: ${row['beneficiary_name'] ?? 'غير محدد'}',
+          'المضخة: ${row['pump_name'] ?? p['name'] ?? 'غير محددة'}',
+          'نوع المنظومة: $system',
+          'وقت السقاية: $startText إلى $endText',
+          'مدة السقاية: $minutes دقيقة (خصم الغيم: $cloud دقيقة)',
+          'قيمة المياه: $water ريال',
+          if (system == 'ديزل') 'قيمة الديزل المحتسبة: $diesel ريال',
+          'الرصيد السابق: ${balanceText(previousBalance)}',
+          'قيمة السقاية الحالية: $total ريال',
+          'المدفوع: $paid ريال',
+          'الرصيد بعد السقاية: ${balanceText(currentBalance)}',
+        ].join('\\n'),
+      );
+    } catch (_) {
+      // لا نُظهر فشل إيقاف السقاية بعد أن تكون العملية المالية قد حُفظت بالفعل.
+    }
     return id;
   }
 
