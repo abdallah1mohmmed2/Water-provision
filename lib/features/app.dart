@@ -506,6 +506,7 @@ class AdminShell extends StatefulWidget {
 
 class _ShellState extends State<AdminShell> {
   final repo = StationRepository();
+  final GlobalKey<ScaffoldState> _shellScaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey<_BeneficiariesState> _beneficiariesKey =
       GlobalKey<_BeneficiariesState>();
   final GlobalKey<_ExpensesState> _expensesKey = GlobalKey<_ExpensesState>();
@@ -654,6 +655,7 @@ class _ShellState extends State<AdminShell> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
+        key: _shellScaffoldKey,
         appBar: AppBar(
           title: Text(
             pages[index],
@@ -793,7 +795,7 @@ class _ShellState extends State<AdminShell> {
           canFinance: visible.contains(8),
           onSelect: (target) {
             if (target == -1) {
-              Scaffold.of(context).openDrawer();
+              _shellScaffoldKey.currentState?.openDrawer();
             } else {
               go(target);
             }
