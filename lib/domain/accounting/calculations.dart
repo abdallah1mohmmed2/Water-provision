@@ -252,8 +252,8 @@ class AccountingCalculations {
   static int partnerShareByMode({
     required String mode,
     required int distributable,
-    required int partnerShares,
-    required int totalShares,
+    required double partnerShares,
+    required double totalShares,
     required double percentage,
   }) {
     if (distributable < 0)
