@@ -3581,13 +3581,17 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         return false;
       }
     }
-    final total =
-        cloudMin -
-        (editingIndex == null
-            ? 0
-            : cloudPeriods[editingIndex]['end']!
-                  .difference(cloudPeriods[editingIndex]['start']!)
-                  .inMinutes) +
+    final existingTotal = cloudPeriods.fold<int>(
+      0,
+      (sum, period) =>
+          sum + period['end']!.difference(period['start']!).inMinutes,
+    );
+    final replacedTotal = editingIndex == null
+        ? 0
+        : cloudPeriods[editingIndex]['end']!
+            .difference(cloudPeriods[editingIndex]['start']!)
+            .inMinutes;
+    final total = existingTotal - replacedTotal +
         cloudEnd.difference(cloudStart).inMinutes;
     if (total > minutes) {
       msg('إجمالي خصم الغيم لا يمكن أن يتجاوز مدة السقاية');
@@ -3597,35 +3601,202 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   }
 
   Future<void> addCloudPeriod({int? editingIndex}) async {
-    if (type != 'solar' || quickCloudMode) return;
+    if (type != 'solar') return;
     final existing = editingIndex == null ? null : cloudPeriods[editingIndex];
     final initialStart = existing?['start'] ?? start;
     final initialEnd =
         existing?['end'] ?? start.add(const Duration(minutes: 15));
-    final ts = await showTimePicker(
+    final startController = TextEditingController(text: _hm(initialStart));
+    final endController = TextEditingController(text: _hm(initialEnd));
+    final quickController = TextEditingController(
+      text: quickCloudMode ? cloudQuickController.text : '',
+    );
+    var dialogQuickMode = quickCloudMode;
+    final result = await showDialog<Map<String, Object?>>(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(initialStart),
-      helpText: 'بداية الغيم',
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, dialogSetState) => AlertDialog(
+          title: const Text('إضافة غيم / حساب وقت التوقف'),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'اختر طريقة واحدة فقط لحساب خصم الغيم.',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      ChoiceChip(
+                        label: const Text('من البداية إلى النهاية'),
+                        selected: !dialogQuickMode,
+                        onSelected: (selected) {
+                          if (!selected) return;
+                          dialogSetState(() => dialogQuickMode = false);
+                        },
+                      ),
+                      ChoiceChip(
+                        label: const Text('الغيم السريع'),
+                        selected: dialogQuickMode,
+                        onSelected: (selected) {
+                          if (!selected) return;
+                          dialogSetState(() => dialogQuickMode = true);
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (dialogQuickMode)
+                    TextField(
+                      controller: quickController,
+                      autofocus: true,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: false,
+                        signed: false,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'الغيم السريع (بالدقائق)',
+                        hintText: 'مثال: 10',
+                        suffixText: 'دقيقة',
+                      ),
+                    )
+                  else ...[
+                    TextField(
+                      controller: startController,
+                      keyboardType: TextInputType.datetime,
+                      decoration: const InputDecoration(
+                        labelText: 'بداية الغيم (ساعة:دقيقة)',
+                        hintText: '13:10',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: endController,
+                      keyboardType: TextInputType.datetime,
+                      decoration: const InputDecoration(
+                        labelText: 'نهاية الغيم (ساعة:دقيقة)',
+                        hintText: '13:20',
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'استخدم صيغة 24 ساعة، مثل 13:10 إلى 13:20.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                if (dialogQuickMode) {
+                  final raw = quickController.text.trim();
+                  final value = int.tryParse(raw);
+                  if (raw.isEmpty || value == null || value < 0 || value > minutes) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(
+                        content: Text('أدخل دقائق صحيحة من 0 إلى $minutes'),
+                      ),
+                    );
+                    return;
+                  }
+                  Navigator.pop(dialogContext, {
+                    'mode': 'quick',
+                    'minutes': value,
+                  });
+                  return;
+                }
+                int? parseClock(String raw) {
+                  final match = RegExp(
+                    r'^\\s*(\\d{1,2})\\s*:\\s*(\\d{1,2})\\s*$',
+                  ).firstMatch(raw.trim());
+                  if (match == null) return null;
+                  final hour = int.tryParse(match.group(1)!);
+                  final minute = int.tryParse(match.group(2)!);
+                  if (hour == null || hour < 0 || hour > 23 ||
+                      minute == null || minute < 0 || minute > 59) {
+                    return null;
+                  }
+                  return hour * 60 + minute;
+                }
+                final a = parseClock(startController.text);
+                final b = parseClock(endController.text);
+                if (a == null || b == null || a == b) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('أدخل وقتي بداية ونهاية صحيحين ومختلفين'),
+                    ),
+                  );
+                  return;
+                }
+                final cs = DateTime(
+                  start.year, start.month, start.day, a ~/ 60, a % 60,
+                );
+                final ce = DateTime(
+                  start.year,
+                  start.month,
+                  start.day + (b <= a ? 1 : 0),
+                  b ~/ 60,
+                  b % 60,
+                );
+                final duration = ce.difference(cs).inMinutes;
+                if (duration <= 0 || duration > minutes) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(
+                      content: Text('مدة الغيم يجب ألا تتجاوز $minutes دقيقة'),
+                    ),
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext, {
+                  'mode': 'range',
+                  'start': cs,
+                  'end': ce,
+                });
+              },
+              icon: const Icon(Icons.check),
+              label: const Text('احتساب الغيم'),
+            ),
+          ],
+        ),
+      ),
     );
-    if (ts == null) return;
-    final te = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initialEnd),
-      helpText: 'نهاية الغيم',
-    );
-    if (te == null) return;
-    final startMinutes = ts.hour * 60 + ts.minute;
-    final endMinutes = te.hour * 60 + te.minute;
-    final cs = DateTime(start.year, start.month, start.day, ts.hour, ts.minute);
-    final ce = DateTime(
-      start.year,
-      start.month,
-      start.day + (endMinutes <= startMinutes ? 1 : 0),
-      te.hour,
-      te.minute,
-    );
+    startController.dispose();
+    endController.dispose();
+    quickController.dispose();
+    if (!mounted || result == null) return;
+
+    if (result['mode'] == 'quick') {
+      final value = result['minutes'] as int;
+      if (value > minutes) {
+        msg('دقائق الغيم لا يمكن أن تتجاوز مدة السقاية');
+        return;
+      }
+      setState(() {
+        quickCloudMode = true;
+        cloudPeriods.clear();
+        cloudQuickController.text = '$value';
+      });
+      return;
+    }
+
+    final cs = result['start'] as DateTime;
+    final ce = result['end'] as DateTime;
     if (!_cloudPeriodValid(cs, ce, editingIndex: editingIndex)) return;
     setState(() {
+      quickCloudMode = false;
+      cloudQuickController.clear();
       final item = {'start': cs, 'end': ce};
       if (editingIndex == null) {
         cloudPeriods.add(item);
@@ -4181,50 +4352,15 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                 Chip(label: Text('المدة: $minutes دقيقة'), avatar: const Icon(Icons.timelapse)),
                 if (type == 'solar') ...[
                   const SizedBox(width: 8),
-                  ChoiceChip(
-                    avatar: const Icon(Icons.schedule, size: 18),
-                    label: const Text('الغيم من - إلى'),
-                    selected: !quickCloudMode,
-                    onSelected: (selected) {
-                      if (!selected) return;
-                      setState(() {
-                        quickCloudMode = false;
-                        cloudQuickController.clear();
-                      });
-                    },
-                  ),
-                  ChoiceChip(
-                    avatar: const Icon(Icons.bolt, size: 18),
-                    label: const Text('الغيم السريع'),
-                    selected: quickCloudMode,
-                    onSelected: (selected) {
-                      if (!selected) return;
-                      setState(() {
-                        quickCloudMode = true;
-                        cloudPeriods.clear();
-                      });
-                    },
+                  OutlinedButton.icon(
+                    onPressed: minutes > 0 ? () => addCloudPeriod() : null,
+                    icon: const Icon(Icons.cloud_outlined),
+                    label: Text(quickCloudMode ? 'تعديل الغيم السريع' : 'إضافة غيم'),
                   ),
                   if (quickCloudMode)
-                    SizedBox(
-                      width: 230,
-                      child: TextField(
-                        controller: cloudQuickController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: false, signed: false),
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          labelText: 'الغيم السريع (بالدقائق)',
-                          hintText: 'مثال: 10',
-                          suffixText: 'دقيقة',
-                          prefixIcon: Icon(Icons.remove_circle_outline),
-                        ),
-                      ),
-                    ),
-                  if (!quickCloudMode)
-                    OutlinedButton.icon(
-                      onPressed: minutes > 0 ? () => addCloudPeriod() : null,
-                      icon: const Icon(Icons.cloud_outlined),
-                      label: const Text('إضافة فترة غيم'),
+                    Chip(
+                      avatar: const Icon(Icons.bolt, size: 18),
+                      label: Text('الغيم السريع: $cloudMin دقيقة'),
                     ),
                   if (!quickCloudMode && cloudPeriods.isNotEmpty)
                     ...cloudPeriods.asMap().entries.map((entry) {
