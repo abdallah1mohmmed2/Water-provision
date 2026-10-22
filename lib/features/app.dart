@@ -4,6 +4,8 @@ import '../core/app_prefs.dart';
 import '../core/period_ranges.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
+
+const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -1121,6 +1123,7 @@ class _DashboardState extends State<DashboardPage> {
   void initState() {
     super.initState();
     load();
+    _loadBubbleState();
   }
 
   Widget card(String title, String value, IconData icon, Color color) =>
@@ -9622,6 +9625,63 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsState extends State<SettingsPage> {
   Map<String, String> s = {};
+  bool _bubbleEnabled = false;
+  bool _bubbleBusy = false;
+
+  Future<void> _loadBubbleState() async {
+    try {
+      final enabled = await _floatingBubbleChannel.invokeMethod<bool>('canDrawOverlays');
+      // Permission availability is not the running state; query the service separately.
+      final running = await _floatingBubbleChannel.invokeMethod<bool>('isBubbleRunning');
+      if (mounted) setState(() => _bubbleEnabled = running ?? false);
+    } catch (_) {
+      if (mounted) setState(() => _bubbleEnabled = false);
+    }
+  }
+
+  Future<void> _setBubbleEnabled(bool enable) async {
+    if (_bubbleBusy) return;
+    setState(() => _bubbleBusy = true);
+    try {
+      if (enable) {
+        final allowed = await _floatingBubbleChannel.invokeMethod<bool>('canDrawOverlays') ?? false;
+        if (!allowed) {
+          await _floatingBubbleChannel.invokeMethod<bool>('requestOverlayPermission');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('اسمح لساقية بالظهور فوق التطبيقات، ثم ارجع واضغط تشغيل الفقاعة مرة أخرى.')),
+            );
+          }
+          return;
+        }
+        await _floatingBubbleChannel.invokeMethod<bool>('startBubble');
+        if (mounted) {
+          setState(() => _bubbleEnabled = true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تم تشغيل فقاعة ساقية. يمكنك سحبها، وإيقافها من هذا المفتاح.')),
+          );
+        }
+      } else {
+        await _floatingBubbleChannel.invokeMethod<bool>('stopBubble');
+        if (mounted) {
+          setState(() => _bubbleEnabled = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تم إيقاف الفقاعة وإزالة ظهورها فوق التطبيقات.')),
+          );
+        }
+      }
+    } on PlatformException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'تعذر تغيير حالة الفقاعة')),
+      );
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ميزة الفقاعة متاحة على أجهزة Android فقط.')),
+      );
+    } finally {
+      if (mounted) setState(() => _bubbleBusy = false);
+    }
+  }
 
   Future<void> load() async {
     final x = await widget.r.settings();
@@ -9877,6 +9937,21 @@ class _SettingsState extends State<SettingsPage> {
       child: ListView(
         children: [
           _settingsHero(),
+          SettingGroup(
+            title: 'الفقاعة العائمة',
+            children: [
+              SwitchListTile.adaptive(
+                value: _bubbleEnabled,
+                onChanged: _bubbleBusy ? null : _setBubbleEnabled,
+                secondary: _bubbleBusy
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.bubble_chart_rounded, color: _reportOliveDark),
+                title: const Text('إظهار فقاعة ساقية فوق التطبيقات'),
+                subtitle: const Text('تعمل فقط بعد تفعيلك لها. تطلب صلاحية الظهور فوق التطبيقات عند التشغيل الأول، وتعرض إشعاراً أثناء عملها. لا تسجل الشاشة ولا تجمع بيانات التطبيقات الأخرى، ولا تعمل تلقائياً بعد إعادة تشغيل الهاتف.'),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+            ],
+          ),
           Container(
             margin: const EdgeInsets.only(bottom: 16),
             padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
