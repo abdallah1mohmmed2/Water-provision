@@ -3875,13 +3875,68 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         final eventVerb = partyType == 'beneficiary'
             ? 'تم تسجيل السقاية لكم'
             : 'تم تسجيل السقاية المرتبطة بحسابكم';
-        final message = [
-          'السلام عليكم $recipientName،',
-          eventVerb,
-          'التاريخ: ${DateFormat('yyyy/MM/dd').format(start)} من ${DateFormat('HH:mm').format(start)} إلى ${DateFormat('HH:mm').format(end)}',
-          'المدة: $minutes دقيقة.',
-          'رقم العملية: $irrigationId.',
-        ].join('\n');
+        String message;
+        if (partyType == 'beneficiary') {
+          final rows = await widget.r.db.rawQuery(
+            'SELECT i.*, b.name beneficiary_name, p.name pump_name '
+            'FROM irrigations i '
+            'LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id '
+            'LEFT JOIN pumps p ON p.id=i.pump_id WHERE i.id=?',
+            [irrigationId],
+          );
+          final row = rows.isEmpty ? <String, Object?>{} : rows.first;
+          final currentBalance =
+              (await widget.r.accounting.beneficiaryBalance(bid!))['balance'] ?? 0;
+          String balanceLabel(int value) => value > 0
+              ? 'عليه $value ريال'
+              : value < 0
+                  ? 'له ${value.abs()} ريال'
+                  : 'متوازن (0 ريال)';
+          final total = (row['total_amount'] as num?)?.round() ?? 0;
+          final water = (row['water_amount'] as num?)?.round() ?? 0;
+          final diesel = (row['diesel_amount'] as num?)?.round() ?? 0;
+          final paidAmount = (row['paid_amount'] as num?)?.round() ?? 0;
+          final cloud = (row['cloud_minutes'] as num?)?.round() ?? 0;
+          final chargeableMinutes =
+              (row['chargeable_minutes'] as num?)?.round() ?? minutes - cloud;
+          final hourlyRate =
+              (row['water_hourly_rate_snapshot'] as num?)?.toDouble() ?? waterRate.toDouble();
+          final minuteRate = hourlyRate / 60;
+          final systemName = switch ('${row['system_type'] ?? type}') {
+            'diesel' => 'ديزل',
+            'solar' => 'شمسي',
+            'equivalent_hybrid' => 'النوع الثالث',
+            _ => 'غير محدد',
+          };
+          message = [
+            'السلام عليكم $recipientName،',
+            'تم تسجيل السقاية لكم بنجاح.',
+            'المستفيد: ${row['beneficiary_name'] ?? recipientName}',
+            'المضخة: ${row['pump_name'] ?? 'غير محددة'}',
+            'نوع المنظومة: $systemName',
+            'من: ${DateFormat('yyyy/MM/dd HH:mm').format(start)}',
+            'إلى: ${DateFormat('yyyy/MM/dd HH:mm').format(end)}',
+            'إجمالي الدقائق: $minutes دقيقة',
+            if (cloud > 0) 'دقائق الغيم المخصومة: $cloud دقيقة',
+            'الدقائق المحتسبة: $chargeableMinutes دقيقة',
+            'سعر الدقيقة: ${minuteRate.toStringAsFixed(2)} ريال',
+            'قيمة المياه: $water ريال',
+            if (systemName == 'ديزل') 'قيمة الديزل: $diesel ريال',
+            'إجمالي السقاية الحالية: $total ريال',
+            'المدفوع: $paidAmount ريال',
+            'الرصيد السابق: ${balanceLabel(previousBalance)}',
+            'الرصيد بعد السقاية: ${balanceLabel((currentBalance as num).round())}',
+            'رقم العملية: $irrigationId',
+          ].join('\n');
+        } else {
+          message = [
+            'السلام عليكم $recipientName،',
+            eventVerb,
+            'التاريخ: ${DateFormat('yyyy/MM/dd').format(start)} من ${DateFormat('HH:mm').format(start)} إلى ${DateFormat('HH:mm').format(end)}',
+            'المدة: $minutes دقيقة.',
+            'رقم العملية: $irrigationId.',
+          ].join('\n');
+        }
         await ManualMessageService.offerChoices(
           context,
           title: 'تم تسجيل السقاية',
