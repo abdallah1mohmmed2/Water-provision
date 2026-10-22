@@ -233,48 +233,51 @@ class ReportService {
           if (rows.isEmpty)
             _emptyReportState(font: font, bold: bold)
           else
-            pw.Table.fromTextArray(
-              headers: headers,
-              data: data,
-              headerCount: 1,
-              headerDecoration: pw.BoxDecoration(
-                color: PdfColor.fromHex('#123A4A'),
-              ),
-              headerStyle: pw.TextStyle(
-                font: bold,
-                fontSize: 8.5,
-                color: PdfColors.white,
-              ),
-              headerAlignment: pw.Alignment.center,
-              cellStyle: pw.TextStyle(
-                font: font,
-                fontSize: cellFontSize,
-                color: PdfColor.fromHex('#23333B'),
-              ),
-              oddRowDecoration: pw.BoxDecoration(
-                color: PdfColor.fromHex('#F0F6F4'),
-              ),
-              cellAlignment: pw.Alignment.center,
-              cellPadding: pw.EdgeInsets.symmetric(
-                horizontal: isLandscape ? 7 : 5,
-                vertical: cellVerticalPadding,
-              ),
-              border: pw.TableBorder(
-                top: pw.BorderSide(
-                  color: PdfColor.fromHex('#C9D7D3'),
-                  width: .8,
+            pw.Directionality(
+              textDirection: pw.TextDirection.rtl,
+              child: pw.Table.fromTextArray(
+                headers: headers,
+                data: data,
+                headerCount: 1,
+                headerDecoration: pw.BoxDecoration(
+                  color: PdfColor.fromHex('#123A4A'),
                 ),
-                bottom: pw.BorderSide(
-                  color: PdfColor.fromHex('#C9D7D3'),
-                  width: .8,
+                headerStyle: pw.TextStyle(
+                  font: bold,
+                  fontSize: 8.5,
+                  color: PdfColors.white,
                 ),
-                horizontalInside: pw.BorderSide(
-                  color: PdfColor.fromHex('#DDE7E4'),
-                  width: .45,
+                headerAlignment: pw.Alignment.center,
+                cellStyle: pw.TextStyle(
+                  font: font,
+                  fontSize: cellFontSize,
+                  color: PdfColor.fromHex('#23333B'),
                 ),
-                verticalInside: pw.BorderSide(
-                  color: PdfColor.fromHex('#E4EBE9'),
-                  width: .35,
+                oddRowDecoration: pw.BoxDecoration(
+                  color: PdfColor.fromHex('#F0F6F4'),
+                ),
+                cellAlignment: pw.Alignment.center,
+                cellPadding: pw.EdgeInsets.symmetric(
+                  horizontal: isLandscape ? 7 : 5,
+                  vertical: cellVerticalPadding,
+                ),
+                border: pw.TableBorder(
+                  top: pw.BorderSide(
+                    color: PdfColor.fromHex('#C9D7D3'),
+                    width: .8,
+                  ),
+                  bottom: pw.BorderSide(
+                    color: PdfColor.fromHex('#C9D7D3'),
+                    width: .8,
+                  ),
+                  horizontalInside: pw.BorderSide(
+                    color: PdfColor.fromHex('#DDE7E4'),
+                    width: .45,
+                  ),
+                  verticalInside: pw.BorderSide(
+                    color: PdfColor.fromHex('#E4EBE9'),
+                    width: .35,
+                  ),
                 ),
               ),
             ),
