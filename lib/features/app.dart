@@ -8897,7 +8897,7 @@ class _ReportsState extends State<ReportsPage> {
     final now=AppClock.now(),today=DateTime(now.year,now.month,now.day);
     return [('اليوم',today,today),('هذا الأسبوع',PeriodRanges.weekStart(today,_cfg['week_start']??'saturday'),today),('هذا الشهر',DateTime(now.year,now.month,1),today),('السنة المالية',PeriodRanges.financialYearStart(today,_cfg['financial_year_start']??'01-01'),today)];
   }
-  Future<void> load() async { final a=await widget.r.beneficiaries(),b=await widget.r.workers(),p=await widget.r.partners(),c=await widget.r.cashboxes(),m=await widget.r.paymentMethods(),cfg=await widget.r.settings(); if(mounted)setState((){_cfg=cfg;bs=a;ws=b;ps=p;cs=c;ms=m;currentType=cfg['system_type']??'diesel';type = currentType;}); }
+  Future<void> load() async { final a=await widget.r.beneficiaries(),b=await widget.r.workers(),p=await widget.r.partners(),c=await widget.r.cashboxes(),m=await widget.r.paymentMethods(),cfg=await widget.r.settings(); if(mounted)setState((){_cfg=cfg;bs=a;ws=b;ps=p;cs=c;ms=m;bid=bid??(a.isEmpty?null:a.first['id'] as int?);wid=wid??(b.isEmpty?null:b.first['id'] as int?);pid=pid??(p.isEmpty?null:p.first['id'] as int?);cid=cid??(c.isEmpty?null:c.first['id'] as int?);mid=mid??(m.isEmpty?null:m.first['id'] as int?);currentType=cfg['system_type']??'diesel';type = currentType;}); }
   @override void initState(){super.initState();load();}
   Future<List<Map<String,Object?>>> _rows(String k)=>widget.r.report(k,from:from,to:to,beneficiaryId:bid,workerId:wid,partnerId:pid,systemType:type,cashboxId:cid,paymentMethodId:mid,category:category,status:status);
   Future<void> previewR(String k) async {
