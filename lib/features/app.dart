@@ -2188,15 +2188,8 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             ],
           ),
           const SizedBox(height: 14),
-          LayoutBuilder(
-            builder: (_, box) {
-              final n = box.maxWidth >= 950
-                  ? 5
-                  : box.maxWidth >= 650
-                  ? 3
-                  : 2;
-              final gap = 10.0;
-              final w = (box.maxWidth - gap * (n - 1)) / n;
+          Builder(
+            builder: (context) {
               final items = <Widget>[
                 metric(
                   c,
@@ -2235,11 +2228,38 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                   balanceColor(balance),
                 ),
               ];
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  for (final item in items) SizedBox(width: w, child: item),
+                  SizedBox(
+                    height: 126,
+                    child: PageView.builder(
+                      scrollDirection: Axis.horizontal,
+                      physics: const PageScrollPhysics(),
+                      padEnds: false,
+                      itemCount: items.length,
+                      controller: PageController(viewportFraction: .84),
+                      itemBuilder: (_, index) => Padding(
+                        padding: const EdgeInsetsDirectional.only(end: 10),
+                        child: items[index],
+                      ),
+                    ),
+                  ),
+                  if (items.length > 1)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 7),
+                      child: Center(
+                        child: Text(
+                          'اسحب أفقيًا لاستعراض بطاقات الملخص • ${items.length} بطاقات',
+                          style: TextStyle(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               );
             },
