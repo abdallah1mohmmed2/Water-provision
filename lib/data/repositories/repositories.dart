@@ -231,8 +231,16 @@ class StationRepository {
       running += debit - credit;
       final row = {...raw, 'balance': running};
       final date = DateTime.tryParse('${raw['date'] ?? ''}');
-      if (from != null && date != null && date.isBefore(from)) continue;
-      if (to != null && date != null && date.isAfter(to)) continue;
+      // Date pickers provide midnight values. Treat both bounds as whole
+      // calendar days so movements later on the selected end date are included.
+      final fromDay = from == null
+          ? null
+          : DateTime(from.year, from.month, from.day);
+      final toExclusive = to == null
+          ? null
+          : DateTime(to.year, to.month, to.day).add(const Duration(days: 1));
+      if (fromDay != null && (date == null || date.isBefore(fromDay))) continue;
+      if (toExclusive != null && (date == null || !date.isBefore(toExclusive))) continue;
       result.add(row);
     }
     return result;
