@@ -11,12 +11,20 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val channel = "saqia/device_settings"
     private val bubbleChannel = "saqia/floating_bubble"
+    private var pendingQuickAction: String? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        pendingQuickAction = intent?.getStringExtra(EXTRA_QUICK_ACTION)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, bubbleChannel).setMethodCallHandler { call, result ->
             when (call.method) {
                 "canDrawOverlays" -> result.success(Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this))
                 "isBubbleRunning" -> result.success(FloatingBubbleService.isRunning)
+                "consumePendingQuickAction" -> {
+                    val action = pendingQuickAction
+                    pendingQuickAction = null
+                    result.success(action)
+                }
                 "requestOverlayPermission" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
                         startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
@@ -41,7 +49,7 @@ class MainActivity : FlutterActivity() {
         }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel).setMethodCallHandler { call, result ->
             if (call.method == "openNotificationSettings") {
-                val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val settingsIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
                         putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
                     }
@@ -50,9 +58,19 @@ class MainActivity : FlutterActivity() {
                         data = Uri.parse("package:$packageName")
                     }
                 }
-                startActivity(intent)
+                startActivity(settingsIntent)
                 result.success(true)
             } else result.notImplemented()
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra(EXTRA_QUICK_ACTION)?.let { pendingQuickAction = it }
+    }
+
+    companion object {
+        const val EXTRA_QUICK_ACTION = "saqia.quick_action"
     }
 }
