@@ -3719,7 +3719,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                 }
                 int? parseClock(String raw) {
                   final match = RegExp(
-                    r'^\\s*(\\d{1,2})\\s*:\\s*(\\d{1,2})\\s*$',
+                    r'^\s*(\d{1,2})\s*:\s*(\d{1,2})\s*$',
                   ).firstMatch(raw.trim());
                   if (match == null) return null;
                   final hour = int.tryParse(match.group(1)!);
