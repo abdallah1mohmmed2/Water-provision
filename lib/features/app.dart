@@ -1,4 +1,5 @@
-import 'dart:math' as math;\nimport '../core/app_clock.dart';
+import 'dart:math' as math;
+import '../core/app_clock.dart';
 import '../core/app_prefs.dart';
 import '../core/period_ranges.dart';
 import 'dart:async';
