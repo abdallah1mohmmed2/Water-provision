@@ -3602,6 +3602,9 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
           break;
         }
       }
+      final previousBalance = partyType == 'beneficiary'
+          ? (await widget.r.accounting.beneficiaryBalance(bid))['balance'] ?? 0
+          : 0;
       final irrigationId = await widget.r.accounting.recordIrrigation(
         stationId: stationId,
         pumpId: pumpId!,
@@ -3640,6 +3643,54 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       if (mounted) setState(() => saved = true);
       msg('تم حفظ السقاية والقيد المحاسبي بنجاح');
       await _refreshAfterSave();
+      if (partyType == 'beneficiary') {
+        try {
+          final irrigationRows = await widget.r.db.rawQuery(
+            'SELECT i.*,b.name beneficiary_name,p.name pump_name FROM irrigations i '
+            'LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id '
+            'LEFT JOIN pumps p ON p.id=i.pump_id WHERE i.id=?',
+            [irrigationId],
+          );
+          final row = irrigationRows.isEmpty ? <String, Object?>{} : irrigationRows.first;
+          final currentBalance = (await widget.r.accounting.beneficiaryBalance(bid))['balance'] ?? 0;
+          String balanceText(int value) => value > 0
+              ? 'عليه $value ريال'
+              : value < 0
+                  ? 'له ${value.abs()} ريال'
+                  : 'متوازن (0 ريال)';
+          final systemName = switch ('${row['system_type'] ?? type}') {
+            'diesel' => 'ديزل',
+            'solar' => 'شمسي',
+            'equivalent_hybrid' => 'النوع الثالث',
+            _ => 'غير محدد',
+          };
+          final total = (row['total_amount'] as num?)?.round() ?? 0;
+          final water = (row['water_amount'] as num?)?.round() ?? 0;
+          final diesel = (row['diesel_amount'] as num?)?.round() ?? 0;
+          final paidAmount = (row['paid_amount'] as num?)?.round() ?? 0;
+          final cloud = (row['cloud_minutes'] as num?)?.round() ?? 0;
+          await widget.r.notify(
+            beneficiaryId: bid,
+            type: 'irrigation',
+            title: 'تفاصيل السقاية والرصيد',
+            body: [
+              'المستفيد: ${row['beneficiary_name'] ?? recipient?['name'] ?? 'غير محدد'}',
+              'المضخة: ${row['pump_name'] ?? 'غير محددة'}',
+              'نوع المنظومة: $systemName',
+              'وقت السقاية: ${DateFormat('yyyy/MM/dd HH:mm').format(start)} إلى ${DateFormat('yyyy/MM/dd HH:mm').format(end)}',
+              'مدة السقاية: $minutes دقيقة (خصم الغيم: $cloud دقيقة)',
+              'قيمة المياه: $water ريال',
+              if (systemName == 'ديزل') 'قيمة الديزل المحتسبة: $diesel ريال',
+              'الرصيد السابق: ${balanceText(previousBalance)}',
+              'قيمة السقاية الحالية: $total ريال',
+              'المدفوع: $paidAmount ريال',
+              'الرصيد بعد السقاية: ${balanceText(currentBalance)}',
+            ].join('\\n'),
+          );
+        } catch (_) {
+          // لا نعتبر حفظ السقاية فاشلًا إذا تعذر تسجيل الإشعار.
+        }
+      }
       if (mounted) {
         final recipientName = recipient?['name']?.toString() ?? 'الطرف';
         final eventVerb = partyType == 'beneficiary'
