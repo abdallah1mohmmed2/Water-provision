@@ -3842,10 +3842,10 @@ int? parseClock(String raw) {
     });
   }
 
-  Future<TimeOfDay?> _showHybridTimePicker({required DateTime initial, required String title, bool use24Hour = false}) async {
+  Future<TimeOfDay?> _showHybridTimePicker({required DateTime initial, required String title, bool use24Hour = false, bool confirmPeriod = false, String? initialPeriod}) async {
     var hour = use24Hour ? initial.hour : (initial.hour % 12 == 0 ? 12 : initial.hour % 12);
     var minute = initial.minute;
-    var period = initial.hour < 12 ? 'am' : 'pm';
+    String? period = confirmPeriod ? initialPeriod : (initial.hour < 12 ? 'am' : 'pm');
     var inputMode = false;
     final hc = TextEditingController(text: hour.toString().padLeft(2, '0'));
     final mc = TextEditingController(text: minute.toString().padLeft(2, '0'));
@@ -3894,18 +3894,22 @@ int? parseClock(String raw) {
                 )),
               ])),
             ])),
-          if (!use24Hour) ...[
+          if (!use24Hour && confirmPeriod) ...[
             const SizedBox(height: 10),
             Wrap(spacing: 8, children: [
               ChoiceChip(label: const Text('صباحاً'), selected: period == 'am', onSelected: (_) => ds(() => period = 'am')),
               ChoiceChip(label: const Text('مساءً'), selected: period == 'pm', onSelected: (_) => ds(() => period = 'pm')),
             ]),
-            const Text('اختر صباحاً أو مساءً ثم أكد الوقت.', style: TextStyle(fontSize: 12)),
+            const Text('يجب اختيار صباحاً أو مساءً قبل التأكيد.', style: TextStyle(fontSize: 12)),
           ],
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dc), child: const Text('إلغاء')),
           FilledButton.icon(onPressed: () {
+            if (confirmPeriod && period == null) {
+              ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(content: Text('اختر صباحاً أو مساءً أولاً')));
+              return;
+            }
             if (inputMode) {
               final ih = int.tryParse(hc.text.trim()), im = int.tryParse(mc.text.trim());
               if (ih == null || ih < (use24Hour ? 0 : 1) || ih > (use24Hour ? 23 : 12) || im == null || im < 0 || im > 59) {
@@ -4486,7 +4490,7 @@ int? parseClock(String raw) {
                     IconButton(tooltip: 'لاقط وقت هجين للبداية', icon: const Icon(Icons.schedule), onPressed: () async {
                       final value = _parseTimeMinutes(startTimeController.text);
                       final hour24 = value == null ? start.hour : _to24Hour(value, startPeriod ?? (start.hour < 12 ? 'am' : 'pm'));
-                      final picked = await _showHybridTimePicker(initial: DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour24, value == null ? start.minute : value % 60), title: 'اختيار وقت البداية');
+                      final picked = await _showHybridTimePicker(initial: DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour24, value == null ? start.minute : value % 60), title: 'اختيار وقت البداية', confirmPeriod: true, initialPeriod: startPeriod);
                       if (picked != null) setState(() {
                         startTimeController.text = '${(picked.hour % 12 == 0 ? 12 : picked.hour % 12).toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
                         startPeriod = picked.hour < 12 ? 'am' : 'pm'; _updateEndPeriodFromTime();
