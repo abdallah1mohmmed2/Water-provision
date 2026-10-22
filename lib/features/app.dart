@@ -882,12 +882,12 @@ class _QuickActionOrbState extends State<QuickActionOrb>
   bool expanded = false;
   late final AnimationController controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 420),
-    reverseDuration: const Duration(milliseconds: 260),
+    duration: const Duration(milliseconds: 300),
+    reverseDuration: const Duration(milliseconds: 200),
   );
   late final Animation<double> progress = CurvedAnimation(
     parent: controller,
-    curve: Curves.easeOutBack,
+    curve: Curves.easeOutCubic,
     reverseCurve: Curves.easeInCubic,
   );
 
@@ -911,10 +911,24 @@ class _QuickActionOrbState extends State<QuickActionOrb>
     builder: (context, constraints) {
       final maxX = (constraints.maxWidth - 66).clamp(0.0, double.infinity).toDouble();
       final maxY = (constraints.maxHeight - 66).clamp(0.0, double.infinity).toDouble();
+      final menuMaxX = (constraints.maxWidth - 158).clamp(8.0, double.infinity).toDouble();
+      final menuMaxY = (constraints.maxHeight - 56).clamp(8.0, double.infinity).toDouble();
       position = Offset(position.dx.clamp(8.0, maxX).toDouble(), position.dy.clamp(8.0, maxY).toDouble());
+      final actions = <({IconData icon, String label, Color color, VoidCallback run})>[
+        (icon: Icons.water_drop_rounded, label: 'سقاية جديدة', color: const Color(0xff10b981), run: widget.onIrrigation),
+        if (widget.canCash) (icon: Icons.account_balance_wallet_rounded, label: 'صرف وقبض', color: const Color(0xff0ea5e9), run: widget.onCash),
+        (icon: Icons.format_list_numbered_rounded, label: 'حجز دور', color: const Color(0xff8b5cf6), run: widget.onQueue),
+        if (widget.canAddBeneficiary) (icon: Icons.person_add_alt_1_rounded, label: 'إضافة مستفيد', color: const Color(0xfff59e0b), run: widget.onAddBeneficiary),
+        if (widget.canAddExpense) (icon: Icons.receipt_long_rounded, label: 'إضافة مصروف', color: const Color(0xffef4444), run: widget.onAddExpense),
+      ];
+      final menuLeft = position.dx > constraints.maxWidth / 2
+          ? (position.dx - 158).clamp(8.0, menuMaxX).toDouble()
+          : (position.dx + 68).clamp(8.0, menuMaxX).toDouble();
+      final menuAbove = position.dy + actions.length * 56 > constraints.maxHeight - 8;
       return AnimatedBuilder(
         animation: progress,
         builder: (context, _) => Stack(
+          clipBehavior: Clip.none,
           children: [
             if (expanded)
               Positioned.fill(
@@ -924,36 +938,55 @@ class _QuickActionOrbState extends State<QuickActionOrb>
                   child: const SizedBox.expand(),
                 ),
               ),
-            for (final action in <({IconData icon, String label, Color color, VoidCallback run, double angle})>[
-              (icon: Icons.water_drop_rounded, label: 'سقاية جديدة', color: const Color(0xff10b981), run: widget.onIrrigation, angle: -2.35),
-              if (widget.canCash) (icon: Icons.account_balance_wallet_rounded, label: 'صرف وقبض', color: const Color(0xff0ea5e9), run: widget.onCash, angle: -3.93),
-              (icon: Icons.format_list_numbered_rounded, label: 'حجز دور', color: const Color(0xff8b5cf6), run: widget.onQueue, angle: -5.50),
-              if (widget.canAddBeneficiary) (icon: Icons.person_add_alt_1_rounded, label: 'إضافة مستفيد', color: const Color(0xfff59e0b), run: widget.onAddBeneficiary, angle: -1.15),
-              if (widget.canAddExpense) (icon: Icons.receipt_long_rounded, label: 'إضافة مصروف', color: const Color(0xffef4444), run: widget.onAddExpense, angle: -0.10),
-            ])
+            for (var i = 0; i < actions.length; i++)
               Positioned(
-                left: position.dx + 33 + (expanded ? 94 * progress.value * math.cos(action.angle) : 0) - 25,
-                top: position.dy + 33 + (expanded ? 94 * progress.value * math.sin(action.angle) : 0) - 25,
+                left: menuLeft,
+                top: ((menuAbove
+                            ? position.dy - actions.length * 56 + 54
+                            : position.dy + 7) +
+                        i * 56)
+                    .clamp(8.0, menuMaxY)
+                    .toDouble(),
                 child: IgnorePointer(
-                  ignoring: !expanded || progress.value < 0.8,
+                  ignoring: !expanded || progress.value < 0.75,
                   child: Opacity(
                     opacity: progress.value.clamp(0.0, 1.0),
-                    child: Tooltip(
-                      message: action.label,
-                      child: Material(
-                        color: action.color,
-                        elevation: 9,
-                        shape: const CircleBorder(),
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: () {
-                            toggle();
-                            action.run();
-                          },
-                          child: SizedBox(
-                            width: 50,
-                            height: 50,
-                            child: Icon(action.icon, color: Colors.white, size: 24),
+                    child: Transform.translate(
+                      offset: Offset(expanded ? 0 : (position.dx > constraints.maxWidth / 2 ? 18 : -18), 0),
+                      child: SizedBox(
+                        width: 150,
+                        height: 48,
+                        child: Material(
+                          color: actions[i].color,
+                          elevation: 8,
+                          borderRadius: BorderRadius.circular(24),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(24),
+                            onTap: () {
+                              toggle();
+                              actions[i].run();
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              child: Row(
+                                children: [
+                                  Icon(actions[i].icon, color: Colors.white, size: 22),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      actions[i].label,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -999,7 +1032,11 @@ class _QuickActionOrbState extends State<QuickActionOrb>
                       child: AnimatedRotation(
                         turns: expanded ? 0.125 : 0,
                         duration: const Duration(milliseconds: 260),
-                        child: Icon(expanded ? Icons.close_rounded : Icons.add_rounded, color: Colors.white, size: 32),
+                        child: Icon(
+                          expanded ? Icons.close_rounded : Icons.add_rounded,
+                          color: Colors.white,
+                          size: 32,
+                        ),
                       ),
                     ),
                   ),
