@@ -4518,61 +4518,6 @@ int? parseClock(String raw) {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
 
-                TextField(
-                  controller: searchController,
-                  focusNode: searchFocusNode,
-                  onChanged: (v) => setState(() => search = v),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    labelText: 'ابحث بالاسم بين المستفيدين والعمال والشركاء',
-                    hintText: 'اكتب أي جزء من الاسم',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                if (partyType == 'beneficiary' && bid != null)
-                  Chip(
-                    avatar: const Icon(Icons.person),
-                    label: Text('المحدد: ${beneficiaries.firstWhere((x) => x['id'] == bid, orElse: () => <String, Object?>{})['name'] ?? '-'} • مستفيد'),
-                  )
-                else if (partyType == 'worker' && workerId != null)
-                  Chip(
-                    avatar: const Icon(Icons.engineering),
-                    label: Text('المحدد: ${workers.firstWhere((x) => x['id'] == workerId, orElse: () => <String, Object?>{})['name'] ?? '-'} • عامل'),
-                  )
-                else if (partyType == 'partner' && partnerId != null)
-                  Chip(
-                    avatar: const Icon(Icons.handshake),
-                    label: Text('المحدد: ${partners.firstWhere((x) => x['id'] == partnerId, orElse: () => <String, Object?>{})['name'] ?? '-'} • شريك'),
-                  ),
-                if (query.isNotEmpty)
-                  ...matchingParties.take(12).map((entry) {
-                    final x = entry['row'] as Map<String, Object?>;
-                    final selectedType = entry['type'] as String;
-                    final category = selectedType == 'beneficiary'
-                        ? 'مستفيد'
-                        : selectedType == 'worker'
-                            ? 'عامل'
-                            : 'شريك';
-                    return ListTile(
-                      dense: true,
-                      leading: Icon(selectedType == 'beneficiary'
-                          ? Icons.person
-                          : selectedType == 'worker'
-                              ? Icons.engineering
-                              : Icons.handshake),
-                      title: Text('${x['name'] ?? '-'}'),
-                      subtitle: Text(category),
-                      trailing: const Icon(Icons.north_west, size: 18),
-                      onTap: () async {
-                        final id = (x['id'] as num?)?.toInt();
-                        if (id == null) return;
-                        searchController.clear();
-                        setState(() => search = '');
-                        await selectParty(selectedType, id);
-                      },
-                    );
-                  }),
-
                 const Divider(height: 28),
                 const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت السقاية وفترات الغيم', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
                 const SizedBox(height: 10),
@@ -4666,6 +4611,66 @@ int? parseClock(String raw) {
                     ),
                 ],
 
+                const Divider(height: 28),
+                const Align(alignment: AlignmentDirectional.centerStart, child: Text('البحث واختيار صاحب الحساب', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: searchController,
+                  focusNode: searchFocusNode,
+                  onChanged: (v) => setState(() => search = v),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    labelText: 'ابحث بالاسم بين المستفيدين والعمال والشركاء',
+                    hintText: 'اكتب أي جزء من الاسم',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                if (partyType == 'beneficiary' && bid != null)
+                  Chip(
+                    avatar: const Icon(Icons.person),
+                    label: Text('المحدد: ${beneficiaries.firstWhere((x) => x['id'] == bid, orElse: () => <String, Object?>{})['name'] ?? '-'} • مستفيد'),
+                  )
+                else if (partyType == 'worker' && workerId != null)
+                  Chip(
+                    avatar: const Icon(Icons.engineering),
+                    label: Text('المحدد: ${workers.firstWhere((x) => x['id'] == workerId, orElse: () => <String, Object?>{})['name'] ?? '-'} • عامل'),
+                  )
+                else if (partyType == 'partner' && partnerId != null)
+                  Chip(
+                    avatar: const Icon(Icons.handshake),
+                    label: Text('المحدد: ${partners.firstWhere((x) => x['id'] == partnerId, orElse: () => <String, Object?>{})['name'] ?? '-'} • شريك'),
+                  ),
+                if (query.isNotEmpty)
+                  ...matchingParties.take(12).map((entry) {
+                    final x = entry['row'] as Map<String, Object?>;
+                    final selectedType = entry['type'] as String;
+                    final category = selectedType == 'beneficiary'
+                        ? 'مستفيد'
+                        : selectedType == 'worker'
+                            ? 'عامل'
+                            : 'شريك';
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(selectedType == 'beneficiary'
+                          ? Icons.person
+                          : selectedType == 'worker'
+                              ? Icons.engineering
+                              : Icons.handshake),
+                      title: Text('${x['name'] ?? '-'}'),
+                      subtitle: Text(category),
+                      trailing: const Icon(Icons.north_west, size: 18),
+                      onTap: () async {
+                        final id = (x['id'] as num?)?.toInt();
+                        if (id == null) return;
+                        searchController.clear();
+                        setState(() => search = '');
+                        await selectParty(selectedType, id);
+                      },
+                    );
+                  }),
+
+
+
               ],
             ),
           ),
@@ -4725,8 +4730,6 @@ int? parseClock(String raw) {
                 ),
               ),
             ),
-            ),
-          ),
         ],
       ),
     );
