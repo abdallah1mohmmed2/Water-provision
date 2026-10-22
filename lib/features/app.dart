@@ -3353,10 +3353,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         sessions = ss;
         settings = st;
         queueType = st['queue_type'] ?? 'circular';
-        if (partyType == 'beneficiary' &&
-            b.isNotEmpty &&
-            !b.any((x) => x['id'] == bid)) {
-          bid = b.first['id'] as int;
+        if (bid != null && !b.any((x) => x['id'] == bid)) {
+          bid = null;
         }
         final configured = int.tryParse(st['selected_pump_id'] ?? '');
         final chosen = p.where((x) => x['id'] == configured).toList();
@@ -3370,14 +3368,9 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
 
   /// يعيد تحميل بيانات صاحب الحساب المختار (سجل، ديزل، رصيد) دون تغيير اختياره.
   Future<void> _reloadParty() async {
-    if (partyType == 'beneficiary') {
-      if (bid == null && beneficiaries.isNotEmpty) {
-        bid = beneficiaries.first['id'] as int;
-      }
-      if (bid != null) {
-        await selectBeneficiary(bid!);
-        return;
-      }
+    if (partyType == 'beneficiary' && bid != null) {
+      await selectBeneficiary(bid!);
+      return;
     }
     await _loadPartyBalance();
   }
