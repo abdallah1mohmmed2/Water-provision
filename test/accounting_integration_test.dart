@@ -107,24 +107,39 @@ void main() {
     );
   });
 
-  test('رصيد العامل يشمل الافتتاحي والمرحّل', () async {
-    final w = await db.insert('workers', {
-      'name': 'عامل برصيد افتتاحي',
-      'pay_type': 'fixed',
-      'opening_balance': 1000,
-      'carried_balance': 200,
-    });
-    expect((await svc.workerBalance(w))['balance'], 1200);
+  test('الصرف والمصروف وشراء الديزل لا تجعل الصندوق سالبًا', () async {
+    final originalBalance = await cashboxBalance(1);
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(name: 'عامل اختبار الصندوق', payType: 'fixed');
+    final partner = await repo.createPartner(name: 'شريك اختبار الصندوق', mode: 'shares', shares: 1);
+    final paymentsBefore = (await db.query('SELECT COUNT(*) c FROM payments')).first['c'] as num;
+    final expensesBefore = (await db.query('SELECT COUNT(*) c FROM expenses')).first['c'] as num;
+    final dieselBefore = (await db.query('SELECT COUNT(*) c FROM diesel_movements')).first['c'] as num;
+    await db.update('cashboxes', {'current_balance': 0}, 'id=?', [1]);
+    try {
+      await expectLater(svc.payWorker(workerId: worker, amount: 1, paymentMethodId: 1, cashboxId: 1), throwsStateError);
+      await expectLater(svc.payPartner(partnerId: partner, amount: 1, paymentMethodId: 1, cashboxId: 1), throwsStateError);
+      await expectLater(svc.addExpense(category: 'maintenance', title: 'اختبار', amount: 1, date: DateTime.now(), paymentMethodId: 1, cashboxId: 1), throwsStateError);
+      await expectLater(svc.addDieselMovement(kind: 'receipt', liters: 1, unitPrice: 1, date: DateTime.now(), cashboxId: 1), throwsStateError);
+      expect(await cashboxBalance(1), 0);
+      expect((await db.query('SELECT COUNT(*) c FROM payments')).first['c'], paymentsBefore);
+      expect((await db.query('SELECT COUNT(*) c FROM expenses')).first['c'], expensesBefore);
+      expect((await db.query('SELECT COUNT(*) c FROM diesel_movements')).first['c'], dieselBefore);
+    } finally {
+      await db.update('cashboxes', {'current_balance': originalBalance}, 'id=?', [1]);
+    }
   });
 
-  test('رصيد الشريك يشمل الافتتاحي والمرحّل', () async {
-    final p = await db.insert('partners', {
-      'name': 'شريك',
-      'ownership_mode': 'shares',
-      'opening_balance': 0,
-      'carried_balance': 700,
-    });
+  test('أرصدة الأطراف المنشأة عبر المستودع تظهر في الأستاذ والكشف', () async {
+    final repo = StationRepository(db);
+    final w = await repo.createWorker(name: 'عامل برصيد افتتاحي', payType: 'fixed', opening: 1200);
+    final p = await repo.createPartner(name: 'شريك برصيد افتتاحي', mode: 'shares', shares: 1, opening: 700);
+    expect((await svc.workerBalance(w))['balance'], 1200);
     expect((await svc.partnerBalance(p))['balance'], 700);
+    final workerRow = (await repo.workers()).singleWhere((row) => row['id'] == w);
+    final partnerRow = (await repo.partners()).singleWhere((row) => row['id'] == p);
+    expect(workerRow['balance'], 1200);
+    expect(partnerRow['balance'], 700);
   });
 
   // ---------- توحيد قيود العامل/الشريك مع كشوفهم ----------
@@ -219,6 +234,7 @@ void main() {
     await db.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
     await db.update('settings', {'value': '5000'}, 'key=?', ['solar_hourly_rate']);
     await db.update('partners', {'active': 0}, 'id>?', [0]);
+    await db.update('workers', {'active': 0}, 'id>?', [0]);
     final now = DateTime(2027, 1, 6, 8);
     final b = await db.insert('beneficiaries', {
       'name': 'مستفيد اختبار النسبة',
@@ -576,7 +592,7 @@ void main() {
   test('الرصيد الافتتاحي للعامل والشريك يُقيَّد في الأستاذ ويطابق كشفيهما', () async {
     final repo = StationRepository(db);
     final w = await repo.createWorker(name: 'عامل افتتاحي', payType: 'fixed', opening: 700, phone: '777');
-    final p = await repo.createPartner(name: 'شريك افتتاحي', mode: 'shares', opening: -300);
+    final p = await repo.createPartner(name: 'شريك افتتاحي', mode: 'shares', shares: 1, opening: -300);
     expect((await svc.workerBalance(w))['balance'], 700);
     expect(await glPayable('2100', 'worker_id', w), 700);
     expect((await svc.partnerBalance(p))['balance'], -300);
@@ -598,6 +614,15 @@ void main() {
     expect(await glPayable('2200', 'partner_id', p), 900);
   });
 
+  test('SQLite سليمة والمفاتيح الأجنبية مفعّلة ولا توجد مراجع يتيمة', () async {
+    final foreignKeys = await db.query('PRAGMA foreign_keys');
+    expect((foreignKeys.single.values.single as num).toInt(), 1);
+    final integrity = await db.query('PRAGMA integrity_check');
+    expect(integrity.single['integrity_check'], 'ok');
+    final violations = await db.query('PRAGMA foreign_key_check');
+    expect(violations, isEmpty);
+  });
+
   test('الصندوق والشريك الجديدان يتبعان محطة المضخة المحددة لا الرقم 1', () async {
     final repo = StationRepository(db);
     final now = DateTime(2026, 1, 1).toIso8601String();
@@ -607,7 +632,7 @@ void main() {
     try {
       expect(await svc.currentStationId(), st);
       final cb = await repo.createCashbox(name: 'صندوق المحطة الثانية');
-      final pt = await repo.createPartner(name: 'شريك المحطة الثانية', mode: 'shares');
+      final pt = await repo.createPartner(name: 'شريك المحطة الثانية', mode: 'shares', shares: 1);
       expect((await db.query('SELECT station_id FROM cashboxes WHERE id=?', args: [cb])).first['station_id'], st);
       expect((await db.query('SELECT station_id FROM partners WHERE id=?', args: [pt])).first['station_id'], st);
     } finally {

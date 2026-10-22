@@ -319,6 +319,20 @@ class AccountingService {
     cashboxId: cashboxId,
   );
 
+  Future<void> _assertCashboxCanSpend(DatabaseExecutor ex, int cashboxId, int amount) async {
+    final rows = await ex.rawQuery(
+      'SELECT current_balance FROM cashboxes WHERE id=?',
+      [cashboxId],
+    );
+    if (rows.isEmpty) {
+      throw StateError('الصندوق غير موجود');
+    }
+    final balance = (rows.first['current_balance'] as num?)?.round() ?? 0;
+    if (balance < amount) {
+      throw StateError('رصيد الصندوق غير كافٍ: المتاح $balance ريال والمطلوب $amount ريال');
+    }
+  }
+
   /// محطة العمل الحالية: محطة المضخة المحددة في الإعدادات، وإلا أول محطة فعالة، وإلا 1.
   /// تُقرأ خارج أي معاملة مفتوحة (تفاديًا لتعليق sqflite).
   Future<int> currentStationId() async {
@@ -870,6 +884,10 @@ class AccountingService {
     );
     paymentMethodId = src['method']!;
     cashboxId = src['cashbox']!;
+    final isOutgoing = beneficiaryId == null;
+    if (isOutgoing) {
+      await _assertCashboxCanSpend(tx, cashboxId, amount);
+    }
     final id = await tx.insert('payments', {
       'beneficiary_id': beneficiaryId,
       'partner_id': partnerId,
@@ -884,7 +902,6 @@ class AccountingService {
       'created_by': userId,
     });
     // قبض من مستفيد = دخول نقد (+). دفع لعامل/شريك = خروج نقد (−).
-    final isOutgoing = beneficiaryId == null;
     await tx.rawUpdate(
       'UPDATE cashboxes SET current_balance=current_balance${isOutgoing ? '-' : '+'}? WHERE id=?',
       [amount, cashboxId],
@@ -1058,6 +1075,7 @@ class AccountingService {
     );
     paymentMethodId = src['method']!;
     cashboxId = src['cashbox']!;
+    await _assertCashboxCanSpend(tx, cashboxId, amount);
     final id = await tx.insert('expenses', {
       'category': category,
       'title': title,
@@ -1176,6 +1194,12 @@ class AccountingService {
       final current = (stock.first['stock'] as num?)?.toDouble() ?? 0;
       if ((kind == 'delivery' || kind == 'consumption') && liters > current)
         throw StateError('كمية الديزل المطلوبة أكبر من المخزون المتاح');
+      if (kind == 'receipt' && cashboxId != null) {
+        if (unitPrice < 0) {
+          throw ArgumentError('سعر لتر الديزل لا يمكن أن يكون سالبًا');
+        }
+        await _assertCashboxCanSpend(tx, cashboxId, amount);
+      }
       final id = await tx.insert('diesel_movements', {
         'beneficiary_id': beneficiaryId,
         'irrigation_id': irrigationId,
@@ -1806,6 +1830,23 @@ class AccountingService {
           'reference_type': 'irrigation_cancel',
           'reference_id': id,
           'notes': 'عكس استحقاق العامل من السقاية رقم $id: $reason',
+          'created_by': userId,
+        });
+      }
+      final directPartnerIrrigations = await tx.query(
+        'partner_transactions',
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation'",
+        whereArgs: [id],
+      );
+      for (final item in directPartnerIrrigations) {
+        await tx.insert('partner_transactions', {
+          'partner_id': item['partner_id'],
+          'date': AppClock.now().toIso8601String(),
+          'type': 'irrigation_reversal',
+          'amount': (item['amount'] as num).round(),
+          'reference_type': 'irrigation_cancel',
+          'reference_id': id,
+          'notes': 'عكس سقاية الشريك رقم $id: $reason',
           'created_by': userId,
         });
       }
