@@ -556,6 +556,16 @@ class _ShellState extends State<AdminShell> {
   @override
   void initState() {
     super.initState();
+    _floatingBubbleChannel.setMethodCallHandler((call) async {
+      if (call.method == 'quickAction' && call.arguments is String) {
+        _handleFloatingAction(call.arguments as String);
+        return true;
+      }
+      return null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _consumePendingFloatingAction();
+    });
     refreshCounts();
     // النافذة المنبثقة (إن كان إعدادها مفعّلًا؛ الصوت يُشغَّل داخل AppAlerts نفسه).
     _alertSub = AppAlerts.stream.listen((a) {
@@ -572,8 +582,47 @@ class _ShellState extends State<AdminShell> {
   @override
   void dispose() {
     _alertSub?.cancel();
+    _floatingBubbleChannel.setMethodCallHandler(null);
     menuSearch.dispose();
     super.dispose();
+  }
+
+  Future<void> _consumePendingFloatingAction() async {
+    try {
+      final action = await _floatingBubbleChannel.invokeMethod<String>('consumePendingQuickAction');
+      if (action != null && mounted) _handleFloatingAction(action);
+    } on PlatformException {
+      // The native bridge is available only on Android.
+    } catch (_) {}
+  }
+
+  void _handleFloatingAction(String action) {
+    if (!mounted) return;
+    switch (action) {
+      case 'irrigation':
+        go(2);
+        break;
+      case 'cash':
+        go(7);
+        break;
+      case 'queue':
+        go(5);
+        break;
+      case 'beneficiary':
+        if (!visible.contains(1)) return;
+        go(1);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _beneficiariesKey.currentState?.add();
+        });
+        break;
+      case 'expense':
+        if (!visible.contains(9)) return;
+        go(9);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _expensesKey.currentState?.add();
+        });
+        break;
+    }
   }
 
   Future<void> refreshCounts() async {
