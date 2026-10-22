@@ -5573,92 +5573,113 @@ class _QueueState extends State<QueueBookingPage> {
                       for (var i = 0; i < entries.length; i++)
                         Card(
                           clipBehavior: Clip.antiAlias,
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              child: Text(
-                                isBookingMode
-                                    ? '${i + 1}'
-                                    : '${entries[i]['position']}',
-                              ),
-                            ),
-                            title: Text('${entries[i]['beneficiary_name']}'),
-                            subtitle: Text(
-                              isBookingMode
-                                  ? '${statusName(entries[i]['status'])} • ${entries[i]['created_at']} • ${entries[i]['scheduled_start'] ?? 'الموعد غير محدد'}'
-                                  : '${statusName(entries[i]['status'])} • مرات التأجيل: ${entries[i]['postponed_count'] ?? 0}',
-                            ),
-                            trailing: Wrap(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                IconButton(
-                                  tooltip: 'التفاصيل',
-                                  onPressed: () => Navigator.push(
-                                    c,
-                                    MaterialPageRoute(
-                                      builder: (_) => RecordDetailsPage(
-                                        widget.r,
-                                        kind: isBookingMode
-                                            ? 'booking'
-                                            : 'queue',
-                                        id: entries[i]['id'] as int,
-                                        title: isBookingMode
-                                            ? 'تفاصيل الدور'
-                                            : 'تفاصيل الدور',
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    CircleAvatar(
+                                      child: Text(
+                                        isBookingMode
+                                            ? '${i + 1}'
+                                            : '${entries[i]['position']}',
                                       ),
                                     ),
-                                  ),
-                                  icon: const Icon(Icons.info_outline_rounded),
-                                ),
-                                if (isBookingMode) ...[
-                                  if (!const {
-                                    'completed',
-                                    'cancelled',
-                                  }.contains('${entries[i]['status']}')) ...[
-                                    IconButton(
-                                      tooltip: 'إدارة الدور',
-                                      onPressed: () => review(entries[i]),
-                                      icon: const Icon(
-                                        Icons.edit_calendar_rounded,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'تعديل الملاحظات',
-                                      onPressed: () =>
-                                          editBookingNotes(entries[i]),
-                                      icon: const Icon(Icons.edit_note_rounded),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'إلغاء الحجز',
-                                      onPressed: () =>
-                                          cancelBooking(entries[i]),
-                                      icon: const Icon(
-                                        Icons.cancel_outlined,
-                                        color: Colors.red,
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            flex: 2,
+                                            child: Text(
+                                              '${entries[i]['beneficiary_name']}',
+                                              style: Theme.of(c).textTheme.titleMedium,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            flex: 3,
+                                            child: Text(
+                                              isBookingMode
+                                                  ? '${statusName(entries[i]['status'])} • ${entries[i]['created_at']} • ${entries[i]['scheduled_start'] ?? 'الموعد غير محدد'}'
+                                                  : '${statusName(entries[i]['status'])} • مرات التأجيل: ${entries[i]['postponed_count'] ?? 0}',
+                                              style: Theme.of(c).textTheme.bodySmall,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],
-                                ] else ...[
-                                  IconButton(
-                                    tooltip: 'غياب / تأجيل (حسب سياسة الغياب)',
-                                    onPressed: () =>
-                                        postpone(entries[i]['id'] as int),
-                                    icon: const Icon(Icons.pause_rounded),
+                                ),
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: AlignmentDirectional.centerEnd,
+                                  child: Wrap(
+                                    spacing: 4,
+                                    runSpacing: 4,
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'التفاصيل',
+                                        onPressed: () => Navigator.push(
+                                          c,
+                                          MaterialPageRoute(
+                                            builder: (_) => RecordDetailsPage(
+                                              widget.r,
+                                              kind: isBookingMode ? 'booking' : 'queue',
+                                              id: entries[i]['id'] as int,
+                                              title: 'تفاصيل الدور',
+                                            ),
+                                          ),
+                                        ),
+                                        icon: const Icon(Icons.info_outline_rounded),
+                                      ),
+                                      if (isBookingMode) ...[
+                                        if (!const {'completed', 'cancelled'}
+                                            .contains('${entries[i]['status']}')) ...[
+                                          IconButton(
+                                            tooltip: 'إدارة الدور',
+                                            onPressed: () => review(entries[i]),
+                                            icon: const Icon(Icons.edit_calendar_rounded),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'تعديل الملاحظات',
+                                            onPressed: () => editBookingNotes(entries[i]),
+                                            icon: const Icon(Icons.edit_note_rounded),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'إلغاء الحجز',
+                                            onPressed: () => cancelBooking(entries[i]),
+                                            icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                                          ),
+                                        ],
+                                      ] else ...[
+                                        IconButton(
+                                          tooltip: 'غياب / تأجيل (حسب سياسة الغياب)',
+                                          onPressed: () => postpone(entries[i]['id'] as int),
+                                          icon: const Icon(Icons.pause_rounded),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'تمت الخدمة',
+                                          onPressed: () => completeEntry(entries[i]['id'] as int),
+                                          icon: const Icon(Icons.check_circle_outline_rounded),
+                                        ),
+                                        if (widget.manager)
+                                          IconButton(
+                                            tooltip: 'تجاوز',
+                                            onPressed: () => overrideQ(entries[i]['id'] as int),
+                                            icon: const Icon(Icons.flash_on_rounded),
+                                          ),
+                                      ],
+                                    ],
                                   ),
-                                  IconButton(
-                                    tooltip: 'تمت الخدمة',
-                                    onPressed: () =>
-                                        completeEntry(entries[i]['id'] as int),
-                                    icon: const Icon(
-                                      Icons.check_circle_outline_rounded,
-                                    ),
-                                  ),
-                                  if (widget.manager)
-                                    IconButton(
-                                      tooltip: 'تجاوز',
-                                      onPressed: () =>
-                                          overrideQ(entries[i]['id'] as int),
-                                      icon: const Icon(Icons.flash_on_rounded),
-                                    ),
-                                ],
+                                ),
                               ],
                             ),
                           ),
