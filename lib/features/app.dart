@@ -3685,7 +3685,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
               'قيمة السقاية الحالية: $total ريال',
               'المدفوع: $paidAmount ريال',
               'الرصيد بعد السقاية: ${balanceText(currentBalance)}',
-            ].join('\\n'),
+            ].join('\n'),
           );
         } catch (_) {
           // لا نعتبر حفظ السقاية فاشلًا إذا تعذر تسجيل الإشعار.
