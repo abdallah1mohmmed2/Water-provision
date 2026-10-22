@@ -506,6 +506,9 @@ class AdminShell extends StatefulWidget {
 
 class _ShellState extends State<AdminShell> {
   final repo = StationRepository();
+  final GlobalKey<_BeneficiariesState> _beneficiariesKey =
+      GlobalKey<_BeneficiariesState>();
+  final GlobalKey<_ExpensesState> _expensesKey = GlobalKey<_ExpensesState>();
   int index = 0;
   bool collapsed = false;
   Map<String, Object?> counts = {};
@@ -747,7 +750,23 @@ class _ShellState extends State<AdminShell> {
               onIrrigation: () => go(2),
               onCash: () => go(7),
               onQueue: () => go(5),
+              onAddBeneficiary: () {
+                if (!visible.contains(1)) return;
+                go(1);
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _beneficiariesKey.currentState?.add();
+                });
+              },
+              onAddExpense: () {
+                if (!visible.contains(9)) return;
+                go(9);
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _expensesKey.currentState?.add();
+                });
+              },
               canCash: visible.contains(7),
+              canAddBeneficiary: visible.contains(1),
+              canAddExpense: visible.contains(9),
             ),
           ],
         ),
@@ -788,6 +807,7 @@ class _ShellState extends State<AdminShell> {
       0 => DashboardPage(repo, onOpen: go),
       1 => BeneficiariesPage(
         repo,
+        key: _beneficiariesKey,
         userId: widget.userId,
         manager: role == AppRole.manager,
       ),
@@ -806,7 +826,7 @@ class _ShellState extends State<AdminShell> {
       6 => DieselPage(repo, userId: widget.userId),
       7 => PaymentsPage(repo, userId: widget.userId),
       8 => CashboxesPage(repo, userId: widget.userId),
-      9 => ExpensesPage(repo, userId: widget.userId),
+      9 => ExpensesPage(repo, key: _expensesKey, userId: widget.userId),
       10 => WorkersPage(
         repo,
         userId: widget.userId,
@@ -838,12 +858,17 @@ class _ShellState extends State<AdminShell> {
 /// زر إجراءات سريع قابل للسحب، مع قائمة دائرية وحركة متدرجة حول الزر.
 class QuickActionOrb extends StatefulWidget {
   final VoidCallback onIrrigation, onCash, onQueue;
-  final bool canCash;
+  final VoidCallback onAddBeneficiary, onAddExpense;
+  final bool canCash, canAddBeneficiary, canAddExpense;
   const QuickActionOrb({
     required this.onIrrigation,
     required this.onCash,
     required this.onQueue,
+    required this.onAddBeneficiary,
+    required this.onAddExpense,
     required this.canCash,
+    required this.canAddBeneficiary,
+    required this.canAddExpense,
     super.key,
   });
 
@@ -903,6 +928,8 @@ class _QuickActionOrbState extends State<QuickActionOrb>
               (icon: Icons.water_drop_rounded, label: 'سقاية جديدة', color: const Color(0xff10b981), run: widget.onIrrigation, angle: -2.35),
               if (widget.canCash) (icon: Icons.account_balance_wallet_rounded, label: 'صرف وقبض', color: const Color(0xff0ea5e9), run: widget.onCash, angle: -3.93),
               (icon: Icons.format_list_numbered_rounded, label: 'حجز دور', color: const Color(0xff8b5cf6), run: widget.onQueue, angle: -5.50),
+              if (widget.canAddBeneficiary) (icon: Icons.person_add_alt_1_rounded, label: 'إضافة مستفيد', color: const Color(0xfff59e0b), run: widget.onAddBeneficiary, angle: -1.15),
+              if (widget.canAddExpense) (icon: Icons.receipt_long_rounded, label: 'إضافة مصروف', color: const Color(0xffef4444), run: widget.onAddExpense, angle: -0.10),
             ])
               Positioned(
                 left: position.dx + 33 + (expanded ? 94 * progress.value * math.cos(action.angle) : 0) - 25,
