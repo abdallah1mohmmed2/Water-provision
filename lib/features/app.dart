@@ -9630,7 +9630,6 @@ class _SettingsState extends State<SettingsPage> {
 
   Future<void> _loadBubbleState() async {
     try {
-      final enabled = await _floatingBubbleChannel.invokeMethod<bool>('canDrawOverlays');
       // Permission availability is not the running state; query the service separately.
       final running = await _floatingBubbleChannel.invokeMethod<bool>('isBubbleRunning');
       if (mounted) setState(() => _bubbleEnabled = running ?? false);
