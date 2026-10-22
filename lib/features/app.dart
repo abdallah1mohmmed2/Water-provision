@@ -3290,6 +3290,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       search = '';
   DateTime start = AppClock.now(),
       end = AppClock.now().add(const Duration(hours: 1));
+  // يحتفظ بنهاية آخر سقاية ناجحة أثناء البقاء في شاشة السقاية فقط.
+  DateTime? nextStartFromPreviousEnd;
   final paid = TextEditingController(text: '0'),
       reason = TextEditingController();
   final searchController = TextEditingController();
@@ -3815,6 +3817,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         overrideWaitingPeriod: managerOverride,
         overrideReason: reason.text,
       );
+      // لا ننقل الوقت إلا بعد نجاح حفظ السقاية والقيد المحاسبي.
+      nextStartFromPreviousEnd = end;
       if (mounted) setState(() => saved = true);
       msg('تم حفظ السقاية والقيد المحاسبي بنجاح');
       await _refreshAfterSave();
@@ -3900,8 +3904,9 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     setState(() {
       search = '';
       saved = false;
-      start = AppClock.now();
-      end = AppClock.now().add(const Duration(hours: 1));
+      // استمر من نهاية السقاية السابقة؛ وعند عدم وجود سلسلة ابدأ بالوقت الحالي.
+      start = nextStartFromPreviousEnd ?? AppClock.now();
+      end = start.add(const Duration(hours: 1));
       paid.text = '0';
       cloudPeriods.clear();
       reason.clear();
