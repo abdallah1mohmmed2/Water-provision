@@ -37,6 +37,20 @@ void main() {
     const phone = '771234567';
     const message = 'السلام عليكم، تم تسجيل دفعتكم: ١٠٠ ريال';
 
+    test('builds an account summary with the current balance and date', () {
+      final summary = ManualMessageService.accountSummaryMessage(
+        recipientName: 'أحمد',
+        partyLabel: 'المستفيد',
+        balanceLabel: 'عليه ١٠٠ ريال',
+        asOf: DateTime(2026, 10, 22, 9, 30),
+      );
+
+      expect(summary, contains('كشف حساب مختصر'));
+      expect(summary, contains('المستفيد: أحمد'));
+      expect(summary, contains('الرصيد الحالي: عليه ١٠٠ ريال'));
+      expect(summary, contains('2026/10/22 09:30'));
+    });
+
     test('creates an SMS composer URI with the message prefilled', () {
       final uri = ManualMessageService.smsUri(phone, message);
 

@@ -1,10 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 enum ManualMessageChannel { sms, whatsapp }
 
 /// Opens a prefilled one-to-one message composer; it never sends the message.
 class ManualMessageService {
+  static String accountSummaryMessage({
+    required String recipientName,
+    required String partyLabel,
+    required String balanceLabel,
+    required DateTime asOf,
+  }) => [
+    'كشف حساب مختصر',
+    '$partyLabel: $recipientName',
+    'الرصيد الحالي: $balanceLabel',
+    'أُعدّ بتاريخ: ${DateFormat('yyyy/MM/dd HH:mm').format(asOf)}',
+  ].join('\n');
+
   static String normalizePhoneDigits(String phone) {
     final westernDigits = phone.replaceAllMapped(RegExp(r'[٠-٩۰-۹]'), (match) {
       final code = match.group(0)!.codeUnitAt(0);
@@ -86,7 +99,7 @@ class ManualMessageService {
         builder: (dialogContext) => AlertDialog(
           title: Text(title),
           content: Text(
-            'تم حفظ العملية، لكن لا يوجد رقم هاتف مسجل لـ$recipientName. أضف الرقم إلى بيانات الطرف لإتاحة الإرسال.',
+            'لا يوجد رقم هاتف مسجل لـ$recipientName. أضف الرقم إلى بيانات الطرف لإتاحة الإرسال.',
           ),
           actions: [
             TextButton(

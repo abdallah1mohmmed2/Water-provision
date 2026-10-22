@@ -2891,6 +2891,35 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
     );
   }
 
+  Future<void> sendAccountSummary(Map<String, Object?> x) async {
+    try {
+      final id = x['id'] as int;
+      final balanceData = await widget.r.accounting.beneficiaryBalance(id);
+      if (!mounted) return;
+      final recipientName = x['name']?.toString() ?? 'المستفيد';
+      final balance = balanceData['balance'] ?? 0;
+      final asOf = AppClock.now();
+      await ManualMessageService.offerChoices(
+        context,
+        title: 'إرسال كشف حساب مختصر',
+        recipientName: recipientName,
+        phone: x['phone']?.toString() ?? '',
+        message: ManualMessageService.accountSummaryMessage(
+          recipientName: recipientName,
+          partyLabel: 'المستفيد',
+          balanceLabel: AccountingCalculations.balanceLabel(balance),
+          asOf: asOf,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendlyError(e))),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(c) => PageFrame(
     title: 'المستفيدون',
@@ -3039,10 +3068,21 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                       const SizedBox(height: 10),
                                       Align(
                                         alignment: Alignment.centerLeft,
-                                        child: OutlinedButton.icon(
-                                          onPressed: () => details(x),
-                                          icon: const Icon(Icons.open_in_new),
-                                          label: const Text('التفاصيل'),
+                                        child: Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            OutlinedButton.icon(
+                                              onPressed: () => details(x),
+                                              icon: const Icon(Icons.open_in_new),
+                                              label: const Text('التفاصيل'),
+                                            ),
+                                            OutlinedButton.icon(
+                                              onPressed: () => sendAccountSummary(x),
+                                              icon: const Icon(Icons.send_rounded),
+                                              label: const Text('إرسال الحساب'),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],
@@ -7178,6 +7218,31 @@ class _WorkersState extends State<WorkersPage> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(x)));
   }
 
+  Future<void> sendAccountSummary(Map<String, Object?> x) async {
+    try {
+      final id = x['id'] as int;
+      final balanceData = await widget.r.accounting.workerBalance(id);
+      if (!mounted) return;
+      final recipientName = x['name']?.toString() ?? 'العامل';
+      final balance = balanceData['balance'] ?? 0;
+      final asOf = AppClock.now();
+      await ManualMessageService.offerChoices(
+        context,
+        title: 'إرسال كشف حساب مختصر',
+        recipientName: recipientName,
+        phone: x['phone']?.toString() ?? '',
+        message: ManualMessageService.accountSummaryMessage(
+          recipientName: recipientName,
+          partyLabel: 'العامل',
+          balanceLabel: AccountingCalculations.partyDueLabel(balance),
+          asOf: asOf,
+        ),
+      );
+    } catch (e) {
+      msg(friendlyError(e));
+    }
+  }
+
   @override
   Widget build(BuildContext c) {
     final filtered = rows
@@ -7313,13 +7378,23 @@ style: TextStyle(
                                           const SizedBox(height: 12),
                                           Align(
                                             alignment: Alignment.centerLeft,
-                                            child: OutlinedButton.icon(
-                                              onPressed: () => transaction(x),
-                                              icon: const Icon(
-                                                Icons
-                                                    .account_balance_wallet_outlined,
-                                              ),
-                                              label: const Text('حركة العامل'),
+                                            child: Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: [
+                                                OutlinedButton.icon(
+                                                  onPressed: () => transaction(x),
+                                                  icon: const Icon(
+                                                    Icons.account_balance_wallet_outlined,
+                                                  ),
+                                                  label: const Text('حركة العامل'),
+                                                ),
+                                                OutlinedButton.icon(
+                                                  onPressed: () => sendAccountSummary(x),
+                                                  icon: const Icon(Icons.send_rounded),
+                                                  label: const Text('إرسال الحساب'),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ],
