@@ -1569,9 +1569,21 @@ class AccountingService {
       final distributionRef = from.millisecondsSinceEpoch;
       final already = await tx.query('partner_transactions', where: 'reference_type=? AND reference_id=?', whereArgs: ['profit_distribution', distributionRef], limit: 1);
       if (already.isNotEmpty) throw StateError('تم ترحيل توزيع الأرباح لهذه الفترة مسبقاً');
-      final ps = await tx.query('partners', where: 'active=1'); final totalShares = ps.fold<int>(0, (x,p) => x + ((p['shares_count'] as num?)?.round() ?? 0)); var count=0;
+      final ps = await tx.query('partners', where: 'active=1');
+      // Keep share quantities fractional and use double consistently with partnerShareByMode.
+      final totalShares = ps.fold<double>(
+        0.0,
+        (sum, partner) => sum + ((partner['shares_count'] as num?)?.toDouble() ?? 0.0),
+      );
+      var count = 0;
       for (final p in ps) {
-        final amount = AccountingCalculations.partnerShareByMode(mode: '${p['ownership_mode']}', distributable: remainingProfit, partnerShares: (p['shares_count'] as num?)?.round() ?? 0, totalShares: totalShares, percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0);
+        final amount = AccountingCalculations.partnerShareByMode(
+          mode: '${p['ownership_mode']}',
+          distributable: remainingProfit,
+          partnerShares: (p['shares_count'] as num?)?.toDouble() ?? 0.0,
+          totalShares: totalShares,
+          percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0.0,
+        );
         if (amount <= 0) continue;
         final id = await tx.insert('partner_transactions', {'partner_id': p['id'], 'date': to.subtract(const Duration(seconds: 1)).toIso8601String(), 'type': 'share_accrual', 'amount': amount, 'ownership_snapshot': p['ownership_mode']=='percentage' ? p['ownership_percentage'] : p['shares_count'], 'reference_type': 'profit_distribution', 'reference_id': distributionRef, 'created_by': userId});
         final eq = await _accountIdTx(tx, '3200'), payable = await _partnerAccountIdTx(tx, p['id'] as int);
