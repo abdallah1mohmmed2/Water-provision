@@ -3704,7 +3704,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                     Row(children: [
                       Expanded(child: TextField(controller: startController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'بداية الغيم (ساعة:دقيقة)', hintText: '13:10'))),
                       IconButton(tooltip: 'لاقط وقت هجين لبداية الغيم', icon: const Icon(Icons.schedule), onPressed: () async {
-                        final initial = parseCloudTime(startController.text) ?? start;
+                        final initial = _parseCloudClock(startController.text) ?? start;
                         final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار بداية الغيم', use24Hour: true);
                         if (selected != null) { startController.text = '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}'; dialogSetState(() {}); }
                       }),
@@ -3713,7 +3713,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                     Row(children: [
                       Expanded(child: TextField(controller: endController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'نهاية الغيم (ساعة:دقيقة)', hintText: '13:20'))),
                       IconButton(tooltip: 'لاقط وقت هجين لنهاية الغيم', icon: const Icon(Icons.schedule), onPressed: () async {
-                        final initial = parseCloudTime(endController.text) ?? start.add(const Duration(minutes: 15));
+                        final initial = _parseCloudClock(endController.text) ?? start.add(const Duration(minutes: 15));
                         final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار نهاية الغيم', use24Hour: true);
                         if (selected != null) { endController.text = '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}'; dialogSetState(() {}); }
                       }),
@@ -3752,15 +3752,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                   });
                   return;
                 }
-                DateTime? parseCloudTime(String raw) {
-                   final match = RegExp(r'^\s*(\d{1,2})\s*:\s*(\d{1,2})\s*$').firstMatch(raw.trim());
-                   if (match == null) return null;
-                   final h = int.tryParse(match.group(1)!);
-                   final m = int.tryParse(match.group(2)!);
-                   if (h == null || h < 0 || h > 23 || m == null || m < 0 || m > 59) return null;
-                   return DateTime(start.year, start.month, start.day, h, m);
-                 }
-                 int? parseClock(String raw) {
+int? parseClock(String raw) {
                   final match = RegExp(
                     r'^\s*(\d{1,2})\s*:\s*(\d{1,2})\s*$',
                   ).firstMatch(raw.trim());
@@ -3929,6 +3921,15 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     );
     hc.dispose(); mc.dispose(); hw.dispose(); mw.dispose();
     return result;
+  }
+
+  DateTime? _parseCloudClock(String raw) {
+    final match = RegExp(r'^\s*(\d{1,2})\s*:\s*(\d{1,2})\s*$').firstMatch(raw.trim());
+    if (match == null) return null;
+    final hour = int.tryParse(match.group(1)!);
+    final minute = int.tryParse(match.group(2)!);
+    if (hour == null || hour < 0 || hour > 23 || minute == null || minute < 0 || minute > 59) return null;
+    return DateTime(start.year, start.month, start.day, hour, minute);
   }
 
   String _hm(DateTime d) =>
