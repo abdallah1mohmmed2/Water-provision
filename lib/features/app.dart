@@ -31,7 +31,7 @@ String friendlyError(Object e) {
   if (e is ArgumentError && e.message != null) return '${e.message}';
   if (e is StateError) return e.message;
   final x = '$e';
-  if (x.contains('carried_diesel_liters') || x.contains('no such column'))
+  if (x.contains('carried_diesel_liters'))
     return 'نسخة قاعدة البيانات قديمة. أعد فتح التطبيق ليتم تحديث قاعدة البيانات تلقائيًا.';
   if (x.contains('UNIQUE')) return 'القيمة موجودة مسبقًا.';
   if (x.contains('FOREIGN KEY'))
