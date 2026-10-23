@@ -9944,7 +9944,12 @@ class _LedgerState extends State<LedgerPage> {
       subtitle: 'حساب مستقل لكل رمز مع له وعليه والرصيد الجاري',
       actions: [
         OutlinedButton.icon(
-          onPressed: load,
+          onPressed: loading ? null : _printLedger,
+          icon: const Icon(Icons.print_rounded),
+          label: const Text('طباعة كشف الحساب'),
+        ),
+        OutlinedButton.icon(
+          onPressed: loading ? null : load,
           icon: const Icon(Icons.refresh),
           label: const Text('تحديث'),
         ),
@@ -9990,15 +9995,17 @@ class _LedgerState extends State<LedgerPage> {
             },
           ),
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              Metric('رصيد أول المدة', _drLabel(opening), _blue),
-              Metric('إجمالي عليه', money(totalDebit), _purple),
-              Metric('إجمالي له', money(totalCredit), _cyan),
-              Metric('الرصيد الختامي', _drLabel(closing), _green),
-            ],
+          SizedBox(
+            height: 112,
+            child: PageView(
+              controller: PageController(viewportFraction: .78),
+              children: [
+                _ledgerMetric('رصيد أول المدة', _drLabel(opening), Icons.account_balance_wallet_rounded, _blue),
+                _ledgerMetric('إجمالي عليه', money(totalDebit), Icons.south_west_rounded, _purple),
+                _ledgerMetric('إجمالي له', money(totalCredit), Icons.north_east_rounded, _cyan),
+                _ledgerMetric('الرصيد الختامي', _drLabel(closing), Icons.balance_rounded, _green),
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           Expanded(
@@ -10009,6 +10016,7 @@ class _LedgerState extends State<LedgerPage> {
                 : rows.isEmpty
                 ? const EmptyView('لا توجد حركات لهذا الحساب في الفترة المحددة')
                 : ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 18),
                     itemCount: rows.length,
                     itemBuilder: (_, i) => rowCard(c, rows[i]),
                   ),
@@ -10016,6 +10024,71 @@ class _LedgerState extends State<LedgerPage> {
         ],
       ),
     );
+  }
+
+  Widget _ledgerMetric(String label, String value, IconData icon, Color color) =>
+      Container(
+        margin: const EdgeInsetsDirectional.only(end: 10, top: 3, bottom: 5),
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: color.withValues(alpha: .45), width: 1.2),
+          boxShadow: [
+            BoxShadow(color: color.withValues(alpha: .09), blurRadius: 10, offset: const Offset(0, 3)),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(children: [
+              Icon(icon, color: color, size: 21),
+              const SizedBox(width: 8),
+              Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w700, fontSize: 12))),
+            ]),
+            const SizedBox(height: 10),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(value, style: TextStyle(color: color, fontSize: 19, fontWeight: FontWeight.w900)),
+            ),
+            const SizedBox(height: 2),
+            Text('اسحب لمشاهدة البطاقة التالية', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 9)),
+          ],
+        ),
+      );
+
+  Future<void> _printLedger() async {
+    try {
+      final account = accounts.where((x) => '${x['code']}' == code).toList();
+      final accountName = account.isEmpty ? code : '${account.first['name'] ?? code}';
+      final reportRows = <Map<String, Object?>>[
+        for (final x in rows)
+          <String, Object?>{
+            'date': x['date'],
+            'account_name': '$code • $accountName',
+            'journal_entry_id': x['journal_entry_id'] ?? x['entry_id'] ?? x['id'],
+            'description': x['description'] ?? x['memo'] ?? '',
+            'alayh': x['debit'] ?? 0,
+            'lah': x['credit'] ?? 0,
+            'balance': x['balance'] ?? 0,
+          },
+      ];
+      await ReportService(widget.r).printPdf(
+        'ledger',
+        from: from,
+        to: to,
+        sourceRows: reportRows,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendlyError(e))),
+        );
+      }
+    }
   }
 }
 
