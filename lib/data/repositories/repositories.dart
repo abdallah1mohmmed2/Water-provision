@@ -1705,8 +1705,16 @@ class StationRepository {
         {
           final a = <Object?>[];
           var w = "i.status!='cancelled'";
-          if (from != null) { w += ' AND i.start_datetime>=?'; a.add(from.toIso8601String()); }
-          if (to != null) { w += ' AND i.start_datetime<?'; a.add(to.add(const Duration(days: 1)).toIso8601String()); }
+          // قارن بالتاريخ فقط لتفادي اختلاف تنسيق النص بين "T" والمسافة
+          // في start_datetime، ولإدراج كل سجلات يوم البداية والنهاية.
+          if (from != null) {
+            w += ' AND date(i.start_datetime)>=date(?)';
+            a.add(from.toIso8601String());
+          }
+          if (to != null) {
+            w += ' AND date(i.start_datetime)<=date(?)';
+            a.add(to.toIso8601String());
+          }
           if (beneficiaryId != null) { w += ' AND i.beneficiary_id=?'; a.add(beneficiaryId); }
           if (workerId != null) { w += ' AND i.worker_id=?'; a.add(workerId); }
           if (partnerId != null) { w += ' AND i.partner_id=?'; a.add(partnerId); }
