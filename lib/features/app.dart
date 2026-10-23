@@ -5,6 +5,7 @@ import '../core/period_ranges.dart';
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' hide TextDirection;
+import 'package:printing/printing.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import '../core/theme.dart';
@@ -5678,6 +5679,59 @@ class _IrrigationsState extends State<IrrigationsPage> {
     }
   }
 
+  Future<void> createIrrigationsPdf() async {
+    final now = AppClock.now();
+    final allPeriod = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}
+        .contains(reportPeriodController.text.trim().toLowerCase());
+    final from = allPeriod ? null : _reportStart(reportPeriodController.text, now);
+    if (!allPeriod && from == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('حدد فترة صحيحة قبل إنشاء ملف PDF.')),
+      );
+      return;
+    }
+    try {
+      final to = DateTime(now.year, now.month, now.day);
+      final reportRows = await widget.r.report(
+        'irrigations',
+        from: from,
+        to: to,
+        systemType: type ?? 'all',
+        beneficiaryId: bid,
+      );
+      if (reportRows.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('لا توجد بيانات مطابقة للفلاتر لإنشاء PDF.')),
+        );
+        return;
+      }
+      final bytes = await ReportService(widget.r).pdf(
+        'irrigations',
+        from: from,
+        to: to,
+        systemType: type ?? 'all',
+        beneficiaryId: bid,
+        sourceRows: reportRows,
+      );
+      if (bytes.isEmpty) throw StateError('ملف PDF الناتج فارغ.');
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: 'تقرير_السقايات_${DateFormat('yyyyMMdd_HHmm').format(now)}.pdf',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تم تجهيز PDF من ${reportRows.length} سجلًا وفق الفلاتر المحددة.')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر إنشاء/مشاركة PDF السقايات: ${friendlyError(e)}')),
+      );
+    }
+  }
+
   Future<void> load() async {
     setState(() => loading = true);
     try {
@@ -5827,6 +5881,11 @@ class _IrrigationsState extends State<IrrigationsPage> {
                 onPressed: loading ? null : printIrrigationsReport,
                 icon: const Icon(Icons.print_rounded),
                 label: const Text('طباعة تقرير السقايات'),
+              ),
+              OutlinedButton.icon(
+                onPressed: loading ? null : createIrrigationsPdf,
+                icon: const Icon(Icons.picture_as_pdf_rounded),
+                label: const Text('إنشاء PDF'),
               ),
             ],
           ),
