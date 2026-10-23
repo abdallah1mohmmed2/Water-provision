@@ -131,7 +131,7 @@ class ReportService {
       );
       if (person.isNotEmpty) personName = '${person.first['name'] ?? ''}'.trim();
     }
-    if (personName != null && personName!.isEmpty) personName = null;
+    if (personName != null && personName.isEmpty) personName = null;
 
     final doc = pw.Document();
     final font = pw.Font.ttf(
