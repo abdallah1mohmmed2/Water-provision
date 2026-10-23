@@ -1061,8 +1061,20 @@ class ReportService {
     if (bytes.isEmpty) {
       throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');
     }
-    await Printing.layoutPdf(
-      onLayout: (_) async => bytes,
-    );
+    try {
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+      );
+    } catch (error) {
+      // On some Android devices the native print bridge fails with "No value"
+      // after the PDF bytes have already been generated. Preserve the document
+      // and offer the Android share/save sheet instead of losing the report.
+      final message = error.toString().toLowerCase();
+      if (!message.contains('no value')) rethrow;
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename: '${(titles[key] ?? 'report').replaceAll('/', '-')}.pdf',
+      );
+    }
   }
 }
