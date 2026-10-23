@@ -1909,15 +1909,49 @@ class StationRepository {
           for (final row in individualExpenses)
             (row['partner_id'] as num).toInt(): (row['total'] as num).round(),
         };
+        // صافي الاستحقاقات المباشرة من السقايات بعد تسويات الفائض، مع استبعاد الملغى.
+        final directRows = await db.rawQuery(
+          "SELECT pt.partner_id,pt.amount-COALESCE((SELECT SUM(adj.amount) FROM partner_transactions adj WHERE adj.reference_type='partner_profit_adjustment' AND adj.reference_id=pt.id AND adj.type='share_adjustment'),0) net FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id JOIN irrigations i ON i.id=pt.reference_id WHERE p.station_id=? AND pt.reference_type='irrigation_profit' AND COALESCE(i.status,'')!='cancelled' AND pt.date>=? AND pt.date<?",
+          [stationId, start, endExclusive],
+        );
+        final directByPartner = <int, int>{};
+        var directTotal = 0;
+        for (final row in directRows) {
+          final amount = ((row['net'] as num?)?.round() ?? 0).clamp(0, 1 << 62);
+          final id = (row['partner_id'] as num).toInt();
+          directByPartner[id] = (directByPartner[id] ?? 0) + amount;
+          directTotal += amount;
+        }
+        // إذا تجاوزت الاستحقاقات القديمة صافي الربح، لا يعرض التقرير إجماليًا
+        // يتجاوز الربح المتاح؛ الترحيل الفعلي يسجل قيد التسوية عند تنفيذ التوزيع.
+        if (directTotal > profit && directTotal > 0) {
+          final capped = <int, int>{};
+          var assigned = 0;
+          final entries = directByPartner.entries.toList();
+          for (var i = 0; i < entries.length; i++) {
+            final e = entries[i];
+            final value = i == entries.length - 1
+                ? profit - assigned
+                : (profit * e.value / directTotal).round().clamp(0, profit - assigned).toInt();
+            capped[e.key] = value;
+            assigned += value;
+          }
+          directByPartner
+            ..clear()
+            ..addAll(capped);
+          directTotal = profit;
+        }
+        final remainingProfit = (profit - directTotal).clamp(0, profit).toInt();
         return ps.map((p) {
           final id = (p['id'] as num).toInt();
-          final gross = AccountingCalculations.partnerShareByMode(
+          final shareOfRemaining = AccountingCalculations.partnerShareByMode(
             mode: '${p['ownership_mode']}',
-            distributable: profit,
+            distributable: remainingProfit,
             partnerShares: (p['shares_count'] as num?)?.toDouble() ?? 0.0,
             totalShares: totalShares,
             percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0,
           );
+          final gross = (directByPartner[id] ?? 0) + shareOfRemaining;
           final personalExpenses = expensesByPartner[id] ?? 0;
           return <String, Object?>{
             'name': p['name'],
