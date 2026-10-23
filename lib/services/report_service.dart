@@ -965,7 +965,7 @@ class ReportService {
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
               _reportHeader(
-                title: 'إيصال قبض',
+                title: x['beneficiary_id'] != null ? 'سند قبض' : 'سند صرف',
                 station: receiptSettings['station_name'] ?? 'محطة ساقية',
                 reportNumber: '#${x['id']}',
                 recordCount: 1,
