@@ -1100,16 +1100,20 @@ class ReportService {
         name: (titles[key] ?? key).replaceAll('/', '-'),
         onLayout: (_) async => bytes,
       );
-    } catch (error) {
-      // On some Android devices the native print bridge fails with "No value"
-      // after the PDF bytes have already been generated. Preserve the document
-      // and offer the Android share/save sheet instead of losing the report.
-      final message = error.toString().toLowerCase();
-      if (!message.contains('no value')) rethrow;
-      await Printing.sharePdf(
-        bytes: bytes,
-        filename: '${(titles[key] ?? 'report').replaceAll('/', '-')}.pdf',
-      );
+    } catch (printError) {
+      // Keep a usable PDF delivery path if Android's native print dialog fails
+      // for any reason, not only the known "No value" bridge error.
+      try {
+        await Printing.sharePdf(
+          bytes: bytes,
+          filename: '${(titles[key] ?? 'report').replaceAll('/', '-')}.pdf',
+        );
+      } catch (shareError) {
+        throw StateError(
+          'تم إنشاء ملف PDF لكن تعذّر فتح الطباعة أو المشاركة. '
+          'خطأ الطباعة: $printError؛ خطأ المشاركة/الحفظ: $shareError',
+        );
+      }
     }
   }
 }
