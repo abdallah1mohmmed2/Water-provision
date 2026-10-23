@@ -4822,103 +4822,6 @@ int? parseClock(String raw) {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت السقاية وفترات الغيم', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
-                const SizedBox(height: 10),
-
-                OutlinedButton.icon(
-                  onPressed: () => pickDate(true),
-                  icon: const Icon(Icons.event),
-                  label: Text('تاريخ جديد: ${selectedDate.year}/${selectedDate.month.toString().padLeft(2, '0')}/${selectedDate.day.toString().padLeft(2, '0')}'),
-                ),
-                const SizedBox(height: 8),
-                if (timeStep == 0) ...[
-                  const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت البداية', style: TextStyle(fontWeight: FontWeight.w800))),
-                  Row(children: [
-                    SizedBox(width: 240, child: TextField(controller: startTimeController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '08:30'))),
-                    IconButton(tooltip: 'لاقط وقت هجين للبداية', icon: const Icon(Icons.schedule), onPressed: () async {
-                      final value = _parseTimeMinutes(startTimeController.text);
-                      final hour24 = value == null ? start.hour : _to24Hour(value, startPeriod ?? (start.hour < 12 ? 'am' : 'pm'));
-                      final picked = await _showHybridTimePicker(initial: DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour24, value == null ? start.minute : value % 60), title: 'اختيار وقت البداية', confirmPeriod: true, initialPeriod: startPeriod);
-                      if (picked != null) {
-                        setState(() {
-                        startTimeController.text = '${(picked.hour % 12 == 0 ? 12 : picked.hour % 12).toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-                        startPeriod = picked.hour < 12 ? 'am' : 'pm'; _updateEndPeriodFromTime();
-                      });
-                      }
-                    }),
-                  ]),
-                  Wrap(spacing: 8, children: [
-                    ChoiceChip(label: const Text('صباحاً'), selected: startPeriod == 'am', onSelected: (_) => setState(() { startPeriod = 'am'; _updateEndPeriodFromTime(); })),
-                    ChoiceChip(label: const Text('مساءً'), selected: startPeriod == 'pm', onSelected: (_) => setState(() { startPeriod = 'pm'; _updateEndPeriodFromTime(); })),
-                  ]),
-                ] else if (timeStep == 1) ...[
-                  const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت النهاية', style: TextStyle(fontWeight: FontWeight.w800))),
-                  Row(children: [
-                    SizedBox(width: 240, child: TextField(controller: endTimeController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '09:30'), onChanged: (_) => setState(_updateEndPeriodFromTime))),
-                    IconButton(tooltip: 'لاقط وقت هجين للنهاية', icon: const Icon(Icons.schedule), onPressed: () async {
-                      final value = _parseTimeMinutes(endTimeController.text);
-                      final hour24 = value == null ? end.hour : _to24Hour(value, endPeriod ?? (end.hour < 12 ? 'am' : 'pm'));
-                      final picked = await _showHybridTimePicker(initial: DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour24, value == null ? end.minute : value % 60), title: 'اختيار وقت النهاية');
-                      if (picked != null) {
-                        setState(() {
-                        endTimeController.text = '${(picked.hour % 12 == 0 ? 12 : picked.hour % 12).toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-                        _updateEndPeriodFromTime();
-                      });
-                      }
-                    }),
-                  ]),
-                  Chip(avatar: const Icon(Icons.schedule), label: Text('الفترة تلقائياً: ${endPeriod == 'am' ? 'صباحاً' : 'مساءً'}')),
-                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.arrow_back), label: const Text('تعديل وقت البداية')),
-                ] else ...[
-                  Text('البداية: ${_hm12(start)} ${start.hour < 12 ? 'صباحاً' : 'مساءً'}'),
-                  Text('النهاية: ${_hm12(end)} ${end.hour < 12 ? 'صباحاً' : 'مساءً'}'),
-                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.edit), label: const Text('تعديل الوقت')),
-                ],
-                FilledButton.icon(
-                  onPressed: nextTimeStep,
-                  icon: Icon(timeStep == 2 ? Icons.edit : Icons.arrow_forward),
-                  label: Text(timeStep == 0 ? 'التالي إلى وقت النهاية' : timeStep == 1 ? 'تأكيد الوقت' : 'تعديل الوقت'),
-                ),
-                if (end.year != start.year || end.month != start.month || end.day != start.day)
-                  const Chip(avatar: Icon(Icons.nights_stay_outlined), label: Text('وقت النهاية في اليوم التالي')),
-                Chip(label: Text('المدة: $minutes دقيقة'), avatar: const Icon(Icons.timelapse)),
-                if (type == 'solar') ...[
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: minutes > 0 ? () => addCloudPeriod() : null,
-                    icon: const Icon(Icons.cloud_outlined),
-                    label: Text(quickCloudMode ? 'تعديل الغيم السريع' : 'إضافة غيم'),
-                  ),
-                  if (quickCloudMode)
-                    Chip(
-                      avatar: const Icon(Icons.bolt, size: 18),
-                      label: Text('الغيم السريع: $cloudMin دقيقة'),
-                    ),
-                  if (!quickCloudMode && cloudPeriods.isNotEmpty)
-                    ...cloudPeriods.asMap().entries.map((entry) {
-                      final i = entry.key;
-                      final p = entry.value;
-                      final m = p['end']!.difference(p['start']!).inMinutes;
-                      return InputChip(
-                        avatar: const Icon(Icons.cloud, size: 18),
-                        label: Text(
-                          'غيم ${i + 1}: ${_hm(p['start']!)} → ${_hm(p['end']!)} • $m دقيقة',
-                        ),
-                        onPressed: () => addCloudPeriod(editingIndex: i),
-                        onDeleted: () =>
-                            setState(() => cloudPeriods.removeAt(i)),
-                      );
-                    }),
-                  if (cloudMin > 0)
-                    Chip(
-                      avatar: const Icon(Icons.remove_circle_outline),
-                      label: Text(
-                        'خصم الغيم: $cloudMin دقيقة • المحاسبة: ${minutes - cloudMin} دقيقة',
-                      ),
-                    ),
-                ],
-
-                const Divider(height: 28),
                 const Align(alignment: AlignmentDirectional.centerStart, child: Text('البحث واختيار صاحب الحساب', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
                 const SizedBox(height: 10),
                 TextField(
@@ -4975,6 +4878,117 @@ int? parseClock(String raw) {
                       },
                     );
                   }),
+                const SizedBox(height: 18),
+                const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت السقاية وفترات الغيم', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                const SizedBox(height: 10),
+
+                OutlinedButton.icon(
+                  onPressed: () => pickDate(true),
+                  icon: const Icon(Icons.event),
+                  label: Text('تاريخ جديد: ${selectedDate.year}/${selectedDate.month.toString().padLeft(2, '0')}/${selectedDate.day.toString().padLeft(2, '0')}'),
+                ),
+                const SizedBox(height: 8),
+                if (timeStep == 0) ...[
+                  const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت البداية', style: TextStyle(fontWeight: FontWeight.w800))),
+                  Row(children: [
+                    SizedBox(width: 240, child: TextField(controller: startTimeController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '08:30'))),
+                    IconButton(tooltip: 'لاقط وقت هجين للبداية', icon: const Icon(Icons.schedule), onPressed: () async {
+                      final value = _parseTimeMinutes(startTimeController.text);
+                      final hour24 = value == null ? start.hour : _to24Hour(value, startPeriod ?? (start.hour < 12 ? 'am' : 'pm'));
+                      final picked = await _showHybridTimePicker(initial: DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour24, value == null ? start.minute : value % 60), title: 'اختيار وقت البداية', confirmPeriod: true, initialPeriod: startPeriod);
+                      if (picked != null) {
+                        setState(() {
+                        startTimeController.text = '${(picked.hour % 12 == 0 ? 12 : picked.hour % 12).toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                        startPeriod = picked.hour < 12 ? 'am' : 'pm'; _updateEndPeriodFromTime();
+                      });
+                      }
+                    }),
+                  ]),
+                  Wrap(spacing: 8, children: [
+                    ChoiceChip(label: const Text('صباحاً'), selected: startPeriod == 'am', onSelected: (_) => setState(() { startPeriod = 'am'; _updateEndPeriodFromTime(); })),
+                    ChoiceChip(label: const Text('مساءً'), selected: startPeriod == 'pm', onSelected: (_) => setState(() { startPeriod = 'pm'; _updateEndPeriodFromTime(); })),
+                  ]),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: FilledButton.icon(
+                      onPressed: nextTimeStep,
+                      icon: const Icon(Icons.arrow_forward),
+                      label: const Text('التالي'),
+                    ),
+                  ),
+                ] else if (timeStep == 1) ...[
+                  const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت النهاية', style: TextStyle(fontWeight: FontWeight.w800))),
+                  Row(children: [
+                    SizedBox(width: 240, child: TextField(controller: endTimeController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '09:30'), onChanged: (_) => setState(_updateEndPeriodFromTime))),
+                    IconButton(tooltip: 'لاقط وقت هجين للنهاية', icon: const Icon(Icons.schedule), onPressed: () async {
+                      final value = _parseTimeMinutes(endTimeController.text);
+                      final hour24 = value == null ? end.hour : _to24Hour(value, endPeriod ?? (end.hour < 12 ? 'am' : 'pm'));
+                      final picked = await _showHybridTimePicker(initial: DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour24, value == null ? end.minute : value % 60), title: 'اختيار وقت النهاية');
+                      if (picked != null) {
+                        setState(() {
+                        endTimeController.text = '${(picked.hour % 12 == 0 ? 12 : picked.hour % 12).toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                        _updateEndPeriodFromTime();
+                      });
+                      }
+                    }),
+                  ]),
+                  Chip(avatar: const Icon(Icons.schedule), label: Text('الفترة تلقائياً: ${endPeriod == 'am' ? 'صباحاً' : 'مساءً'}')),
+                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.arrow_back), label: const Text('تعديل وقت البداية')),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: FilledButton.icon(
+                      onPressed: nextTimeStep,
+                      icon: const Icon(Icons.check_circle_outline),
+                      label: const Text('تأكيد وقت النهاية'),
+                    ),
+                  ),
+                ] else ...[
+                  Text('البداية: ${_hm12(start)} ${start.hour < 12 ? 'صباحاً' : 'مساءً'}'),
+                  Text('النهاية: ${_hm12(end)} ${end.hour < 12 ? 'صباحاً' : 'مساءً'}'),
+                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.edit), label: const Text('تعديل الوقت')),
+                ],
+                if (end.year != start.year || end.month != start.month || end.day != start.day)
+                  const Chip(avatar: Icon(Icons.nights_stay_outlined), label: Text('وقت النهاية في اليوم التالي')),
+                Chip(label: Text('المدة: $minutes دقيقة'), avatar: const Icon(Icons.timelapse)),
+                if (type == 'solar') ...[
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: minutes > 0 ? () => addCloudPeriod() : null,
+                    icon: const Icon(Icons.cloud_outlined),
+                    label: Text(quickCloudMode ? 'تعديل الغيم السريع' : 'إضافة غيم'),
+                  ),
+                  if (quickCloudMode)
+                    Chip(
+                      avatar: const Icon(Icons.bolt, size: 18),
+                      label: Text('الغيم السريع: $cloudMin دقيقة'),
+                    ),
+                  if (!quickCloudMode && cloudPeriods.isNotEmpty)
+                    ...cloudPeriods.asMap().entries.map((entry) {
+                      final i = entry.key;
+                      final p = entry.value;
+                      final m = p['end']!.difference(p['start']!).inMinutes;
+                      return InputChip(
+                        avatar: const Icon(Icons.cloud, size: 18),
+                        label: Text(
+                          'غيم ${i + 1}: ${_hm(p['start']!)} → ${_hm(p['end']!)} • $m دقيقة',
+                        ),
+                        onPressed: () => addCloudPeriod(editingIndex: i),
+                        onDeleted: () =>
+                            setState(() => cloudPeriods.removeAt(i)),
+                      );
+                    }),
+                  if (cloudMin > 0)
+                    Chip(
+                      avatar: const Icon(Icons.remove_circle_outline),
+                      label: Text(
+                        'خصم الغيم: $cloudMin دقيقة • المحاسبة: ${minutes - cloudMin} دقيقة',
+                      ),
+                    ),
+                ],
+
+
 
 
 
