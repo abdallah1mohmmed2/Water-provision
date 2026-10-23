@@ -67,7 +67,7 @@ class ReportService {
   'revenue_comparison': ['month', 'system_type', 'total'],
   'system_comparison': ['system_type', 'operations', 'minutes', 'total', 'diesel_cost'],
   'journal': ['date', 'description', 'account_code', 'account_name', 'debit', 'credit'],
-  'ledger': ['date', 'description', 'account_code', 'account_name', 'debit', 'credit'],
+  'ledger': ['date', 'account_name', 'journal_entry_id', 'description', 'alayh', 'lah', 'balance'],
 };
 
 
