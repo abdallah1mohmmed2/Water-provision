@@ -5570,7 +5570,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
   int? bid;
   bool loading = true;
   final TextEditingController reportPeriodController =
-      TextEditingController(text: 'أسبوع');
+      TextEditingController(text: 'كل الفترة');
 
   @override
   void dispose() {
@@ -5581,6 +5581,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
   DateTime? _reportStart(String raw, DateTime now) {
     final value = raw.trim().toLowerCase();
     final today = DateTime(now.year, now.month, now.day);
+    if (const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}.contains(value)) return null;
     if (const {'يوم', 'اليوم', '1 يوم', 'يوم واحد'}.contains(value)) return today;
     if (const {'يومان', 'يومين', 'آخر يومين', '2 يوم', '2 أيام'}.contains(value)) {
       return today.subtract(const Duration(days: 1));
@@ -5603,8 +5604,10 @@ class _IrrigationsState extends State<IrrigationsPage> {
 
   Future<void> printIrrigationsReport() async {
     final now = AppClock.now();
-    final from = _reportStart(reportPeriodController.text, now);
-    if (from == null) {
+    final allPeriod = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}
+        .contains(reportPeriodController.text.trim().toLowerCase());
+    final from = allPeriod ? null : _reportStart(reportPeriodController.text, now);
+    if (!allPeriod && from == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -5806,6 +5809,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
                   enableSearch: true,
                   expandedInsets: EdgeInsets.zero,
                   dropdownMenuEntries: const [
+                    DropdownMenuEntry(value: 'كل الفترة', label: 'كل الفترة'),
                     DropdownMenuEntry(value: 'يوم', label: 'اليوم'),
                     DropdownMenuEntry(value: 'يومان', label: 'آخر يومين'),
                     DropdownMenuEntry(value: 'أسبوع', label: 'آخر أسبوع'),
