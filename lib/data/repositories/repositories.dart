@@ -1898,11 +1898,36 @@ class StationRepository {
         final ps = await partners();
         final totalShares = ps.fold<double>(0.0, (sum, p) => sum + ((p['shares_count'] as num?)?.toDouble() ?? 0.0));
         final profit = (summary['distributable'] as num?)?.round() ?? 0;
-        return ps.map((p) => <String, Object?>{
-          'name': p['name'],
-          'mode': p['ownership_mode'],
-          'basis': p['ownership_mode'] == 'percentage' ? p['ownership_percentage'] : p['shares_count'],
-          'amount': AccountingCalculations.partnerShareByMode(mode: '${p['ownership_mode']}', distributable: profit, partnerShares: (p['shares_count'] as num?)?.toDouble() ?? 0.0, totalShares: totalShares, percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0),
+        final stationId = await accounting.currentStationId();
+        final start = DateTime(from.year, from.month, from.day).toIso8601String();
+        final endExclusive = DateTime(to.year, to.month, to.day + 1).toIso8601String();
+        final individualExpenses = await db.rawQuery(
+          "SELECT partner_id,COALESCE(SUM(amount),0) total FROM expenses WHERE status='posted' AND partner_id IS NOT NULL AND date>=? AND date<? AND partner_id IN (SELECT id FROM partners WHERE station_id=? AND active=1) GROUP BY partner_id",
+          [start, endExclusive, stationId],
+        );
+        final expensesByPartner = <int, int>{
+          for (final row in individualExpenses)
+            (row['partner_id'] as num).toInt(): (row['total'] as num).round(),
+        };
+        return ps.map((p) {
+          final id = (p['id'] as num).toInt();
+          final gross = AccountingCalculations.partnerShareByMode(
+            mode: '${p['ownership_mode']}',
+            distributable: profit,
+            partnerShares: (p['shares_count'] as num?)?.toDouble() ?? 0.0,
+            totalShares: totalShares,
+            percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0,
+          );
+          final personalExpenses = expensesByPartner[id] ?? 0;
+          return <String, Object?>{
+            'name': p['name'],
+            'mode': p['ownership_mode'],
+            'basis': p['ownership_mode'] == 'percentage' ? p['ownership_percentage'] : p['shares_count'],
+            'gross_amount': gross,
+            'partner_expenses': personalExpenses,
+            // قد تصبح النتيجة سالبة إذا تجاوزت المصروفات الخاصة حصة الشريك.
+            'amount': gross - personalExpenses,
+          };
         }).toList();
       default:
         throw StateError('نوع التقرير غير مدعوم: $key');
