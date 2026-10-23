@@ -13,6 +13,7 @@ import '../core/system_config.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/calculations.dart';
 import '../services/admin_service.dart';
+import '../services/local_security_service.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
 import '../services/device_notification_settings.dart';
@@ -346,134 +347,386 @@ class _SaqiaAppState extends State<SaqiaApp> {
   );
 }
 
+/// شاشة القفل المحلية: لا تطلب كلمة مرور الحساب، بل رمز الجهاز أو البصمة.
 class AdminLoginPage extends StatefulWidget {
   const AdminLoginPage({super.key});
   @override
-  State<AdminLoginPage> createState() => _LoginState();
+  State<AdminLoginPage> createState() => _LocalSecurityGateState();
 }
 
-class _LoginState extends State<AdminLoginPage> {
-  final u = TextEditingController(text: 'admin'), p = TextEditingController();
-  bool loading = false;
+class _LocalSecurityGateState extends State<AdminLoginPage> {
+  final pin = TextEditingController();
+  bool loading = true;
+  bool busy = false;
+  bool needsSetup = false;
+  bool biometric = false;
+  bool biometricAvailable = false;
   String? error;
-  Future<void> login() async {
-    setState(() => loading = true);
-    try {
-      final user = await AdminService().authenticate(u.text.trim(), p.text);
-      if (!mounted) return;
-      if (user == null) {
-        setState(() => error = 'اسم المستخدم أو كلمة المرور غير صحيحة');
-        return;
-      }
-      if (!mounted) return;
-      final destination = (await StationRepository().settings())['initial_setup_completed'] == 'true'
-          ? AdminShell(role: '${user['role']}', userName: '${user['name']}', userId: user['id'] as int)
-          : InitialSetupPage(role: '${user['role']}', userName: '${user['name']}', userId: user['id'] as int);
-      if (!mounted) return;
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => destination));
-    } catch (e) {
-      if (mounted) setState(() => error = '$e');
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
+  Map<String, Object?>? user;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
 
   @override
-  Widget build(BuildContext c) => Directionality(
-    textDirection: TextDirection.rtl,
-    child: Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(28),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 82,
-                      height: 82,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(26),
-                        gradient: const LinearGradient(colors: [_blue, _cyan]),
+  void dispose() {
+    pin.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final security = LocalSecurityService.instance;
+      final configured = await security.hasPin();
+      final bio = await security.biometricEnabled();
+      final bioAvailable = await security.biometricAvailable();
+      final allUsers = await AdminService().users();
+      final activeUsers = allUsers.where((x) => (x['active'] as num?)?.toInt() == 1).toList();
+      activeUsers.sort((a, b) {
+        final aManager = a['role'] == 'manager' ? 0 : 1;
+        final bManager = b['role'] == 'manager' ? 0 : 1;
+        return aManager.compareTo(bManager);
+      });
+      if (!mounted) return;
+      setState(() {
+        needsSetup = !configured;
+        biometric = bio && bioAvailable;
+        biometricAvailable = bioAvailable;
+        user = activeUsers.isEmpty ? null : activeUsers.first;
+        loading = false;
+        if (activeUsers.isEmpty) error = 'لا يوجد مستخدم نشط. فعّل حسابًا من قاعدة بيانات المحطة أولاً.';
+      });
+    } catch (e) {
+      if (mounted) setState(() { loading = false; error = friendlyError(e); });
+    }
+  }
+
+  Future<void> _unlocked() async {
+    if (user == null) {
+      setState(() => error = 'تعذر تحديد مستخدم نشط لفتح المحطة.');
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      final settings = await StationRepository().settings();
+      final destination = settings['initial_setup_completed'] == 'true'
+          ? AdminShell(role: '${user!['role']}', userName: '${user!['name']}', userId: (user!['id'] as num).toInt())
+          : InitialSetupPage(role: '${user!['role']}', userName: '${user!['name']}', userId: (user!['id'] as num).toInt());
+      if (!mounted) return;
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => destination));
+    } catch (e) {
+      if (mounted) setState(() => error = friendlyError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _verifyPin() async {
+    if (busy) return;
+    setState(() { busy = true; error = null; });
+    try {
+      if (await LocalSecurityService.instance.verifyPin(pin.text)) {
+        await _unlocked();
+      } else if (mounted) {
+        setState(() => error = 'رمز التأمين غير صحيح');
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = friendlyError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _verifyBiometric() async {
+    if (busy) return;
+    setState(() { busy = true; error = null; });
+    final ok = await LocalSecurityService.instance.authenticateBiometric();
+    if (!mounted) return;
+    if (ok) {
+      await _unlocked();
+    } else {
+      setState(() => error = 'لم يتم التحقق بالبصمة. استخدم رمز التأمين.');
+    }
+    if (mounted) setState(() => busy = false);
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    if (loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (needsSetup) {
+      return SecuritySettingsPage(firstTime: true, onSaved: _load);
+    }
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 82, height: 82,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(26),
+                          gradient: const LinearGradient(colors: [_blue, _cyan]),
+                        ),
+                        child: const Icon(Icons.shield_rounded, size: 44, color: Colors.white),
                       ),
-                      child: const Icon(
-                        Icons.water_drop_rounded,
-                        size: 46,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      AppPrefs.current.appName,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 25,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    TextField(
-                      controller: u,
-                      decoration: const InputDecoration(
-                        labelText: 'اسم المستخدم',
-                        prefixIcon: Icon(Icons.person_outline),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: p,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'كلمة المرور',
-                        prefixIcon: Icon(Icons.lock_outline),
-                      ),
-                    ),
-                    if (error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Text(
-                          error!,
-                          style: TextStyle(
-                            color: Theme.of(c).colorScheme.error,
-                          ),
+                      const SizedBox(height: 18),
+                      Text(AppPrefs.current.appName, textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 8),
+                      const Text('تأمين محلي للجهاز', style: TextStyle(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 22),
+                      TextField(
+                        controller: pin,
+                        keyboardType: TextInputType.number,
+                        obscureText: true,
+                        maxLength: 8,
+                        onSubmitted: (_) => _verifyPin(),
+                        decoration: const InputDecoration(
+                          labelText: 'رمز التأمين الرقمي',
+                          prefixIcon: Icon(Icons.pin_outlined),
+                          border: OutlineInputBorder(),
+                          counterText: '',
                         ),
                       ),
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: loading ? null : login,
-                        icon: const Icon(Icons.login),
-                        label: loading
-                            ? const SizedBox(
-                                height: 22,
-                                width: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Text('تسجيل الدخول'),
+                      if (error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(error!, style: TextStyle(color: Theme.of(c).colorScheme.error)),
+                        ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: busy ? null : _verifyPin,
+                          icon: const Icon(Icons.lock_open_rounded),
+                          label: Text(busy ? 'جارٍ التحقق…' : 'فتح التطبيق'),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'في أول تشغيل: استخدم بيانات المدير الأولية ثم غيّر كلمة المرور.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ],
+                      if (biometric && biometricAvailable) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: busy ? null : _verifyBiometric,
+                            icon: const Icon(Icons.fingerprint_rounded),
+                            label: const Text('فتح بالبصمة'),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        onPressed: () => Navigator.push(c, MaterialPageRoute(
+                          builder: (_) => SecuritySettingsPage(firstTime: false),
+                        )).then((_) => _load()),
+                        icon: const Icon(Icons.settings_outlined),
+                        label: const Text('إعدادات التأمين'),
+                      ),
+                      const SizedBox(height: 4),
+                      Text('يُحفظ رمز التأمين محليًا على هذا الجهاز ولا يُرسل إلى الخادم.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11, color: Theme.of(c).colorScheme.onSurfaceVariant)),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
+}
+
+/// إعداد رمز PIN والبصمة محليًا. يتطلب رمز PIN كوسيلة احتياطية حتى عند تفعيل البصمة.
+class SecuritySettingsPage extends StatefulWidget {
+  final bool firstTime;
+  final Future<void> Function()? onSaved;
+  const SecuritySettingsPage({super.key, required this.firstTime, this.onSaved});
+  @override
+  State<SecuritySettingsPage> createState() => _SecuritySettingsPageState();
+}
+
+class _SecuritySettingsPageState extends State<SecuritySettingsPage> {
+  final currentPin = TextEditingController();
+  final newPin = TextEditingController();
+  final confirmPin = TextEditingController();
+  bool bioAvailable = false;
+  bool bioEnabled = false;
+  bool loading = true;
+  bool saving = false;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    currentPin.dispose();
+    newPin.dispose();
+    confirmPin.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final service = LocalSecurityService.instance;
+    final available = await service.biometricAvailable();
+    final enabled = await service.biometricEnabled();
+    if (mounted) setState(() { bioAvailable = available; bioEnabled = enabled && available; loading = false; });
+  }
+
+  Future<void> _save() async {
+    if (saving) return;
+    final changingPin = newPin.text.isNotEmpty || confirmPin.text.isNotEmpty;
+    if (widget.firstTime && newPin.text.isEmpty) {
+      setState(() => error = 'أنشئ رمز تأمين رقميًا أولاً، ويمكنك تفعيل البصمة كخيار إضافي.');
+      return;
+    }
+    if (changingPin) {
+      if (!RegExp(r'^\d{4,8}$').hasMatch(newPin.text)) {
+        setState(() => error = 'رمز التأمين يجب أن يتكون من 4 إلى 8 أرقام.');
+        return;
+      }
+      if (newPin.text != confirmPin.text) {
+        setState(() => error = 'رمزا التأمين غير متطابقين.');
+        return;
+      }
+    }
+    setState(() { saving = true; error = null; });
+    try {
+      final service = LocalSecurityService.instance;
+      if (!widget.firstTime) {
+        if (currentPin.text.isEmpty || !await service.verifyPin(currentPin.text)) {
+          setState(() => error = 'أدخل رمز التأمين الحالي الصحيح لإجراء التغييرات.');
+          return;
+        }
+      }
+      if (changingPin) await service.setPin(newPin.text);
+      if (bioEnabled && !bioAvailable) {
+        throw StateError('البصمة غير متاحة على هذا الجهاز. استخدم رمز التأمين.');
+      }
+      await service.setBiometricEnabled(bioEnabled);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم حفظ إعدادات التأمين محليًا على الجهاز.')),
+      );
+      if (widget.onSaved != null) {
+        await widget.onSaved!();
+      } else {
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = friendlyError(e));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('شاشة تأمين التطبيق')),
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(22),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Icon(Icons.security_rounded, size: 48),
+                      const SizedBox(height: 10),
+                      Text(widget.firstTime ? 'إنشاء تأمين محلي' : 'إدارة التأمين المحلي',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 8),
+                      const Text('كلمة مرور الحساب لم تعد مطلوبة. أنشئ رمزًا رقميًا من 4 إلى 8 أرقام، ويمكنك استخدام البصمة بدلًا منه عند توفرها.',
+                        textAlign: TextAlign.center),
+                      if (!widget.firstTime) ...[
+                        const SizedBox(height: 20),
+                        TextField(
+                          controller: currentPin,
+                          keyboardType: TextInputType.number,
+                          obscureText: true,
+                          decoration: const InputDecoration(labelText: 'رمز التأمين الحالي', prefixIcon: Icon(Icons.lock_outline), border: OutlineInputBorder()),
+                        ),
+                      ],
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: newPin,
+                        keyboardType: TextInputType.number,
+                        obscureText: true,
+                        maxLength: 8,
+                        decoration: InputDecoration(
+                          labelText: widget.firstTime ? 'رمز التأمين الجديد (4–8 أرقام)' : 'رمز جديد (اتركه فارغًا للإبقاء على الحالي)',
+                          prefixIcon: const Icon(Icons.pin_outlined),
+                          border: const OutlineInputBorder(),
+                          counterText: '',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: confirmPin,
+                        keyboardType: TextInputType.number,
+                        obscureText: true,
+                        maxLength: 8,
+                        decoration: const InputDecoration(labelText: 'تأكيد الرمز الجديد', prefixIcon: Icon(Icons.check_circle_outline), border: OutlineInputBorder(), counterText: ''),
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: bioEnabled && bioAvailable,
+                        onChanged: bioAvailable ? (v) => setState(() => bioEnabled = v) : null,
+                        secondary: const Icon(Icons.fingerprint_rounded),
+                        title: const Text('السماح بفتح التطبيق بالبصمة'),
+                        subtitle: Text(bioAvailable
+                          ? 'ستبقى أرقام PIN متاحة كوسيلة احتياطية.'
+                          : 'لا تتوفر بصمة مدعومة أو لم تُسجّل بصمة في إعدادات الجهاز.'),
+                      ),
+                      if (error != null) ...[
+                        const SizedBox(height: 10),
+                        Text(error!, style: TextStyle(color: theme.colorScheme.error)),
+                      ],
+                      const SizedBox(height: 18),
+                      FilledButton.icon(
+                        onPressed: saving ? null : _save,
+                        icon: saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_rounded),
+                        label: Text(saving ? 'جارٍ الحفظ…' : 'حفظ إعدادات التأمين'),
+                      ),
+                      const SizedBox(height: 8),
+                      Text('التأمين محلي على هذا الجهاز. لا يحمي نسخة قاعدة البيانات إذا نُسخت خارج الجهاز، ولا يغني عن قفل الهاتف.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class InitialSetupPage extends StatefulWidget {
@@ -667,6 +920,15 @@ class _ShellState extends State<AdminShell> {
             style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           actions: [
+            if (role == AppRole.manager)
+              IconButton(
+                tooltip: 'تأمين التطبيق',
+                onPressed: () => Navigator.push(
+                  c,
+                  MaterialPageRoute(builder: (_) => const SecuritySettingsPage(firstTime: false)),
+                ),
+                icon: const Icon(Icons.security_rounded),
+              ),
             IconButton(
               tooltip: 'تحديث',
               onPressed: refreshCounts,
