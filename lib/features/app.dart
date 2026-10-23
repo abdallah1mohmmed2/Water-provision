@@ -8104,7 +8104,10 @@ class _ExpensesState extends State<ExpensesPage> {
                 ],
                 onChanged: (v) => s(() {
                   scope = v ?? 'general';
-                  if (scope == 'general') selectedPartnerId = null;
+                  if (scope == 'general') {
+                    selectedPartnerId = null;
+                    if (cat == 'workers') cat = 'other';
+                  }
                 }),
               ),
               if (scope == 'partner')
