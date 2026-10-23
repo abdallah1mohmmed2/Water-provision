@@ -8978,6 +8978,7 @@ class _PartnersState extends State<PartnersPage> {
   Future<void> pay(Map<String, Object?> x) async {
     final methods = await widget.r.paymentMethods();
     final cash = await widget.r.cashboxes();
+    if (!mounted) return;
     if (methods.isEmpty || cash.isEmpty) {
       msg('أضف طريقة دفع وصندوقًا أولًا');
       return;
