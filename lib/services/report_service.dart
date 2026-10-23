@@ -1095,6 +1095,9 @@ class ReportService {
     }
     try {
       await Printing.layoutPdf(
+        // Give Android's print/save dialog the actual report name instead of
+        // its generic default filename, "document".
+        name: (titles[key] ?? key).replaceAll('/', '-'),
         onLayout: (_) async => bytes,
       );
     } catch (error) {
