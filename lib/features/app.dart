@@ -10530,6 +10530,143 @@ class _SettingsState extends State<SettingsPage> {
       }[x] ??
       'مستخدم';
 
+  Future<void> reconcileCashAndBank() async {
+    final balances = <String, TextEditingController>{};
+    final references = <String, TextEditingController>{};
+    final notes = <String, TextEditingController>{};
+    try {
+      if (!widget.manager) throw StateError('مطابقة النقد والبنك متاحة للمدير فقط');
+      final fiscalStartSetting = s['financial_year_start'] ?? '01-01';
+      final currentStart = PeriodRanges.financialYearStart(AppClock.now(), fiscalStartSetting);
+      final endExclusive = DateTime(currentStart.year, currentStart.month, currentStart.day);
+      final start = PeriodRanges.financialYearStart(DateTime(currentStart.year - 1, 12, 31), fiscalStartSetting);
+      final stationId = await widget.r.accounting.currentStationId();
+      final targets = await widget.r.accounting.cashReconciliationTargets(
+        stationId: stationId, endExclusive: endExclusive,
+      );
+      if (!mounted) return;
+      if (targets.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('لا توجد حسابات نقدية أو بنكية تحتاج إلى مطابقة لهذه المحطة')),
+        );
+        return;
+      }
+      for (final target in targets) {
+        final code = '${target['account_code']}';
+        balances[code] = TextEditingController();
+        references[code] = TextEditingController();
+        notes[code] = TextEditingController();
+      }
+      String sourceLabel(String type) => switch (type) {
+        'cash_count' => 'عدّ نقدي فعلي',
+        'bank_statement' => 'كشف حساب بنكي',
+        'wallet_statement' => 'كشف محفظة إلكترونية',
+        _ => 'مستند رصيد فعلي',
+      };
+      final lastDay = endExclusive.subtract(const Duration(days: 1));
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('مطابقة النقد وكشوف البنوك'),
+          content: SizedBox(
+            width: 560,
+            height: 500,
+            child: ListView(
+              children: [
+                Text('المحطة الحالية • تاريخ القطع ${DateFormat('yyyy/MM/dd').format(lastDay)}'),
+                const SizedBox(height: 8),
+                const Text('أدخل الرصيد الفعلي أو رصيد الكشف كما في تاريخ القطع. للحساب البنكي أدخل مرجع الكشف. تحفظ المحاولة للتدقيق ولا ينشأ قيد تسوية تلقائي.'),
+                const SizedBox(height: 14),
+                for (final target in targets) ...[
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${target['account_code']} • ${target['account_name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                          Text('${sourceLabel('${target['source_type']}')} • ${target['currency']} • رصيد الأستاذ بتاريخ القطع: ${money(target['book_balance'])}'),
+                          if ((target['cashbox_names'] as List).isNotEmpty)
+                            Text('الصناديق المرتبطة: ${(target['cashbox_names'] as List).join('، ')}'),
+                          if (target['currency_conflict'] == true)
+                            const Text('خطأ: الحساب مرتبط بصناديق بعملات مختلفة، ولا يمكن مطابقتها معًا.'),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: balances['${target['account_code']}'],
+                            keyboardType: const TextInputType.numberWithOptions(signed: true),
+                            decoration: InputDecoration(
+                              labelText: 'الرصيد الفعلي بوحدة ${target['currency']}',
+                              hintText: 'أدخل رقمًا صحيحًا دون فواصل',
+                            ),
+                          ),
+                          if ('${target['source_type']}' != 'cash_count')
+                            TextField(
+                              controller: references['${target['account_code']}'],
+                              decoration: const InputDecoration(labelText: 'مرجع الكشف/المستند (مطلوب)'),
+                            ),
+                          TextField(
+                            controller: notes['${target['account_code']}'],
+                            decoration: const InputDecoration(labelText: 'ملاحظات (اختياري)'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('حفظ واعتماد المطابقات الصفرية')),
+          ],
+        ),
+      );
+      if (accepted != true || !mounted) return;
+      final entries = <Map<String, Object?>>[];
+      for (final target in targets) {
+        final code = '${target['account_code']}';
+        final raw = balances[code]!.text.trim().replaceAll(',', '').replaceAll('٬', '');
+        final value = int.tryParse(raw);
+        if (value == null) throw FormatException('أدخل رصيدًا صحيحًا للحساب $code');
+        entries.add({
+          'account_code': code,
+          'actual_balance': value,
+          'reference': references[code]!.text.trim(),
+          'notes': notes[code]!.text.trim(),
+        });
+      }
+      final results = await widget.r.accounting.recordCashReconciliations(
+        stationId: stationId,
+        start: start,
+        endExclusive: endExclusive,
+        userId: widget.userId,
+        entries: entries,
+      );
+      if (!mounted) return;
+      final resultLines = results.map((row) =>
+        '${row['account_code']}: دفتر ${money(row['book_balance'])} / فعلي ${money(row['actual_balance'])} / فرق ${money(row['difference'])}'
+      ).join('\n');
+      final hasDifference = results.any((row) => row['difference'] != 0);
+      await showDialog<void>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: Text(hasDifference ? 'سُجلت فروق — الإقفال ممنوع' : 'تم اعتماد المطابقات الصفرية'),
+          content: SingleChildScrollView(
+            child: Text('$resultLines\n\n${hasDifference ? 'راجع سبب الفرق وسجّل أي تسوية مبررة في فترة مفتوحة، ثم أعد العدّ/المطابقة. لا ينشئ التطبيق قيد تسوية تلقائيًا.' : 'أعيد فحص رصيد الأستاذ عند الإقفال؛ أي حركة لاحقة تغيّر الرصيد ستجعل المطابقة قديمة وتمنع الإقفال.'}'),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('إغلاق'))],
+        ),
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    } finally {
+      for (final controller in [...balances.values, ...references.values, ...notes.values]) {
+        controller.dispose();
+      }
+    }
+  }
+
   Future<void> close() async {
     try {
       if (!widget.manager) throw StateError('إقفال السنة المالية متاح للمدير فقط');
@@ -10544,6 +10681,19 @@ class _SettingsState extends State<SettingsPage> {
       if (!mounted) return;
       final subledgerRows = (preview['subledger_reconciliation'] as List? ?? const [])
           .cast<Map<String, Object?>>();
+      final actualCashRows = (preview['actual_cash_reconciliation'] as List? ?? const [])
+          .cast<Map<String, Object?>>();
+      final actualCashLines = actualCashRows.map((row) {
+        final state = switch ('${row['evidence_status']}') {
+          'matched' => 'مطابق ومعتمد',
+          'missing' => 'لم يسجل بعد',
+          'stale' => 'قديم — تغير رصيد الأستاذ',
+          'mixed_currency' => 'عملات مختلطة',
+          'invalid_account' => 'حساب أستاذ غير موجود',
+          _ => 'فرق ${money(row['difference'] ?? 0)}',
+        };
+        return '${row['account_code']} • ${row['account_name']}: دفتر ${money(row['book_balance'])} / فعلي ${row['actual_balance'] == null ? '—' : money(row['actual_balance'])} / $state';
+      }).join('\n');
       String subledgerName(String kind) => switch (kind) {
         'beneficiaries' => 'المستفيدون',
         'workers' => 'العمال',
@@ -10565,6 +10715,7 @@ class _SettingsState extends State<SettingsPage> {
             content: SingleChildScrollView(
               child: Text([
                 ...(preview['errors'] as List).map((error) => '$error'),
+                if (actualCashLines.isNotEmpty) '\nمطابقة العدّ النقدي وكشوف الحسابات:\n$actualCashLines',
                 if (subledgerLines.isNotEmpty) '\nمطابقة الدفاتر الفرعية:\n$subledgerLines',
               ].join('\n')),
             ),
@@ -10593,6 +10744,7 @@ class _SettingsState extends State<SettingsPage> {
             'صافي النتيجة: ${money(preview['net_profit'])}\n\n'
             'ميزان المراجعة: مدين ${money(preview['trial_balance_debit'])} / دائن ${money(preview['trial_balance_credit'])}\n'
             'مطابقة الصناديق الحالية:\n${cashLines.isEmpty ? 'لا توجد صناديق مسجلة' : cashLines}\n\n'
+            'العدّ النقدي وكشوف الحسابات عند نهاية السنة:\n${actualCashLines.isEmpty ? 'لا توجد حسابات تتطلب شهادة مطابقة' : actualCashLines}\n\n'
             'مطابقة الدفاتر الفرعية مع الأستاذ:\n${subledgerLines.isEmpty ? 'لا توجد بيانات' : subledgerLines}\n\n'
             'الأرصدة المرحّلة:\n${carryRows.isEmpty ? 'لا توجد أرصدة في الحسابات المحددة' : carryRows}\n\n'
             'تنبيهات قبل الاعتماد:\n$warningLines\n\n'
@@ -10840,6 +10992,11 @@ class _SettingsState extends State<SettingsPage> {
           onPressed: close,
           icon: const Icon(Icons.lock_clock),
           label: const Text('إقفال آخر سنة مكتملة'),
+        ),
+        if (widget.manager) OutlinedButton.icon(
+          onPressed: reconcileCashAndBank,
+          icon: const Icon(Icons.account_balance_wallet_outlined),
+          label: const Text('مطابقة النقد والبنك'),
         ),
         if (widget.manager) OutlinedButton.icon(
           onPressed: manageClosures,

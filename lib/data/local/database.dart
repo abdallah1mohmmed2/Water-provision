@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 17,
+      version: 18,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -208,6 +208,14 @@ class AppDatabase {
     }
     if (oldV < 17) {
       await _migrateV17(d);
+    }
+    if (oldV < 18) {
+      await d.execute(
+        'CREATE TABLE IF NOT EXISTS cash_reconciliations (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id), period_start TEXT NOT NULL, period_end_exclusive TEXT NOT NULL, account_code TEXT NOT NULL, account_name TEXT NOT NULL, currency TEXT NOT NULL, source_type TEXT NOT NULL CHECK(source_type IN (\'cash_count\',\'bank_statement\',\'wallet_statement\',\'other\')), book_balance INTEGER NOT NULL, actual_balance INTEGER NOT NULL, difference INTEGER NOT NULL, reference TEXT, notes TEXT, status TEXT NOT NULL CHECK(status IN (\'matched\',\'variance\')), created_by INTEGER NOT NULL REFERENCES app_users(id), approved_by INTEGER REFERENCES app_users(id), approved_at TEXT, created_at TEXT NOT NULL)',
+      );
+      await d.execute(
+        'CREATE INDEX IF NOT EXISTS idx_cash_rec_period ON cash_reconciliations(station_id,period_start,period_end_exclusive,account_code,id)',
+      );
     }
   }
 
@@ -394,6 +402,12 @@ class AppDatabase {
     );
     await d.execute(
       'CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL, period_end_exclusive TEXT, closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, opening_transfer INTEGER NOT NULL DEFAULT 0, close_journal_entry_id INTEGER, net_profit INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT \'locked\', reconciliation_json TEXT, reopened_at TEXT, reopened_by INTEGER, reopen_reason TEXT, reopen_journal_entry_id INTEGER, notes TEXT)',
+    );
+    await d.execute(
+      'CREATE TABLE IF NOT EXISTS cash_reconciliations (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id), period_start TEXT NOT NULL, period_end_exclusive TEXT NOT NULL, account_code TEXT NOT NULL, account_name TEXT NOT NULL, currency TEXT NOT NULL, source_type TEXT NOT NULL CHECK(source_type IN (\'cash_count\',\'bank_statement\',\'wallet_statement\',\'other\')), book_balance INTEGER NOT NULL, actual_balance INTEGER NOT NULL, difference INTEGER NOT NULL, reference TEXT, notes TEXT, status TEXT NOT NULL CHECK(status IN (\'matched\',\'variance\')), created_by INTEGER NOT NULL REFERENCES app_users(id), approved_by INTEGER REFERENCES app_users(id), approved_at TEXT, created_at TEXT NOT NULL)',
+    );
+    await d.execute(
+      'CREATE INDEX IF NOT EXISTS idx_cash_rec_period ON cash_reconciliations(station_id,period_start,period_end_exclusive,account_code,id)',
     );
     await d.execute(
       'CREATE TABLE IF NOT EXISTS beneficiary_auth_codes (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), code_hash TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)',

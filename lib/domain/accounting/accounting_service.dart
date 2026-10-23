@@ -544,6 +544,275 @@ class AccountingService {
     ];
   }
 
+  Future<List<Map<String, Object?>>> _cashReconciliationTargetsTx(
+    Transaction tx, {required int stationId, required DateTime endExclusive}
+  ) async {
+    final boxes = await tx.rawQuery('''
+      SELECT c.id,c.name,c.currency,
+        COALESCE(NULLIF(c.ledger_account_code,''),
+          NULLIF((SELECT pm.ledger_account_code FROM payment_methods pm
+            WHERE pm.cashbox_id=c.id AND pm.active=1 ORDER BY pm.id LIMIT 1),''),
+          CASE (SELECT pm.type FROM payment_methods pm
+            WHERE pm.cashbox_id=c.id AND pm.active=1 ORDER BY pm.id LIMIT 1)
+            WHEN 'bank_transfer' THEN '1100' WHEN 'wallet' THEN '1120' ELSE '1000' END
+        ) code,
+        (SELECT GROUP_CONCAT(DISTINCT pm.type) FROM payment_methods pm
+          WHERE pm.cashbox_id=c.id AND pm.active=1) method_types
+      FROM cashboxes c
+      WHERE c.station_id=? AND (c.active=1 OR c.current_balance<>0)
+      ORDER BY c.id
+    ''', [stationId]);
+    final grouped = <String, Map<String, Object?>>{};
+    for (final box in boxes) {
+      final code = '${box['code'] ?? '1000'}';
+      final group = grouped.putIfAbsent(code, () => {
+        'currencies': <String>{},
+        'box_names': <String>{},
+        'box_ids': <int>{},
+        'method_types': <String>{},
+      });
+      (group['currencies'] as Set<String>).add('${box['currency'] ?? 'YER'}');
+      (group['box_names'] as Set<String>).add('${box['name']}');
+      (group['box_ids'] as Set<int>).add((box['id'] as num).toInt());
+      final methodTypes = '${box['method_types'] ?? ''}'.split(',').where((x) => x.isNotEmpty);
+      (group['method_types'] as Set<String>).addAll(methodTypes);
+    }
+    final codes = <String>{'1000', '1100', '1120', ...grouped.keys}.toList()..sort();
+    final placeholders = List.filled(codes.length, '?').join(',');
+    final accountRows = await tx.rawQuery(
+      'SELECT id,code,name FROM accounts WHERE code IN ($placeholders)', codes,
+    );
+    final accounts = {for (final row in accountRows) '${row['code']}': row};
+    final ledgerRows = await tx.rawQuery('''
+      SELECT a.code,COALESCE(SUM(jl.debit-jl.credit),0) balance
+      FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id
+      JOIN accounts a ON a.id=jl.account_id
+      WHERE je.station_id=? AND je.status='posted' AND je.date<?
+        AND a.code IN ($placeholders)
+      GROUP BY a.code
+    ''', [stationId, endExclusive.toIso8601String(), ...codes]);
+    final ledgerBalances = {
+      for (final row in ledgerRows)
+        '${row['code']}': (row['balance'] as num?)?.round() ?? 0,
+    };
+    final result = <Map<String, Object?>>[];
+    for (final code in codes) {
+      final group = grouped[code];
+      final bookBalance = ledgerBalances[code] ?? 0;
+      if (group == null && bookBalance == 0) continue;
+      final currencies = (group?['currencies'] as Set<String>?) ?? <String>{};
+      final methodTypes = (group?['method_types'] as Set<String>?) ?? <String>{};
+      final isMixedSource = methodTypes.contains('cash') &&
+          (methodTypes.contains('bank_transfer') || methodTypes.contains('wallet'));
+      final sourceType = isMixedSource
+          ? 'other'
+          : methodTypes.contains('bank_transfer') || code == '1100'
+              ? 'bank_statement'
+              : methodTypes.contains('wallet') || code == '1120'
+                  ? 'wallet_statement'
+                  : methodTypes.contains('cash') || code == '1000' || methodTypes.isEmpty
+                      ? 'cash_count'
+                      : 'other';
+      final account = accounts[code];
+      result.add({
+        'account_code': code,
+        'account_name': '${account?['name'] ?? 'حساب $code'}',
+        'cashbox_names': ((group?['box_names'] as Set<String>?) ?? <String>{}).toList()..sort(),
+        'cashbox_ids': ((group?['box_ids'] as Set<int>?) ?? <int>{}).toList()..sort(),
+        'currency': currencies.length == 1 ? currencies.single : currencies.isEmpty ? 'YER' : 'MIXED',
+        'currency_conflict': currencies.length > 1,
+        'source_type': sourceType,
+        'book_balance': bookBalance,
+        'account_exists': account != null,
+      });
+    }
+    return result;
+  }
+
+  Future<Map<String, Object?>> _cashReconciliationCheckTx(
+    Transaction tx, {
+      required int stationId,
+      required DateTime start,
+      required DateTime endExclusive,
+    }
+  ) async {
+    final targets = await _cashReconciliationTargetsTx(
+      tx, stationId: stationId, endExclusive: endExclusive,
+    );
+    final rows = <Map<String, Object?>>[];
+    final missing = <Map<String, Object?>>[];
+    final mismatches = <Map<String, Object?>>[];
+    for (final target in targets) {
+      final code = '${target['account_code']}';
+      if (target['account_exists'] != true || target['currency_conflict'] == true) {
+        final invalid = {
+          ...target,
+          'reason': target['account_exists'] != true ? 'missing_ledger_account' : 'mixed_currency',
+          'evidence_status': target['account_exists'] != true ? 'invalid_account' : 'mixed_currency',
+        };
+        rows.add(invalid);
+        mismatches.add(invalid);
+        continue;
+      }
+      final records = await tx.query(
+        'cash_reconciliations',
+        where: 'station_id=? AND period_start=? AND period_end_exclusive=? AND account_code=?',
+        whereArgs: [stationId, start.toIso8601String(), endExclusive.toIso8601String(), code],
+        orderBy: 'id DESC',
+        limit: 1,
+      );
+      if (records.isEmpty) {
+        missing.add(target);
+        rows.add({...target, 'evidence_status': 'missing'});
+        continue;
+      }
+      final saved = records.first;
+      final storedBook = (saved['book_balance'] as num).round();
+      final currentBook = (target['book_balance'] as num).round();
+      final actual = (saved['actual_balance'] as num).round();
+      final difference = actual - currentBook;
+      final stale = storedBook != currentBook;
+      final accepted = saved['status'] == 'matched' &&
+          (saved['difference'] as num).round() == 0 && difference == 0 &&
+          saved['approved_by'] != null && !stale;
+      final checked = {
+        ...target,
+        'actual_balance': actual,
+        'difference': difference,
+        'stored_book_balance': storedBook,
+        'reference': saved['reference'],
+        'reconciled_at': saved['created_at'],
+        'evidence_status': accepted ? 'matched' : stale ? 'stale' : 'variance',
+      };
+      rows.add(checked);
+      if (!accepted) mismatches.add(checked);
+    }
+    return {
+      'valid': missing.isEmpty && mismatches.isEmpty,
+      'rows': rows,
+      'missing': missing,
+      'mismatches': mismatches,
+    };
+  }
+
+  Future<List<Map<String, Object?>>> cashReconciliationTargets({
+    required int stationId,
+    required DateTime endExclusive,
+  }) => database.transaction((tx) => _cashReconciliationTargetsTx(
+    tx, stationId: stationId, endExclusive: endExclusive,
+  ));
+
+  /// يسجل لقطة العد النقدي/كشف الحساب لكل حساب مطلوب؛ لا ينشئ قيد تسوية تلقائيًا.
+  Future<List<Map<String, Object?>>> recordCashReconciliations({
+    required int stationId,
+    required DateTime start,
+    required DateTime endExclusive,
+    required int userId,
+    required List<Map<String, Object?>> entries,
+  }) => database.transaction((tx) async {
+    final user = await tx.query(
+      'app_users', columns: ['role', 'active', 'station_id'], where: 'id=?', whereArgs: [userId], limit: 1,
+    );
+    if (user.isEmpty || user.first['active'] != 1 || user.first['role'] != 'manager') {
+      throw StateError('مطابقة النقد والبنك واعتمادها متاحان للمدير النشط فقط');
+    }
+    final assignedStationId = user.first['station_id'] as num?;
+    if (assignedStationId != null && assignedStationId.toInt() != stationId) {
+      throw StateError('لا يملك هذا المدير صلاحية مطابقة حسابات محطة أخرى');
+    }
+    final rangeError = await _fiscalRangeError(tx, start, endExclusive);
+    if (rangeError != null) throw StateError(rangeError);
+    final targets = await _cashReconciliationTargetsTx(
+      tx, stationId: stationId, endExclusive: endExclusive,
+    );
+    if (targets.isEmpty) throw StateError('لا توجد حسابات نقدية أو بنكية مطلوبة للمطابقة');
+    final targetByCode = {for (final target in targets) '${target['account_code']}': target};
+    final submittedCodes = entries.map((row) => '${row['account_code'] ?? ''}').toList();
+    if (submittedCodes.toSet().length != submittedCodes.length ||
+        submittedCodes.length != targetByCode.length ||
+        !submittedCodes.toSet().containsAll(targetByCode.keys)) {
+      throw StateError('أدخل رصيدًا فعليًا لكل حساب نقدي أو بنكي ظاهر في قائمة المطابقة، دون تكرار');
+    }
+    for (final target in targets) {
+      if (target['account_exists'] != true) {
+        throw StateError('الحساب ${target['account_code']} غير موجود في دليل الأستاذ');
+      }
+      if (target['currency_conflict'] == true) {
+        throw StateError('الصناديق التابعة للحساب ${target['account_code']} تستخدم عملات مختلفة؛ افصل الحسابات قبل المطابقة');
+      }
+    }
+    final createdAt = AppClock.now().toIso8601String();
+    final result = <Map<String, Object?>>[];
+    for (final entry in entries) {
+      final code = '${entry['account_code']}';
+      final target = targetByCode[code]!;
+      final rawAmount = entry['actual_balance'];
+      if (rawAmount is! num || rawAmount != rawAmount.round()) {
+        throw ArgumentError('الرصيد الفعلي للحساب $code يجب أن يكون عددًا صحيحًا بوحدة العملة');
+      }
+      final actualBalance = rawAmount.round();
+      final sourceType = '${target['source_type']}';
+      if (sourceType == 'cash_count' && actualBalance < 0) {
+        throw ArgumentError('لا يمكن أن يكون النقد المعدود سالبًا للحساب $code');
+      }
+      final reference = '${entry['reference'] ?? ''}'.trim();
+      if (sourceType != 'cash_count' && reference.isEmpty) {
+        throw ArgumentError('مرجع كشف الحساب مطلوب للحساب $code');
+      }
+      final bookBalance = (target['book_balance'] as num).round();
+      final difference = actualBalance - bookBalance;
+      final matched = difference == 0;
+      final id = await tx.insert('cash_reconciliations', {
+        'station_id': stationId,
+        'period_start': start.toIso8601String(),
+        'period_end_exclusive': endExclusive.toIso8601String(),
+        'account_code': code,
+        'account_name': target['account_name'],
+        'currency': target['currency'],
+        'source_type': sourceType,
+        'book_balance': bookBalance,
+        'actual_balance': actualBalance,
+        'difference': difference,
+        'reference': reference.isEmpty ? null : reference,
+        'notes': '${entry['notes'] ?? ''}'.trim(),
+        'status': matched ? 'matched' : 'variance',
+        'created_by': userId,
+        'approved_by': matched ? userId : null,
+        'approved_at': matched ? createdAt : null,
+        'created_at': createdAt,
+      });
+      await database.auditTx(
+        tx,
+        userId: userId,
+        operation: 'cash_reconciliation',
+        table: 'cash_reconciliations',
+        recordId: id,
+        newValues: {
+          'station_id': stationId,
+          'period_start': start.toIso8601String(),
+          'period_end_exclusive': endExclusive.toIso8601String(),
+          'account_code': code,
+          'source_type': sourceType,
+          'book_balance': bookBalance,
+          'actual_balance': actualBalance,
+          'difference': difference,
+          'status': matched ? 'matched' : 'variance',
+          'reference': reference,
+        },
+        reason: matched ? 'اعتماد مطابقة صفرية' : 'تسجيل فرق للمراجعة؛ لا ينشأ قيد تسوية تلقائيًا',
+      );
+      result.add({
+        'id': id,
+        'account_code': code,
+        'book_balance': bookBalance,
+        'actual_balance': actualBalance,
+        'difference': difference,
+        'status': matched ? 'matched' : 'variance',
+      });
+    }
+    return result;
+  });
+
   Future<Map<String, Object?>> _fiscalPreviewTx(
     Transaction tx, {required int stationId, required DateTime start, required DateTime endExclusive}
   ) async {
@@ -607,6 +876,28 @@ class AccountingService {
       errors.add('أرصدة الصناديق الحالية لا تطابق حسابات النقد في الأستاذ ($details)؛ سوِّ الفروق قبل الإقفال');
     }
 
+    final actualCashCheck = await _cashReconciliationCheckTx(
+      tx, stationId: stationId, start: start, endExclusive: endExclusive,
+    );
+    final actualCashMissing = actualCashCheck['missing'] as List<Map<String, Object?>>;
+    final actualCashMismatches = actualCashCheck['mismatches'] as List<Map<String, Object?>>;
+    if (actualCashMissing.isNotEmpty) {
+      final codes = actualCashMissing.map((r) => '${r['account_code']}').join('، ');
+      errors.add('لم تُسجل مطابقة العد النقدي/كشوف الحسابات عند نهاية السنة للحسابات: $codes');
+    }
+    if (actualCashMismatches.isNotEmpty) {
+      final details = actualCashMismatches.map((r) {
+        final reason = switch ('${r['reason'] ?? r['evidence_status']}') {
+          'stale' => 'تغير رصيد الدفاتر بعد المطابقة',
+          'mixed_currency' => 'عملات مختلطة في الحساب نفسه',
+          'missing_ledger_account' => 'الحساب غير موجود في دليل الأستاذ',
+          _ => 'فرق ${r['difference'] ?? 'غير معتمد'}',
+        };
+        return '${r['account_code']}: $reason';
+      }).join('، ');
+      errors.add('مطابقة النقد والبنك غير مكتملة أو بها فروق ($details)؛ أعد المطابقة بعد التحقق');
+    }
+
     final subledgerReconciliation = await _subledgerReconciliationTx(
       tx, stationId: stationId, endExclusive: endExclusive,
     );
@@ -668,6 +959,10 @@ class AccountingService {
       'cashbox_reconciliation': cashReconciliation,
       'cashbox_reconciliation_as_of': AppClock.now().toIso8601String(),
       'cashbox_mismatches': cashMismatch,
+      'actual_cash_reconciliation': actualCashCheck['rows'],
+      'actual_cash_missing': actualCashMissing,
+      'actual_cash_mismatches': actualCashMismatches,
+      'actual_cash_reconciliation_valid': actualCashCheck['valid'],
       'subledger_reconciliation': subledgerReconciliation,
       'subledger_mismatches': subledgerMismatches,
       'carry_accounts': carryAccounts,
@@ -700,6 +995,8 @@ class AccountingService {
             'trial_balance_credit': preview['trial_balance_credit'],
             'cashbox_reconciliation': preview['cashbox_reconciliation'],
             'cashbox_reconciliation_as_of': preview['cashbox_reconciliation_as_of'],
+            'actual_cash_reconciliation': preview['actual_cash_reconciliation'],
+            'actual_cash_reconciliation_valid': preview['actual_cash_reconciliation_valid'],
             'subledger_reconciliation': preview['subledger_reconciliation'],
             'carry_accounts': preview['carry_accounts'],
             'income': preview['income'], 'expenses': preview['expenses'],
@@ -2704,6 +3001,7 @@ class AccountingService {
     'backup_records',
     'sync_queue',
     'app_users',
+    'cash_reconciliations',
     'period_closures',
     'beneficiary_auth_codes',
     'beneficiary_sessions',
@@ -2713,6 +3011,7 @@ class AccountingService {
   /// جداول أُضيفت للنسخة لاحقًا؛ قد لا توجد في ملفات JSON القديمة.
   static const List<String> optionalPortableTables = [
     'cloud_periods',
+    'cash_reconciliations',
     'period_closures',
     'beneficiary_auth_codes',
     'beneficiary_sessions',

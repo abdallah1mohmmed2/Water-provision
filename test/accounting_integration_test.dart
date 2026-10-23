@@ -90,6 +90,35 @@ void main() {
     );
   }
 
+  Future<List<Map<String, Object?>>> recordCashEvidenceForTest({
+    required int stationId,
+    required DateTime start,
+    required DateTime endExclusive,
+    required int userId,
+    int difference = 0,
+  }) async {
+    final targets = await svc.cashReconciliationTargets(
+      stationId: stationId, endExclusive: endExclusive,
+    );
+    return svc.recordCashReconciliations(
+      stationId: stationId,
+      start: start,
+      endExclusive: endExclusive,
+      userId: userId,
+      entries: [
+        for (final target in targets)
+          {
+            'account_code': target['account_code'],
+            'actual_balance': (target['book_balance'] as num).round() + difference,
+            'reference': target['source_type'] == 'cash_count'
+                ? 'اختبار عدّ ${target['account_code']}'
+                : 'TEST-STATEMENT-${target['account_code']}',
+            'notes': 'بيانات اختبار تكامل',
+          },
+      ],
+    );
+  }
+
   test('دفع راتب لعامل ينقص الصندوق ويقيّد مدين المستحقات / دائن الصندوق', () async {
     final w = await db.insert('workers', {
       'name': 'عامل',
@@ -414,6 +443,12 @@ void main() {
     });
     await seedCashEquityForTest(1, DateTime(2020, 1, 1), 100000);
     await reconcileCashboxesForTest(1);
+    await recordCashEvidenceForTest(
+      stationId: 1,
+      start: DateTime(2020, 1, 1),
+      endExclusive: DateTime(2021, 1, 1),
+      userId: 1,
+    );
     await AdminService(db).closePeriod(
       stationId: 1, start: DateTime(2020, 1, 1), end: DateTime(2020, 12, 31), userId: 1,
     );
@@ -423,8 +458,10 @@ void main() {
     final clouds = await count('cloud_periods');
     final closures = await count('period_closures');
     final codes = await count('beneficiary_auth_codes');
+    final cashEvidence = await count('cash_reconciliations');
     expect(clouds, greaterThan(0));
     expect(closures, greaterThan(0));
+    expect(cashEvidence, greaterThan(0));
 
     final json = await svc.exportStateJson();
     final backup = BackupService(svc);
@@ -434,6 +471,7 @@ void main() {
     expect(await count('cloud_periods'), clouds);
     expect(await count('period_closures'), closures);
     expect(await count('beneficiary_auth_codes'), codes);
+    expect(await count('cash_reconciliations'), cashEvidence);
 
     // ملف قديم بلا الجداول الجديدة: يُقبل، ولا تُفتح الفترات المغلقة.
     final old = jsonDecode(json) as Map<String, dynamic>;
@@ -447,6 +485,7 @@ void main() {
     expect((await backup.validatePortableJson(oldBytes))['valid'], true);
     await backup.restorePortableJson(oldBytes);
     expect(await count('period_closures'), closures);
+    expect(await count('cash_reconciliations'), 0);
     expect((await db.query('SELECT COUNT(*) n FROM journal_entries WHERE station_id IS NULL')).first['n'], 0);
   });
 
@@ -912,6 +951,7 @@ void main() {
     );
     expect(unreconciled['valid'], false);
     expect('${unreconciled['errors']}', contains('الصناديق الحالية'));
+    expect('${unreconciled['errors']}', contains('لم تُسجل مطابقة العد النقدي'));
     expect('${unreconciled['errors']}', contains('الدفاتر الفرعية'));
     final reconciliationRows = (unreconciled['subledger_reconciliation'] as List)
         .cast<Map<String, Object?>>();
@@ -938,6 +978,57 @@ void main() {
       'journal_entry_id=? AND account_id=?', [unassignedPartnerEntry, account['2200']],
     );
     final start = DateTime(2025, 1, 1), endExclusive = DateTime(2026, 1, 1);
+    await db.insert('cashboxes', {
+      'station_id': 1,
+      'name': 'حساب البنك للاختبار',
+      'opening_balance': 0,
+      'current_balance': 0,
+      'currency': 'YER',
+      'active': 1,
+      'ledger_account_code': '1100',
+    });
+    final cashTargets = await svc.cashReconciliationTargets(
+      stationId: 1, endExclusive: endExclusive,
+    );
+    expect(cashTargets.any((row) => row['source_type'] == 'bank_statement'), isTrue);
+    final noBankReferenceEntries = [
+      for (final target in cashTargets)
+        {
+          'account_code': target['account_code'],
+          'actual_balance': target['book_balance'],
+          'reference': '',
+        },
+    ];
+    final journalCountBeforeReconciliation = (await db.query(
+      'SELECT COUNT(*) n FROM journal_entries',
+    )).single['n'];
+    await expectLater(
+      svc.recordCashReconciliations(
+        stationId: 1, start: start, endExclusive: endExclusive, userId: 1,
+        entries: noBankReferenceEntries,
+      ),
+      throwsArgumentError,
+    );
+    expect((await db.query('SELECT COUNT(*) n FROM journal_entries')).single['n'], journalCountBeforeReconciliation);
+    final journalCountBeforeEvidence = (await db.query(
+      'SELECT COUNT(*) n FROM journal_entries',
+    )).single['n'];
+    final cashBalanceBeforeEvidence = await cashboxBalance(1);
+    final varianceRows = await recordCashEvidenceForTest(
+      stationId: 1, start: start, endExclusive: endExclusive, userId: 1, difference: 1,
+    );
+    expect(varianceRows.any((row) => row['difference'] == 1), isTrue);
+    expect((await db.query('SELECT COUNT(*) n FROM journal_entries')).single['n'], journalCountBeforeEvidence);
+    expect(await cashboxBalance(1), cashBalanceBeforeEvidence);
+    final cashVariancePreview = await svc.previewFiscalYear(
+      stationId: 1, start: start, endExclusive: endExclusive,
+    );
+    expect(cashVariancePreview['valid'], false);
+    expect('${cashVariancePreview['errors']}', contains('مطابقة النقد والبنك غير مكتملة أو بها فروق'));
+    final matchedRows = await recordCashEvidenceForTest(
+      stationId: 1, start: start, endExclusive: endExclusive, userId: 1,
+    );
+    expect(matchedRows.every((row) => row['difference'] == 0 && row['status'] == 'matched'), isTrue);
     final preview = await svc.previewFiscalYear(stationId: 1, start: start, endExclusive: endExclusive);
     expect(preview['valid'], true, reason: '${preview['errors']}');
     expect(preview['income'], 10000);
@@ -954,6 +1045,11 @@ void main() {
         .cast<Map<String, dynamic>>();
     expect(savedSubledger, hasLength(3));
     expect(savedSubledger.every((row) => row['difference'] == 0), isTrue);
+    expect(closureSnapshot['actual_cash_reconciliation_valid'], true);
+    final savedCashEvidence = (closureSnapshot['actual_cash_reconciliation'] as List)
+        .cast<Map<String, dynamic>>();
+    expect(savedCashEvidence.every((row) => row['evidence_status'] == 'matched'), isTrue);
+    expect(savedCashEvidence.any((row) => row['source_type'] == 'bank_statement'), isTrue);
     final retained = await db.query(
       "SELECT l.debit,l.credit FROM journal_lines l JOIN accounts a ON a.id=l.account_id WHERE l.journal_entry_id=? AND a.code='3300'",
       args: [closure['close_journal_entry_id']],
@@ -978,6 +1074,14 @@ void main() {
       category: 'maintenance', title: 'مصروف بعد إعادة الفتح', amount: 100,
       date: DateTime(2025, 8, 1), paymentMethodId: 1, cashboxId: 1,
     );
+    final staleCashPreview = await svc.previewFiscalYear(
+      stationId: 1, start: start, endExclusive: endExclusive,
+    );
+    expect(staleCashPreview['valid'], false);
+    expect('${staleCashPreview['errors']}', contains('تغير رصيد الدفاتر بعد المطابقة'));
+    await recordCashEvidenceForTest(
+      stationId: 1, start: start, endExclusive: endExclusive, userId: 1,
+    );
     final reclosePreview = await svc.previewFiscalYear(stationId: 1, start: start, endExclusive: endExclusive);
     expect(reclosePreview['valid'], true, reason: '${reclosePreview['errors']}');
     expect(reclosePreview['net_profit'], 5900);
@@ -991,5 +1095,44 @@ void main() {
     );
     expect(afterRecloseReport['revenue'], 10000);
     expect(afterRecloseReport['expenses'], 100);
+  });
+
+  test('مدير المحطة لا يستطيع تسجيل مطابقة لمحطة أخرى', () async {
+    final managerId = await db.insert('app_users', {
+      'station_id': 1,
+      'name': 'مدير محطة الاختبار',
+      'username': 'station_manager_cash_test',
+      'password_hash': 'test-hash',
+      'role': 'manager',
+      'active': 1,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+    await expectLater(
+      svc.recordCashReconciliations(
+        stationId: 999,
+        start: DateTime(2025, 1, 1),
+        endExclusive: DateTime(2026, 1, 1),
+        userId: managerId,
+        entries: const [],
+      ),
+      throwsStateError,
+    );
+  });
+
+  test('ترقية v17 تنشئ جدول شهادات مطابقة النقد والبنك', () async {
+    final opened = await db.db;
+    await opened.execute('PRAGMA user_version=17');
+    await db.close();
+    final upgraded = await db.db;
+    final table = await upgraded.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='cash_reconciliations'",
+    );
+    final index = await upgraded.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_cash_rec_period'",
+    );
+    final version = await upgraded.rawQuery('PRAGMA user_version');
+    expect(table, isNotEmpty);
+    expect(index, isNotEmpty);
+    expect((version.single.values.single as num).toInt(), 18);
   });
 }
