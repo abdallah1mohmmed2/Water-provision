@@ -4627,6 +4627,11 @@ int? parseClock(String raw) {
   int _to24Hour(int minutes, String period) => ((minutes ~/ 60) % 12) + (period == 'pm' ? 12 : 0);
   String _oppositePeriod(String period) => period == 'am' ? 'pm' : 'am';
 
+  void _ensureStartPeriodSelected() {
+    // الاختيار الأول يُحفظ في State ولا يُعاد إلى null بسبب setState أو build.
+    startPeriod ??= start.hour < 12 ? 'am' : 'pm';
+  }
+
   void _updateEndPeriodFromTime() {
     final a = _parseTimeMinutes(startTimeController.text);
     final b = _parseTimeMinutes(endTimeController.text);
@@ -4654,10 +4659,7 @@ int? parseClock(String raw) {
 
   Future<void> nextTimeStep() async {
     if (timeStep == 0) {
-      if (startPeriod == null) {
-        msg('اختر صباحاً أو مساءً لوقت البداية قبل المتابعة');
-        return;
-      }
+      setState(_ensureStartPeriodSelected);
       final value = _parseTimeMinutes(startTimeController.text);
       if (value == null) {
         msg('أدخل وقت بداية صحيحاً مثل 08:30');
@@ -4992,9 +4994,9 @@ int? parseClock(String raw) {
       end = start.add(const Duration(hours: 1));
       startTimeController.text = _hm12(start);
       endTimeController.text = _hm12(end);
-      // لا تحدد صباحاً/مساءً للبداية تلقائياً عند فتح سقاية جديدة.
-      // يظل الاختيار فارغاً حتى يحدده المستخدم أو تعبر عجلة الساعة حد 11/12.
-      startPeriod = null;
+      // لا تُصفّر اختيار زر بداية الوقت داخل عمر الشاشة؛ يبقى الاختيار حتى dispose.
+      // عند أول دخول فقط تكون startPeriod فارغة، وتُحدد عند أول تفاعل مع وقت البداية.
+      startPeriod ??= start.hour < 12 ? 'am' : 'pm';
       endPeriod = end.hour < 12 ? 'am' : 'pm';
       timeStep = 0;
       paid.text = '0';
@@ -5204,7 +5206,7 @@ int? parseClock(String raw) {
                 if (timeStep == 0) ...[
                   const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت البداية', style: TextStyle(fontWeight: FontWeight.w800))),
                   Row(children: [
-                    SizedBox(width: 240, child: TextField(controller: startTimeController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '08:30'))),
+                    SizedBox(width: 240, child: TextField(controller: startTimeController, keyboardType: TextInputType.datetime, onTap: () { if (startPeriod == null) setState(_ensureStartPeriodSelected); }, onChanged: (_) { if (startPeriod == null) setState(_ensureStartPeriodSelected); }, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '08:30'))),
                     IconButton(tooltip: 'لاقط وقت هجين للبداية', icon: const Icon(Icons.schedule), onPressed: () async {
                       final value = _parseTimeMinutes(startTimeController.text);
                       final hour24 = value == null ? start.hour : _to24Hour(value, startPeriod ?? (start.hour < 12 ? 'am' : 'pm'));
