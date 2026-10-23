@@ -1360,7 +1360,7 @@ void main() {
     await db.update('workers', {'active': 0}, 'station_id=?', [stationId]);
     await db.update('partners', {'active': 0}, 'station_id=?', [stationId]);
     await db.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
-    await db.update('settings', {'value': '10000'}, 'key=?', ['solar_hourly_rate']);
+    await db.update('settings', {'value': '100000'}, 'key=?', ['solar_hourly_rate']);
 
     final hourlyWorker = await repo.createWorker(
       name: 'اختبار دورة عامل بالساعة',
