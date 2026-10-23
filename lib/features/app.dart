@@ -5547,43 +5547,39 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final from = _reportStart(reportPeriodController.text, now);
     if (from == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختر يومًا أو يومين أو أسبوعًا أو شهرًا، أو اكتب مدة مثل 3 أيام (حتى 365 يومًا).')),
+        const SnackBar(
+          content: Text(
+            'اختر يومًا أو يومين أو أسبوعًا أو شهرًا، أو اكتب مدة مثل 3 أيام (حتى 365 يومًا).',
+          ),
+        ),
       );
       return;
     }
-    final toExclusive = DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
-    final selected = rows.where((row) {
-      final date = DateTime.tryParse('${row['start_datetime'] ?? row['date'] ?? ''}');
-      if (date == null) return false;
-      final local = date.toLocal();
-      return !local.isBefore(from) && local.isBefore(toExclusive);
-    }).toList()
-      ..sort((a, b) => '${b['start_datetime'] ?? ''}'.compareTo('${a['start_datetime'] ?? ''}'));
-    final reportRows = selected.map((row) {
-      final cloudMinutes = (row['cloud_minutes'] as num?)?.round() ?? 0;
-      return <String, Object?>{
-        'party_name': row['beneficiary_name'] ?? '-',
-        'start_datetime': row['start_datetime'],
-        'end_datetime': row['end_datetime'],
-        'minutes': row['minutes'] ?? 0,
-        'paid_amount': row['paid_amount'] ?? 0,
-        'total_amount': row['total_amount'] ?? 0,
-        'cloud_minutes': cloudMinutes,
-        'cloud_status': cloudMinutes > 0 ? 'discounted' : 'none',
-      };
-    }).toList();
+
     try {
+      // اجلب بيانات التقرير من قاعدة البيانات مباشرة، لا من القائمة المعروضة
+      // التي قد تكون محدودة بفلتر الشاشة أو لم تُحمّل بعد.
+      final reportRows = await widget.r.report(
+        'irrigations',
+        from: from,
+        to: DateTime(now.year, now.month, now.day),
+        systemType: type ?? 'all',
+        beneficiaryId: bid,
+      );
       await ReportService(widget.r).printPdf(
         'irrigations',
         from: from,
-        to: toExclusive.subtract(const Duration(seconds: 1)),
+        to: DateTime(now.year, now.month, now.day),
         systemType: type ?? 'all',
+        beneficiaryId: bid,
         sourceRows: reportRows,
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر إنشاء تقرير السقايات: ${friendlyError(e)}')),
+        SnackBar(
+          content: Text('تعذر إنشاء تقرير السقايات: ${friendlyError(e)}'),
+        ),
       );
     }
   }
