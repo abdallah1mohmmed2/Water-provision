@@ -480,7 +480,7 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
                         width: 82, height: 82,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(26),
-                          gradient: const LinearGradient(colors: [_blue, _cyan]),
+                          gradient: LinearGradient(colors: [SaqiaTheme.accent(AppPrefs.current.themeKey), SaqiaTheme.accent(AppPrefs.current.themeKey).withValues(alpha: .72)]),
                         ),
                         child: const Icon(Icons.shield_rounded, size: 44, color: Colors.white),
                       ),
@@ -916,7 +916,7 @@ class _ShellState extends State<AdminShell> {
       child: Scaffold(
         key: _shellScaffoldKey,
         appBar: AppBar(
-          backgroundColor: index == 0 ? const Color(0xFF080F1B) : null,
+          backgroundColor: index == 0 ? SaqiaTheme.accent(AppPrefs.current.themeKey) : null,
           foregroundColor: index == 0 ? Colors.white : null,
           elevation: index == 0 ? 0 : null,
           title: Text(
@@ -961,7 +961,7 @@ class _ShellState extends State<AdminShell> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(17),
                           gradient: const LinearGradient(
-                            colors: [_blue, _purple],
+                            colors: [SaqiaTheme.accent(AppPrefs.current.themeKey), SaqiaTheme.accent(AppPrefs.current.themeKey).withValues(alpha: .72)],
                           ),
                         ),
                         child: const Icon(
