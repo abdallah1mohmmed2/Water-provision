@@ -335,9 +335,13 @@ class _SaqiaAppState extends State<SaqiaApp> {
       supportedLocales: const [Locale('ar')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
       title: p.appName,
-      theme: _withMotion(SaqiaTheme.light(), p.reducedMotion),
-      darkTheme: _withMotion(SaqiaTheme.dark(), p.reducedMotion),
-      themeMode: ThemeMode.system,
+      theme: _withMotion(SaqiaTheme.light(themeKey: p.themeKey), p.reducedMotion),
+      darkTheme: _withMotion(SaqiaTheme.dark(themeKey: p.themeKey), p.reducedMotion),
+      themeMode: switch (p.themeMode) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.system,
+      },
       builder: (ctx, child) => MediaQuery(
         data: MediaQuery.of(ctx).copyWith(disableAnimations: p.reducedMotion),
         child: child ?? const SizedBox.shrink(),
@@ -11102,6 +11106,94 @@ class _SettingsState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _saveAppearance(String key, String value) async {
+    try {
+      await widget.r.setSetting(key, value);
+      await load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم تطبيق المظهر الجديد على التطبيق')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر حفظ المظهر: ${friendlyError(e)}')),
+        );
+      }
+    }
+  }
+
+  Widget _appearanceSettings() {
+    final selected = s['theme_key'] ?? 'olive';
+    final mode = s['theme_mode'] ?? 'system';
+    const keys = ['olive', 'ocean', 'emerald', 'violet', 'rose'];
+    return SettingGroup(
+      title: 'المظهر والثيمات',
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+          child: Text(
+            'اختر لوحة ألوان عصرية، وسيتم حفظ اختيارك لهذا التطبيق.',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 12,
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Wrap(
+            spacing: 9,
+            runSpacing: 9,
+            children: [
+              for (final key in keys)
+                ChoiceChip(
+                  selected: selected == key,
+                  onSelected: selected == key
+                      ? null
+                      : (_) => _saveAppearance('theme_key', key),
+                  avatar: CircleAvatar(
+                    radius: 9,
+                    backgroundColor: SaqiaTheme.accent(key),
+                    child: selected == key
+                        ? const Icon(Icons.check, size: 12, color: Colors.white)
+                        : null,
+                  ),
+                  label: Text(SaqiaTheme.name(key)),
+                ),
+            ],
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.brightness_6_rounded),
+          title: const Text('وضع العرض'),
+          subtitle: const Text('فاتح أو داكن أو حسب إعداد الجهاز'),
+          trailing: SizedBox(
+            width: 145,
+            child: DropdownButtonFormField<String>(
+              value: const ['system', 'light', 'dark'].contains(mode)
+                  ? mode
+                  : 'system',
+              isExpanded: true,
+              decoration: const InputDecoration(isDense: true),
+              items: const [
+                DropdownMenuItem(value: 'system', child: Text('تلقائي')),
+                DropdownMenuItem(value: 'light', child: Text('فاتح')),
+                DropdownMenuItem(value: 'dark', child: Text('داكن')),
+              ],
+              onChanged: (value) {
+                if (value != null && value != mode) {
+                  _saveAppearance('theme_mode', value);
+                }
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> users() async {
     final x = await AdminService(widget.r.db).users();
     if (!mounted) return;
@@ -11616,6 +11708,7 @@ class _SettingsState extends State<SettingsPage> {
       child: ListView(
         children: [
           _settingsHero(),
+          _appearanceSettings(),
           SettingGroup(
             title: 'الفقاعة العائمة',
             children: [
