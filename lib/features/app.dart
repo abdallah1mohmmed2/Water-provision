@@ -8124,7 +8124,7 @@ class _ExpensesState extends State<ExpensesPage> {
                 initialValue: cat,
                 items: [
                   for (final x in [
-                    'workers',
+                    if (scope == 'partner') 'workers',
                     'partners',
                     'fuel',
                     'oil',
