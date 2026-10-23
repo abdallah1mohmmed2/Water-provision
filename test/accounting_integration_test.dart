@@ -147,6 +147,33 @@ void main() {
     );
   });
 
+  test('دفع استحقاق العامل لا يسجل مصروفًا ثانيًا', () async {
+    final worker = await db.insert('workers', {
+      'name': 'عامل فصل الاستحقاق والدفع',
+      'pay_type': 'fixed',
+    });
+    await db.update('cashboxes', {'current_balance': 100000}, 'id=?', [1]);
+    final cashBefore = await cashboxBalance(1);
+    final expenseBefore = await accountNet('5000');
+    await svc.createWorkerAccrual(
+      workerId: worker,
+      amount: 1000,
+      date: DateTime(2026, 3, 1),
+    );
+    final expenseAfterAccrual = await accountNet('5000');
+    expect(expenseAfterAccrual, expenseBefore + 1000);
+    expect((await svc.workerBalance(worker))['balance'], 1000);
+    await svc.payWorker(
+      workerId: worker,
+      amount: 400,
+      paymentMethodId: 1,
+      cashboxId: 1,
+    );
+    expect(await cashboxBalance(1), cashBefore - 400);
+    expect(await accountNet('5000'), expenseAfterAccrual);
+    expect((await svc.workerBalance(worker))['balance'], 600);
+  });
+
   test('تاريخ القيد هو تاريخ المصروف لا لحظة الحفظ', () async {
     final d = DateTime(2026, 3, 5, 10);
     final id = await svc.addExpense(
