@@ -109,6 +109,30 @@ class ReportService {
       status: status,
     );
 
+    // Include the actual selected person's name in every related report,
+    // rather than showing only a generic "selected beneficiary/worker/partner".
+    String? personName;
+    if (beneficiaryId != null) {
+      final person = await repo.db.rawQuery(
+        'SELECT name FROM beneficiaries WHERE id=? LIMIT 1',
+        [beneficiaryId],
+      );
+      if (person.isNotEmpty) personName = '${person.first['name'] ?? ''}'.trim();
+    } else if (workerId != null) {
+      final person = await repo.db.rawQuery(
+        'SELECT name FROM workers WHERE id=? LIMIT 1',
+        [workerId],
+      );
+      if (person.isNotEmpty) personName = '${person.first['name'] ?? ''}'.trim();
+    } else if (partnerId != null) {
+      final person = await repo.db.rawQuery(
+        'SELECT name FROM partners WHERE id=? LIMIT 1',
+        [partnerId],
+      );
+      if (person.isNotEmpty) personName = '${person.first['name'] ?? ''}'.trim();
+    }
+    if (personName != null && personName!.isEmpty) personName = null;
+
     final doc = pw.Document();
     final font = pw.Font.ttf(
       (await rootBundle.load(
@@ -186,7 +210,11 @@ class ReportService {
       paymentMethodId,
       category,
       status,
+      personName: personName,
     );
+    final reportTitle = personName == null
+        ? titles[key]!
+        : '${titles[key]} — $personName';
     final reportNumber =
         'R-${DateFormat('yyMMdd-HHmm').format(started)}';
 
@@ -199,7 +227,7 @@ class ReportService {
         header: (_) => pw.Column(
           children: [
             _reportHeader(
-              title: titles[key]!,
+              title: reportTitle,
               station: station,
               reportNumber: reportNumber,
               recordCount: rows.length,
@@ -891,9 +919,13 @@ class ReportService {
     int? cashboxId,
     int? paymentMethodId,
     String? category,
-    String? status,
-  ) {
+    String? status, {
+    String? personName,
+  }) {
     final parts = <String>[];
+    if (personName != null && personName.trim().isNotEmpty) {
+      parts.add('الاسم: ${personName.trim()}');
+    }
     if (from != null) parts.add('من ${DateFormat('yyyy/MM/dd').format(from)}');
     if (to != null) parts.add('إلى ${DateFormat('yyyy/MM/dd').format(to)}');
     if (systemType != null) {
