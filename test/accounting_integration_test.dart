@@ -133,6 +133,20 @@ void main() {
     expect(await accountNet('2100'), 1000); // مدين المستحقات
   });
 
+  test('مصروف العمال العام مرفوض لتجنب ازدواج الاستحقاق مع كشف العامل', () async {
+    await expectLater(
+      svc.addExpense(
+        category: 'workers',
+        title: 'راتب مسجل كمصروف عام',
+        amount: 500,
+        date: DateTime(2026, 4, 1),
+        paymentMethodId: 1,
+        cashboxId: 1,
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+  });
+
   test('تاريخ القيد هو تاريخ المصروف لا لحظة الحفظ', () async {
     final d = DateTime(2026, 3, 5, 10);
     final id = await svc.addExpense(
@@ -157,6 +171,33 @@ void main() {
     expect(await cashboxBalance(1), before);
     final rev = await db.query("SELECT COUNT(*) c FROM journal_entries WHERE reference_type='reversal'");
     expect((rev.first['c'] as num) >= 1, isTrue);
+  });
+
+  test('ترحيل الراتب الشهري idempotent ويحفظ قيمة الراتب وقت الاستحقاق', () async {
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(
+      name: 'عامل راتب شهري snapshot',
+      payType: 'fixed',
+      fixedSalary: 1200,
+    );
+    final month = DateTime(2040, 5, 1);
+    await svc.accrueMonthlySalaries(month: month);
+    final first = await db.query(
+      "SELECT amount,rate_snapshot,reference_id FROM worker_transactions WHERE worker_id=? AND reference_type='monthly_salary' AND reference_id=?",
+      args: [worker, 204005],
+    );
+    expect(first.length, 1);
+    expect(first.single['amount'], 1200);
+    expect(first.single['rate_snapshot'], 1200);
+    await repo.updateWorker(worker, {'fixed_salary': 1900}, null);
+    await svc.accrueMonthlySalaries(month: month);
+    final second = await db.query(
+      "SELECT amount,rate_snapshot FROM worker_transactions WHERE worker_id=? AND reference_type='monthly_salary' AND reference_id=?",
+      args: [worker, 204005],
+    );
+    expect(second.length, 1);
+    expect(second.single['amount'], 1200);
+    expect(second.single['rate_snapshot'], 1200);
   });
 
   test('حركة ديزل (تسليم) لا تتعلق ويُقيَّد جانبها المحاسبي', () async {
