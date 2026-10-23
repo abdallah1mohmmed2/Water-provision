@@ -1853,15 +1853,24 @@ class AccountingService {
       'UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',
       [amount, cashboxId],
     );
-    final exp = await _accountIdTx(tx, _expenseAccount(category));
     final cash = await _accountIdTx(tx, await _cashboxLedgerCode(tx, cashboxId));
+    // المصروف الخاص بالشريك يُحمّل مباشرة على حسابه الشخصي، ولا يدخل ضمن
+    // المصروفات العامة أو يُخصم مرة ثانية عند احتساب الربح القابل للتوزيع.
+    final debitAccount = partnerId == null
+        ? await _accountIdTx(tx, _expenseAccount(category))
+        : await _partnerAccountIdTx(tx, partnerId);
     await _entry(
       tx,
-      description: title,
+      description: partnerId == null ? title : '$title (مصروف خاص بالشريك)',
       referenceType: 'expense',
       referenceId: id,
       lines: [
-        {'account_id': exp, 'debit': amount, 'credit': 0},
+        {
+          'account_id': debitAccount,
+          if (partnerId != null) 'partner_id': partnerId,
+          'debit': amount,
+          'credit': 0,
+        },
         {'account_id': cash, 'debit': 0, 'credit': amount},
       ],
       userId: userId,
@@ -1872,7 +1881,8 @@ class AccountingService {
 
   String _expenseAccount(String category) => switch (category) {
     'workers' => '5000',
-    'partners' => '5000',
+    // التصنيف العام «الشركاء» ليس استحقاقًا للعامل.
+    'partners' => '5030',
     'fuel' || 'diesel' => '5010',
     'oil' || 'grease' => '5020',
     'maintenance' || 'parts' => '5030',
