@@ -2322,7 +2322,11 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
           final receipts = await widget.r.db.rawQuery(
             '''SELECT p.id,p.date,p.amount,p.reference_number,p.notes,
                       COALESCE(b.name,w.name,pt.name,'غير محدد') party_name,
-                      'مقبوضات' movement_group
+                      CASE
+                        WHEN p.beneficiary_id IS NOT NULL THEN 'مقبوضات'
+                        WHEN p.worker_id IS NOT NULL OR p.partner_id IS NOT NULL THEN 'مسلّمات'
+                        ELSE 'مقبوضات'
+                      END movement_group
                FROM payments p
                LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id
                LEFT JOIN workers w ON w.id=p.worker_id
