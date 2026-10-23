@@ -8054,17 +8054,19 @@ class ExpensesPage extends StatefulWidget {
 
 class _ExpensesState extends State<ExpensesPage> {
   List<Map<String, Object?>> rows = [];
-  List<Map<String, Object?>> cash = [], methods = [];
+  List<Map<String, Object?>> cash = [], methods = [], partners = [];
   String q = '';
   Future<void> load() async {
     final a = await widget.r.expenses(),
         b = await widget.r.cashboxes(),
-        m = await widget.r.paymentMethods();
+        m = await widget.r.paymentMethods(),
+        p = await widget.r.partners();
     if (mounted) {
       setState(() {
         rows = a;
         cash = b;
         methods = m;
+        partners = p;
       });
     }
   }
@@ -8077,6 +8079,8 @@ class _ExpensesState extends State<ExpensesPage> {
 
   Future<void> add() async {
     String cat = 'other';
+    String scope = 'general';
+    int? selectedPartnerId;
     int? pm = methods.isEmpty ? null : methods.first['id'] as int;
     int? cb = cashboxForMethod(methods, cash, pm, null);
     final title = TextEditingController(),
@@ -8086,10 +8090,36 @@ class _ExpensesState extends State<ExpensesPage> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (c, s) => AlertDialog(
+          scrollable: true,
           title: const Text('إضافة مصروف'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              DropdownButtonFormField<String>(
+                initialValue: scope,
+                decoration: const InputDecoration(labelText: 'نوع المصروف'),
+                items: const [
+                  DropdownMenuItem(value: 'general', child: Text('مصروف عام — يُخصم قبل توزيع الأرباح')),
+                  DropdownMenuItem(value: 'partner', child: Text('مصروف خاص بشريك — يُخصم من حصته')),
+                ],
+                onChanged: (v) => s(() {
+                  scope = v ?? 'general';
+                  if (scope == 'general') selectedPartnerId = null;
+                }),
+              ),
+              if (scope == 'partner')
+                DropdownButtonFormField<int>(
+                  value: selectedPartnerId,
+                  decoration: const InputDecoration(labelText: 'الشريك الذي يتحمل المصروف'),
+                  items: [
+                    for (final p in partners)
+                      DropdownMenuItem<int>(
+                        value: (p['id'] as num).toInt(),
+                        child: Text('${p['name']}'),
+                      ),
+                  ],
+                  onChanged: (v) => s(() => selectedPartnerId = v),
+                ),
               DropdownButtonFormField<String>(
                 initialValue: cat,
                 items: [
@@ -8146,7 +8176,8 @@ class _ExpensesState extends State<ExpensesPage> {
                 title.text.trim().isNotEmpty &&
                     int.tryParse(amount.text) != null &&
                     pm != null &&
-                    cb != null,
+                    cb != null &&
+                    (scope == 'general' || selectedPartnerId != null),
               ),
               child: const Text('حفظ'),
             ),
@@ -8163,6 +8194,7 @@ class _ExpensesState extends State<ExpensesPage> {
           date: AppClock.now(),
           paymentMethodId: pm!,
           cashboxId: cb!,
+          partnerId: scope == 'partner' ? selectedPartnerId : null,
           userId: widget.userId,
           notes: note.text,
         );
@@ -8231,7 +8263,9 @@ class _ExpensesState extends State<ExpensesPage> {
                   child: ListTile(
                     title: Text('${x['title']}'),
                     subtitle: Text(
-                      '${categoryName('${x['category']}')} • ${x['date']} • ${statusName(x['status'])}',
+                      '${categoryName('${x['category']}')} • ${x['date']} • '
+                      '${x['partner_id'] == null ? 'مصروف عام' : 'خاص بالشريك: ${partners.firstWhere((p) => (p['id'] as num).toInt() == (x['partner_id'] as num).toInt(), orElse: () => <String, Object?>{})['name'] ?? 'غير معروف'}'} • '
+                      '${statusName(x['status'])}',
                     ),
                     trailing: Wrap(
                       crossAxisAlignment: WrapCrossAlignment.center,
