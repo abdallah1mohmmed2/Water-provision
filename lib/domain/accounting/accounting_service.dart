@@ -2714,6 +2714,19 @@ class AccountingService {
     int? userId,
   }) async {
     final payId = (pay['id'] as num).toInt();
+    // حارس إضافي داخل المعاملة: لا نسمح بعكس الدفعة إذا لم تعد مرحّلة.
+    // يمنع تكرار تعديل الصندوق أو إنشاء حركة عكسية للطرف عند استدعاء المساعد
+    // من مسار آخر أو تمرير سجل قديم.
+    final currentPayment = await tx.query(
+      'payments',
+      columns: ['status'],
+      where: 'id=?',
+      whereArgs: [payId],
+      limit: 1,
+    );
+    if (currentPayment.isEmpty || currentPayment.first['status'] != 'posted') {
+      throw StateError('الدفعة غير موجودة أو عُكست مسبقًا');
+    }
     final amount = (pay['amount'] as num).round();
     final cashboxId = (pay['cashbox_id'] as num).toInt();
     final incoming = pay['beneficiary_id'] != null;
