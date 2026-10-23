@@ -8112,6 +8112,7 @@ class _ExpensesState extends State<ExpensesPage> {
               ),
               if (scope == 'partner')
                 DropdownButtonFormField<int>(
+                  // ignore: deprecated_member_use
                   value: selectedPartnerId,
                   decoration: const InputDecoration(labelText: 'الشريك الذي يتحمل المصروف'),
                   items: [
@@ -11229,6 +11230,7 @@ class _SettingsState extends State<SettingsPage> {
           trailing: SizedBox(
             width: 145,
             child: DropdownButtonFormField<String>(
+              // ignore: deprecated_member_use
               value: const ['system', 'light', 'dark'].contains(mode)
                   ? mode
                   : 'system',
