@@ -400,6 +400,150 @@ class AccountingService {
     return null;
   }
 
+  Future<List<Map<String, Object?>>> _subledgerReconciliationTx(
+    Transaction tx, {required int stationId, required DateTime endExclusive}
+  ) async {
+    final end = endExclusive.toIso8601String();
+    final financialDeliverySetting = await tx.rawQuery(
+      "SELECT value FROM settings WHERE key='diesel_delivery_financial_credit' LIMIT 1",
+    );
+    final financialDeliveryValue = financialDeliverySetting.isEmpty
+        ? ''
+        : '${financialDeliverySetting.first['value']}';
+    final financialDeliveries = financialDeliveryValue.toLowerCase() == 'true';
+
+    final beneficiaries = await tx.rawQuery('''
+      SELECT b.id,b.name,
+        COALESCE(b.opening_balance,0)+COALESCE(b.carried_balance,0)
+        -COALESCE(adj.balance,0)+COALESCE(ir.total,0)+COALESCE(dm.advances,0)
+        -COALESCE(pay.total,0)
+        -CASE WHEN ?=1 THEN COALESCE(dm.deliveries,0) ELSE 0 END AS subledger_balance,
+        COALESCE(gl.balance,0) AS general_ledger_balance
+      FROM beneficiaries b
+      LEFT JOIN (
+        SELECT jl.beneficiary_id, SUM(jl.debit-jl.credit) balance
+        FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id
+        JOIN accounts a ON a.id=jl.account_id
+        WHERE je.status='posted' AND je.date>=? AND a.code='1200'
+          AND je.reference_type IN ('beneficiary_opening','beneficiary_carried')
+          AND jl.beneficiary_id IN (SELECT id FROM beneficiaries WHERE station_id=?)
+        GROUP BY jl.beneficiary_id
+      ) adj ON adj.beneficiary_id=b.id
+      LEFT JOIN (
+        SELECT i.beneficiary_id,i.station_id,SUM(i.total_amount) total
+        FROM irrigations i
+        WHERE i.station_id=? AND i.status!='cancelled' AND i.start_datetime<?
+        GROUP BY i.beneficiary_id,i.station_id
+      ) ir ON ir.beneficiary_id=b.id AND ir.station_id=b.station_id
+      LEFT JOIN (
+        SELECT d.beneficiary_id,
+          SUM(CASE WHEN d.kind='advance' AND d.irrigation_id IS NULL THEN d.amount ELSE 0 END) advances,
+          SUM(CASE WHEN d.kind='delivery' THEN d.amount ELSE 0 END) deliveries
+        FROM diesel_movements d
+        WHERE d.date<? AND d.beneficiary_id IN (SELECT id FROM beneficiaries WHERE station_id=?)
+        GROUP BY d.beneficiary_id
+      ) dm ON dm.beneficiary_id=b.id
+      LEFT JOIN (
+        SELECT p.beneficiary_id,SUM(p.amount) total
+        FROM payments p
+        WHERE p.status='posted' AND p.date<?
+          AND p.beneficiary_id IN (SELECT id FROM beneficiaries WHERE station_id=?)
+        GROUP BY p.beneficiary_id
+      ) pay ON pay.beneficiary_id=b.id
+      LEFT JOIN (
+        SELECT jl.beneficiary_id, SUM(jl.debit-jl.credit) balance
+        FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id
+        JOIN accounts a ON a.id=jl.account_id
+        WHERE je.station_id=? AND je.status='posted' AND je.date<? AND a.code='1200'
+        GROUP BY jl.beneficiary_id
+      ) gl ON gl.beneficiary_id=b.id
+      WHERE b.station_id=?
+    ''', [financialDeliveries ? 1 : 0, end, stationId, stationId, end, end, stationId, end, stationId, stationId, end, stationId]);
+    final beneficiaryReconciliation = <Map<String, Object?>>[];
+    for (final beneficiary in beneficiaries) {
+      final subledgerBalance = (beneficiary['subledger_balance'] as num?)?.round() ?? 0;
+      final ledgerBalance = (beneficiary['general_ledger_balance'] as num?)?.round() ?? 0;
+      if (subledgerBalance != ledgerBalance) {
+        beneficiaryReconciliation.add({
+          'id': beneficiary['id'], 'name': beneficiary['name'],
+          'subledger_balance': subledgerBalance,
+          'general_ledger_balance': ledgerBalance,
+          'difference': subledgerBalance - ledgerBalance,
+        });
+      }
+    }
+
+    Future<Map<String, Object?>> reconcileControlAccount({
+      required String kind,
+      required String accountCode,
+      required String table,
+    }) async {
+      final control = await tx.rawQuery('''
+        SELECT COALESCE(SUM(jl.credit-jl.debit),0) balance
+        FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id
+        WHERE je.station_id=? AND je.status='posted' AND je.date<?
+          AND jl.account_id IN (
+            SELECT a.id FROM accounts a
+            WHERE a.code=? OR a.parent_id=(SELECT id FROM accounts WHERE code=?)
+          )
+      ''', [stationId, end, accountCode, accountCode]);
+      final entityColumn = table == 'workers' ? 'worker_id' : 'partner_id';
+      final codePrefix = table == 'workers' ? '2100.W' : '2200.P';
+      final subsidiary = await tx.rawQuery('''
+        SELECT COALESCE(SUM(jl.credit-jl.debit),0) balance
+        FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id
+        WHERE je.station_id=? AND je.status='posted' AND je.date<? AND (
+          jl.account_id IN (
+            SELECT a.id FROM accounts a JOIN $table x ON a.code=('$codePrefix'||x.id)
+            WHERE x.station_id=?
+          ) OR (
+            jl.account_id=(SELECT id FROM accounts WHERE code=?)
+            AND jl.$entityColumn IN (SELECT id FROM $table WHERE station_id=?)
+          )
+        )
+      ''', [stationId, end, stationId, accountCode, stationId]);
+      final controlBalance = (control.first['balance'] as num?)?.round() ?? 0;
+      final subsidiaryBalance = (subsidiary.first['balance'] as num?)?.round() ?? 0;
+      return {
+        'kind': kind,
+        'control_account': accountCode,
+        'subledger_balance': subsidiaryBalance,
+        'general_ledger_balance': controlBalance,
+        'difference': subsidiaryBalance - controlBalance,
+      };
+    }
+
+    final workers = await reconcileControlAccount(
+      kind: 'workers', accountCode: '2100', table: 'workers',
+    );
+    final partners = await reconcileControlAccount(
+      kind: 'partners', accountCode: '2200', table: 'partners',
+    );
+    final beneficiaryTotal = beneficiaries.fold<int>(
+      0, (sum, row) => sum + ((row['subledger_balance'] as num?)?.round() ?? 0),
+    );
+    final beneficiaryLedgerTotal = await tx.rawQuery('''
+      SELECT COALESCE(SUM(jl.debit-jl.credit),0) balance
+      FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id
+      JOIN accounts a ON a.id=jl.account_id
+      WHERE je.station_id=? AND je.status='posted' AND je.date<? AND a.code='1200'
+    ''', [stationId, end]);
+    final totalLedgerBalance = (beneficiaryLedgerTotal.first['balance'] as num?)?.round() ?? 0;
+    return [
+      {
+        'kind': 'beneficiaries',
+        'control_account': '1200',
+        'party_count': beneficiaries.length,
+        'subledger_balance': beneficiaryTotal,
+        'general_ledger_balance': totalLedgerBalance,
+        'difference': beneficiaryTotal - totalLedgerBalance,
+        'mismatches': beneficiaryReconciliation,
+      },
+      workers,
+      partners,
+    ];
+  }
+
   Future<Map<String, Object?>> _fiscalPreviewTx(
     Transaction tx, {required int stationId, required DateTime start, required DateTime endExclusive}
   ) async {
@@ -463,6 +607,27 @@ class AccountingService {
       errors.add('أرصدة الصناديق الحالية لا تطابق حسابات النقد في الأستاذ ($details)؛ سوِّ الفروق قبل الإقفال');
     }
 
+    final subledgerReconciliation = await _subledgerReconciliationTx(
+      tx, stationId: stationId, endExclusive: endExclusive,
+    );
+    final subledgerMismatches = subledgerReconciliation.where((row) {
+      final partyMismatches = row['mismatches'] as List?;
+      return row['difference'] != 0 || (partyMismatches?.isNotEmpty ?? false);
+    }).toList();
+    if (subledgerMismatches.isNotEmpty) {
+      final details = subledgerMismatches.map((row) {
+        final label = switch ('${row['kind']}') {
+          'beneficiaries' => 'المستفيدون',
+          'workers' => 'العمال',
+          'partners' => 'الشركاء',
+          _ => '${row['kind']}',
+        };
+        final parties = (row['mismatches'] as List?)?.length ?? 0;
+        return '$label: فرق ${row['difference']}${parties > 0 ? ' ($parties حسابات)' : ''}';
+      }).join('، ');
+      errors.add('توجد فروق بين الدفاتر الفرعية والأستاذ العام ($details)؛ عالجها قبل الإقفال');
+    }
+
     final carryAccounts = await tx.rawQuery(
       "SELECT a.code,a.name,a.type,COALESCE(SUM(jl.debit),0) debit,COALESCE(SUM(jl.credit),0) credit,COALESCE(SUM(jl.credit-jl.debit),0) credit_balance FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.date<? AND je.status='posted' AND a.type IN ('asset','liability','equity') GROUP BY a.id,a.code,a.name,a.type HAVING ABS(COALESCE(SUM(jl.credit-jl.debit),0))>0 ORDER BY a.code",
       [stationId, endExclusive.toIso8601String()],
@@ -503,6 +668,8 @@ class AccountingService {
       'cashbox_reconciliation': cashReconciliation,
       'cashbox_reconciliation_as_of': AppClock.now().toIso8601String(),
       'cashbox_mismatches': cashMismatch,
+      'subledger_reconciliation': subledgerReconciliation,
+      'subledger_mismatches': subledgerMismatches,
       'carry_accounts': carryAccounts,
       'warnings': warnings,
       'fixed_salary_workers': fixedSalaryWorkers,
@@ -533,6 +700,7 @@ class AccountingService {
             'trial_balance_credit': preview['trial_balance_credit'],
             'cashbox_reconciliation': preview['cashbox_reconciliation'],
             'cashbox_reconciliation_as_of': preview['cashbox_reconciliation_as_of'],
+            'subledger_reconciliation': preview['subledger_reconciliation'],
             'carry_accounts': preview['carry_accounts'],
             'income': preview['income'], 'expenses': preview['expenses'],
             'net_profit': preview['net_profit'],

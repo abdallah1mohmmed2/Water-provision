@@ -10542,12 +10542,32 @@ class _SettingsState extends State<SettingsPage> {
         stationId: stationId, start: start, endExclusive: endExclusive,
       );
       if (!mounted) return;
+      final subledgerRows = (preview['subledger_reconciliation'] as List? ?? const [])
+          .cast<Map<String, Object?>>();
+      String subledgerName(String kind) => switch (kind) {
+        'beneficiaries' => 'المستفيدون',
+        'workers' => 'العمال',
+        'partners' => 'الشركاء',
+        _ => kind,
+      };
+      final subledgerLines = subledgerRows.map((row) {
+        final details = (row['mismatches'] as List? ?? const [])
+            .cast<Map<String, Object?>>()
+            .map((party) => '${party['name']}: فرق ${money(party['difference'])}')
+            .join('، ');
+        return '${subledgerName('${row['kind']}')}: دفتر فرعي ${money(row['subledger_balance'])} / أستاذ ${money(row['general_ledger_balance'])} / فرق ${money(row['difference'])}${details.isEmpty ? '' : '\n$details'}';
+      }).join('\n');
       if (preview['valid'] != true) {
         await showDialog<void>(
           context: context,
           builder: (d) => AlertDialog(
             title: const Text('تعذّر إقفال السنة'),
-            content: Text((preview['errors'] as List).join('\n')),
+            content: SingleChildScrollView(
+              child: Text([
+                ...(preview['errors'] as List).map((error) => '$error'),
+                if (subledgerLines.isNotEmpty) '\nمطابقة الدفاتر الفرعية:\n$subledgerLines',
+              ].join('\n')),
+            ),
             actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('إغلاق'))],
           ),
         );
@@ -10573,6 +10593,7 @@ class _SettingsState extends State<SettingsPage> {
             'صافي النتيجة: ${money(preview['net_profit'])}\n\n'
             'ميزان المراجعة: مدين ${money(preview['trial_balance_debit'])} / دائن ${money(preview['trial_balance_credit'])}\n'
             'مطابقة الصناديق الحالية:\n${cashLines.isEmpty ? 'لا توجد صناديق مسجلة' : cashLines}\n\n'
+            'مطابقة الدفاتر الفرعية مع الأستاذ:\n${subledgerLines.isEmpty ? 'لا توجد بيانات' : subledgerLines}\n\n'
             'الأرصدة المرحّلة:\n${carryRows.isEmpty ? 'لا توجد أرصدة في الحسابات المحددة' : carryRows}\n\n'
             'تنبيهات قبل الاعتماد:\n$warningLines\n\n'
             'سيُقفل صافي النتائج في 3300. تبقى الأصول والالتزامات في الدفتر المتصل دون قيود افتتاحية مكررة.',

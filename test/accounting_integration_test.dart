@@ -454,10 +454,7 @@ void main() {
   test('كشف المستفيد: الرصيد الجاري الأخير = beneficiaryBalance (دفعات + سلف الديزل)', () async {
     await useSolar6000();
     final repo = StationRepository(db);
-    final now = DateTime.now().toIso8601String();
-    final b = await db.insert('beneficiaries', {
-      'name': 'مستفيد كشف', 'opening_balance': 1000, 'created_at': now, 'updated_at': now,
-    });
+    final b = await repo.createBeneficiary(name: 'مستفيد كشف', opening: 1000);
     final start = DateTime(2026, 6, 1, 8);
     await svc.recordIrrigation(
       stationId: 1, pumpId: 1, beneficiaryId: b,
@@ -857,9 +854,9 @@ void main() {
   });
 
   test('إقفال سنة مكتملة يرحّل النتيجة ويمنع التعديل داخل الفترة', () async {
-    final ids = await db.query("SELECT code,id FROM accounts WHERE code IN ('1000','4000','5000')");
+    final ids = await db.query("SELECT code,id FROM accounts WHERE code IN ('1000','1200','2100','2200','3000','4000','5000')");
     final account = {for (final row in ids) '${row['code']}': row['id'] as int};
-    Future<void> insertEntry(String ref, DateTime date, List<Map<String, Object?>> lines) async {
+    Future<int> insertEntry(String ref, DateTime date, List<Map<String, Object?>> lines) async {
       final id = await db.insert('journal_entries', {
         'station_id': 1, 'date': date.toIso8601String(), 'reference_type': 'test_$ref',
         'description': ref, 'status': 'posted', 'created_at': DateTime.now().toIso8601String(),
@@ -867,6 +864,7 @@ void main() {
       for (final line in lines) {
         await db.insert('journal_lines', {...line, 'journal_entry_id': id});
       }
+      return id;
     }
     await insertEntry('income', DateTime(2025, 6, 1), [
       {'account_id': account['1000'], 'debit': 10000, 'credit': 0},
@@ -875,6 +873,35 @@ void main() {
     await insertEntry('expense', DateTime(2025, 7, 1), [
       {'account_id': account['5000'], 'debit': 4000, 'credit': 0},
       {'account_id': account['1000'], 'debit': 0, 'credit': 4000},
+    ]);
+    final unreconciledBeneficiary = await db.insert('beneficiaries', {
+      'station_id': 1,
+      'name': 'مستفيد بلا قيد افتتاحي',
+      'opening_balance': 250,
+      'created_at': DateTime(2024, 12, 1).toIso8601String(),
+      'updated_at': DateTime(2024, 12, 1).toIso8601String(),
+    });
+    await db.update('settings', {'value': '1'}, 'key=?', ['selected_pump_id']);
+    final reconciliationRepo = StationRepository(db);
+    final workerId = await reconciliationRepo.createWorker(
+      name: 'عامل مطابقة الأستاذ', payType: 'fixed', opening: 100,
+    );
+    final partnerId = await reconciliationRepo.createPartner(
+      name: 'شريك مطابقة الأستاذ', mode: 'shares', shares: 1, opening: 60,
+    );
+    final workerAccount = (await db.query(
+      'SELECT id FROM accounts WHERE code=?', args: ['2100.W$workerId'],
+    )).single['id'] as int;
+    final partnerAccount = (await db.query(
+      'SELECT id FROM accounts WHERE code=?', args: ['2200.P$partnerId'],
+    )).single['id'] as int;
+    final unassignedWorkerEntry = await insertEntry('worker_control_unassigned', DateTime(2024, 12, 1), [
+      {'account_id': account['2100'], 'debit': 0, 'credit': 77},
+      {'account_id': account['3000'], 'debit': 77, 'credit': 0},
+    ]);
+    final unassignedPartnerEntry = await insertEntry('partner_control_unassigned', DateTime(2024, 12, 1), [
+      {'account_id': account['2200'], 'debit': 0, 'credit': 55},
+      {'account_id': account['3000'], 'debit': 55, 'credit': 0},
     ]);
     await seedCashEquityForTest(1, DateTime(2025, 1, 2), 100000);
     await db.update(
@@ -885,7 +912,31 @@ void main() {
     );
     expect(unreconciled['valid'], false);
     expect('${unreconciled['errors']}', contains('الصناديق الحالية'));
+    expect('${unreconciled['errors']}', contains('الدفاتر الفرعية'));
+    final reconciliationRows = (unreconciled['subledger_reconciliation'] as List)
+        .cast<Map<String, Object?>>();
+    final beneficiaryMismatch = reconciliationRows.singleWhere((row) => row['kind'] == 'beneficiaries');
+    final workerMismatch = reconciliationRows.singleWhere((row) => row['kind'] == 'workers');
+    final partnerMismatch = reconciliationRows.singleWhere((row) => row['kind'] == 'partners');
+    expect(beneficiaryMismatch['difference'], 250);
+    expect(workerMismatch['difference'], -77);
+    expect(partnerMismatch['difference'], -55);
     await reconcileCashboxesForTest(1);
+    await insertEntry('beneficiary_opening', DateTime(2024, 12, 1), [
+      {
+        'account_id': account['1200'], 'beneficiary_id': unreconciledBeneficiary,
+        'debit': 250, 'credit': 0,
+      },
+      {'account_id': account['3000'], 'debit': 0, 'credit': 250},
+    ]);
+    await db.update(
+      'journal_lines', {'account_id': workerAccount, 'worker_id': workerId},
+      'journal_entry_id=? AND account_id=?', [unassignedWorkerEntry, account['2100']],
+    );
+    await db.update(
+      'journal_lines', {'account_id': partnerAccount, 'partner_id': partnerId},
+      'journal_entry_id=? AND account_id=?', [unassignedPartnerEntry, account['2200']],
+    );
     final start = DateTime(2025, 1, 1), endExclusive = DateTime(2026, 1, 1);
     final preview = await svc.previewFiscalYear(stationId: 1, start: start, endExclusive: endExclusive);
     expect(preview['valid'], true, reason: '${preview['errors']}');
@@ -898,6 +949,11 @@ void main() {
     expect(closure['net_profit'], 6000);
     expect(closure['close_journal_entry_id'], isNotNull);
     expect(closure['reconciliation_json'], isNotNull);
+    final closureSnapshot = jsonDecode('${closure['reconciliation_json']}') as Map<String, dynamic>;
+    final savedSubledger = (closureSnapshot['subledger_reconciliation'] as List)
+        .cast<Map<String, dynamic>>();
+    expect(savedSubledger, hasLength(3));
+    expect(savedSubledger.every((row) => row['difference'] == 0), isTrue);
     final retained = await db.query(
       "SELECT l.debit,l.credit FROM journal_lines l JOIN accounts a ON a.id=l.account_id WHERE l.journal_entry_id=? AND a.code='3300'",
       args: [closure['close_journal_entry_id']],
