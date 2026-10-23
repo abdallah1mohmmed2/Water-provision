@@ -1042,9 +1042,13 @@ class StationRepository {
     }
   }
 
-  Future<List<Map<String, Object?>>> partners() => db.rawQuery(
-    "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE p.active=1 ORDER BY p.name",
-  );
+  Future<List<Map<String, Object?>>> partners() async {
+    final stationId = await accounting.currentStationId();
+    return db.rawQuery(
+      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE p.station_id=? AND p.active=1 ORDER BY p.name",
+      [stationId],
+    );
+  }
 
   Future<int> createPartner({
     required String name,
@@ -1636,15 +1640,18 @@ class StationRepository {
   );
 
   Future<Map<String, Object?>> partnerProfitSummary({required DateTime from, required DateTime to}) async {
-    final args = [from.toIso8601String(), to.add(const Duration(days: 1)).toIso8601String()];
+    final stationId = await accounting.currentStationId();
+    final start = DateTime(from.year, from.month, from.day);
+    final endExclusive = DateTime(to.year, to.month, to.day + 1);
+    final args = [stationId, start.toIso8601String(), endExclusive.toIso8601String()];
     Future<int> value(String sql) async => ((await db.rawQuery(sql, args)).first['n'] as num?)?.round() ?? 0;
     Future<int> currentLiability(String code) async => ((await db.rawQuery(
-      "SELECT COALESCE(SUM(jl.credit-jl.debit),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND (a.code=? OR a.parent_id=(SELECT id FROM accounts WHERE code=?))",
-      [code, code],
+      "SELECT COALESCE(SUM(jl.credit-jl.debit),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND (a.code=? OR a.parent_id=(SELECT id FROM accounts WHERE code=?))",
+      [stationId, code, code],
     )).first['n'] as num?)?.round() ?? 0;
-    final revenue = await value("SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
-    final expenses = await value("SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
-    final workers = await value("SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
+    final revenue = await value("SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
+    final expenses = await value("SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
+    final workers = await value("SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
     return {
       'revenue': revenue,
       'expenses': expenses,

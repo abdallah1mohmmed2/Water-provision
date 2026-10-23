@@ -743,6 +743,119 @@ void main() {
     }
   });
 
+  test('ملخص الأرباح والتوزيع واستحقاق السقاية معزولة حسب المحطة', () async {
+    final repo = StationRepository(db);
+    final originalSettings = await db.query(
+      "SELECT key,value FROM settings WHERE key IN ('selected_pump_id','system_type','solar_hourly_rate')",
+    );
+    final oldValues = {for (final row in originalSettings) '${row['key']}': row['value']};
+    final now = DateTime(2026, 1, 1).toIso8601String();
+    Future<(int, int, int)> createStation(String name, String partnerName) async {
+      final stationId = await db.insert('stations', {
+        'name': name, 'created_at': now, 'updated_at': now,
+      });
+      final pumpId = await db.insert('pumps', {
+        'station_id': stationId, 'name': 'مضخة $name', 'system_type': 'solar', 'active': 1,
+      });
+      await db.update('settings', {'value': '$pumpId'}, 'key=?', ['selected_pump_id']);
+      final partnerId = await repo.createPartner(name: partnerName, mode: 'shares', shares: 1);
+      return (stationId, pumpId, partnerId);
+    }
+
+    try {
+      final (stationA, pumpA, partnerA) = await createStation('محطة توزيع ألف', 'شريك ألف');
+      final (stationB, pumpB, partnerB) = await createStation('محطة توزيع باء', 'شريك باء');
+      await db.insert('workers', {
+        'station_id': stationA, 'name': 'عامل ألف', 'pay_type': 'fixed', 'fixed_salary': 300,
+      });
+      await db.insert('workers', {
+        'station_id': stationB, 'name': 'عامل باء', 'pay_type': 'fixed', 'fixed_salary': 500,
+      });
+      await db.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
+      await db.update('settings', {'value': '1200'}, 'key=?', ['solar_hourly_rate']);
+      await db.update('settings', {'value': '$pumpA'}, 'key=?', ['selected_pump_id']);
+
+      await svc.recordIrrigation(
+        stationId: stationA, pumpId: pumpA, partnerId: partnerA, partyType: 'partner',
+        start: DateTime(2029, 6, 1, 8), end: DateTime(2029, 6, 1, 9),
+        systemType: 'solar', waterRate: 0, litersPerHour: 0, dieselPrice: 0,
+        solarRate: 1200, thirdRate: 0, cloudMinutes: 0, paidAmount: 0,
+      );
+      final directA = await db.query(
+        "SELECT amount FROM partner_transactions WHERE partner_id=? AND reference_type='irrigation_profit'",
+        args: [partnerA],
+      );
+      final directB = await db.query(
+        "SELECT amount FROM partner_transactions WHERE partner_id=? AND reference_type='irrigation_profit'",
+        args: [partnerB],
+      );
+      expect(directA, hasLength(1));
+      expect(directB, isEmpty);
+
+      final accountRows = await db.query("SELECT code,id FROM accounts WHERE code IN ('1000','4000')");
+      final accounts = {for (final row in accountRows) '${row['code']}': row['id']};
+      Future<void> addRevenue(int stationId, int amount) async {
+        final entryId = await db.insert('journal_entries', {
+          'station_id': stationId, 'date': DateTime(2030, 12, 31, 12).toIso8601String(),
+          'reference_type': 'test_station_profit', 'description': 'إيراد اختبار محطتين',
+          'status': 'posted', 'created_at': DateTime.now().toIso8601String(),
+        });
+        await db.insert('journal_lines', {
+          'journal_entry_id': entryId, 'account_id': accounts['1000'],
+          'debit': amount, 'credit': 0,
+        });
+        await db.insert('journal_lines', {
+          'journal_entry_id': entryId, 'account_id': accounts['4000'],
+          'debit': 0, 'credit': amount,
+        });
+      }
+      await addRevenue(stationA, 10000);
+      await addRevenue(stationB, 20000);
+
+      final from = DateTime(2030, 1, 1), to = DateTime(2030, 12, 31);
+      await db.update('settings', {'value': '$pumpA'}, 'key=?', ['selected_pump_id']);
+      expect(await svc.accrueMonthlySalaries(month: DateTime(2030, 12, 1)), 1);
+      final partnersA = await repo.partners();
+      expect(partnersA.any((row) => row['id'] == partnerA), isTrue);
+      expect(partnersA.any((row) => row['id'] == partnerB), isFalse);
+      final summaryA = await repo.partnerProfitSummary(from: from, to: to);
+      expect(summaryA['revenue'], 10000);
+      expect(summaryA['workers'], 300);
+      expect(await svc.distributePartnerProfits(from: from, to: to), 1);
+
+      await db.update('settings', {'value': '$pumpB'}, 'key=?', ['selected_pump_id']);
+      expect(await svc.accrueMonthlySalaries(month: DateTime(2030, 12, 1)), 1);
+      final partnersB = await repo.partners();
+      expect(partnersB.any((row) => row['id'] == partnerB), isTrue);
+      expect(partnersB.any((row) => row['id'] == partnerA), isFalse);
+      final summaryB = await repo.partnerProfitSummary(from: from, to: to);
+      expect(summaryB['revenue'], 20000);
+      expect(summaryB['workers'], 500);
+      // كلا التوزيعين لهما مرجع الفترة نفسه، لكنهما مستقلان لأن المحطة مختلفة.
+      expect(await svc.distributePartnerProfits(from: from, to: to), 1);
+
+      for (final pair in [(stationA, partnerA), (stationB, partnerB)]) {
+        final (stationId, partnerId) = pair;
+        final distribution = await db.query(
+          "SELECT id,amount FROM partner_transactions WHERE partner_id=? AND reference_type='profit_distribution'",
+          args: [partnerId],
+        );
+        expect(distribution, hasLength(1));
+        expect(distribution.single['amount'], stationId == stationA ? 9700 : 19500);
+        final journal = await db.query(
+          "SELECT station_id,date FROM journal_entries WHERE reference_type='partner' AND reference_id=?",
+          args: [distribution.single['id']],
+        );
+        expect(journal.single['station_id'], stationId);
+        expect('${journal.single['date']}', startsWith('2030-12-31'));
+      }
+    } finally {
+      for (final entry in oldValues.entries) {
+        await db.update('settings', {'value': entry.value}, 'key=?', [entry.key]);
+      }
+    }
+  });
+
   test('إقفال سنة مكتملة يرحّل النتيجة ويمنع التعديل داخل الفترة', () async {
     final ids = await db.query("SELECT code,id FROM accounts WHERE code IN ('1000','4000','5000')");
     final account = {for (final row in ids) '${row['code']}': row['id'] as int};

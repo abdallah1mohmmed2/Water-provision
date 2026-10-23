@@ -1013,7 +1013,8 @@ class AccountingService {
       final wageWorkers = await tx.query(
         'workers',
         columns: ['id'],
-        where: "active=1 AND pay_type IN ('hourly', 'percentage')",
+        where: "station_id=? AND active=1 AND pay_type IN ('hourly', 'percentage')",
+        whereArgs: [stationId],
         orderBy: 'id',
       );
       for (final wageWorker in wageWorkers) {
@@ -1038,6 +1039,7 @@ class AccountingService {
         await _accruePartnersFromIrrigationTx(
           tx,
           irrigationId: id,
+          stationId: stationId,
           amount: partnerPool,
           date: start,
           userId: userId,
@@ -1796,9 +1798,9 @@ class AccountingService {
     return payableEntitlement;
   }
 
-  Future<void> _accruePartnersFromIrrigationTx(Transaction tx, {required int irrigationId,
+  Future<void> _accruePartnersFromIrrigationTx(Transaction tx, {required int irrigationId, required int stationId,
     required int amount, required DateTime date, int? userId}) async {
-    final partners = await tx.query('partners', where: 'active=1', orderBy: 'id');
+    final partners = await tx.query('partners', where: 'station_id=? AND active=1', whereArgs: [stationId], orderBy: 'id');
     if (partners.isEmpty || amount <= 0) return;
     final sharePartners = partners.where((p) => '${p['ownership_mode']}' == 'shares').toList();
     final percentagePartners = partners.where((p) => '${p['ownership_mode']}' == 'percentage').toList();
@@ -1858,16 +1860,22 @@ class AccountingService {
   Future<int> accrueMonthlySalaries({required DateTime month, int? userId}) async {
     final start = DateTime(month.year, month.month, 1), end = DateTime(month.year, month.month + 1, 1);
     return database.transaction((tx) async {
-      await _assertPeriodOpen(tx, end.subtract(const Duration(microseconds: 1)));
-      var count = 0; final workers = await tx.query('workers', where: "active=1 AND pay_type='fixed' AND fixed_salary>0");
+      final stationId = await _selectedStationIdTx(tx);
+      await _assertPeriodOpen(tx, end.subtract(const Duration(microseconds: 1)), stationId: stationId);
+      var count = 0;
+      final workers = await tx.query(
+        'workers',
+        where: "station_id=? AND active=1 AND pay_type='fixed' AND fixed_salary>0",
+        whereArgs: [stationId],
+      );
       for (final w in workers) {
         final wid = w['id'] as int;
-        final exists = await tx.rawQuery("SELECT 1 FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id WHERE je.reference_type='worker' AND je.description='راتب العامل الشهري' AND jl.worker_id=? AND je.date>=? AND je.date<? LIMIT 1", [wid, start.toIso8601String(), end.toIso8601String()]);
+        final exists = await tx.rawQuery("SELECT 1 FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id WHERE je.station_id=? AND je.reference_type='worker' AND je.description='راتب العامل الشهري' AND jl.worker_id=? AND je.date>=? AND je.date<? LIMIT 1", [stationId, wid, start.toIso8601String(), end.toIso8601String()]);
         if (exists.isNotEmpty) continue;
         final amount = (w['fixed_salary'] as num).round();
         final id = await tx.insert('worker_transactions', {'worker_id': wid, 'date': end.subtract(const Duration(seconds: 1)).toIso8601String(), 'type': 'worker_entitlement', 'amount': amount, 'reference_type': 'monthly_salary', 'reference_id': month.year * 100 + month.month, 'created_by': userId});
         final exp = await _accountIdTx(tx, '5000'), payable = await _workerAccountIdTx(tx, wid);
-        await _entry(tx, description: 'راتب العامل الشهري', referenceType: 'worker', referenceId: id, userId: userId, date: end.subtract(const Duration(seconds: 1)), lines: [{'account_id': exp, 'worker_id': wid, 'debit': amount, 'credit': 0}, {'account_id': payable, 'worker_id': wid, 'debit': 0, 'credit': amount}]);
+        await _entry(tx, description: 'راتب العامل الشهري', referenceType: 'worker', referenceId: id, userId: userId, date: end.subtract(const Duration(seconds: 1)), stationId: stationId, lines: [{'account_id': exp, 'worker_id': wid, 'debit': amount, 'credit': 0}, {'account_id': payable, 'worker_id': wid, 'debit': 0, 'credit': amount}]);
         count++;
       }
       return count;
@@ -1875,28 +1883,49 @@ class AccountingService {
   }
 
   Future<int> distributePartnerProfits({required DateTime from, required DateTime to, int? userId}) async {
+    final start = DateTime(from.year, from.month, from.day);
+    final endExclusive = DateTime(to.year, to.month, to.day + 1);
+    if (!endExclusive.isAfter(start)) throw ArgumentError('نهاية فترة التوزيع يجب أن تكون بعد بدايتها');
     return database.transaction((tx) async {
-      await _assertPeriodRangeOpen(tx, from, to);
-      final rev = await tx.rawQuery("SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND je.date>=? AND je.date<?", [from.toIso8601String(), to.toIso8601String()]);
-      final general = await tx.rawQuery("SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND je.date>=? AND je.date<?", [from.toIso8601String(), to.toIso8601String()]);
-      final worker = await tx.rawQuery("SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND je.date>=? AND je.date<?", [from.toIso8601String(), to.toIso8601String()]);
-      final profit = AccountingCalculations.distributableProfit(totalRevenue: (rev.first['n'] as num).round(), generalExpenses: (general.first['n'] as num).round(), workerEntitlements: (worker.first['n'] as num).round());
-      // الاستحقاقات المباشرة للشركاء أُنشئت عند تسجيل السقاية، فلا نعيد
-      // ترحيلها مرة ثانية عند تشغيل توزيع نهاية الشهر.
+      final stationId = await _selectedStationIdTx(tx);
+      await _assertPeriodRangeOpen(tx, start, endExclusive, stationId: stationId);
+      final args = [stationId, start.toIso8601String(), endExclusive.toIso8601String()];
+      final rev = await tx.rawQuery(
+        "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
+        args,
+      );
+      final general = await tx.rawQuery(
+        "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
+        args,
+      );
+      final worker = await tx.rawQuery(
+        "SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
+        args,
+      );
+      final profit = AccountingCalculations.distributableProfit(
+        totalRevenue: (rev.first['n'] as num).round(),
+        generalExpenses: (general.first['n'] as num).round(),
+        workerEntitlements: (worker.first['n'] as num).round(),
+      );
+      // الاستحقاقات المباشرة للشركاء أُنشئت عند تسجيل السقاية؛ تخصم فقط
+      // استحقاقات شركاء المحطة نفسها كي لا تختلط نتائج المحطات.
       final direct = await tx.rawQuery(
-        "SELECT COALESCE(SUM(amount),0) n FROM partner_transactions WHERE reference_type='irrigation_profit' AND date>=? AND date<?",
-        [from.toIso8601String(), to.toIso8601String()],
+        "SELECT COALESCE(SUM(pt.amount),0) n FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id WHERE p.station_id=? AND pt.reference_type='irrigation_profit' AND pt.date>=? AND pt.date<?",
+        args,
       );
       final remainingProfit = (profit - (direct.first['n'] as num).round()).clamp(0, profit).toInt();
-      final distributionRef = from.millisecondsSinceEpoch;
-      final already = await tx.query('partner_transactions', where: 'reference_type=? AND reference_id=?', whereArgs: ['profit_distribution', distributionRef], limit: 1);
+      final distributionRef = start.millisecondsSinceEpoch;
+      final already = await tx.rawQuery(
+        "SELECT pt.id FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id WHERE p.station_id=? AND pt.reference_type='profit_distribution' AND pt.reference_id=? LIMIT 1",
+        [stationId, distributionRef],
+      );
       if (already.isNotEmpty) throw StateError('تم ترحيل توزيع الأرباح لهذه الفترة مسبقاً');
-      final ps = await tx.query('partners', where: 'active=1');
-      // Keep share quantities fractional and use double consistently with partnerShareByMode.
+      final ps = await tx.query('partners', where: 'station_id=? AND active=1', whereArgs: [stationId]);
       final totalShares = ps.fold<double>(
         0.0,
         (sum, partner) => sum + ((partner['shares_count'] as num?)?.toDouble() ?? 0.0),
       );
+      final distributionDate = endExclusive.subtract(const Duration(microseconds: 1));
       var count = 0;
       for (final p in ps) {
         final amount = AccountingCalculations.partnerShareByMode(
@@ -1907,9 +1936,35 @@ class AccountingService {
           percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0.0,
         );
         if (amount <= 0) continue;
-        final id = await tx.insert('partner_transactions', {'partner_id': p['id'], 'date': to.subtract(const Duration(seconds: 1)).toIso8601String(), 'type': 'share_accrual', 'amount': amount, 'ownership_snapshot': p['ownership_mode']=='percentage' ? p['ownership_percentage'] : p['shares_count'], 'reference_type': 'profit_distribution', 'reference_id': distributionRef, 'created_by': userId});
-        final eq = await _accountIdTx(tx, '3200'), payable = await _partnerAccountIdTx(tx, p['id'] as int);
-        await _entry(tx, description: 'توزيع صافي الربح للشريك', referenceType: 'partner', referenceId: id, userId: userId, date: to.subtract(const Duration(seconds: 1)), lines: [{'account_id': eq, 'partner_id': p['id'], 'debit': amount, 'credit': 0}, {'account_id': payable, 'partner_id': p['id'], 'debit': 0, 'credit': amount}]); count++;
+        final partnerId = (p['id'] as num).toInt();
+        final id = await tx.insert('partner_transactions', {
+          'partner_id': partnerId,
+          'date': distributionDate.toIso8601String(),
+          'type': 'share_accrual',
+          'amount': amount,
+          'ownership_snapshot': p['ownership_mode'] == 'percentage'
+              ? p['ownership_percentage']
+              : p['shares_count'],
+          'reference_type': 'profit_distribution',
+          'reference_id': distributionRef,
+          'created_by': userId,
+        });
+        final eq = await _accountIdTx(tx, '3200');
+        final payable = await _partnerAccountIdTx(tx, partnerId);
+        await _entry(
+          tx,
+          description: 'توزيع صافي الربح للشريك',
+          referenceType: 'partner',
+          referenceId: id,
+          userId: userId,
+          date: distributionDate,
+          stationId: stationId,
+          lines: [
+            {'account_id': eq, 'partner_id': partnerId, 'debit': amount, 'credit': 0},
+            {'account_id': payable, 'partner_id': partnerId, 'debit': 0, 'credit': amount},
+          ],
+        );
+        count++;
       }
       return count;
     });
