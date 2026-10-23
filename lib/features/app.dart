@@ -960,7 +960,7 @@ class _ShellState extends State<AdminShell> {
                         height: 52,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(17),
-                          gradient: const LinearGradient(
+                          gradient: LinearGradient(
                             colors: [SaqiaTheme.accent(AppPrefs.current.themeKey), SaqiaTheme.accent(AppPrefs.current.themeKey).withValues(alpha: .72)],
                           ),
                         ),
