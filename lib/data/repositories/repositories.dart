@@ -1705,14 +1705,15 @@ class StationRepository {
         {
           final a = <Object?>[];
           var w = "i.status!='cancelled'";
-          // قارن بالتاريخ فقط لتفادي اختلاف تنسيق النص بين "T" والمسافة
-          // في start_datetime، ولإدراج كل سجلات يوم البداية والنهاية.
+          // استخدم حقل التاريخ المحفوظ للسقاية نفسه، مثل تقارير العامل التي
+          // تعتمد على تاريخ الحركة، بدل اشتقاق اليوم من start_datetime.
+          // هذا يمنع اختلاف يوم التقرير عن تاريخ السقاية عند اختلاف تنسيق/وقت البداية.
           if (from != null) {
-            w += ' AND date(i.start_datetime)>=date(?)';
+            w += ' AND date(i.date)>=date(?)';
             a.add(from.toIso8601String());
           }
           if (to != null) {
-            w += ' AND date(i.start_datetime)<=date(?)';
+            w += ' AND date(i.date)<=date(?)';
             a.add(to.toIso8601String());
           }
           if (beneficiaryId != null) { w += ' AND i.beneficiary_id=?'; a.add(beneficiaryId); }
