@@ -25,8 +25,9 @@ class AccountingCalculations {
   }) {
     var effectiveEnd = end;
     if (!effectiveEnd.isAfter(start)) {
-      if (!allowMidnightCrossing)
+      if (!allowMidnightCrossing) {
         throw ArgumentError('وقت النهاية يجب أن يكون بعد وقت البداية');
+      }
       effectiveEnd = end.add(const Duration(days: 1));
     }
     final m = effectiveEnd.difference(start).inMinutes;
@@ -256,12 +257,15 @@ class AccountingCalculations {
     required double totalShares,
     required double percentage,
   }) {
-    if (distributable < 0)
+    if (distributable < 0) {
       throw ArgumentError('المبلغ القابل للتوزيع لا يمكن أن يكون سالبًا');
-    if (mode == 'percentage')
+    }
+    if (mode == 'percentage') {
       return partnerShare(distributable: distributable, percentage: percentage);
-    if (totalShares <= 0 || partnerShares < 0)
+    }
+    if (totalShares <= 0 || partnerShares < 0) {
       throw ArgumentError('بيانات الأسهم غير صالحة');
+    }
     return (distributable * partnerShares / totalShares).round();
   }
 }

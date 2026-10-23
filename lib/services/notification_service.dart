@@ -21,7 +21,9 @@ class NotificationService {
 
   String _render(String template, Map<String, String> vars) {
     var out = template;
-    for (final e in vars.entries) out = out.replaceAll('{${e.key}}', e.value);
+    for (final e in vars.entries) {
+      out = out.replaceAll('{${e.key}}', e.value);
+    }
     return out;
   }
 

@@ -58,10 +58,11 @@ class AppDatabase {
         'CREATE INDEX IF NOT EXISTS idx_bookings_status ON booking_requests(status)',
       );
     }
-    if (oldV < 3)
+    if (oldV < 3) {
       await d.execute(
         'CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_queue(status)',
       );
+    }
     if (oldV < 4) {
       await d.execute(
         'CREATE TABLE IF NOT EXISTS beneficiary_auth_codes (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), code_hash TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)',
@@ -407,7 +408,7 @@ class AppDatabase {
 
   Future<void> _seed(Database d) async {
     final now = AppClock.now().toIso8601String();
-    if ((await d.query('stations')).isEmpty)
+    if ((await d.query('stations')).isEmpty) {
       await d.insert('stations', {
         'id': 1,
         'name': 'محطة ساقية',
@@ -417,7 +418,8 @@ class AppDatabase {
         'created_at': now,
         'updated_at': now,
       });
-    if ((await d.query('pumps')).isEmpty)
+    }
+    if ((await d.query('pumps')).isEmpty) {
       await d.insert('pumps', {
         'id': 1,
         'station_id': 1,
@@ -425,6 +427,7 @@ class AppDatabase {
         'system_type': 'diesel',
         'active': 1,
       });
+    }
     if ((await d.query('accounts')).isEmpty) {
       final accounts = [
         ['1000', 'الصندوق', 'asset'],
@@ -447,15 +450,16 @@ class AppDatabase {
         ['3200', 'حصص الشركاء من الأرباح', 'equity'],
         ['3300', 'الأرباح المبقاة', 'equity'],
       ];
-      for (var i = 0; i < accounts.length; i++)
+      for (var i = 0; i < accounts.length; i++) {
         await d.insert('accounts', {
           'id': i + 1,
           'code': accounts[i][0],
           'name': accounts[i][1],
           'type': accounts[i][2],
         });
+      }
     }
-    if ((await d.query('cashboxes')).isEmpty)
+    if ((await d.query('cashboxes')).isEmpty) {
       await d.insert('cashboxes', {
         'id': 1,
         'station_id': 1,
@@ -466,7 +470,8 @@ class AppDatabase {
         'ledger_account_code': '1000',
         'active': 1,
       });
-    if ((await d.query('payment_methods')).isEmpty)
+    }
+    if ((await d.query('payment_methods')).isEmpty) {
       await d.insert('payment_methods', {
         'id': 1,
         'station_id': 1,
@@ -476,6 +481,7 @@ class AppDatabase {
         'ledger_account_code': '1000',
         'active': 1,
       });
+    }
     await d.rawUpdate(
       "UPDATE payment_methods SET ledger_account_code=CASE type WHEN 'cash' THEN '1000' WHEN 'bank_transfer' THEN '1100' WHEN 'wallet' THEN '1120' ELSE COALESCE(ledger_account_code,'1000') END WHERE ledger_account_code IS NULL",
     );
@@ -521,13 +527,14 @@ class AppDatabase {
       'notification_balance_title': 'تحديث الرصيد',
       'notification_balance_body': 'الرصيد الحالي: {balance}',
     };
-    for (final e in defaults.entries)
+    for (final e in defaults.entries) {
       await d.insert('settings', {
         'key': e.key,
         'value': e.value,
         'updated_at': now,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-    if ((await d.query('app_users')).isEmpty)
+    }
+    if ((await d.query('app_users')).isEmpty) {
       await d.insert('app_users', {
         'id': 1,
         'station_id': 1,
@@ -540,6 +547,7 @@ class AppDatabase {
         'active': 1,
         'created_at': now,
       });
+    }
   }
 
   /// Unified query API: accepts either raw SELECT/CTE SQL or a table name with

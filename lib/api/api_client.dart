@@ -38,8 +38,9 @@ class ApiClient {
         body: jsonEncode(body ?? {}),
       ),
     };
-    if (r.statusCode < 200 || r.statusCode >= 300)
+    if (r.statusCode < 200 || r.statusCode >= 300) {
       throw StateError('فشل الاتصال بالخادم: ${r.body}');
+    }
     return r.body.isEmpty ? null : jsonDecode(r.body);
   }
 }

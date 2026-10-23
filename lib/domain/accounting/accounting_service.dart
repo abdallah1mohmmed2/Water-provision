@@ -144,10 +144,12 @@ class AccountingService {
       0,
       (s, x) => s + ((x['credit'] as num?)?.round() ?? 0),
     );
-    if (debit != credit)
+    if (debit != credit) {
       throw StateError('القيد غير متوازن: المدين $debit / الدائن $credit');
-    if (debit < 0 || credit < 0 || lines.isEmpty)
+    }
+    if (debit < 0 || credit < 0 || lines.isEmpty) {
       throw StateError('القيد المحاسبي غير صالح');
+    }
     final now = AppClock.now().toIso8601String();
     final entryStationId = stationId ?? await _selectedStationIdTx(tx);
     // تاريخ القيد = تاريخ العملية الفعلي (وليس لحظة الحفظ) حتى لا تُرحَّل
@@ -162,8 +164,9 @@ class AccountingService {
       'created_by': userId,
       'created_at': now,
     });
-    for (final line in lines)
+    for (final line in lines) {
       await tx.insert('journal_lines', {...line, 'journal_entry_id': id});
+    }
     return id;
   }
 
@@ -232,8 +235,9 @@ class AccountingService {
       "SELECT id FROM period_closures WHERE station_id=? AND status!='reopened' AND period_start<=? AND ((period_end_exclusive IS NOT NULL AND period_end_exclusive>?) OR (period_end_exclusive IS NULL AND period_end>=?)) LIMIT 1",
       [station, value, value, value],
     );
-    if (rows.isNotEmpty)
+    if (rows.isNotEmpty) {
       throw StateError('الفترة المحاسبية مغلقة ولا يمكن إضافة حركة إليها');
+    }
   }
 
   Future<void> _assertPeriodRangeOpen(
@@ -279,8 +283,9 @@ class AccountingService {
       if (gap < elapsed) elapsed = gap;
     }
     if (elapsed < minDays && override) {
-      if (reason == null || reason.trim().isEmpty)
+      if (reason == null || reason.trim().isEmpty) {
         throw StateError('يجب إدخال سبب تجاوز مدة الانتظار');
+      }
       await database.auditTx(
         tx,
         userId: userId,
@@ -699,12 +704,14 @@ class AccountingService {
     }
     if (paidAmount < 0) throw ArgumentError('المبلغ المدفوع لا يمكن أن يكون سالبًا');
     // الدفعة المرافقة للسقاية تخص المستفيد فقط؛ العامل/الشريك يُسدَّد حسابهما من شاشة الدفع.
-    if (paidAmount > 0 && partyType != 'beneficiary')
+    if (paidAmount > 0 && partyType != 'beneficiary') {
       throw ArgumentError('الدفعة المرافقة للسقاية متاحة للمستفيد فقط');
+    }
     // الدور والحجز والجلسة تخص المستفيد فقط؛ سقاية عامل/شريك لا يجوز أن تُغلق دور مستفيد.
     if (partyType != 'beneficiary' &&
-        (queueId != null || bookingId != null || sessionId != null))
+        (queueId != null || bookingId != null || sessionId != null)) {
       throw ArgumentError('الربط بالدور أو الحجز أو الجلسة متاح لسقاية المستفيد فقط');
+    }
     final set = await settings();
     final configuredPumpId = int.tryParse(set['selected_pump_id'] ?? '');
     if (configuredPumpId == null) throw StateError('لا توجد مضخة محددة في الإعدادات');
@@ -712,18 +719,22 @@ class AccountingService {
       'SELECT id,station_id,active FROM pumps WHERE id=? LIMIT 1',
       args: [configuredPumpId],
     );
-    if (pumpRows.isEmpty || pumpRows.first['active'] != 1)
+    if (pumpRows.isEmpty || pumpRows.first['active'] != 1) {
       throw StateError('المضخة المحددة في الإعدادات غير موجودة أو غير فعالة');
-    if (pumpRows.first['station_id'] != stationId)
+    }
+    if (pumpRows.first['station_id'] != stationId) {
       throw StateError('المضخة المحددة لا تتبع المحطة الحالية');
-    if (pumpId != configuredPumpId)
+    }
+    if (pumpId != configuredPumpId) {
       throw StateError('يجب استخدام المضخة المحددة في الإعدادات فقط');
+    }
 
     // نوع المنظومة مركزي: لا نثق بقيمة الشاشة أو المضخة القادمة من الواجهة.
     final effectiveType = set['system_type'] ?? 'diesel';
     const allowedTypes = {'diesel', 'solar', 'equivalent_hybrid'};
-    if (!allowedTypes.contains(effectiveType))
+    if (!allowedTypes.contains(effectiveType)) {
       throw StateError('نوع المنظومة في الإعدادات غير صالح');
+    }
 
     // الأسعار أيضًا تؤخذ من الإعدادات لحظة التسجيل حتى يكون السعر Snapshot موحدًا.
     final effectiveWaterRate = int.tryParse(set['diesel_hourly_water_rate'] ?? '0') ?? 0;
@@ -817,10 +828,12 @@ class AccountingService {
           whereArgs: [sessionId],
           limit: 1,
         );
-        if (sess.isEmpty || sess.first['status'] != 'running')
+        if (sess.isEmpty || sess.first['status'] != 'running') {
           throw StateError('الجلسة غير موجودة أو ليست قيد التشغيل');
-        if (sess.first['beneficiary_id'] != beneficiaryId)
+        }
+        if (sess.first['beneficiary_id'] != beneficiaryId) {
           throw StateError('الجلسة المختارة تخص مستفيدًا آخر');
+        }
       }
       if (queueId != null) {
         final q = await tx.query(
@@ -831,10 +844,12 @@ class AccountingService {
           limit: 1,
         );
         if (q.isEmpty) throw StateError('إدخال الدور غير موجود');
-        if (q.first['beneficiary_id'] != beneficiaryId)
+        if (q.first['beneficiary_id'] != beneficiaryId) {
           throw StateError('الدور المختار يخص مستفيدًا آخر');
-        if (!['waiting', 'postponed'].contains('${q.first['status']}'))
+        }
+        if (!['waiting', 'postponed'].contains('${q.first['status']}')) {
           throw StateError('الدور المختار لم يعد قائمًا (تمت خدمته أو إلغاؤه)');
+        }
       }
       if (bookingId != null) {
         final bk = await tx.query(
@@ -845,11 +860,13 @@ class AccountingService {
           limit: 1,
         );
         if (bk.isEmpty) throw StateError('الحجز غير موجود');
-        if (bk.first['beneficiary_id'] != beneficiaryId)
+        if (bk.first['beneficiary_id'] != beneficiaryId) {
           throw StateError('الحجز المختار يخص مستفيدًا آخر');
+        }
         if (!['new', 'under_review', 'scheduled', 'accepted', 'notified']
-            .contains('${bk.first['status']}'))
+            .contains('${bk.first['status']}')) {
           throw StateError('الحجز المختار لم يعد قائمًا (مكتمل أو ملغى)');
+        }
       }
       final overlap = await tx.rawQuery(
         "SELECT id FROM irrigations WHERE pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",
@@ -963,20 +980,22 @@ class AccountingService {
           'memo': partyType == 'beneficiary' ? 'استحقاق سقاية' : 'خصم سقاية من مستحقات الطرف',
         },
       ];
-      if (calc.waterAmount > 0)
+      if (calc.waterAmount > 0) {
         lines.add({
           'account_id': waterRevenue,
           'debit': 0,
           'credit': calc.waterAmount,
           'memo': 'إيراد السقي',
         });
-      if (chargedDiesel > 0)
+      }
+      if (chargedDiesel > 0) {
         lines.add({
           'account_id': fuelRevenue,
           'debit': 0,
           'credit': chargedDiesel,
           'memo': 'قيمة ديزل السقي',
         });
+      }
       await _entry(
         tx,
         description: 'سقاية رقم $id',
@@ -1120,13 +1139,14 @@ class AccountingService {
             (qt.isEmpty ? 'circular' : '${qt.first['value']}') == 'circular';
         await completeQueueEntryTx(tx, queueId, now, circular: circular);
       }
-      if (bookingId != null)
+      if (bookingId != null) {
         await tx.update(
           'booking_requests',
           {'status': 'completed', 'reviewed_at': now},
           where: 'id=?',
           whereArgs: [bookingId],
         );
+      }
       return id;
     }));
   }
@@ -1335,8 +1355,9 @@ class AccountingService {
     String? notes,
   }) async => database.transaction((tx) async {
     await _assertPeriodOpen(tx, date);
-    if (amount <= 0)
+    if (amount <= 0) {
       throw ArgumentError('قيمة المصروف يجب أن تكون أكبر من صفر');
+    }
     // الصندوق تابع للطريقة المختارة (يُرفض أي تعارض).
     final src = await resolvePaymentSource(
       tx,
@@ -1400,8 +1421,9 @@ class AccountingService {
         whereArgs: [id],
         limit: 1,
       );
-      if (r.isEmpty || r.first['status'] != 'posted')
+      if (r.isEmpty || r.first['status'] != 'posted') {
         throw StateError('المصروف غير قابل للإلغاء');
+      }
       await _assertPeriodOpen(tx, DateTime.parse('${r.first['date']}'));
       await tx.update(
         'expenses',
@@ -1414,11 +1436,12 @@ class AccountingService {
       );
       // إعادة المبلغ إلى الصندوق + قيد عكسي (بدل ترك الأستاذ والصندوق على حالهما).
       final cb = r.first['cashbox_id'] as int?;
-      if (cb != null)
+      if (cb != null) {
         await tx.rawUpdate(
           'UPDATE cashboxes SET current_balance=current_balance+? WHERE id=?',
           [(r.first['amount'] as num).round(), cb],
         );
+      }
       await _reverseEntriesTx(
         tx,
         referenceType: 'expense',
@@ -1462,8 +1485,9 @@ class AccountingService {
         "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
       );
       final current = (stock.first['stock'] as num?)?.toDouble() ?? 0;
-      if ((kind == 'delivery' || kind == 'consumption') && liters > current)
+      if ((kind == 'delivery' || kind == 'consumption') && liters > current) {
         throw StateError('كمية الديزل المطلوبة أكبر من المخزون المتاح');
+      }
       if (kind == 'receipt' && cashboxId != null) {
         if (unitPrice < 0) {
           throw ArgumentError('سعر لتر الديزل لا يمكن أن يكون سالبًا');
@@ -1686,8 +1710,9 @@ class AccountingService {
     String? reference,
   }) async => database.transaction((tx) async {
     await _assertPeriodOpen(tx, date);
-    if (amount <= 0)
+    if (amount <= 0) {
       throw ArgumentError('قيمة التحويل يجب أن تكون أكبر من صفر');
+    }
     if (from == to) throw ArgumentError('لا يمكن التحويل إلى نفس الصندوق');
     final target = await tx.query(
       'cashboxes',
@@ -1718,11 +1743,12 @@ class AccountingService {
       'reference': reference,
       'created_by': userId,
     });
-    if (!opening)
+    if (!opening) {
       await tx.rawUpdate(
         'UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',
         [amount, from],
       );
+    }
     await tx.rawUpdate(
       'UPDATE cashboxes SET current_balance=current_balance+? WHERE id=?',
       [amount, to],
@@ -2026,8 +2052,9 @@ class AccountingService {
         whereArgs: [id],
         limit: 1,
       );
-      if (rows.isEmpty || rows.first['status'] == 'cancelled')
+      if (rows.isEmpty || rows.first['status'] == 'cancelled') {
         throw StateError('السقاية غير موجودة أو ملغاة مسبقًا');
+      }
       final old = rows.first;
       await _assertPeriodOpen(tx, DateTime.parse('${old['start_datetime']}'));
       await tx.update(

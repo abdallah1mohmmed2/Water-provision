@@ -1,5 +1,4 @@
 import '../core/app_clock.dart';
-import 'dart:typed_data';
 import 'package:intl/intl.dart';
 import 'package:arabic_reshaper/arabic_reshaper.dart';
 import 'package:flutter/services.dart';
@@ -875,7 +874,7 @@ class ReportService {
     final parts = <String>[];
     if (from != null) parts.add('من ${DateFormat('yyyy/MM/dd').format(from)}');
     if (to != null) parts.add('إلى ${DateFormat('yyyy/MM/dd').format(to)}');
-    if (systemType != null)
+    if (systemType != null) {
       parts.add(
         'المنظومة: ${systemType == 'all'
             ? 'كل الأنواع'
@@ -885,6 +884,7 @@ class ReportService {
             ? 'شمسي'
             : 'النوع الثالث'}',
       );
+    }
     if (beneficiaryId != null) parts.add('تم تحديد مستفيد');
     if (workerId != null) parts.add('تم تحديد عامل');
     if (partnerId != null) parts.add('تم تحديد شريك');

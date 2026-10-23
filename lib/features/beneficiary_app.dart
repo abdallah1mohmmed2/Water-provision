@@ -50,11 +50,12 @@ class _BeneficiaryLoginState extends State<BeneficiaryLogin> {
         code.text.trim(),
       );
       widget.api.api.setToken(x['token'] as String);
-      if (mounted)
+      if (mounted) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => BeneficiaryHome(widget.api)),
         );
+      }
     } catch (e) {
       setState(() => message = '$e');
     } finally {
@@ -135,7 +136,7 @@ class _BeneficiaryHomeState extends State<BeneficiaryHome> {
         widget.api.requests(),
         widget.api.notifications(),
       ]);
-      if (mounted)
+      if (mounted) {
         setState(() {
           me = values[0];
           account = values[1];
@@ -143,6 +144,7 @@ class _BeneficiaryHomeState extends State<BeneficiaryHome> {
           notifications = values[3] ?? [];
           loading = false;
         });
+      }
     } catch (_) {
       if (mounted) setState(() => loading = false);
     }
@@ -159,10 +161,11 @@ class _BeneficiaryHomeState extends State<BeneficiaryHome> {
       await widget.api.createRequest('طلب حجز سقي');
       await load();
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
+      }
     }
   }
 

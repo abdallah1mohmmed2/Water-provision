@@ -85,12 +85,14 @@ class BackupService {
   Future<Map<String, dynamic>> validateDatabaseFile(String path, {String? expectedSystemType}) async {
     try {
       final f = File(path);
-      if (!await f.exists())
+      if (!await f.exists()) {
         return {'valid': false, 'error': 'الملف غير موجود'};
+      }
       final bytes = await f.openRead(0, 16).first;
       final header = utf8.decode(bytes, allowMalformed: true);
-      if (!header.startsWith('SQLite format 3'))
+      if (!header.startsWith('SQLite format 3')) {
         return {'valid': false, 'error': 'الملف ليس قاعدة SQLite صحيحة'};
+      }
       final db = await openReadOnlyDatabase(path);
       final required = [
         'stations',
@@ -149,8 +151,9 @@ class BackupService {
       allowedExtensions: ['db', 'sqlite'],
       withData: false,
     );
-    if (result == null || result.files.single.path == null)
+    if (result == null || result.files.single.path == null) {
       return {'restored': false, 'cancelled': true};
+    }
     final source = result.files.single.path!;
     return restoreDatabaseFromFile(source);
   }
@@ -239,8 +242,9 @@ class BackupService {
 
   Future<void> restorePortableJson(Uint8List bytes) async {
     final decoded = jsonDecode(utf8.decode(bytes));
-    if (decoded is! Map<String, dynamic>)
+    if (decoded is! Map<String, dynamic>) {
       throw StateError('ملف النسخة ليس JSON صالحًا');
+    }
     const tables = AccountingService.portableTables;
     const optional = AccountingService.optionalPortableTables;
     // الجداول الأساسية إلزامية. الجداول المضافة لاحقًا اختيارية في الملفات القديمة،
@@ -281,8 +285,9 @@ class BackupService {
       if (x is! Map) return {'valid': false, 'error': 'ملف النسخة ليس JSON صالحًا'};
       for (final k in AccountingService.portableTables) {
         final v = x[k];
-        if (v == null && AccountingService.optionalPortableTables.contains(k))
+        if (v == null && AccountingService.optionalPortableTables.contains(k)) {
           continue;
+        }
         if (v is! List) return {'valid': false, 'error': 'النسخة ناقصة: $k'};
       }
       final missingOptional = [

@@ -34,8 +34,9 @@ class AdminService {
     required String role,
     String? phone,
   }) async {
-    if (password.length < 6)
+    if (password.length < 6) {
       throw ArgumentError('كلمة المرور يجب ألا تقل عن 6 أحرف');
+    }
     final id = await db.insert('app_users', {
       'station_id': stationId,
       'name': name,

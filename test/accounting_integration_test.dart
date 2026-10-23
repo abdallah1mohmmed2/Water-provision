@@ -437,7 +437,9 @@ void main() {
 
     // ملف قديم بلا الجداول الجديدة: يُقبل، ولا تُفتح الفترات المغلقة.
     final old = jsonDecode(json) as Map<String, dynamic>;
-    for (final k in AccountingService.optionalPortableTables) old.remove(k);
+    for (final k in AccountingService.optionalPortableTables) {
+      old.remove(k);
+    }
     for (final row in (old['journal_entries'] as List)) {
       if (row is Map) row.remove('station_id');
     }

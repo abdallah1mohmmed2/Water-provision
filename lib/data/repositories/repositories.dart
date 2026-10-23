@@ -66,7 +66,7 @@ class StationRepository {
       );
       return newId;
     });
-    if (openingDiesel > 0)
+    if (openingDiesel > 0) {
       await accounting.addDieselMovement(
         beneficiaryId: id,
         kind: 'opening_balance',
@@ -76,6 +76,7 @@ class StationRepository {
         userId: userId,
         notes: 'رصيد ديزل افتتاحي',
       );
+    }
     await db.audit(
       userId: userId,
       operation: 'create',
@@ -614,16 +615,18 @@ class StationRepository {
   }) async {
     final set = await settings();
     final configuredPumpId = int.tryParse(set['selected_pump_id'] ?? '');
-    if (configuredPumpId == null || configuredPumpId != pumpId)
+    if (configuredPumpId == null || configuredPumpId != pumpId) {
       throw StateError('يجب استخدام المضخة المحددة في الإعدادات فقط');
+    }
     final active = await db.rawQuery(
       "SELECT id FROM irrigation_sessions WHERE pump_id=? AND status='running' LIMIT 1",
       [pumpId],
     );
     if (active.isNotEmpty) throw StateError('المضخة لديها جلسة سقي فعالة');
     if ((set['queue_type'] ?? 'circular') == 'booking') {
-      if (bookingId == null)
+      if (bookingId == null) {
         throw StateError('لا يمكن بدء جلسة عشوائية في وضع الحجز');
+      }
       final booking = await db.rawQuery(
         "SELECT * FROM booking_requests WHERE id=? AND beneficiary_id=?",
         [bookingId, beneficiaryId],
@@ -633,8 +636,9 @@ class StationRepository {
             'scheduled',
             'accepted',
             'notified',
-          ].contains('${booking.first['status']}'))
+          ].contains('${booking.first['status']}')) {
         throw StateError('الحجز غير مجدول أو لا يخص المستفيد المحدد');
+      }
     }
     if (queueId != null) {
       final q = await db.rawQuery(
@@ -1353,7 +1357,7 @@ class StationRepository {
       if (cashAccountCode == null || cashAccountCode.isEmpty) {
         final method = await db.rawQuery('SELECT ledger_account_code,type FROM payment_methods WHERE cashbox_id=? AND active=1 ORDER BY id LIMIT 1', [id]);
         cashAccountCode = method.isEmpty ? '1000' : (method.first['ledger_account_code'] as String?);
-        if (cashAccountCode == null || cashAccountCode!.isEmpty) cashAccountCode = '1000';
+        if (cashAccountCode == null || cashAccountCode.isEmpty) cashAccountCode = '1000';
       }
     }
     switch (kind) {
@@ -1671,7 +1675,7 @@ class StationRepository {
       throw StateError('تقرير الديزل غير متاح لأن المنظومة الحالية ليست ديزل');
     }
     final allSystems = systemType == 'all';
-    if (systemType == null) systemType = currentSystemType;
+    systemType ??= currentSystemType;
     String iw = "i.status!='cancelled'";
     if (from != null) {
       iw += ' AND i.start_datetime>=?';
