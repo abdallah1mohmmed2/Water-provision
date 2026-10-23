@@ -195,6 +195,7 @@ class AccountingCalculations {
     'accrual' => 'استحقاق',
     'salary' => 'راتب',
     'share_accrual' => 'حصة أرباح',
+    'share_adjustment' => 'تسوية حصة أرباح',
     'contribution' => 'مساهمة',
     'irrigation' => 'سقاية (خصم من المستحق)',
     'payment' => 'دفعة',
