@@ -21,5 +21,8 @@ jobs:
         working-directory: ./server
         run: dart pub get
         
+      - name: Run accounting integration tests (اختبارات المحاسبة والتراجع)
+        run: flutter test test/accounting_integration_test.dart
+
       - name: Analyze ALL project source (الفحص الشامل لكل شيء)
         run: flutter analyze .
