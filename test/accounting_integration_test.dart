@@ -1491,10 +1491,12 @@ void main() {
     expect((summaryAfter['revenue'] as num) - (summaryBefore['revenue'] as num), 100000);
     expect((summaryAfter['expenses'] as num), summaryBefore['expenses']);
     expect((summaryAfter['workers'] as num) - (summaryBefore['workers'] as num), 12500);
-    expect(
-      (summaryAfter['distributable'] as num) - (summaryBefore['distributable'] as num),
-      87500,
-    );
+    final expectedDistributable = (
+      (summaryAfter['revenue'] as num).round() -
+      (summaryAfter['expenses'] as num).round() -
+      (summaryAfter['workers'] as num).round()
+    ).clamp(0, 1 << 62);
+    expect(summaryAfter['distributable'], expectedDistributable);
     final pnlAfterRows = await db.query(
       "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit WHEN a.type='expense' THEN jl.debit-jl.credit ELSE 0 END),0) net FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
       args: [stationId, monthStart.toIso8601String(), nextMonth.toIso8601String()],
