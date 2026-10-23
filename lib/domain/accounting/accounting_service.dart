@@ -2754,13 +2754,30 @@ class AccountingService {
         whereArgs: [id],
       );
       for (final item in partnerAccruals) {
+        final accrualId = (item['id'] as num).toInt();
         await _reverseEntriesTx(
           tx,
           referenceType: 'partner',
-          referenceId: (item['id'] as num).toInt(),
+          referenceId: accrualId,
           reason: reason,
           userId: userId,
         );
+        // إذا سُوّي فائض هذه الحصة عند توزيع أرباح الفترة، نعكس التسوية أيضًا
+        // حتى لا يبقى خصم من حساب الشريك بعد إلغاء السقاية الأصلية.
+        final adjustments = await tx.query(
+          'partner_transactions',
+          where: "reference_type='partner_profit_adjustment' AND reference_id=? AND type='share_adjustment'",
+          whereArgs: [accrualId],
+        );
+        for (final adjustment in adjustments) {
+          await _reverseEntriesTx(
+            tx,
+            referenceType: 'partner_profit_adjustment',
+            referenceId: (adjustment['id'] as num).toInt(),
+            reason: 'إلغاء السقاية الأصلية: $reason',
+            userId: userId,
+          );
+        }
         await tx.insert('partner_transactions', {
           'partner_id': item['partner_id'],
           'date': AppClock.now().toIso8601String(),
