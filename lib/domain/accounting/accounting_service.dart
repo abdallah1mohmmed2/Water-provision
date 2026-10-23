@@ -2369,7 +2369,7 @@ class AccountingService {
           'rate_snapshot': amount,
           'reference_type': 'monthly_salary',
           'reference_id': monthKey,
-          'notes': 'راتب شهري مستحق لشهر ' + month.year.toString() + '/' + month.month.toString().padLeft(2, '0') + '؛ الراتب المحفوظ وقت الترحيل: ' + amount.toString(),
+          'notes': 'راتب شهري مستحق لشهر ${month.year}/${month.month.toString().padLeft(2, '0')}؛ الراتب المحفوظ وقت الترحيل: $amount',
           'created_by': userId,
         });
         final exp = await _accountIdTx(tx, '5000'), payable = await _workerAccountIdTx(tx, wid);
