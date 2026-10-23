@@ -1328,7 +1328,7 @@ class _DashboardCircularMenuState extends State<_DashboardCircularMenu>
                       border: Border.all(color: const Color(0xFF39FFB6), width: 1.7),
                       boxShadow: [BoxShadow(color: const Color(0xFF39FFB6).withValues(alpha: .2), blurRadius: 18)],
                     ),
-                    child: const Icon(Icons.water_drop_rounded, color: Color(0xFF39FFB6), size: 30),
+                    child: const Icon(Icons.hub_rounded, color: Color(0xFF39FFB6), size: 30),
                   ),
                 ],
               ),
