@@ -5621,6 +5621,32 @@ class _IrrigationsState extends State<IrrigationsPage> {
         systemType: type ?? 'all',
         beneficiaryId: bid,
       );
+
+      // أظهر عدد الصفوف الراجعة من SQLite قبل دخول مرحلة بناء PDF.
+      // لا نغيّر البيانات ولا نحاول إعادة الاستعلام بفلاتر مختلفة تلقائيًا.
+      if (reportRows.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            duration: Duration(seconds: 6),
+            content: Text(
+              'استعلام تقرير السقايات أعاد 0 سجلًا قبل إنشاء PDF. راجع الفترة وفلتر المنظومة والمستفيد؛ لم يتم حذف أو تعديل أي بيانات.',
+            ),
+          ),
+        );
+        return;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 3),
+            content: Text(
+              'تم جلب ${reportRows.length} سجلًا من قاعدة البيانات. جارٍ إنشاء PDF…',
+            ),
+          ),
+        );
+      }
+
       await ReportService(widget.r).printPdf(
         'irrigations',
         from: from,
