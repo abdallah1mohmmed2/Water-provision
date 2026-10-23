@@ -1638,9 +1638,9 @@ class StationRepository {
       "SELECT COALESCE(SUM(jl.credit-jl.debit),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND (a.code=? OR a.parent_id=(SELECT id FROM accounts WHERE code=?))",
       [code, code],
     )).first['n'] as num?)?.round() ?? 0;
-    final revenue = await value("SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND je.date>=? AND je.date<?");
-    final expenses = await value("SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND je.date>=? AND je.date<?");
-    final workers = await value("SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND je.date>=? AND je.date<?");
+    final revenue = await value("SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
+    final expenses = await value("SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
+    final workers = await value("SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
     return {
       'revenue': revenue,
       'expenses': expenses,

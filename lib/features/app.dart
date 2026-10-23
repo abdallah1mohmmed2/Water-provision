@@ -10382,19 +10382,65 @@ class _SettingsState extends State<SettingsPage> {
 
   Future<void> close() async {
     try {
-      await AdminService(widget.r.db).closePeriod(
-        stationId: await widget.r.accounting.currentStationId(),
-        start: PeriodRanges.financialYearStart(
-          AppClock.now(),
-          s['financial_year_start'] ?? '01-01',
+      if (!widget.manager) throw StateError('إقفال السنة المالية متاح للمدير فقط');
+      final fiscalStartSetting = s['financial_year_start'] ?? '01-01';
+      final currentStart = PeriodRanges.financialYearStart(AppClock.now(), fiscalStartSetting);
+      final endExclusive = DateTime(currentStart.year, currentStart.month, currentStart.day);
+      final start = PeriodRanges.financialYearStart(DateTime(currentStart.year - 1, 12, 31), fiscalStartSetting);
+      final stationId = await widget.r.accounting.currentStationId();
+      final preview = await widget.r.accounting.previewFiscalYear(
+        stationId: stationId, start: start, endExclusive: endExclusive,
+      );
+      if (!mounted) return;
+      if (preview['valid'] != true) {
+        await showDialog<void>(
+          context: context,
+          builder: (d) => AlertDialog(
+            title: const Text('تعذّر إقفال السنة'),
+            content: Text((preview['errors'] as List).join('\n')),
+            actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('إغلاق'))],
+          ),
+        );
+        return;
+      }
+      final lastDay = endExclusive.subtract(const Duration(days: 1));
+      final cashLines = (preview['cashbox_reconciliation'] as List)
+          .map((r) => 'حساب ${r['code']}: صندوق ${money(r['cashbox_balance'])} / أستاذ ${money(r['ledger_balance'])}')
+          .join('\n');
+      final carryRows = (preview['carry_accounts'] as List)
+          .where((r) => ['2100', '2200', '3000', '3100', '3200', '3300'].contains('${r['code']}'))
+          .map((r) => '${r['code']} ${r['name']}: ${money(r['credit_balance'])}')
+          .join('\n');
+      final warningLines = (preview['warnings'] as List).map((w) => '• $w').join('\n');
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: const Text('مراجعة إقفال السنة المالية'),
+          content: Text(
+            'الفترة: ${DateFormat('yyyy/MM/dd').format(start)} – ${DateFormat('yyyy/MM/dd').format(lastDay)}\n'
+            'الإيرادات: ${money(preview['income'])}\n'
+            'المصروفات: ${money(preview['expenses'])}\n'
+            'صافي النتيجة: ${money(preview['net_profit'])}\n\n'
+            'ميزان المراجعة: مدين ${money(preview['trial_balance_debit'])} / دائن ${money(preview['trial_balance_credit'])}\n'
+            'مطابقة الصناديق الحالية:\n${cashLines.isEmpty ? 'لا توجد صناديق مسجلة' : cashLines}\n\n'
+            'الأرصدة المرحّلة:\n${carryRows.isEmpty ? 'لا توجد أرصدة في الحسابات المحددة' : carryRows}\n\n'
+            'تنبيهات قبل الاعتماد:\n$warningLines\n\n'
+            'سيُقفل صافي النتائج في 3300. تبقى الأصول والالتزامات في الدفتر المتصل دون قيود افتتاحية مكررة.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('اعتماد الإقفال')),
+          ],
         ),
-        end: AppClock.now(),
-        userId: widget.userId,
-        notes: 'إغلاق من الإعدادات',
+      );
+      if (accepted != true || !mounted) return;
+      await widget.r.accounting.closeFiscalYear(
+        stationId: stationId, start: start, endExclusive: endExclusive,
+        userId: widget.userId, notes: 'إقفال معتمد من الإعدادات',
       );
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم إغلاق الفترة وتسجيل العملية')),
+          SnackBar(content: Text('تم إقفال السنة المالية ${start.year} وترحيل نتيجتها')),
         );
     } catch (e) {
       if (mounted)
@@ -10402,6 +10448,89 @@ class _SettingsState extends State<SettingsPage> {
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
     }
+  }
+
+  Future<void> _reopenClosure(int closureId) async {
+    if (!widget.manager) return;
+    final reason = TextEditingController();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+          title: const Text('إعادة فتح السنة المالية'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('سيُسجَّل قيد عكسي لقيد الإقفال، ويُرفع القفل بعد إدخال سبب موثق. لا يُحذف سجل الإقفال.'),
+            const SizedBox(height: 12),
+            TextField(controller: reason, autofocus: true, maxLines: 2, decoration: const InputDecoration(labelText: 'سبب إعادة الفتح')),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('عكس الإقفال وفتح السنة')),
+          ],
+      ),
+    ) ?? false;
+    final why = reason.text.trim();
+    reason.dispose();
+    if (!accepted || !mounted) return;
+    if (why.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('سبب إعادة الفتح مطلوب')));
+      return;
+    }
+    try {
+      await widget.r.accounting.reopenFiscalYear(
+        closureId: closureId, userId: widget.userId, reason: why,
+      );
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تسجيل عكس الإقفال وإعادة فتح السنة')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
+  Future<void> manageClosures() async {
+    if (!widget.manager) return;
+    final stationId = await widget.r.accounting.currentStationId();
+    final all = await AdminService(widget.r.db).closedPeriods();
+    final closures = all.where((r) => (r['station_id'] as num?)?.toInt() == stationId).toList();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('سجل الإقفالات المالية'),
+        content: SizedBox(
+          width: 560,
+          height: 420,
+          child: closures.isEmpty
+              ? const Center(child: Text('لا توجد إقفالات لهذه المحطة'))
+              : ListView.separated(
+                  itemCount: closures.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (c, index) {
+                    final row = closures[index];
+                    final status = '${row['status'] ?? 'locked'}';
+                    final start = DateTime.tryParse('${row['period_start']}');
+                    final end = DateTime.tryParse('${row['period_end_exclusive'] ?? row['period_end']}');
+                    final title = start == null ? 'فترة محاسبية' : 'السنة المالية ${start.year}';
+                    final range = start == null || end == null ? '' : '${DateFormat('yyyy/MM/dd').format(start)} – ${DateFormat('yyyy/MM/dd').format(end.subtract(const Duration(days: 1)))}';
+                    return ListTile(
+                      title: Text('$title • ${status == 'closed' ? 'مقفلة' : status == 'reopened' ? 'أعيد فتحها' : 'مقفلة سابقًا'}'),
+                      subtitle: Text('$range\nصافي النتيجة: ${money(row['net_profit'] ?? 0)}'),
+                      isThreeLine: true,
+                      trailing: status == 'closed'
+                          ? TextButton(
+                              onPressed: () async {
+                                final id = (row['id'] as num).toInt();
+                                Navigator.pop(d);
+                                await _reopenClosure(id);
+                              },
+                              child: const Text('إعادة فتح'),
+                            )
+                          : null,
+                    );
+                  },
+                ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('إغلاق'))],
+      ),
+    );
   }
 
   Widget _pumpSettingTile() => ListTile(
@@ -10533,10 +10662,15 @@ class _SettingsState extends State<SettingsPage> {
           icon: const Icon(Icons.people_alt),
           label: const Text('المستخدمون'),
         ),
-        FilledButton.icon(
+        if (widget.manager) FilledButton.icon(
           onPressed: close,
           icon: const Icon(Icons.lock_clock),
-          label: const Text('إغلاق الفترة'),
+          label: const Text('إقفال آخر سنة مكتملة'),
+        ),
+        if (widget.manager) OutlinedButton.icon(
+          onPressed: manageClosures,
+          icon: const Icon(Icons.history),
+          label: const Text('سجل الإقفالات'),
         ),
       ],
       child: ListView(

@@ -1,5 +1,6 @@
 import '../../core/app_clock.dart';
 import '../../core/app_prefs.dart';
+import '../../core/period_ranges.dart';
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'calculations.dart';
@@ -113,7 +114,17 @@ class AccountingService {
 
   static const Map<String, (String, String)> _autoAccounts = {
     '3200': ('حصص الشركاء من الأرباح', 'equity'),
+    '3300': ('الأرباح المبقاة', 'equity'),
   };
+
+  Future<int> _selectedStationIdTx(Transaction tx) async {
+    final selected = await tx.rawQuery(
+      "SELECT p.station_id FROM settings s JOIN pumps p ON p.id=CAST(s.value AS INTEGER) WHERE s.key='selected_pump_id' AND p.active=1 LIMIT 1",
+    );
+    if (selected.isNotEmpty) return (selected.first['station_id'] as num).toInt();
+    final station = await tx.rawQuery('SELECT id FROM stations WHERE active=1 ORDER BY id LIMIT 1');
+    return station.isEmpty ? 1 : (station.first['id'] as num).toInt();
+  }
 
   Future<int> _entry(
     Transaction tx, {
@@ -123,6 +134,7 @@ class AccountingService {
     required List<Map<String, Object?>> lines,
     int? userId,
     DateTime? date,
+    int? stationId,
   }) async {
     final debit = lines.fold<int>(
       0,
@@ -137,9 +149,11 @@ class AccountingService {
     if (debit < 0 || credit < 0 || lines.isEmpty)
       throw StateError('القيد المحاسبي غير صالح');
     final now = AppClock.now().toIso8601String();
+    final entryStationId = stationId ?? await _selectedStationIdTx(tx);
     // تاريخ القيد = تاريخ العملية الفعلي (وليس لحظة الحفظ) حتى لا تُرحَّل
     // الحركات القديمة إلى اليوم ولا يُتجاوز إغلاق الفترة.
     final id = await tx.insert('journal_entries', {
+      'station_id': entryStationId,
       'date': (date ?? AppClock.now()).toIso8601String(),
       'reference_type': referenceType,
       'reference_id': referenceId,
@@ -211,13 +225,26 @@ class AccountingService {
     return n;
   }
 
-  Future<void> _assertPeriodOpen(Transaction tx, DateTime date) async {
+  Future<void> _assertPeriodOpen(Transaction tx, DateTime date, {int? stationId}) async {
+    final station = stationId ?? await _selectedStationIdTx(tx);
+    final value = date.toIso8601String();
     final rows = await tx.rawQuery(
-      "SELECT id FROM period_closures WHERE period_start<=? AND period_end>=? LIMIT 1",
-      [date.toIso8601String(), date.toIso8601String()],
+      "SELECT id FROM period_closures WHERE station_id=? AND status!='reopened' AND period_start<=? AND ((period_end_exclusive IS NOT NULL AND period_end_exclusive>?) OR (period_end_exclusive IS NULL AND period_end>=?)) LIMIT 1",
+      [station, value, value, value],
     );
     if (rows.isNotEmpty)
       throw StateError('الفترة المحاسبية مغلقة ولا يمكن إضافة حركة إليها');
+  }
+
+  Future<void> _assertPeriodRangeOpen(
+    Transaction tx, DateTime start, DateTime endExclusive, {int? stationId}
+  ) async {
+    final station = stationId ?? await _selectedStationIdTx(tx);
+    final rows = await tx.rawQuery(
+      "SELECT id FROM period_closures WHERE station_id=? AND status!='reopened' AND period_start<? AND ((period_end_exclusive IS NOT NULL AND period_end_exclusive>?) OR (period_end_exclusive IS NULL AND period_end>=?)) LIMIT 1",
+      [station, endExclusive.toIso8601String(), start.toIso8601String(), start.toIso8601String()],
+    );
+    if (rows.isNotEmpty) throw StateError('الفترة المحاسبية المطلوبة مغلقة');
   }
 
   Future<int> _checkWaiting(
@@ -350,6 +377,248 @@ class AccountingService {
       'SELECT id FROM stations WHERE active=1 ORDER BY id LIMIT 1',
     );
     return r.isEmpty ? 1 : (r.first['id'] as num).toInt();
+  }
+
+  DateTime _day(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  Future<String?> _fiscalRangeError(DatabaseExecutor tx, DateTime start, DateTime endExclusive) async {
+    if (!endExclusive.isAfter(start)) return 'نهاية السنة المالية غير صحيحة';
+    if (_day(start) != start || _day(endExclusive) != endExclusive) return 'يجب أن تكون حدود السنة المالية عند منتصف الليل';
+    final setting = await tx.rawQuery("SELECT value FROM settings WHERE key='financial_year_start' LIMIT 1");
+    final mmdd = setting.isEmpty ? '01-01' : '${setting.first['value']}';
+    final expectedStart = PeriodRanges.financialYearStart(start, mmdd);
+    final expectedEnd = PeriodRanges.financialYearStart(DateTime(start.year + 1, 12, 31), mmdd);
+    if (_day(expectedStart) != _day(start) || _day(expectedEnd) != _day(endExclusive)) {
+      return 'النطاق لا يطابق سنة مالية كاملة حسب إعداد بداية السنة ($mmdd)';
+    }
+    if (endExclusive.isAfter(AppClock.now())) return 'لا يمكن إقفال سنة مالية لم تنتهِ بعد';
+    return null;
+  }
+
+  Future<Map<String, Object?>> _fiscalPreviewTx(
+    Transaction tx, {required int stationId, required DateTime start, required DateTime endExclusive}
+  ) async {
+    final errors = <String>[];
+    final rangeError = await _fiscalRangeError(tx, start, endExclusive);
+    if (rangeError != null) errors.add(rangeError);
+    final station = await tx.query('stations', where: 'id=? AND active=1', whereArgs: [stationId], limit: 1);
+    if (station.isEmpty) errors.add('المحطة غير موجودة أو غير نشطة');
+    final overlapping = await tx.rawQuery(
+      "SELECT id FROM period_closures WHERE station_id=? AND status!='reopened' AND period_start<? AND ((period_end_exclusive IS NOT NULL AND period_end_exclusive>?) OR (period_end_exclusive IS NULL AND period_end>=?)) LIMIT 1",
+      [stationId, endExclusive.toIso8601String(), start.toIso8601String(), start.toIso8601String()],
+    );
+    if (overlapping.isNotEmpty) errors.add('تتداخل هذه السنة مع فترة مغلقة سابقًا');
+    final args = [stationId, start.toIso8601String(), endExclusive.toIso8601String()];
+    final unassigned = await tx.rawQuery('SELECT COUNT(*) n FROM journal_entries WHERE station_id IS NULL AND date>=? AND date<?', [start.toIso8601String(), endExclusive.toIso8601String()]);
+    final unassignedCount = (unassigned.first['n'] as num).toInt();
+    if (unassignedCount > 0) errors.add('يوجد $unassignedCount قيدًا قديمًا غير منسوب إلى محطة؛ يلزم تصنيفه قبل الإقفال');
+    final unposted = await tx.rawQuery("SELECT COUNT(*) n FROM journal_entries WHERE station_id=? AND date>=? AND date<? AND status!='posted'", args);
+    final unpostedCount = (unposted.first['n'] as num).toInt();
+    if (unpostedCount > 0) errors.add('توجد قيود غير مرحلة في الفترة');
+    final unbalanced = await tx.rawQuery(
+      "SELECT COUNT(*) n FROM (SELECT je.id FROM journal_entries je LEFT JOIN journal_lines jl ON jl.journal_entry_id=je.id WHERE je.station_id=? AND je.date>=? AND je.date<? AND je.status='posted' GROUP BY je.id HAVING COUNT(jl.id)=0 OR ROUND(SUM(jl.debit),2)<>ROUND(SUM(jl.credit),2))",
+      args,
+    );
+    final unbalancedCount = (unbalanced.first['n'] as num).toInt();
+    if (unbalancedCount > 0) errors.add('توجد قيود يومية غير متوازنة');
+    final trialBalance = await tx.rawQuery(
+      "SELECT a.type,COALESCE(SUM(jl.debit),0) debit,COALESCE(SUM(jl.credit),0) credit,COALESCE(SUM(jl.debit-jl.credit),0) debit_balance,COALESCE(SUM(jl.credit-jl.debit),0) credit_balance FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.date<? AND je.status='posted' GROUP BY a.type ORDER BY a.type",
+      [stationId, endExclusive.toIso8601String()],
+    );
+    final tbDebit = trialBalance.fold<int>(0, (n, r) => n + (r['debit'] as num).round());
+    final tbCredit = trialBalance.fold<int>(0, (n, r) => n + (r['credit'] as num).round());
+    if (tbDebit != tbCredit) errors.add('ميزان المراجعة غير متوازن عند نهاية الفترة: مدين $tbDebit / دائن $tbCredit');
+
+    // مطابقة الموجود الفعلي حاليًا مع دفاتر الأستاذ للصناديق التابعة لهذه المحطة.
+    // لا نقارن النقد الحالي بتاريخ تاريخي؛ المقارنة تستخدم كامل حركة الأستاذ حتى الآن.
+    final cashboxes = await tx.rawQuery(
+      "SELECT COALESCE(NULLIF(c.ledger_account_code,''),(SELECT NULLIF(pm.ledger_account_code,'') FROM payment_methods pm WHERE pm.cashbox_id=c.id AND pm.active=1 ORDER BY pm.id LIMIT 1),'1000') code,COALESCE(SUM(c.current_balance),0) balance FROM cashboxes c WHERE c.station_id=? GROUP BY COALESCE(NULLIF(c.ledger_account_code,''),(SELECT NULLIF(pm.ledger_account_code,'') FROM payment_methods pm WHERE pm.cashbox_id=c.id AND pm.active=1 ORDER BY pm.id LIMIT 1),'1000')",
+      [stationId],
+    );
+    final cashAccountCodes = <String>{'1000', '1100', '1120', ...cashboxes.map((r) => '${r['code']}')}.toList()..sort();
+    final cashLedger = await tx.rawQuery(
+      "SELECT a.code,COALESCE(SUM(jl.debit-jl.credit),0) balance FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND a.code IN (${List.filled(cashAccountCodes.length, '?').join(',')}) GROUP BY a.code",
+      [stationId, ...cashAccountCodes],
+    );
+    final cashByCode = <String, int>{for (final r in cashboxes) '${r['code']}': (r['balance'] as num).round()};
+    final ledgerByCode = <String, int>{for (final r in cashLedger) '${r['code']}': (r['balance'] as num).round()};
+    final cashCodes = {...cashByCode.keys, ...ledgerByCode.keys};
+    final cashReconciliation = [
+      for (final code in cashCodes.toList()..sort())
+        {
+          'code': code,
+          'cashbox_balance': cashByCode[code] ?? 0,
+          'ledger_balance': ledgerByCode[code] ?? 0,
+          'difference': (cashByCode[code] ?? 0) - (ledgerByCode[code] ?? 0),
+        },
+    ];
+    final cashMismatch = cashReconciliation.where((r) => r['difference'] != 0).toList();
+    if (cashMismatch.isNotEmpty) {
+      final details = cashMismatch.map((r) => "${r['code']}: فرق ${r['difference']}").join('، ');
+      errors.add('أرصدة الصناديق الحالية لا تطابق حسابات النقد في الأستاذ ($details)؛ سوِّ الفروق قبل الإقفال');
+    }
+
+    final carryAccounts = await tx.rawQuery(
+      "SELECT a.code,a.name,a.type,COALESCE(SUM(jl.debit),0) debit,COALESCE(SUM(jl.credit),0) credit,COALESCE(SUM(jl.credit-jl.debit),0) credit_balance FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.date<? AND je.status='posted' AND a.type IN ('asset','liability','equity') GROUP BY a.id,a.code,a.name,a.type HAVING ABS(COALESCE(SUM(jl.credit-jl.debit),0))>0 ORDER BY a.code",
+      [stationId, endExclusive.toIso8601String()],
+    );
+    final warnings = <String>[
+      'توزيع أرباح الشركاء لا يتم تلقائيًا عند الإقفال؛ راجع سياسة التوزيع ونفّذها قبل إغلاق السنة إذا لزم.',
+    ];
+    final salaryWorkers = await tx.rawQuery(
+      "SELECT COUNT(*) n FROM workers WHERE active=1 AND pay_type='fixed' AND fixed_salary>0",
+    );
+    final fixedSalaryWorkers = (salaryWorkers.first['n'] as num).toInt();
+    if (fixedSalaryWorkers > 0) {
+      warnings.add('يوجد $fixedSalaryWorkers عامل بأجر شهري ثابت. لا يحفظ النظام تاريخ التعيين أو تغيّر الأجر؛ راجع سجل استحقاقات الرواتب يدويًا قبل الاعتماد.');
+    }
+    final pnlRows = await tx.rawQuery(
+      "SELECT a.id account_id,a.code,a.name,a.type,COALESCE(SUM(jl.debit),0) debit,COALESCE(SUM(jl.credit),0) credit,COALESCE(SUM(jl.credit-jl.debit),0) net FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.date>=? AND je.date<? AND je.status='posted' AND a.type IN ('revenue','expense') GROUP BY a.id,a.code,a.name,a.type HAVING ABS(COALESCE(SUM(jl.credit-jl.debit),0))>0 ORDER BY a.code",
+      args,
+    );
+    var income = 0;
+    var expenses = 0;
+    for (final row in pnlRows) {
+      final net = (row['net'] as num).round();
+      if (row['type'] == 'revenue') income += net;
+      if (row['type'] == 'expense') expenses -= net;
+    }
+    final entries = await tx.rawQuery("SELECT COUNT(*) n FROM journal_entries WHERE station_id=? AND date>=? AND date<? AND status='posted'", args);
+    return {
+      'valid': errors.isEmpty, 'errors': errors, 'station_id': stationId,
+      'start': start.toIso8601String(), 'end_exclusive': endExclusive.toIso8601String(),
+      'income': income, 'expenses': expenses, 'net_profit': income - expenses,
+      'journal_entry_count': (entries.first['n'] as num).toInt(),
+      'unassigned_count': unassignedCount, 'unposted_count': unpostedCount,
+      'unbalanced_count': unbalancedCount, 'overlap': overlapping.isNotEmpty,
+      'pnl_accounts': pnlRows,
+      'trial_balance': trialBalance,
+      'trial_balance_debit': tbDebit,
+      'trial_balance_credit': tbCredit,
+      'cashbox_reconciliation': cashReconciliation,
+      'cashbox_reconciliation_as_of': AppClock.now().toIso8601String(),
+      'cashbox_mismatches': cashMismatch,
+      'carry_accounts': carryAccounts,
+      'warnings': warnings,
+      'fixed_salary_workers': fixedSalaryWorkers,
+      'partner_distributions_automatic': false,
+    };
+  }
+
+  Future<Map<String, Object?>> previewFiscalYear({required int stationId, required DateTime start, required DateTime endExclusive}) async =>
+      database.transaction((tx) => _fiscalPreviewTx(tx, stationId: stationId, start: start, endExclusive: endExclusive));
+
+  /// يقفل سنة كاملة؛ أرصدة الميزانية تبقى في دفتر الأستاذ المتصل ولا تُكرر بقيود افتتاحية.
+  Future<int> closeFiscalYear({required int stationId, required DateTime start, required DateTime endExclusive, required int userId, String? notes}) async =>
+      database.transaction((tx) async {
+        final user = await tx.query('app_users', columns: ['role', 'active'], where: 'id=?', whereArgs: [userId], limit: 1);
+        if (user.isEmpty || user.first['active'] != 1 || user.first['role'] != 'manager') throw StateError('إقفال السنة المالية متاح للمدير النشط فقط');
+        final preview = await _fiscalPreviewTx(tx, stationId: stationId, start: start, endExclusive: endExclusive);
+        if (preview['valid'] != true) throw StateError((preview['errors'] as List).join('؛ '));
+        final closeDate = endExclusive.subtract(const Duration(microseconds: 1));
+        final id = await tx.insert('period_closures', {
+          'station_id': stationId, 'period_start': start.toIso8601String(),
+          'period_end': closeDate.toIso8601String(), 'period_end_exclusive': endExclusive.toIso8601String(),
+          'closed_at': AppClock.now().toIso8601String(), 'closed_by': userId,
+          'opening_transfer': 0, 'net_profit': preview['net_profit'], 'status': 'closing', 'notes': notes,
+          'reconciliation_json': jsonEncode({
+            'journal_entry_count': preview['journal_entry_count'],
+            'trial_balance': preview['trial_balance'],
+            'trial_balance_debit': preview['trial_balance_debit'],
+            'trial_balance_credit': preview['trial_balance_credit'],
+            'cashbox_reconciliation': preview['cashbox_reconciliation'],
+            'cashbox_reconciliation_as_of': preview['cashbox_reconciliation_as_of'],
+            'carry_accounts': preview['carry_accounts'],
+            'income': preview['income'], 'expenses': preview['expenses'],
+            'net_profit': preview['net_profit'],
+            'warnings': preview['warnings'],
+            'fixed_salary_workers': preview['fixed_salary_workers'],
+            'partner_distributions_automatic': false,
+          }),
+        });
+        final lines = <Map<String, Object?>>[];
+        for (final account in preview['pnl_accounts'] as List<Map<String, Object?>>) {
+          final net = (account['net'] as num).round();
+          if (net != 0) lines.add({'account_id': account['account_id'], 'debit': net > 0 ? net : 0, 'credit': net < 0 ? -net : 0, 'memo': 'إقفال السنة المالية ${start.year}'});
+        }
+        final profit = (preview['net_profit'] as num).round();
+        if (profit != 0) lines.add({'account_id': await _accountIdTx(tx, '3300'), 'debit': profit < 0 ? -profit : 0, 'credit': profit > 0 ? profit : 0, 'memo': 'صافي نتيجة السنة المالية ${start.year}'});
+        int? closingEntryId;
+        if (lines.isNotEmpty) {
+          closingEntryId = await _entry(tx, description: 'إقفال السنة المالية ${start.year}', referenceType: 'year_close', referenceId: id, lines: lines, userId: userId, date: closeDate, stationId: stationId);
+        }
+        await tx.update('period_closures', {'status': 'closed', 'close_journal_entry_id': closingEntryId}, where: 'id=?', whereArgs: [id]);
+        await database.auditTx(tx, userId: userId, operation: 'close_fiscal_year', table: 'period_closures', recordId: id,
+          newValues: {'station_id': stationId, 'start': start.toIso8601String(), 'end_exclusive': endExclusive.toIso8601String(), 'income': preview['income'], 'expenses': preview['expenses'], 'net_profit': profit, 'closing_journal_entry_id': closingEntryId}, reason: notes);
+        return id;
+      });
+
+  Future<void> reopenFiscalYear({required int closureId, required int userId, required String reason}) async {
+    if (reason.trim().isEmpty) throw ArgumentError('سبب إعادة فتح السنة مطلوب');
+    await database.transaction((tx) async {
+      final user = await tx.query('app_users', columns: ['role', 'active'], where: 'id=?', whereArgs: [userId], limit: 1);
+      if (user.isEmpty || user.first['active'] != 1 || user.first['role'] != 'manager') {
+        throw StateError('إعادة فتح السنة المالية متاحة للمدير النشط فقط');
+      }
+      final rows = await tx.query('period_closures', where: 'id=?', whereArgs: [closureId], limit: 1);
+      if (rows.isEmpty || rows.first['status'] != 'closed') throw StateError('الإقفال غير موجود أو سبق إعادة فتحه');
+      final closure = rows.first;
+      final stationId = (closure['station_id'] as num).toInt();
+      final endExclusive = DateTime.parse('${closure['period_end_exclusive']}');
+      final later = await tx.rawQuery(
+        "SELECT id FROM period_closures WHERE station_id=? AND status='closed' AND period_start>=? LIMIT 1",
+        [stationId, endExclusive.toIso8601String()],
+      );
+      if (later.isNotEmpty) throw StateError('لا يمكن إعادة فتح سنة تسبق سنة مالية مقفلة؛ أعد فتح الإقفالات الأحدث أولًا');
+
+      int? reversalId;
+      final closingEntryId = (closure['close_journal_entry_id'] as num?)?.toInt();
+      if (closingEntryId != null) {
+        final entry = await tx.query('journal_entries', where: 'id=?', whereArgs: [closingEntryId], limit: 1);
+        if (entry.isEmpty || entry.first['status'] != 'posted') throw StateError('قيد الإقفال غير موجود أو غير مرحّل');
+        final lines = await tx.query('journal_lines', where: 'journal_entry_id=?', whereArgs: [closingEntryId]);
+        if (lines.isEmpty) throw StateError('قيد الإقفال لا يحتوي على أسطر قابلة للعكس');
+        reversalId = await _entry(
+          tx,
+          description: 'عكس إقفال السنة ${DateTime.parse('${closure['period_start']}').year}: ${reason.trim()}',
+          referenceType: 'year_close_reversal',
+          referenceId: closureId,
+          lines: [
+            for (final line in lines)
+              {
+                'account_id': line['account_id'],
+                'beneficiary_id': line['beneficiary_id'],
+                'worker_id': line['worker_id'],
+                'partner_id': line['partner_id'],
+                'debit': line['credit'],
+                'credit': line['debit'],
+                'memo': 'عكس إقفال: ${line['memo'] ?? ''}',
+              },
+          ],
+          userId: userId,
+          date: DateTime.parse('${closure['period_end']}'),
+          stationId: stationId,
+        );
+      }
+      final now = AppClock.now().toIso8601String();
+      await tx.update('period_closures', {
+        'status': 'reopened',
+        'reopened_at': now,
+        'reopened_by': userId,
+        'reopen_reason': reason.trim(),
+        'reopen_journal_entry_id': reversalId,
+      }, where: 'id=?', whereArgs: [closureId]);
+      await database.auditTx(
+        tx,
+        userId: userId,
+        operation: 'reopen_fiscal_year',
+        table: 'period_closures',
+        recordId: closureId,
+        oldValues: {'status': 'closed', 'close_journal_entry_id': closingEntryId},
+        newValues: {'status': 'reopened', 'reopen_journal_entry_id': reversalId},
+        reason: reason.trim(),
+      );
+    });
   }
 
   /// قيد الرصيد الافتتاحي لعامل/شريك (الموجب = له على المحطة، السالب = عليه).
@@ -539,7 +808,7 @@ class AccountingService {
           );
 
     return _withAlerts(() => database.transaction((tx) async {
-      await _assertPeriodOpen(tx, start);
+      await _assertPeriodOpen(tx, start, stationId: stationId);
       if (sessionId != null) {
         final sess = await tx.query(
           'irrigation_sessions',
@@ -716,6 +985,7 @@ class AccountingService {
         lines: lines,
         userId: userId,
         date: start,
+        stationId: stationId,
       );
       // احتساب أجر كل عامل نشط أجره بالساعة أو بالنسبة تلقائيًا،
       // دون الاعتماد على اختيار عامل في شاشة السقاية أو على نوع صاحب السقاية.
@@ -1132,7 +1402,7 @@ class AccountingService {
       );
       if (r.isEmpty || r.first['status'] != 'posted')
         throw StateError('المصروف غير قابل للإلغاء');
-      await _assertPeriodOpen(tx, AppClock.now());
+      await _assertPeriodOpen(tx, DateTime.parse('${r.first['date']}'));
       await tx.update(
         'expenses',
         {
@@ -1562,6 +1832,7 @@ class AccountingService {
   Future<int> accrueMonthlySalaries({required DateTime month, int? userId}) async {
     final start = DateTime(month.year, month.month, 1), end = DateTime(month.year, month.month + 1, 1);
     return database.transaction((tx) async {
+      await _assertPeriodOpen(tx, end.subtract(const Duration(microseconds: 1)));
       var count = 0; final workers = await tx.query('workers', where: "active=1 AND pay_type='fixed' AND fixed_salary>0");
       for (final w in workers) {
         final wid = w['id'] as int;
@@ -1579,6 +1850,7 @@ class AccountingService {
 
   Future<int> distributePartnerProfits({required DateTime from, required DateTime to, int? userId}) async {
     return database.transaction((tx) async {
+      await _assertPeriodRangeOpen(tx, from, to);
       final rev = await tx.rawQuery("SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND je.date>=? AND je.date<?", [from.toIso8601String(), to.toIso8601String()]);
       final general = await tx.rawQuery("SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND je.date>=? AND je.date<?", [from.toIso8601String(), to.toIso8601String()]);
       final worker = await tx.rawQuery("SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND je.date>=? AND je.date<?", [from.toIso8601String(), to.toIso8601String()]);
@@ -1757,7 +2029,7 @@ class AccountingService {
       if (rows.isEmpty || rows.first['status'] == 'cancelled')
         throw StateError('السقاية غير موجودة أو ملغاة مسبقًا');
       final old = rows.first;
-      await _assertPeriodOpen(tx, AppClock.now());
+      await _assertPeriodOpen(tx, DateTime.parse('${old['start_datetime']}'));
       await tx.update(
         'irrigations',
         {
@@ -2013,7 +2285,7 @@ class AccountingService {
       if (r.isEmpty || r.first['status'] != 'posted') {
         throw StateError('الدفعة غير موجودة أو ملغاة مسبقًا');
       }
-      await _assertPeriodOpen(tx, AppClock.now());
+      await _assertPeriodOpen(tx, DateTime.parse('${r.first['date']}'));
       await _cancelPaymentRowTx(tx, r.first, reason: reason, userId: userId);
     });
   }

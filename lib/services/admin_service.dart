@@ -2,6 +2,7 @@ import '../core/app_clock.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import '../data/local/database.dart';
+import '../domain/accounting/accounting_service.dart';
 
 class AdminService {
   final AppDatabase db;
@@ -73,34 +74,18 @@ class AdminService {
     bool openingTransfer = false,
     String? notes,
   }) async {
-    if (!end.isAfter(start))
-      throw ArgumentError('نهاية الفترة يجب أن تكون بعد بدايتها');
-    final existing = await db.query(
-      'SELECT id FROM period_closures WHERE station_id=? AND period_start=? AND period_end=?',
-      args: [stationId, start.toIso8601String(), end.toIso8601String()],
-    );
-    if (existing.isNotEmpty) throw StateError('الفترة مغلقة مسبقًا');
-    final id = await db.insert('period_closures', {
-      'station_id': stationId,
-      'period_start': start.toIso8601String(),
-      'period_end': end.toIso8601String(),
-      'closed_at': AppClock.now().toIso8601String(),
-      'closed_by': userId,
-      'opening_transfer': openingTransfer ? 1 : 0,
-      'notes': notes,
-    });
-    await db.audit(
+    if (openingTransfer) {
+      throw ArgumentError('الأرصدة تُدوَّر باستمرار في الدفتر؛ لا تُنشأ قيود افتتاحية مكررة');
+    }
+    final firstDay = DateTime(start.year, start.month, start.day);
+    final endExclusive = DateTime(end.year, end.month, end.day + 1);
+    return AccountingService(db).closeFiscalYear(
+      stationId: stationId,
+      start: firstDay,
+      endExclusive: endExclusive,
       userId: userId,
-      operation: 'close_period',
-      table: 'period_closures',
-      recordId: id,
-      newValues: {
-        'start': start.toIso8601String(),
-        'end': end.toIso8601String(),
-      },
-      reason: notes,
+      notes: notes,
     );
-    return id;
   }
 
   Future<List<Map<String, Object?>>> closedPeriods() =>

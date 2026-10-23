@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 15,
+      version: 17,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -43,6 +43,8 @@ class AppDatabase {
       if (s.isNotEmpty) await d.execute(s);
     }
     await _createHelpers(d);
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_period_station_range ON period_closures(station_id,period_start,period_end)');
     await _seed(d);
   }
 
@@ -65,7 +67,7 @@ class AppDatabase {
         'CREATE TABLE IF NOT EXISTS beneficiary_auth_codes (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), code_hash TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)',
       );
       await d.execute(
-        'CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL, closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, opening_transfer INTEGER NOT NULL DEFAULT 0, notes TEXT)',
+        'CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL, period_end_exclusive TEXT, closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, opening_transfer INTEGER NOT NULL DEFAULT 0, close_journal_entry_id INTEGER, net_profit INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT \'locked\', reconciliation_json TEXT, reopened_at TEXT, reopened_by INTEGER, reopen_reason TEXT, reopen_journal_entry_id INTEGER, notes TEXT)',
       );
       await d.execute(
         'CREATE TABLE IF NOT EXISTS beneficiary_sessions (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), token_hash TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT)',
@@ -200,6 +202,12 @@ class AppDatabase {
     if (oldV < 15) {
       await _migrateV15(d);
     }
+    if (oldV < 16) {
+      await _migrateV16(d);
+    }
+    if (oldV < 17) {
+      await _migrateV17(d);
+    }
   }
 
   Future<void> _migrateV15(Database d) async {
@@ -208,6 +216,47 @@ class AppDatabase {
       await d.execute('ALTER TABLE irrigations ADD COLUMN operator_worker_id INTEGER REFERENCES workers(id)');
     }
     await d.execute('CREATE INDEX IF NOT EXISTS idx_irrigations_operator_worker ON irrigations(operator_worker_id,date)');
+  }
+
+  /// V16: ربط قيود الأستاذ بالمحطة وإضافة بيانات الإقفال الختامي.
+  Future<void> _migrateV16(Database d) async {
+    final journalCols = await d.rawQuery('PRAGMA table_info(journal_entries)');
+    if (!journalCols.any((x) => x['name'] == 'station_id')) {
+      await d.execute('ALTER TABLE journal_entries ADD COLUMN station_id INTEGER REFERENCES stations(id)');
+    }
+    final closureCols = await d.rawQuery('PRAGMA table_info(period_closures)');
+    for (final c in const [
+      ['period_end_exclusive', 'TEXT'],
+      ['close_journal_entry_id', 'INTEGER'],
+      ['net_profit', 'INTEGER NOT NULL DEFAULT 0'],
+      ['status', "TEXT NOT NULL DEFAULT 'locked'"],
+    ]) {
+      if (!closureCols.any((x) => x['name'] == c[0])) {
+        await d.execute('ALTER TABLE period_closures ADD COLUMN ${c[0]} ${c[1]}');
+      }
+    }
+    final stations = await d.rawQuery('SELECT id FROM stations ORDER BY id');
+    if (stations.length == 1) {
+      await d.rawUpdate('UPDATE journal_entries SET station_id=? WHERE station_id IS NULL', [stations.first['id']]);
+    }
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_period_station_range ON period_closures(station_id,period_start,period_end)');
+    await d.insert('accounts', {'code': '3300', 'name': 'الأرباح المبقاة', 'type': 'equity'}, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  Future<void> _migrateV17(Database d) async {
+    final cols = await d.rawQuery('PRAGMA table_info(period_closures)');
+    for (final c in const [
+      ['reconciliation_json', 'TEXT'],
+      ['reopened_at', 'TEXT'],
+      ['reopened_by', 'INTEGER'],
+      ['reopen_reason', 'TEXT'],
+      ['reopen_journal_entry_id', 'INTEGER'],
+    ]) {
+      if (!cols.any((x) => x['name'] == c[0])) {
+        await d.execute('ALTER TABLE period_closures ADD COLUMN ${c[0]} ${c[1]}');
+      }
+    }
   }
 
   /// V14: ربط حركات الشريك بأصلها (مرجع + منفّذ) كحركات العامل، وحساب مستقل لحصص الشركاء.
@@ -343,13 +392,13 @@ class AppDatabase {
       'CREATE TABLE IF NOT EXISTS performance_metrics (id INTEGER PRIMARY KEY, screen TEXT NOT NULL, opened_at TEXT NOT NULL, open_ms INTEGER NOT NULL, query_ms INTEGER NOT NULL, pdf_ms INTEGER NOT NULL DEFAULT 0)',
     );
     await d.execute(
-      'CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL, closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, opening_transfer INTEGER NOT NULL DEFAULT 0, notes TEXT)',
+      'CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL, period_end_exclusive TEXT, closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, opening_transfer INTEGER NOT NULL DEFAULT 0, close_journal_entry_id INTEGER, net_profit INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT \'locked\', reconciliation_json TEXT, reopened_at TEXT, reopened_by INTEGER, reopen_reason TEXT, reopen_journal_entry_id INTEGER, notes TEXT)',
     );
     await d.execute(
       'CREATE TABLE IF NOT EXISTS beneficiary_auth_codes (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), code_hash TEXT NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)',
     );
     await d.execute(
-      'CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL, closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, opening_transfer INTEGER NOT NULL DEFAULT 0, notes TEXT)',
+      'CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL, period_end_exclusive TEXT, closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, opening_transfer INTEGER NOT NULL DEFAULT 0, close_journal_entry_id INTEGER, net_profit INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT \'locked\', reconciliation_json TEXT, reopened_at TEXT, reopened_by INTEGER, reopen_reason TEXT, reopen_journal_entry_id INTEGER, notes TEXT)',
     );
     await d.execute(
       'CREATE TABLE IF NOT EXISTS beneficiary_sessions (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), token_hash TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT)',
@@ -396,6 +445,7 @@ class AppDatabase {
         ['3990', 'الفروقات والتصحيحات', 'equity'],
         ['1120', 'المحافظ الإلكترونية', 'asset'],
         ['3200', 'حصص الشركاء من الأرباح', 'equity'],
+        ['3300', 'الأرباح المبقاة', 'equity'],
       ];
       for (var i = 0; i < accounts.length; i++)
         await d.insert('accounts', {

@@ -266,6 +266,12 @@ class BackupService {
           await tx.insert(table, Map<String, Object?>.from(row));
         }
       }
+      // ملفات JSON القديمة لم تكن تحفظ محطة قيد اليومية. في تثبيت أحادي المحطة
+      // يكون الإسناد حتميًا؛ أما تعدد المحطات فيبقى غير مصنف ويمنع الإقفال الآمن.
+      final stations = await tx.rawQuery('SELECT id FROM stations ORDER BY id');
+      if (stations.length == 1) {
+        await tx.rawUpdate('UPDATE journal_entries SET station_id=? WHERE station_id IS NULL', [stations.first['id']]);
+      }
     });
   }
 

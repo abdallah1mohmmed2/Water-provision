@@ -40,6 +40,56 @@ void main() {
         args: [code, code, code],
       )).first['n'] as num;
 
+  Future<void> reconcileCashboxesForTest(int stationId) async {
+    final boxes = await db.query(
+      "SELECT id,COALESCE(NULLIF(ledger_account_code,''),'1000') code,current_balance FROM cashboxes WHERE station_id=? ORDER BY id",
+      args: [stationId],
+    );
+    final codes = boxes.map((r) => '${r['code']}').toSet();
+    final boxTotals = <String, int>{};
+    for (final row in boxes) {
+      final code = '${row['code']}';
+      boxTotals[code] = (boxTotals[code] ?? 0) + (row['current_balance'] as num).round();
+    }
+    for (final code in codes) {
+      final ledgerRows = await db.query(
+        "SELECT COALESCE(SUM(jl.debit-jl.credit),0) balance FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND a.code=?",
+        args: [stationId, code],
+      );
+      final ledger = (ledgerRows.first['balance'] as num).round();
+      final difference = ledger - (boxTotals[code] ?? 0);
+      if (difference == 0) continue;
+      final target = boxes.firstWhere((r) => '${r['code']}' == code);
+      await db.update(
+        'cashboxes',
+        {'current_balance': (target['current_balance'] as num).round() + difference},
+        'id=?',
+        [target['id']],
+      );
+    }
+  }
+
+  Future<void> seedCashEquityForTest(int stationId, DateTime date, int amount) async {
+    final rows = await db.query("SELECT code,id FROM accounts WHERE code IN ('1000','3000')");
+    final accounts = {for (final r in rows) '${r['code']}': r['id']};
+    final entry = await db.insert('journal_entries', {
+      'station_id': stationId, 'date': date.toIso8601String(),
+      'reference_type': 'test_cash_opening', 'description': 'رصيد نقدي متوازن للاختبار',
+      'status': 'posted', 'created_at': DateTime.now().toIso8601String(),
+    });
+    await db.insert('journal_lines', {
+      'journal_entry_id': entry, 'account_id': accounts['1000'],
+      'debit': amount, 'credit': 0, 'memo': 'نقد اختبار',
+    });
+    await db.insert('journal_lines', {
+      'journal_entry_id': entry, 'account_id': accounts['3000'],
+      'debit': 0, 'credit': amount, 'memo': 'مقابل اختبار',
+    });
+    await db.update(
+      'cashboxes', {'current_balance': await cashboxBalance(1) + amount}, 'id=?', [1],
+    );
+  }
+
   test('دفع راتب لعامل ينقص الصندوق ويقيّد مدين المستحقات / دائن الصندوق', () async {
     final w = await db.insert('workers', {
       'name': 'عامل',
@@ -362,6 +412,8 @@ void main() {
     await db.insert('beneficiary_auth_codes', {
       'beneficiary_id': b, 'code_hash': 'x', 'expires_at': now, 'created_at': now,
     });
+    await seedCashEquityForTest(1, DateTime(2020, 1, 1), 100000);
+    await reconcileCashboxesForTest(1);
     await AdminService(db).closePeriod(
       stationId: 1, start: DateTime(2020, 1, 1), end: DateTime(2020, 12, 31), userId: 1,
     );
@@ -386,10 +438,14 @@ void main() {
     // ملف قديم بلا الجداول الجديدة: يُقبل، ولا تُفتح الفترات المغلقة.
     final old = jsonDecode(json) as Map<String, dynamic>;
     for (final k in AccountingService.optionalPortableTables) old.remove(k);
+    for (final row in (old['journal_entries'] as List)) {
+      if (row is Map) row.remove('station_id');
+    }
     final oldBytes = Uint8List.fromList(utf8.encode(jsonEncode(old)));
     expect((await backup.validatePortableJson(oldBytes))['valid'], true);
     await backup.restorePortableJson(oldBytes);
     expect(await count('period_closures'), closures);
+    expect((await db.query('SELECT COUNT(*) n FROM journal_entries WHERE station_id IS NULL')).first['n'], 0);
   });
 
   // ---------- تطابق الأرقام بين الشاشات ----------
@@ -683,5 +739,86 @@ void main() {
     } finally {
       await db.update('settings', {'value': '1'}, 'key=?', ['selected_pump_id']);
     }
+  });
+
+  test('إقفال سنة مكتملة يرحّل النتيجة ويمنع التعديل داخل الفترة', () async {
+    final ids = await db.query("SELECT code,id FROM accounts WHERE code IN ('1000','4000','5000')");
+    final account = {for (final row in ids) '${row['code']}': row['id'] as int};
+    Future<void> insertEntry(String ref, DateTime date, List<Map<String, Object?>> lines) async {
+      final id = await db.insert('journal_entries', {
+        'station_id': 1, 'date': date.toIso8601String(), 'reference_type': 'test_$ref',
+        'description': ref, 'status': 'posted', 'created_at': DateTime.now().toIso8601String(),
+      });
+      for (final line in lines) {
+        await db.insert('journal_lines', {...line, 'journal_entry_id': id});
+      }
+    }
+    await insertEntry('income', DateTime(2025, 6, 1), [
+      {'account_id': account['1000'], 'debit': 10000, 'credit': 0},
+      {'account_id': account['4000'], 'debit': 0, 'credit': 10000},
+    ]);
+    await insertEntry('expense', DateTime(2025, 7, 1), [
+      {'account_id': account['5000'], 'debit': 4000, 'credit': 0},
+      {'account_id': account['1000'], 'debit': 0, 'credit': 4000},
+    ]);
+    await seedCashEquityForTest(1, DateTime(2025, 1, 2), 100000);
+    await db.update(
+      'cashboxes', {'current_balance': await cashboxBalance(1) + 1}, 'id=?', [1],
+    );
+    final unreconciled = await svc.previewFiscalYear(
+      stationId: 1, start: DateTime(2025, 1, 1), endExclusive: DateTime(2026, 1, 1),
+    );
+    expect(unreconciled['valid'], false);
+    expect('${unreconciled['errors']}', contains('الصناديق الحالية'));
+    await reconcileCashboxesForTest(1);
+    final start = DateTime(2025, 1, 1), endExclusive = DateTime(2026, 1, 1);
+    final preview = await svc.previewFiscalYear(stationId: 1, start: start, endExclusive: endExclusive);
+    expect(preview['valid'], true, reason: '${preview['errors']}');
+    expect(preview['income'], 10000);
+    expect(preview['expenses'], 4000);
+    expect(preview['net_profit'], 6000);
+    final closeId = await svc.closeFiscalYear(stationId: 1, start: start, endExclusive: endExclusive, userId: 1);
+    final closure = (await db.query('SELECT * FROM period_closures WHERE id=?', args: [closeId])).first;
+    expect(closure['status'], 'closed');
+    expect(closure['net_profit'], 6000);
+    expect(closure['close_journal_entry_id'], isNotNull);
+    expect(closure['reconciliation_json'], isNotNull);
+    final retained = await db.query(
+      "SELECT l.debit,l.credit FROM journal_lines l JOIN accounts a ON a.id=l.account_id WHERE l.journal_entry_id=? AND a.code='3300'",
+      args: [closure['close_journal_entry_id']],
+    );
+    expect(retained.single['debit'], 0);
+    expect(retained.single['credit'], 6000);
+    final report = await StationRepository(db).partnerProfitSummary(
+      from: start, to: DateTime(2025, 12, 31),
+    );
+    expect(report['revenue'], 10000);
+    expect(report['workers'], 4000);
+    await expectLater(svc.closeFiscalYear(stationId: 1, start: start, endExclusive: endExclusive, userId: 1), throwsStateError);
+    await expectLater(svc.addExpense(
+      category: 'maintenance', title: 'محاولة بعد الإقفال', amount: 100,
+      date: DateTime(2025, 8, 1), paymentMethodId: 1, cashboxId: 1,
+    ), throwsStateError);
+    await svc.reopenFiscalYear(closureId: closeId, userId: 1, reason: 'اختبار إعادة الفتح الموثقة');
+    final reopened = (await db.query('SELECT * FROM period_closures WHERE id=?', args: [closeId])).first;
+    expect(reopened['status'], 'reopened');
+    expect(reopened['reopen_journal_entry_id'], isNotNull);
+    await svc.addExpense(
+      category: 'maintenance', title: 'مصروف بعد إعادة الفتح', amount: 100,
+      date: DateTime(2025, 8, 1), paymentMethodId: 1, cashboxId: 1,
+    );
+    final reclosePreview = await svc.previewFiscalYear(stationId: 1, start: start, endExclusive: endExclusive);
+    expect(reclosePreview['valid'], true, reason: '${reclosePreview['errors']}');
+    expect(reclosePreview['net_profit'], 5900);
+    final reclosedId = await svc.closeFiscalYear(
+      stationId: 1, start: start, endExclusive: endExclusive, userId: 1,
+      notes: 'إعادة إقفال بعد التسوية',
+    );
+    expect(reclosedId, isNot(closeId));
+    final afterRecloseReport = await StationRepository(db).partnerProfitSummary(
+      from: start, to: DateTime(2025, 12, 31),
+    );
+    expect(afterRecloseReport['revenue'], 10000);
+    expect(afterRecloseReport['expenses'], 100);
   });
 }
