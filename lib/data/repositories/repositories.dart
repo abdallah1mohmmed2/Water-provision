@@ -1705,15 +1705,17 @@ class StationRepository {
         {
           final a = <Object?>[];
           var w = "i.status!='cancelled'";
-          // استخدم حقل التاريخ المحفوظ للسقاية نفسه، مثل تقارير العامل التي
-          // تعتمد على تاريخ الحركة، بدل اشتقاق اليوم من start_datetime.
-          // هذا يمنع اختلاف يوم التقرير عن تاريخ السقاية عند اختلاف تنسيق/وقت البداية.
+          // بعض السجلات القديمة قد تحمل i.date بتنسيق لا تفهمه SQLite date().
+          // استخدم تاريخ العملية أولًا، واسمح بوقت البداية كبديل حتى لا تختفي
+          // السقايات القديمة من التقرير بسبب اختلاف تنسيق التاريخ فقط.
           if (from != null) {
-            w += ' AND date(i.date)>=date(?)';
+            w += ' AND (date(i.date)>=date(?) OR date(i.start_datetime)>=date(?))';
+            a.add(from.toIso8601String());
             a.add(from.toIso8601String());
           }
           if (to != null) {
-            w += ' AND date(i.date)<=date(?)';
+            w += ' AND (date(i.date)<=date(?) OR date(i.start_datetime)<=date(?))';
+            a.add(to.toIso8601String());
             a.add(to.toIso8601String());
           }
           if (beneficiaryId != null) { w += ' AND i.beneficiary_id=?'; a.add(beneficiaryId); }
