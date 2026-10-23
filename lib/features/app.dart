@@ -1224,14 +1224,16 @@ class _DashboardCircularMenuState extends State<_DashboardCircularMenu>
     if (delta < -math.pi) delta += 2 * math.pi;
     setState(() => rotation += delta);
   }
+  // لا نكرر اختصارات الزر العائم (السقاية، حجز الدور، إضافة المصروف،
+  // والصرف/القبض) داخل العجلة؛ نعرض بدلاً منها أقساماً مختلفة ومهمة.
   static const _items = <(int, String, IconData, Color)>[
-    (5, 'الطابور والحجوزات', Icons.format_list_numbered_rounded, Color(0xFF00E5FF)),
     (1, 'المستفيدون', Icons.people_alt_rounded, Color(0xFF39FFB6)),
     (10, 'العمال', Icons.engineering_rounded, Color(0xFF00E5FF)),
     (11, 'الشركاء', Icons.handshake_rounded, Color(0xFF39FFB6)),
-    (2, 'سقاية جديدة', Icons.water_drop_rounded, Color(0xFF00E5FF)),
-    (7, 'المدفوعات', Icons.payments_rounded, Color(0xFF39FFB6)),
-    (9, 'المصروفات', Icons.receipt_long_rounded, Color(0xFF00E5FF)),
+    (7, 'المدفوعات', Icons.payments_rounded, Color(0xFF00E5FF)),
+    (8, 'الصناديق', Icons.account_balance_rounded, Color(0xFF39FFB6)),
+    (14, 'التقارير', Icons.analytics_rounded, Color(0xFF00E5FF)),
+    (17, 'النسخ الاحتياطي', Icons.backup_rounded, Color(0xFF39FFB6)),
   ];
 
   @override
