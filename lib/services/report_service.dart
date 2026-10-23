@@ -377,6 +377,8 @@ class ReportService {
       ['عدد السجلات', _format(rows.length)],
       if (rows.any((row) => row.containsKey('minutes')))
         ['إجمالي الدقائق', '${_format(sumOf('minutes'))} دقيقة'],
+      if (rows.any((row) => row.containsKey('cloud_minutes')))
+        ['إجمالي الغيم', '${_format(sumOf('cloud_minutes'))} دقيقة'],
       if (rows.any(
         (row) =>
             row.containsKey('total_amount') ||
