@@ -1300,7 +1300,7 @@ void main() {
     expect(await cashboxBalance(cashboxId), cashBeforePrivate - partnerExpenseAmount);
     expect(
       (await svc.partnerBalance(partnerId))['balance'],
-      (partnerBalanceBeforePrivate as num) - partnerExpenseAmount,
+      partnerBalanceBeforePrivate - partnerExpenseAmount,
     );
     final afterPrivate = await repo.partnerProfitSummary(from: start, to: end);
     expect(afterPrivate['distributable'], afterGeneral['distributable'],
