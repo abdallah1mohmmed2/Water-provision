@@ -4531,7 +4531,19 @@ int? parseClock(String raw) {
               Expanded(child: Column(children: [
                 const Text('الساعة'),
                 Expanded(child: ListWheelScrollView.useDelegate(controller: hw, itemExtent: 40, physics: const FixedExtentScrollPhysics(),
-                  onSelectedItemChanged: (i) => ds(() { hour = i + (use24Hour ? 0 : 1); hc.text = hour.toString().padLeft(2, '0'); }),
+                  onSelectedItemChanged: (i) => ds(() {
+                    final previousHour = hour;
+                    final nextHour = i + (use24Hour ? 0 : 1);
+                    // في نظام 12 ساعة، عبور الحد بين 11 و12 يبدّل الفترة تلقائياً.
+                    // بقية تغييرات الساعة لا تغيّر صباحاً/مساءً.
+                    if (confirmPeriod && !use24Hour &&
+                        ((previousHour == 11 && nextHour == 12) ||
+                         (previousHour == 12 && nextHour == 11))) {
+                      period = period == 'pm' ? 'am' : 'pm';
+                    }
+                    hour = nextHour;
+                    hc.text = hour.toString().padLeft(2, '0');
+                  }),
                   childDelegate: ListWheelChildBuilderDelegate(childCount: use24Hour ? 24 : 12,
                     builder: (context, i) { final v = i + (use24Hour ? 0 : 1); return Center(child: Text(v.toString().padLeft(2, '0'), style: TextStyle(fontSize: v == hour ? 24 : 18, fontWeight: v == hour ? FontWeight.bold : FontWeight.normal))); }),
                 )),
@@ -4663,6 +4675,8 @@ int? parseClock(String raw) {
         initial: end,
         title: 'اختيار وقت النهاية',
         confirmPeriod: true,
+        // يبدأ صباحاً/مساءً بما يتوافق مع نهاية الساعة الافتراضية،
+        // ويتبدل تلقائياً عند تدوير الساعة عبر 11 ↔ 12.
         initialPeriod: endPeriod,
       );
       if (picked != null && mounted) {
