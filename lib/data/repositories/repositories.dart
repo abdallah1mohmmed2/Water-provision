@@ -1917,7 +1917,7 @@ class StationRepository {
         final directByPartner = <int, int>{};
         var directTotal = 0;
         for (final row in directRows) {
-          final amount = ((row['net'] as num?)?.round() ?? 0).clamp(0, 1 << 62);
+          final amount = ((row['net'] as num?)?.round() ?? 0).clamp(0, 1 << 62).toInt();
           final id = (row['partner_id'] as num).toInt();
           directByPartner[id] = (directByPartner[id] ?? 0) + amount;
           directTotal += amount;
