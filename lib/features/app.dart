@@ -4539,7 +4539,11 @@ int? parseClock(String raw) {
                     if (confirmPeriod && !use24Hour &&
                         ((previousHour == 11 && nextHour == 12) ||
                          (previousHour == 12 && nextHour == 11))) {
-                      period = period == 'pm' ? 'am' : 'pm';
+                      // إذا لم تُحدد الفترة بعد، اخترها تلقائياً عند عبور حد 12.
+                      // بعد تحديدها، اعكسها عند كل عبور تالٍ بين 11 و12.
+                      period = period == null
+                          ? (nextHour == 12 ? 'pm' : 'am')
+                          : (period == 'pm' ? 'am' : 'pm');
                     }
                     hour = nextHour;
                     hc.text = hour.toString().padLeft(2, '0');
@@ -4984,7 +4988,9 @@ int? parseClock(String raw) {
       end = start.add(const Duration(hours: 1));
       startTimeController.text = _hm12(start);
       endTimeController.text = _hm12(end);
-      startPeriod = start.hour < 12 ? 'am' : 'pm';
+      // لا تحدد صباحاً/مساءً للبداية تلقائياً عند فتح سقاية جديدة.
+      // يظل الاختيار فارغاً حتى يحدده المستخدم أو تعبر عجلة الساعة حد 11/12.
+      startPeriod = null;
       endPeriod = end.hour < 12 ? 'am' : 'pm';
       timeStep = 0;
       paid.text = '0';
