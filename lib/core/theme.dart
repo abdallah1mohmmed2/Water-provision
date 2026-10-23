@@ -37,7 +37,7 @@ class SaqiaTheme {
       fontFamily: 'NotoNaskhArabic',
       colorScheme: scheme,
       scaffoldBackgroundColor: const Color(0xfff7f7f1),
-      appBarTheme: AppBarTheme(
+      appBarTheme: const AppBarTheme(
         backgroundColor: const Color(0xfff7f7f1),
         foregroundColor: const Color(0xff253023),
         elevation: 0,
