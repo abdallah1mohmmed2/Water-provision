@@ -1413,7 +1413,7 @@ void main() {
       solarRate: 0,
       thirdRate: 0,
       cloudMinutes: 0,
-      paidAmount: 10000,
+      paidAmount: 100000,
       paymentMethodId: paymentMethodId,
       cashboxId: cashboxId,
     );
@@ -1421,10 +1421,10 @@ void main() {
       'SELECT total_amount,status FROM irrigations WHERE id=?',
       args: [irrigationId],
     )).single;
-    expect(irrigation['total_amount'], 10000);
+    expect(irrigation['total_amount'], 100000);
     expect(irrigation['status'], 'posted');
     expect(await glPayable('2100', 'worker_id', hourlyWorker), 1000);
-    expect(await glPayable('2100', 'worker_id', percentageWorker), 1000);
+    expect(await glPayable('2100', 'worker_id', percentageWorker), 10000);
 
     // استحقاق راتب الشهر لا يكرر عند استدعاء الترحيل مرتين.
     expect(await svc.accrueMonthlySalaries(month: monthStart), 1);
@@ -1467,13 +1467,13 @@ void main() {
     );
 
     // الصندوق والأستاذ: +10,000 إيراد محصل -500 دفعات عمال.
-    expect(await cashboxBalance(cashboxId), cashBefore + 9500);
-    expect((await accountNet(cashCode)) - ledgerCashBefore, 9500);
+    expect(await cashboxBalance(cashboxId), cashBefore + 99500);
+    expect((await accountNet(cashCode)) - ledgerCashBefore, 99500);
 
     // كشف كل عامل يجب أن يساوي رصيد حسابه في الأستاذ بعد الدفع الجزئي.
     for (final entry in [
       (hourlyWorker, 700),
-      (percentageWorker, 1000),
+      (percentageWorker, 10000),
       (monthlyWorker, 1300),
     ]) {
       final workerId = entry.$1;
@@ -1485,21 +1485,21 @@ void main() {
       expect((statement.last['balance'] as num).round(), expected);
     }
 
-    // تقرير الربح والخسارة: الإيراد +10,000، أجور العمال +3,500،
+    // تقرير الربح والخسارة: الإيراد +100,000، أجور العمال +12,500،
     // والمصروف الملغى لا يترك أثرًا صافيًا في المصروفات.
     final summaryAfter = await repo.partnerProfitSummary(from: monthStart, to: monthEnd);
-    expect((summaryAfter['revenue'] as num) - (summaryBefore['revenue'] as num), 10000);
+    expect((summaryAfter['revenue'] as num) - (summaryBefore['revenue'] as num), 100000);
     expect((summaryAfter['expenses'] as num), summaryBefore['expenses']);
-    expect((summaryAfter['workers'] as num) - (summaryBefore['workers'] as num), 3500);
+    expect((summaryAfter['workers'] as num) - (summaryBefore['workers'] as num), 12500);
     expect(
       (summaryAfter['distributable'] as num) - (summaryBefore['distributable'] as num),
-      6500,
+      87500,
     );
     final pnlAfterRows = await db.query(
       "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit WHEN a.type='expense' THEN jl.debit-jl.credit ELSE 0 END),0) net FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
       args: [stationId, monthStart.toIso8601String(), nextMonth.toIso8601String()],
     );
-    expect((pnlAfterRows.single['net'] as num).round() - pnlBefore, 6500);
+    expect((pnlAfterRows.single['net'] as num).round() - pnlBefore, 87500);
 
     // ترحيل التوزيع يعالج الاستحقاقات المباشرة ولا يسمح بتجاوز الربح المتاح.
     await svc.distributePartnerProfits(from: monthStart, to: monthEnd, userId: 1);
@@ -1516,7 +1516,7 @@ void main() {
       0,
       (sum, row) => sum + ((row['gross_amount'] as num?)?.round() ?? 0),
     );
-    expect(grossDistributed, lessThanOrEqualTo((summaryAfter['distributable'] as num).round()));
+    expect(grossDistributed, (summaryAfter['distributable'] as num).round());
     expect(grossDistributed, greaterThan(0));
     expect(selectedRows.every((row) => (row['net_amount'] as num) >= 0), isTrue);
   });
