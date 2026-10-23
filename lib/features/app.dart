@@ -5475,36 +5475,81 @@ class _IrrigationsState extends State<IrrigationsPage> {
   DateTime? _reportStart(String raw, DateTime now) {
     final value = raw.trim().toLowerCase();
     final today = DateTime(now.year, now.month, now.day);
-    if (value == 'يوم' || value == 'اليوم' || value == '1 يوم' || value == 'يوم واحد') {
-      return today;
-    }
-    if (value == 'يومان' || value == 'يومين' || value == 'آخر يومين' || value == '2 يوم' || value == '2 أيام') {
+    if (const {'يوم', 'اليوم', '1 يوم', 'يوم واحد'}.contains(value)) return today;
+    if (const {'يومان', 'يومين', 'آخر يومين', '2 يوم', '2 أيام'}.contains(value)) {
       return today.subtract(const Duration(days: 1));
     }
-    if (value == 'أسبوع' || value == 'اسبوع' || value == 'أسبوع واحد' || value == 'آخر أسبوع' || value == '7 أيام') {
+    if (const {'أسبوع', 'اسبوع', 'أسبوع واحد', 'آخر أسبوع', '7 أيام'}.contains(value)) {
       return today.subtract(const Duration(days: 6));
     }
-    if (value == 'شهر' || value == 'شهر واحد' || value == 'آخر شهر' || value == '30 يوم' || value == '30 أيام') {
+    if (const {'شهر', 'شهر واحد', 'آخر شهر', '30 يوم', '30 أيام'}.contains(value)) {
       return today.subtract(const Duration(days: 29));
     }
-    final match = RegExp(r'^(\d{1,3})\s*(?:يوم|أيام|ايام|يومان|يومين)
+    final match = RegExp(r'^(\d{1,3})\s*(?:يوم|أيام|ايام|يومان|يومين)$').firstMatch(value);
+    if (match != null) {
+      final count = int.tryParse(match.group(1) ?? '');
+      if (count != null && count >= 1 && count <= 365) {
+        return today.subtract(Duration(days: count - 1));
+      }
+    }
+    return null;
+  }
+
+  Future<void> printIrrigationsReport() async {
+    final now = AppClock.now();
+    final from = _reportStart(reportPeriodController.text, now);
+    if (from == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('اختر يومًا أو يومين أو أسبوعًا أو شهرًا، أو اكتب مدة مثل 3 أيام (حتى 365 يومًا).')),
+      );
+      return;
+    }
+    final toExclusive = DateTime(now.year, now.month, now.day).add(const Duration(days: 1));
+    final selected = rows.where((row) {
+      final date = DateTime.tryParse('${row['start_datetime'] ?? row['date'] ?? ''}');
+      if (date == null) return false;
+      final local = date.toLocal();
+      return !local.isBefore(from) && local.isBefore(toExclusive);
+    }).toList()
+      ..sort((a, b) => '${b['start_datetime'] ?? ''}'.compareTo('${a['start_datetime'] ?? ''}'));
+    final reportRows = selected.map((row) {
+      final cloudMinutes = (row['cloud_minutes'] as num?)?.round() ?? 0;
+      return <String, Object?>{
+        'party_name': row['beneficiary_name'] ?? '-',
+        'start_datetime': row['start_datetime'],
+        'end_datetime': row['end_datetime'],
+        'minutes': row['minutes'] ?? 0,
+        'paid_amount': row['paid_amount'] ?? 0,
+        'total_amount': row['total_amount'] ?? 0,
+        'cloud_minutes': cloudMinutes,
+        'cloud_status': cloudMinutes > 0 ? 'discounted' : 'none',
+      };
+    }).toList();
+    try {
+      await ReportService(widget.r).printPdf(
+        'irrigations',
+        from: from,
+        to: toExclusive.subtract(const Duration(seconds: 1)),
+        systemType: type ?? 'all',
+        sourceRows: reportRows,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر إنشاء تقرير السقايات: ${friendlyError(e)}')),
+      );
+    }
+  }
+
+  Future<void> load() async {
     setState(() => loading = true);
     try {
-      final x = await widget.r.irrigations(
-        systemType: type,
-        beneficiaryId: bid,
-      );
-      if (mounted) {
-        setState(() {
-          rows = x;
-          loading = false;
-        });
-      }
+      final x = await widget.r.irrigations(systemType: type, beneficiaryId: bid);
+      if (mounted) setState(() { rows = x; loading = false; });
     } catch (_) {
       if (mounted) setState(() => loading = false);
     }
   }
-
   @override
   void initState() {
     super.initState();
