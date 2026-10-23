@@ -1498,7 +1498,7 @@ class AccountingService {
       // الاستحقاقات المباشرة عند السقاية تكون بعد أجور العمال دائمًا،
       // بما فيها سقاية الشريك؛ ولا يجوز توزيع الإيراد الإجمالي قبل الأجور.
       final partnerPool =
-          (totalCharged - totalWorkerEntitlement).clamp(0, totalCharged);
+          (totalCharged - totalWorkerEntitlement).clamp(0, totalCharged).toInt();
       if (partnerPool > 0) {
         await _accruePartnersFromIrrigationTx(
           tx,
