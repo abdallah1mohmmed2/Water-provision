@@ -5681,7 +5681,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
   Future<void> load() async {
     setState(() => loading = true);
     try {
-      final x = await widget.r.irrigations(systemType: type, beneficiaryId: bid);
+      final x = await widget.r.irrigations(systemType: type ?? 'all', beneficiaryId: bid);
       if (mounted) setState(() { rows = x; loading = false; });
     } catch (_) {
       if (mounted) setState(() => loading = false);
