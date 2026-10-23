@@ -1342,4 +1342,183 @@ void main() {
     expect((await svc.partnerBalance(partnerId))['balance'], partnerBalanceBefore);
   });
 
+
+  test('دورة محاسبية كاملة: الإيراد والسقاية والأجور والدفع والإلغاء والتقارير', () async {
+    final repo = StationRepository(db);
+    final stationId = await svc.currentStationId();
+    final settings = await svc.settings();
+    final pumpId = int.parse(settings['selected_pump_id']!);
+    final now = DateTime.now();
+    final monthStart = DateTime(now.year, now.month, 1);
+    final nextMonth = DateTime(now.year, now.month + 1, 1);
+    final monthEnd = nextMonth.subtract(const Duration(days: 1));
+    final operationStart = DateTime(now.year, now.month, now.day, 1);
+    const cashboxId = 1;
+    const paymentMethodId = 1;
+
+    // عزل الاختبار عن الأطراف النشطة السابقة.
+    await db.update('workers', {'active': 0}, 'station_id=?', [stationId]);
+    await db.update('partners', {'active': 0}, 'station_id=?', [stationId]);
+    await db.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
+    await db.update('settings', {'value': '10000'}, 'key=?', ['solar_hourly_rate']);
+
+    final hourlyWorker = await repo.createWorker(
+      name: 'اختبار دورة عامل بالساعة',
+      payType: 'hourly',
+      hourlyRate: 1000,
+    );
+    final percentageWorker = await repo.createWorker(
+      name: 'اختبار دورة عامل بالنسبة',
+      payType: 'percentage',
+      percentageRate: 10,
+    );
+    final monthlyWorker = await repo.createWorker(
+      name: 'اختبار دورة راتب شهري',
+      payType: 'fixed',
+      fixedSalary: 1500,
+    );
+    await repo.createPartner(name: 'اختبار دورة شريك 1', mode: 'shares', shares: 1);
+    await repo.createPartner(name: 'اختبار دورة شريك 2', mode: 'shares', shares: 1);
+    final beneficiary = await db.insert('beneficiaries', {
+      'name': 'مستفيد دورة المحاسبة',
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+    });
+
+    final summaryBefore = await repo.partnerProfitSummary(from: monthStart, to: monthEnd);
+    final cashBefore = await cashboxBalance(cashboxId);
+    final box = await db.query(
+      "SELECT COALESCE(NULLIF(ledger_account_code,''),'1000') code FROM cashboxes WHERE id=?",
+      args: [cashboxId],
+    );
+    final cashCode = '${box.single['code']}';
+    final ledgerCashBefore = await accountNet(cashCode);
+    final pnlBeforeRows = await db.query(
+      "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit WHEN a.type='expense' THEN jl.debit-jl.credit ELSE 0 END),0) net FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
+      args: [stationId, monthStart.toIso8601String(), nextMonth.toIso8601String()],
+    );
+    final pnlBefore = (pnlBeforeRows.single['net'] as num).round();
+
+    // تسجيل إيراد سقاية محصل نقدًا بمبلغ 10,000.
+    final irrigationId = await svc.recordIrrigation(
+      stationId: stationId,
+      pumpId: pumpId,
+      beneficiaryId: beneficiary,
+      start: operationStart,
+      end: operationStart.add(const Duration(hours: 1)),
+      systemType: 'solar',
+      waterRate: 0,
+      litersPerHour: 0,
+      dieselPrice: 0,
+      solarRate: 0,
+      thirdRate: 0,
+      cloudMinutes: 0,
+      paidAmount: 10000,
+      paymentMethodId: paymentMethodId,
+      cashboxId: cashboxId,
+    );
+    final irrigation = (await db.query(
+      'SELECT total_amount,status FROM irrigations WHERE id=?',
+      args: [irrigationId],
+    )).single;
+    expect(irrigation['total_amount'], 10000);
+    expect(irrigation['status'], 'posted');
+    expect(await glPayable('2100', 'worker_id', hourlyWorker), 1000);
+    expect(await glPayable('2100', 'worker_id', percentageWorker), 1000);
+
+    // استحقاق راتب الشهر لا يكرر عند استدعاء الترحيل مرتين.
+    expect(await svc.accrueMonthlySalaries(month: monthStart), 1);
+    expect(await svc.accrueMonthlySalaries(month: monthStart), 0);
+    expect(await glPayable('2100', 'worker_id', monthlyWorker), 1500);
+
+    // دفع جزئي: 300 لعامل الساعة و200 للعامل ذي الراتب الشهري.
+    await svc.payWorker(
+      workerId: hourlyWorker,
+      amount: 300,
+      paymentMethodId: paymentMethodId,
+      cashboxId: cashboxId,
+      notes: 'دفعة جزئية ضمن اختبار الدورة',
+    );
+    await svc.payWorker(
+      workerId: monthlyWorker,
+      amount: 200,
+      paymentMethodId: paymentMethodId,
+      cashboxId: cashboxId,
+      notes: 'دفعة جزئية ضمن اختبار الدورة',
+    );
+
+    // مصروف تجريبي، ثم إلغاؤه والتحقق من رجوع النقد وعكس القيد.
+    final cashBeforeExpense = await cashboxBalance(cashboxId);
+    final expenseId = await svc.addExpense(
+      category: 'maintenance',
+      title: 'مصروف تجريبي للإلغاء ضمن الدورة',
+      amount: 200,
+      date: operationStart.add(const Duration(hours: 2)),
+      paymentMethodId: paymentMethodId,
+      cashboxId: cashboxId,
+      notes: 'اختبار تكامل آلي',
+    );
+    expect(await cashboxBalance(cashboxId), cashBeforeExpense - 200);
+    await svc.cancelExpense(expenseId, 1, 'إلغاء المصروف التجريبي في اختبار الدورة');
+    expect(await cashboxBalance(cashboxId), cashBeforeExpense);
+    expect(
+      (await db.query('SELECT status FROM expenses WHERE id=?', args: [expenseId])).single['status'],
+      'cancelled',
+    );
+
+    // الصندوق والأستاذ: +10,000 إيراد محصل -500 دفعات عمال.
+    expect(await cashboxBalance(cashboxId), cashBefore + 9500);
+    expect((await accountNet(cashCode)) - ledgerCashBefore, 9500);
+
+    // كشف كل عامل يجب أن يساوي رصيد حسابه في الأستاذ بعد الدفع الجزئي.
+    for (final entry in [
+      (hourlyWorker, 700),
+      (percentageWorker, 1000),
+      (monthlyWorker, 1300),
+    ]) {
+      final workerId = entry.$1;
+      final expected = entry.$2;
+      expect((await svc.workerBalance(workerId))['balance'], expected);
+      expect(await glPayable('2100', 'worker_id', workerId), expected);
+      final statement = await repo.workerTransactions(workerId);
+      expect(statement, isNotEmpty);
+      expect((statement.last['balance'] as num).round(), expected);
+    }
+
+    // تقرير الربح والخسارة: الإيراد +10,000، أجور العمال +3,500،
+    // والمصروف الملغى لا يترك أثرًا صافيًا في المصروفات.
+    final summaryAfter = await repo.partnerProfitSummary(from: monthStart, to: monthEnd);
+    expect((summaryAfter['revenue'] as num) - (summaryBefore['revenue'] as num), 10000);
+    expect((summaryAfter['expenses'] as num), summaryBefore['expenses']);
+    expect((summaryAfter['workers'] as num) - (summaryBefore['workers'] as num), 3500);
+    expect(
+      (summaryAfter['distributable'] as num) - (summaryBefore['distributable'] as num),
+      6500,
+    );
+    final pnlAfterRows = await db.query(
+      "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit WHEN a.type='expense' THEN jl.debit-jl.credit ELSE 0 END),0) net FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
+      args: [stationId, monthStart.toIso8601String(), nextMonth.toIso8601String()],
+    );
+    expect((pnlAfterRows.single['net'] as num).round() - pnlBefore, 6500);
+
+    // ترحيل التوزيع يعالج الاستحقاقات المباشرة ولا يسمح بتجاوز الربح المتاح.
+    await svc.distributePartnerProfits(from: monthStart, to: monthEnd, userId: 1);
+    final distribution = await repo.report(
+      'partner_profit_distribution',
+      from: monthStart,
+      to: monthEnd,
+    );
+    final selectedRows = distribution
+        .where((row) => '${row['name']}'.startsWith('اختبار دورة شريك '))
+        .toList();
+    expect(selectedRows.length, 2);
+    final grossDistributed = selectedRows.fold<int>(
+      0,
+      (sum, row) => sum + ((row['gross_amount'] as num?)?.round() ?? 0),
+    );
+    expect(grossDistributed, lessThanOrEqualTo((summaryAfter['distributable'] as num).round()));
+    expect(grossDistributed, greaterThan(0));
+    expect(selectedRows.every((row) => (row['net_amount'] as num) >= 0), isTrue);
+  });
+
 }
