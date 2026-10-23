@@ -1135,4 +1135,142 @@ void main() {
     expect(index, isNotEmpty);
     expect((version.single.values.single as num).toInt(), 18);
   });
+
+  test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {
+    final repo = StationRepository(db);
+    final partnerId = await repo.createPartner(
+      name: 'شريك دورة المصروفات \${DateTime.now().microsecondsSinceEpoch}',
+      mode: 'shares',
+      shares: 1,
+    );
+    final stationId = await svc.currentStationId();
+    final start = DateTime(2028, 1, 1);
+    final end = DateTime(2028, 1, 31);
+    final endExclusive = DateTime(2028, 2, 1);
+    const seedRevenue = 10000;
+    const generalExpenseAmount = 100;
+    const partnerExpenseAmount = 250;
+    const cashboxId = 1;
+    const paymentMethodId = 1;
+
+    final cashBeforeSeed = await cashboxBalance(cashboxId);
+    final box = await db.query(
+      "SELECT COALESCE(NULLIF(ledger_account_code,''),'1000') code FROM cashboxes WHERE id=?",
+      args: [cashboxId],
+    );
+    final cashCode = '\${box.single['code']}';
+    final revenueRows = await db.query(
+      "SELECT id FROM accounts WHERE type='revenue' ORDER BY id LIMIT 1",
+    );
+    expect(revenueRows, isNotEmpty, reason: 'يجب وجود حساب إيراد في مخطط الحسابات');
+    final cashRows = await db.query(
+      'SELECT id FROM accounts WHERE code=? LIMIT 1',
+      args: [cashCode],
+    );
+    expect(cashRows, isNotEmpty, reason: 'يجب ربط الصندوق بحساب أستاذ');
+    final seedEntryId = await db.insert('journal_entries', {
+      'station_id': stationId,
+      'date': start.add(const Duration(days: 9)).toIso8601String(),
+      'reference_type': 'test_expense_cycle_revenue',
+      'description': 'إيراد أساس لدورة اختبار المصروفات',
+      'status': 'posted',
+      'created_at': DateTime.now().toIso8601String(),
+    });
+    await db.insert('journal_lines', {
+      'journal_entry_id': seedEntryId,
+      'account_id': cashRows.single['id'],
+      'debit': seedRevenue,
+      'credit': 0,
+      'memo': 'إيراد اختبار',
+    });
+    await db.insert('journal_lines', {
+      'journal_entry_id': seedEntryId,
+      'account_id': revenueRows.single['id'],
+      'debit': 0,
+      'credit': seedRevenue,
+      'memo': 'إيراد اختبار',
+    });
+    await db.update(
+      'cashboxes',
+      {'current_balance': cashBeforeSeed + seedRevenue},
+      'id=?',
+      [cashboxId],
+    );
+
+    final partnerBalanceBefore = (await svc.partnerBalance(partnerId))['balance'] as num;
+    final profitBeforeExpenses = await repo.partnerProfitSummary(from: start, to: end);
+    expect(profitBeforeExpenses['distributable'], seedRevenue);
+
+    final generalId = await svc.addExpense(
+      category: 'maintenance',
+      title: 'اختبار مصروف عام',
+      amount: generalExpenseAmount,
+      date: start.add(const Duration(days: 10)),
+      paymentMethodId: paymentMethodId,
+      cashboxId: cashboxId,
+      notes: 'اختبار آلي فقط',
+    );
+    expect(await cashboxBalance(cashboxId), cashBeforeSeed + seedRevenue - generalExpenseAmount);
+    final afterGeneral = await repo.partnerProfitSummary(from: start, to: end);
+    expect(afterGeneral['distributable'], seedRevenue - generalExpenseAmount);
+    expect(
+      (await db.query("SELECT status FROM expenses WHERE id=?", args: [generalId])).single['status'],
+      'posted',
+    );
+
+    final partnerBalanceBeforePrivate = (await svc.partnerBalance(partnerId))['balance'] as num;
+    final cashBeforePrivate = await cashboxBalance(cashboxId);
+    final partnerExpenseId = await svc.addExpense(
+      category: 'maintenance',
+      title: 'اختبار مصروف خاص بالشريك',
+      amount: partnerExpenseAmount,
+      date: start.add(const Duration(days: 11)),
+      paymentMethodId: paymentMethodId,
+      cashboxId: cashboxId,
+      partnerId: partnerId,
+      notes: 'اختبار آلي فقط',
+    );
+    expect(await cashboxBalance(cashboxId), cashBeforePrivate - partnerExpenseAmount);
+    expect(
+      (await svc.partnerBalance(partnerId))['balance'],
+      (partnerBalanceBeforePrivate as num) - partnerExpenseAmount,
+    );
+    final afterPrivate = await repo.partnerProfitSummary(from: start, to: end);
+    expect(afterPrivate['distributable'], afterGeneral['distributable'],
+        reason: 'المصروف الخاص لا يخفض الربح العام ولا يخصم مرتين');
+    final privateReport = await repo.report(
+      'partner_profit_distribution',
+      from: start,
+      to: end,
+    );
+    final privateRow = privateReport.singleWhere((r) => r['name'] == (await repo.partners()).firstWhere((p) => p['id'] == partnerId)['name']);
+    expect(privateRow['partner_expenses'], partnerExpenseAmount);
+    expect(privateRow['net_amount'], (privateRow['gross_amount'] as num) - partnerExpenseAmount);
+
+    await svc.cancelExpense(partnerExpenseId, 1, 'إلغاء ضمن اختبار دورة المصروفات');
+    expect(await cashboxBalance(cashboxId), cashBeforePrivate);
+    expect((await svc.partnerBalance(partnerId))['balance'], partnerBalanceBeforePrivate);
+    expect(
+      (await db.query('SELECT status FROM expenses WHERE id=?', args: [partnerExpenseId])).single['status'],
+      'cancelled',
+    );
+    final reversalRows = await db.query(
+      "SELECT COUNT(*) c FROM journal_entries WHERE reference_type='reversal' AND reference_id IN (SELECT id FROM journal_entries WHERE reference_type='expense' AND reference_id=?)",
+      args: [partnerExpenseId],
+    );
+    expect((reversalRows.single['c'] as num).toInt(), 1);
+    final afterCancel = await repo.partnerProfitSummary(from: start, to: end);
+    expect(afterCancel['distributable'], seedRevenue - generalExpenseAmount);
+    final finalReport = await repo.report(
+      'partner_profit_distribution',
+      from: start,
+      to: end,
+    );
+    final finalRow = finalReport.singleWhere((r) => r['name'] == privateRow['name']);
+    expect(finalRow['partner_expenses'], 0);
+    expect(finalRow['net_amount'], finalRow['gross_amount']);
+    expect(await cashboxBalance(cashboxId), cashBeforeSeed + seedRevenue - generalExpenseAmount);
+    expect((await svc.partnerBalance(partnerId))['balance'], partnerBalanceBefore);
+  });
+
 }
