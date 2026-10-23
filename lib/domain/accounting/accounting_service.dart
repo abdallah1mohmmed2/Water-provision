@@ -1495,11 +1495,10 @@ class AccountingService {
         );
       }
 
-      // في سقاية الشريك لا نخصم أجر العمال مباشرة من قيمة السقاية
-      // عند حساب المبلغ القابل للتوزيع؛ أما في بقية الأنواع فيُخصم مجموع الأجور.
-      final partnerPool = partyType == 'partner'
-          ? totalCharged
-          : (totalCharged - totalWorkerEntitlement).clamp(0, totalCharged);
+      // الاستحقاقات المباشرة عند السقاية تكون بعد أجور العمال دائمًا،
+      // بما فيها سقاية الشريك؛ ولا يجوز توزيع الإيراد الإجمالي قبل الأجور.
+      final partnerPool =
+          (totalCharged - totalWorkerEntitlement).clamp(0, totalCharged);
       if (partnerPool > 0) {
         await _accruePartnersFromIrrigationTx(
           tx,
@@ -1824,6 +1823,11 @@ class AccountingService {
     await _assertPeriodOpen(tx, date);
     if (amount <= 0) {
       throw ArgumentError('قيمة المصروف يجب أن تكون أكبر من صفر');
+    }
+    // رواتب وأجور العاملين تُسجل من سجل العامل كاستحقاق ثم تُسوّى بالدفع.
+    // منع تسجيلها كمصروف نقدي عام يحمي من احتساب الأجر مرتين.
+    if (partnerId == null && category == 'workers') {
+      throw ArgumentError('أجور العاملين تُسجل من شاشة العمال كاستحقاق، ثم تُدفع من حساب العامل؛ لا تسجلها كمصروف عام مرة أخرى.');
     }
     // الصندوق تابع للطريقة المختارة (يُرفض أي تعارض).
     final src = await resolvePaymentSource(
@@ -2345,10 +2349,29 @@ class AccountingService {
       );
       for (final w in workers) {
         final wid = w['id'] as int;
+        final monthKey = month.year * 100 + month.month;
+        // مرجع الشهر في سجل العامل هو مفتاح منع التكرار الأساسي؛ فحص الأستاذ
+        // أدناه يبقى لتجاوز الرواتب القديمة التي سُجلت قبل حفظ المرجع.
+        final recorded = await tx.rawQuery(
+          "SELECT 1 FROM worker_transactions WHERE worker_id=? AND reference_type='monthly_salary' AND reference_id=? LIMIT 1",
+          [wid, monthKey],
+        );
+        if (recorded.isNotEmpty) continue;
         final exists = await tx.rawQuery("SELECT 1 FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id WHERE je.station_id=? AND je.reference_type='worker' AND je.description='راتب العامل الشهري' AND jl.worker_id=? AND je.date>=? AND je.date<? LIMIT 1", [stationId, wid, start.toIso8601String(), end.toIso8601String()]);
         if (exists.isNotEmpty) continue;
+        // حفظ نسخة الراتب وقت الاستحقاق؛ تعديل راتب العامل لاحقًا لا يغيّر التاريخ.
         final amount = (w['fixed_salary'] as num).round();
-        final id = await tx.insert('worker_transactions', {'worker_id': wid, 'date': end.subtract(const Duration(seconds: 1)).toIso8601String(), 'type': 'worker_entitlement', 'amount': amount, 'reference_type': 'monthly_salary', 'reference_id': month.year * 100 + month.month, 'created_by': userId});
+        final id = await tx.insert('worker_transactions', {
+          'worker_id': wid,
+          'date': end.subtract(const Duration(seconds: 1)).toIso8601String(),
+          'type': 'worker_entitlement',
+          'amount': amount,
+          'rate_snapshot': amount,
+          'reference_type': 'monthly_salary',
+          'reference_id': monthKey,
+          'notes': 'راتب شهري مستحق لشهر ' + month.year.toString() + '/' + month.month.toString().padLeft(2, '0') + '؛ الراتب المحفوظ وقت الترحيل: ' + amount.toString(),
+          'created_by': userId,
+        });
         final exp = await _accountIdTx(tx, '5000'), payable = await _workerAccountIdTx(tx, wid);
         await _entry(tx, description: 'راتب العامل الشهري', referenceType: 'worker', referenceId: id, userId: userId, date: end.subtract(const Duration(seconds: 1)), stationId: stationId, lines: [{'account_id': exp, 'worker_id': wid, 'debit': amount, 'credit': 0}, {'account_id': payable, 'worker_id': wid, 'debit': 0, 'credit': amount}]);
         count++;
@@ -2382,19 +2405,65 @@ class AccountingService {
         generalExpenses: (general.first['n'] as num).round(),
         workerEntitlements: (worker.first['n'] as num).round(),
       );
-      // الاستحقاقات المباشرة للشركاء أُنشئت عند تسجيل السقاية؛ تخصم فقط
-      // استحقاقات شركاء المحطة نفسها كي لا تختلط نتائج المحطات.
-      final direct = await tx.rawQuery(
-        "SELECT COALESCE(SUM(pt.amount),0) n FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id WHERE p.station_id=? AND pt.reference_type='irrigation_profit' AND pt.date>=? AND pt.date<?",
-        args,
-      );
-      final remainingProfit = (profit - (direct.first['n'] as num).round()).clamp(0, profit).toInt();
       final distributionRef = start.millisecondsSinceEpoch;
       final already = await tx.rawQuery(
         "SELECT pt.id FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id WHERE p.station_id=? AND pt.reference_type='profit_distribution' AND pt.reference_id=? LIMIT 1",
         [stationId, distributionRef],
       );
       if (already.isNotEmpty) throw StateError('تم ترحيل توزيع الأرباح لهذه الفترة مسبقاً');
+
+      // تسوية الاستحقاقات المباشرة القديمة عند السقاية قبل أي توزيع جديد.
+      // تُستبعد السقايات الملغاة، ويُعكس الفائض بقيد جديد لا بتعديل قيد مرحّل.
+      final directRows = await tx.rawQuery(
+        "SELECT pt.id,pt.partner_id,pt.amount,COALESCE((SELECT SUM(adj.amount) FROM partner_transactions adj WHERE adj.reference_type='partner_profit_adjustment' AND adj.reference_id=pt.id AND adj.type='share_adjustment'),0) adjusted FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id JOIN irrigations i ON i.id=pt.reference_id WHERE p.station_id=? AND pt.reference_type='irrigation_profit' AND COALESCE(i.status,'')!='cancelled' AND pt.date>=? AND pt.date<? ORDER BY pt.id DESC",
+        args,
+      );
+      var directTotal = 0;
+      for (final row in directRows) {
+        final original = (row['amount'] as num).round();
+        final adjusted = (row['adjusted'] as num).round();
+        directTotal += (original - adjusted).clamp(0, original).toInt();
+      }
+      if (directTotal > profit) {
+        var excess = directTotal - profit;
+        final equity = await _accountIdTx(tx, '3200');
+        for (final row in directRows) {
+          if (excess <= 0) break;
+          final original = (row['amount'] as num).round();
+          final adjusted = (row['adjusted'] as num).round();
+          final available = (original - adjusted).clamp(0, original).toInt();
+          if (available <= 0) continue;
+          final correction = available < excess ? available : excess;
+          final partnerId = (row['partner_id'] as num).toInt();
+          final adjustmentId = await tx.insert('partner_transactions', {
+            'partner_id': partnerId,
+            'date': endExclusive.subtract(const Duration(microseconds: 1)).toIso8601String(),
+            'type': 'share_adjustment',
+            'amount': correction,
+            'reference_type': 'partner_profit_adjustment',
+            'reference_id': (row['id'] as num).toInt(),
+            'notes': 'تسوية فائض استحقاق مباشر حتى لا يتجاوز صافي ربح الفترة',
+            'created_by': userId,
+          });
+          final payable = await _partnerAccountIdTx(tx, partnerId);
+          await _entry(
+            tx,
+            description: 'تسوية فائض حصة أرباح مباشرة',
+            referenceType: 'partner_profit_adjustment',
+            referenceId: adjustmentId,
+            userId: userId,
+            date: endExclusive.subtract(const Duration(microseconds: 1)),
+            stationId: stationId,
+            lines: [
+              {'account_id': payable, 'partner_id': partnerId, 'debit': correction, 'credit': 0},
+              {'account_id': equity, 'partner_id': partnerId, 'debit': 0, 'credit': correction},
+            ],
+          );
+          excess -= correction;
+        }
+        directTotal = profit;
+      }
+      final remainingProfit = (profit - directTotal).clamp(0, profit).toInt();
       final ps = await tx.query('partners', where: 'station_id=? AND active=1', whereArgs: [stationId]);
       final totalShares = ps.fold<double>(
         0.0,
