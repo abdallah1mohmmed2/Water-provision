@@ -1368,7 +1368,7 @@ void main() {
       "SELECT COALESCE(NULLIF(ledger_account_code,''),'1000') code FROM cashboxes WHERE id=?",
       args: [cashboxId],
     );
-    final cashCode = '\${box.single['code']}';
+    final cashCode = '${box.single['code']}';
     final ledgerCashBefore = await accountNet(cashCode);
     final pnlBeforeRows = await db.query(
       "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit WHEN a.type='expense' THEN jl.debit-jl.credit ELSE 0 END),0) net FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
@@ -1537,7 +1537,7 @@ void main() {
       to: monthEnd,
     );
     final selectedRows = distribution
-        .where((row) => '\${row['name']}'.startsWith('اختبار دورة شريك '))
+        .where((row) => '${row['name']}'.startsWith('اختبار دورة شريك '))
         .toList();
     expect(selectedRows.length, 2);
     final grossDistributed = selectedRows.fold<int>(
