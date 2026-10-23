@@ -249,7 +249,7 @@ class ReportService {
           else
             pw.Directionality(
               textDirection: pw.TextDirection.rtl,
-              child: pw.Table.fromTextArray(
+              child: pw.TableHelper.fromTextArray(
                 headers: headers,
                 data: data,
                 headerCount: 1,
