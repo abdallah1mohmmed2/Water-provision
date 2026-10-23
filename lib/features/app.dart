@@ -4633,7 +4633,7 @@ int? parseClock(String raw) {
     cloudPeriods.removeWhere((p) => p['start']!.isBefore(start) || p['end']!.isAfter(end));
   }
 
-  void nextTimeStep() {
+  Future<void> nextTimeStep() async {
     if (timeStep == 0) {
       if (startPeriod == null) {
         msg('اختر صباحاً أو مساءً لوقت البداية قبل المتابعة');
@@ -4644,19 +4644,44 @@ int? parseClock(String raw) {
         msg('أدخل وقت بداية صحيحاً مثل 08:30');
         return;
       }
+
       final hour = _to24Hour(value, startPeriod!);
+      final chosenStart = DateTime(
+        selectedDate.year, selectedDate.month, selectedDate.day, hour, value % 60,
+      );
+      final defaultEnd = chosenStart.add(const Duration(hours: 1));
       setState(() {
-        start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour, value % 60);
-        if (_parseTimeMinutes(endTimeController.text) == null) {
-          endTimeController.text = _hm12(start.add(const Duration(hours: 1)));
-        }
-        _updateEndPeriodFromTime();
-        final endValue = _parseTimeMinutes(endTimeController.text)!;
-        final endHour = _to24Hour(endValue, endPeriod!);
-        final endClock = endHour * 60 + endValue % 60;
-        end = DateTime(selectedDate.year, selectedDate.month, selectedDate.day + (endClock <= start.hour * 60 + start.minute ? 1 : 0), endHour, endValue % 60);
+        start = chosenStart;
+        // التالي ينقل مباشرةً إلى لاقط الساعة الدوارة لوقت النهاية.
+        end = defaultEnd;
+        endTimeController.text = _hm12(defaultEnd);
+        endPeriod = defaultEnd.hour < 12 ? 'am' : 'pm';
         timeStep = 1;
       });
+
+      final picked = await _showHybridTimePicker(
+        initial: end,
+        title: 'اختيار وقت النهاية',
+        confirmPeriod: true,
+        initialPeriod: endPeriod,
+      );
+      if (picked != null && mounted) {
+        setState(() {
+          end = DateTime(
+            start.year, start.month, start.day, picked.hour, picked.minute,
+          );
+          if (!end.isAfter(start)) {
+            end = DateTime(
+              start.year, start.month, start.day + 1, picked.hour, picked.minute,
+            );
+          }
+          endTimeController.text = _hm12(end);
+          endPeriod = end.hour < 12 ? 'am' : 'pm';
+          cloudPeriods.removeWhere(
+            (p) => p['start']!.isBefore(start) || p['end']!.isAfter(end),
+          );
+        });
+      }
     } else if (timeStep == 1) {
       final value = _parseTimeMinutes(endTimeController.text);
       if (value == null) {
@@ -4937,14 +4962,16 @@ int? parseClock(String raw) {
     setState(() {
       search = '';
       saved = false;
-      // يبقى التاريخ المختار ثابتاً طوال بقاء شاشة السقاية مفتوحة.
+      // تبدأ السقاية التالية من نهاية السقاية السابقة، بالتاريخ والوقت نفسيهما.
+      // إن لم توجد سقاية سابقة محفوظة، استخدم الوقت الحالي.
       final clock = nextStartFromPreviousEnd ?? AppClock.now();
-      start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, clock.hour, clock.minute);
+      selectedDate = DateTime(clock.year, clock.month, clock.day);
+      start = DateTime(clock.year, clock.month, clock.day, clock.hour, clock.minute);
       end = start.add(const Duration(hours: 1));
       startTimeController.text = _hm12(start);
       endTimeController.text = _hm12(end);
-      startPeriod = null;
-      endPeriod = null;
+      startPeriod = start.hour < 12 ? 'am' : 'pm';
+      endPeriod = end.hour < 12 ? 'am' : 'pm';
       timeStep = 0;
       paid.text = '0';
       cloudPeriods.clear();
