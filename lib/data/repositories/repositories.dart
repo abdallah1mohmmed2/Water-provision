@@ -1926,6 +1926,7 @@ class StationRepository {
             'gross_amount': gross,
             'partner_expenses': personalExpenses,
             // قد تصبح النتيجة سالبة إذا تجاوزت المصروفات الخاصة حصة الشريك.
+            'net_amount': gross - personalExpenses,
             'amount': gross - personalExpenses,
           };
         }).toList();
