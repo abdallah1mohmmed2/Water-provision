@@ -1139,14 +1139,13 @@ void main() {
   test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {
     final repo = StationRepository(db);
     final partnerId = await repo.createPartner(
-      name: 'شريك دورة المصروفات \${DateTime.now().microsecondsSinceEpoch}',
+      name: 'شريك دورة المصروفات ${DateTime.now().microsecondsSinceEpoch}',
       mode: 'shares',
       shares: 1,
     );
     final stationId = await svc.currentStationId();
     final start = DateTime(2028, 1, 1);
     final end = DateTime(2028, 1, 31);
-    final endExclusive = DateTime(2028, 2, 1);
     const seedRevenue = 10000;
     const generalExpenseAmount = 100;
     const partnerExpenseAmount = 250;
@@ -1158,7 +1157,7 @@ void main() {
       "SELECT COALESCE(NULLIF(ledger_account_code,''),'1000') code FROM cashboxes WHERE id=?",
       args: [cashboxId],
     );
-    final cashCode = '\${box.single['code']}';
+    final cashCode = '${box.single['code']}';
     final revenueRows = await db.query(
       "SELECT id FROM accounts WHERE type='revenue' ORDER BY id LIMIT 1",
     );
@@ -1238,12 +1237,14 @@ void main() {
     final afterPrivate = await repo.partnerProfitSummary(from: start, to: end);
     expect(afterPrivate['distributable'], afterGeneral['distributable'],
         reason: 'المصروف الخاص لا يخفض الربح العام ولا يخصم مرتين');
+    final partnerRows = await repo.partners();
+    final partnerName = partnerRows.singleWhere((p) => p['id'] == partnerId)['name'];
     final privateReport = await repo.report(
       'partner_profit_distribution',
       from: start,
       to: end,
     );
-    final privateRow = privateReport.singleWhere((r) => r['name'] == (await repo.partners()).firstWhere((p) => p['id'] == partnerId)['name']);
+    final privateRow = privateReport.singleWhere((r) => r['name'] == partnerName);
     expect(privateRow['partner_expenses'], partnerExpenseAmount);
     expect(privateRow['net_amount'], (privateRow['gross_amount'] as num) - partnerExpenseAmount);
 
