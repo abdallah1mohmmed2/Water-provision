@@ -6,10 +6,12 @@ import 'app_clock.dart';
 /// تفضيلات تُقرأ من جدول الإعدادات وتؤثر على الواجهة كلها:
 /// اسم التطبيق، تقليل الحركة، النوافذ المنبثقة، التنبيهات الصوتية، ومصدر الوقت.
 class AppPrefsData {
-  final String appName;
+  final String appName, themeKey, themeMode;
   final bool reducedMotion, popup, sound;
   const AppPrefsData({
     this.appName = 'ساقية لإدارة محطة ضخ مياه الري',
+    this.themeKey = 'olive',
+    this.themeMode = 'system',
     this.reducedMotion = false,
     this.popup = true,
     this.sound = true,
@@ -27,6 +29,8 @@ class AppPrefs {
     final name = (s['app_name'] ?? '').trim();
     notifier.value = AppPrefsData(
       appName: name.isEmpty ? const AppPrefsData().appName : name,
+      themeKey: (s['theme_key'] ?? 'olive').trim(),
+      themeMode: (s['theme_mode'] ?? 'system').trim(),
       reducedMotion: s['reduced_motion'] == 'true',
       popup: (s['popup_notifications'] ?? 'true') == 'true',
       sound: (s['sound_notifications'] ?? 'true') == 'true',
