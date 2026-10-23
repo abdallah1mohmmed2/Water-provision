@@ -6452,6 +6452,7 @@ class _QueueState extends State<QueueBookingPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       if (!await runGuarded(
         context,
         () => widget.r.updateBookingNotes(
@@ -7537,6 +7538,7 @@ class _CashboxesState extends State<CashboxesPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       if (!await runGuarded(
         context,
         () => widget.r.updateCashbox(
@@ -7624,6 +7626,7 @@ class _CashboxesState extends State<CashboxesPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       if (!await runGuarded(
         context,
         () => widget.r.updatePaymentMethod(
@@ -7716,6 +7719,7 @@ class _CashboxesState extends State<CashboxesPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       if (!await runGuarded(
         context,
         () => widget.r.createPaymentMethod(
@@ -8276,6 +8280,7 @@ class _WorkersState extends State<WorkersPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       if (!await runGuarded(
         context,
         () => widget.r.createWorker(
@@ -8366,6 +8371,7 @@ class _WorkersState extends State<WorkersPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       int? paymentId;
       if (!await runGuarded(
         context,
@@ -8479,6 +8485,7 @@ class _WorkersState extends State<WorkersPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       if (!await runGuarded(context, () => widget.r.updateWorker(x['id'] as int, {
         'name': n.text.trim(),
         'phone': phone.text,
@@ -8514,6 +8521,7 @@ class _WorkersState extends State<WorkersPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       if (!await runGuarded(
         context,
         () => widget.r.deleteWorker(x['id'] as int, widget.userId, r.text),
@@ -8885,6 +8893,7 @@ class _PartnersState extends State<PartnersPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       if (!await runGuarded(
         context,
         () => widget.r.createPartner(
@@ -9116,6 +9125,7 @@ class _PartnersState extends State<PartnersPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       if (!await runGuarded(context, () => widget.r.updatePartner(x['id'] as int, {
         'name': n.text.trim(),
         'phone': phone.text,
@@ -9150,6 +9160,7 @@ class _PartnersState extends State<PartnersPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       if (!await runGuarded(
         context,
         () => widget.r.deletePartner(x['id'] as int, widget.userId, r.text),
