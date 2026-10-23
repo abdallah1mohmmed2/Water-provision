@@ -969,7 +969,7 @@ class ReportService {
                 station: receiptSettings['station_name'] ?? 'محطة ساقية',
                 reportNumber: '#${x['id']}',
                 recordCount: 1,
-                date: AppClock.now(),
+                date: DateTime.tryParse('${x['date']}') ?? AppClock.now(),
                 font: font,
                 bold: bold,
               ),
