@@ -1343,7 +1343,7 @@ void main() {
   });
 
 
-  test('دورة محاسبية كاملة: الإيراد والسقاية والأجور والدفع والإلغاء والتقارير', () async {
+  test('دورة محاسبية كاملة: تسجيل إيراد ثم سقاية وأجور ودفع جزئي وإلغاء مصروف ومطابقة التقارير', () async {
     final repo = StationRepository(db);
     final stationId = await svc.currentStationId();
     final settings = await svc.settings();
@@ -1356,12 +1356,55 @@ void main() {
     const cashboxId = 1;
     const paymentMethodId = 1;
 
-    // عزل الاختبار عن الأطراف النشطة السابقة.
+    // عزل الدورة عن الأطراف النشطة السابقة، ثم إعداد منظومة الاختبار.
     await db.update('workers', {'active': 0}, 'station_id=?', [stationId]);
     await db.update('partners', {'active': 0}, 'station_id=?', [stationId]);
     await db.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
     await db.update('settings', {'value': '100000'}, 'key=?', ['solar_hourly_rate']);
 
+    final summaryBefore = await repo.partnerProfitSummary(from: monthStart, to: monthEnd);
+    final cashBefore = await cashboxBalance(cashboxId);
+    final box = await db.query(
+      "SELECT COALESCE(NULLIF(ledger_account_code,''),'1000') code FROM cashboxes WHERE id=?",
+      args: [cashboxId],
+    );
+    final cashCode = '\${box.single['code']}';
+    final ledgerCashBefore = await accountNet(cashCode);
+    final pnlBeforeRows = await db.query(
+      "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit WHEN a.type='expense' THEN jl.debit-jl.credit ELSE 0 END),0) net FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
+      args: [stationId, monthStart.toIso8601String(), nextMonth.toIso8601String()],
+    );
+    final pnlBefore = (pnlBeforeRows.single['net'] as num).round();
+
+    // أولًا: تسجيل إيراد سقاية محصّل نقدًا قبل تفعيل استحقاقات العمال والشركاء.
+    final revenueBeneficiary = await db.insert('beneficiaries', {
+      'name': 'مستفيد إيراد دورة المحاسبة',
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+    });
+    final revenueIrrigationId = await svc.recordIrrigation(
+      stationId: stationId,
+      pumpId: pumpId,
+      beneficiaryId: revenueBeneficiary,
+      start: operationStart,
+      end: operationStart.add(const Duration(hours: 1)),
+      systemType: 'solar',
+      waterRate: 0,
+      litersPerHour: 0,
+      dieselPrice: 0,
+      solarRate: 0,
+      thirdRate: 0,
+      cloudMinutes: 0,
+      paidAmount: 100000,
+      paymentMethodId: paymentMethodId,
+      cashboxId: cashboxId,
+    );
+    expect(
+      (await db.query('SELECT total_amount,status FROM irrigations WHERE id=?', args: [revenueIrrigationId])).single['total_amount'],
+      100000,
+    );
+
+    // ثانيًا: إنشاء عامل بالساعة وآخر بالنسبة وعامل راتب شهري وشريكين.
     final hourlyWorker = await repo.createWorker(
       name: 'اختبار دورة عامل بالساعة',
       payType: 'hourly',
@@ -1379,33 +1422,19 @@ void main() {
     );
     await repo.createPartner(name: 'اختبار دورة شريك 1', mode: 'shares', shares: 1);
     await repo.createPartner(name: 'اختبار دورة شريك 2', mode: 'shares', shares: 1);
-    final beneficiary = await db.insert('beneficiaries', {
-      'name': 'مستفيد دورة المحاسبة',
+    final irrigationBeneficiary = await db.insert('beneficiaries', {
+      'name': 'مستفيد السقاية الثانية',
       'created_at': now.toIso8601String(),
       'updated_at': now.toIso8601String(),
     });
 
-    final summaryBefore = await repo.partnerProfitSummary(from: monthStart, to: monthEnd);
-    final cashBefore = await cashboxBalance(cashboxId);
-    final box = await db.query(
-      "SELECT COALESCE(NULLIF(ledger_account_code,''),'1000') code FROM cashboxes WHERE id=?",
-      args: [cashboxId],
-    );
-    final cashCode = '${box.single['code']}';
-    final ledgerCashBefore = await accountNet(cashCode);
-    final pnlBeforeRows = await db.query(
-      "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit WHEN a.type='expense' THEN jl.debit-jl.credit ELSE 0 END),0) net FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
-      args: [stationId, monthStart.toIso8601String(), nextMonth.toIso8601String()],
-    );
-    final pnlBefore = (pnlBeforeRows.single['net'] as num).round();
-
-    // تسجيل إيراد سقاية محصل نقدًا بمبلغ 10,000.
+    // ثالثًا: سقاية ثانية؛ تُنشئ استحقاق الساعة 1,000 والنسبة 10,000.
     final irrigationId = await svc.recordIrrigation(
       stationId: stationId,
       pumpId: pumpId,
-      beneficiaryId: beneficiary,
-      start: operationStart,
-      end: operationStart.add(const Duration(hours: 1)),
+      beneficiaryId: irrigationBeneficiary,
+      start: operationStart.add(const Duration(hours: 2)),
+      end: operationStart.add(const Duration(hours: 3)),
       systemType: 'solar',
       waterRate: 0,
       litersPerHour: 0,
@@ -1417,21 +1446,19 @@ void main() {
       paymentMethodId: paymentMethodId,
       cashboxId: cashboxId,
     );
-    final irrigation = (await db.query(
-      'SELECT total_amount,status FROM irrigations WHERE id=?',
-      args: [irrigationId],
-    )).single;
-    expect(irrigation['total_amount'], 100000);
-    expect(irrigation['status'], 'posted');
+    expect(
+      (await db.query('SELECT total_amount,status FROM irrigations WHERE id=?', args: [irrigationId])).single['total_amount'],
+      100000,
+    );
     expect(await glPayable('2100', 'worker_id', hourlyWorker), 1000);
     expect(await glPayable('2100', 'worker_id', percentageWorker), 10000);
 
-    // استحقاق راتب الشهر لا يكرر عند استدعاء الترحيل مرتين.
+    // رابعًا: استحقاق راتب الشهر مرة واحدة فقط.
     expect(await svc.accrueMonthlySalaries(month: monthStart), 1);
     expect(await svc.accrueMonthlySalaries(month: monthStart), 0);
     expect(await glPayable('2100', 'worker_id', monthlyWorker), 1500);
 
-    // دفع جزئي: 300 لعامل الساعة و200 للعامل ذي الراتب الشهري.
+    // خامسًا: دفع جزء من مستحقات عامل الساعة والراتب الشهري.
     await svc.payWorker(
       workerId: hourlyWorker,
       amount: 300,
@@ -1447,13 +1474,13 @@ void main() {
       notes: 'دفعة جزئية ضمن اختبار الدورة',
     );
 
-    // مصروف تجريبي، ثم إلغاؤه والتحقق من رجوع النقد وعكس القيد.
+    // سادسًا: مصروف تجريبي ثم إلغاؤه؛ لا يبقى له أثر نقدي أو على صافي الربح.
     final cashBeforeExpense = await cashboxBalance(cashboxId);
     final expenseId = await svc.addExpense(
       category: 'maintenance',
       title: 'مصروف تجريبي للإلغاء ضمن الدورة',
       amount: 200,
-      date: operationStart.add(const Duration(hours: 2)),
+      date: operationStart.add(const Duration(hours: 4)),
       paymentMethodId: paymentMethodId,
       cashboxId: cashboxId,
       notes: 'اختبار تكامل آلي',
@@ -1466,11 +1493,11 @@ void main() {
       'cancelled',
     );
 
-    // الصندوق والأستاذ: +10,000 إيراد محصل -500 دفعات عمال.
-    expect(await cashboxBalance(cashboxId), cashBefore + 99500);
-    expect((await accountNet(cashCode)) - ledgerCashBefore, 99500);
+    // مطابقة الصندوق مع الأستاذ: قبض 200,000 ناقص دفعات عمال 500.
+    expect(await cashboxBalance(cashboxId), cashBefore + 199500);
+    expect((await accountNet(cashCode)) - ledgerCashBefore, 199500);
 
-    // كشف كل عامل يجب أن يساوي رصيد حسابه في الأستاذ بعد الدفع الجزئي.
+    // مطابقة كشوف العمال مع أرصدة حسابات الالتزامات بعد الدفع الجزئي.
     for (final entry in [
       (hourlyWorker, 700),
       (percentageWorker, 10000),
@@ -1485,10 +1512,9 @@ void main() {
       expect((statement.first['balance'] as num).round(), expected);
     }
 
-    // تقرير الربح والخسارة: الإيراد +100,000، أجور العمال +12,500،
-    // والمصروف الملغى لا يترك أثرًا صافيًا في المصروفات.
+    // مطابقة تقرير الربح والخسارة: إيراد 200,000 وأجور مستحقة 12,500.
     final summaryAfter = await repo.partnerProfitSummary(from: monthStart, to: monthEnd);
-    expect((summaryAfter['revenue'] as num) - (summaryBefore['revenue'] as num), 100000);
+    expect((summaryAfter['revenue'] as num) - (summaryBefore['revenue'] as num), 200000);
     expect((summaryAfter['expenses'] as num), summaryBefore['expenses']);
     expect((summaryAfter['workers'] as num) - (summaryBefore['workers'] as num), 12500);
     final expectedDistributable = (
@@ -1501,9 +1527,9 @@ void main() {
       "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit WHEN a.type='expense' THEN jl.debit-jl.credit ELSE 0 END),0) net FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
       args: [stationId, monthStart.toIso8601String(), nextMonth.toIso8601String()],
     );
-    expect((pnlAfterRows.single['net'] as num).round() - pnlBefore, 87500);
+    expect((pnlAfterRows.single['net'] as num).round() - pnlBefore, 187500);
 
-    // ترحيل التوزيع يعالج الاستحقاقات المباشرة ولا يسمح بتجاوز الربح المتاح.
+    // أخيرًا: ترحيل توزيع الأرباح، مع منع الاستحقاقات المباشرة من تجاوز صافي الربح.
     await svc.distributePartnerProfits(from: monthStart, to: monthEnd, userId: 1);
     final distribution = await repo.report(
       'partner_profit_distribution',
@@ -1511,7 +1537,7 @@ void main() {
       to: monthEnd,
     );
     final selectedRows = distribution
-        .where((row) => '${row['name']}'.startsWith('اختبار دورة شريك '))
+        .where((row) => '\${row['name']}'.startsWith('اختبار دورة شريك '))
         .toList();
     expect(selectedRows.length, 2);
     final grossDistributed = selectedRows.fold<int>(
