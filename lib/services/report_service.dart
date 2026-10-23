@@ -309,15 +309,23 @@ class ReportService {
       ),
     );
 
-    await repo.db.insert('report_runs', {
-      'report_key': key,
-      'filters_json':
-          '{"from":"${from?.toIso8601String()}","to":"${to?.toIso8601String()}","systemType":"$systemType"}',
-      'generated_at': AppClock.now().toIso8601String(),
-      'row_count': rows.length,
-      'duration_ms': AppClock.now().difference(started).inMilliseconds,
-    });
-    return doc.save();
+    final bytes = await doc.save();
+
+    // Audit logging must not prevent an otherwise valid PDF from being printed.
+    // Older local databases may not yet contain the report_runs table.
+    try {
+      await repo.db.insert('report_runs', {
+        'report_key': key,
+        'filters_json':
+            '{"from":"${from?.toIso8601String()}","to":"${to?.toIso8601String()}","systemType":"$systemType"}',
+        'generated_at': AppClock.now().toIso8601String(),
+        'row_count': rows.length,
+        'duration_ms': AppClock.now().difference(started).inMilliseconds,
+      });
+    } catch (_) {
+      // Report generation is independent from optional audit history.
+    }
+    return bytes;
   }
 
   // ملخص بصري على هيئة بطاقات، مع حقول تتغير حسب نوع التقرير.
@@ -1033,8 +1041,10 @@ class ReportService {
     String? category,
     String? status,
     List<Map<String, Object?>>? sourceRows,
-  }) async => Printing.layoutPdf(
-    onLayout: (_) => pdf(
+  }) async {
+    // Generate the document before opening Android's print UI so exceptions
+    // from fonts, data formatting, or PDF layout surface in the calling screen.
+    final bytes = await pdf(
       key,
       from: from,
       to: to,
@@ -1047,6 +1057,12 @@ class ReportService {
       category: category,
       status: status,
       sourceRows: sourceRows,
-    ),
-  );
+    );
+    if (bytes.isEmpty) {
+      throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');
+    }
+    await Printing.layoutPdf(
+      onLayout: (_) async => bytes,
+    );
+  }
 }
