@@ -7440,23 +7440,33 @@ class _PaymentsState extends State<PaymentsPage> {
           onChanged: (v) => setState(() => q = v),
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search),
-            labelText: 'بحث بالطرف أو طريقة الدفع أو الصندوق',
+            labelText: 'بحث بالطرف أو المرجع أو المبلغ أو التاريخ أو الملاحظات',
+            hintText: 'اكتب الاسم أو رقم المرجع أو المبلغ أو جزءاً من التاريخ',
           ),
         ),
         Expanded(
           child: ListView(
             children: [
-              for (final x in rows.where(
-                (x) =>
-                    x[switch (target) {
-                          'worker' => 'worker_id',
-                          'partner' => 'partner_id',
-                          _ => 'beneficiary_id',
-                        }] !=
-                        null &&
-                    '${x['party_name']} ${x['method_name']} ${x['cashbox_name']}'
-                        .contains(q),
-              ))
+              for (final x in rows.where((x) {
+                final partyId = x[switch (target) {
+                  'worker' => 'worker_id',
+                  'partner' => 'partner_id',
+                  _ => 'beneficiary_id',
+                }];
+                final searchText = [
+                  x['party_name'],
+                  x['method_name'],
+                  x['cashbox_name'],
+                  x['reference_number'],
+                  x['amount'],
+                  money(x['amount']),
+                  x['date'],
+                  x['notes'],
+                  statusName(x['status']),
+                ].map((value) => value?.toString() ?? '').join(' ').toLowerCase();
+                return partyId != null &&
+                    searchText.contains(q.trim().toLowerCase());
+              }))
                 Card(
                   child: ListTile(
                     title: Text('${x['party_name']}'),
