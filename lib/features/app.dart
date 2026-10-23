@@ -141,7 +141,7 @@ List<Widget> methodCashboxFields({
   final linked = sel?['cashbox_id'] != null;
   return [
     DropdownButtonFormField<int>(
-      value: method,
+      initialValue: method,
       items: [
         for (final x in methods)
           DropdownMenuItem(value: x['id'] as int, child: Text('${x['name']}')),
@@ -161,7 +161,7 @@ List<Widget> methodCashboxFields({
       )
     else
       DropdownButtonFormField<int>(
-        value: cb,
+        initialValue: cb,
         items: [
           for (final x in cash)
             DropdownMenuItem(
@@ -5374,7 +5374,7 @@ int? parseClock(String raw) {
     width: 270,
     child: DropdownButtonFormField<T>(
       // Flutter يرمي assertion إن لم تطابق القيمة عنصرًا واحدًا بالضبط.
-      value: items.where((i) => i.value == value).length == 1 ? value : null,
+      initialValue: items.where((i) => i.value == value).length == 1 ? value : null,
       items: items,
       onChanged: f,
       decoration: InputDecoration(labelText: label, hintText: 'اختر $label'),
@@ -5673,7 +5673,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
               SizedBox(
                 width: 200,
                 child: DropdownButtonFormField<String>(
-                  value: type,
+                  initialValue: type,
                   items: const [
                     DropdownMenuItem(value: null, child: Text('كل المنظومات')),
                     DropdownMenuItem(value: 'diesel', child: Text('ديزل')),
@@ -5693,7 +5693,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
               SizedBox(
                 width: 240,
                 child: DropdownButtonFormField<int>(
-                  value: bid,
+                  initialValue: bid,
                   items: [
                     const DropdownMenuItem<int>(
                       value: null,
@@ -5911,7 +5911,7 @@ class _SessionsState extends State<SessionsPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<int>(
-                  value: b,
+                  initialValue: b,
                   items: [
                     for (final x in bs)
                       DropdownMenuItem(
@@ -5923,7 +5923,7 @@ class _SessionsState extends State<SessionsPage> {
                   decoration: const InputDecoration(labelText: 'المستفيد'),
                 ),
                 DropdownButtonFormField<int>(
-                  value: queueType == 'booking' ? bookId : queueId,
+                  initialValue: queueType == 'booking' ? bookId : queueId,
                   items: [
                     const DropdownMenuItem<int>(
                       value: null,
@@ -6000,7 +6000,7 @@ class _SessionsState extends State<SessionsPage> {
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('إنهاء جلسة السقي'),
           content: DropdownButtonFormField<int>(
-            value: operatorWorkerId,
+            initialValue: operatorWorkerId,
             items: [
               const DropdownMenuItem<int>(value: null, child: Text('بدون عامل منفذ')),
               ...ws.map((w) => DropdownMenuItem<int>(
@@ -6233,7 +6233,7 @@ class _QueueState extends State<QueueBookingPage> {
         builder: (c, s) => AlertDialog(
           title: const Text('إضافة إلى الدور'),
           content: DropdownButtonFormField<int>(
-            value: id,
+            initialValue: id,
             items: [
               for (final x in bs)
                 DropdownMenuItem(
@@ -6275,7 +6275,7 @@ class _QueueState extends State<QueueBookingPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<int>(
-                value: id,
+                initialValue: id,
                 items: [
                   for (final x in bs)
                     DropdownMenuItem(
@@ -6329,7 +6329,7 @@ class _QueueState extends State<QueueBookingPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: st,
+                initialValue: st,
                 items: const [
                   DropdownMenuItem(
                     value: 'scheduled',
@@ -6790,7 +6790,7 @@ class _DieselState extends State<DieselPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
-                  value: kind,
+                  initialValue: kind,
                   items: const [
                     DropdownMenuItem(
                       value: 'receipt',
@@ -6814,7 +6814,7 @@ class _DieselState extends State<DieselPage> {
                 ),
                 if (kind == 'delivery' || kind == 'advance')
                   DropdownButtonFormField<int>(
-                    value: bid,
+                    initialValue: bid,
                     items: [
                       for (final x in bs)
                         DropdownMenuItem(
@@ -6827,7 +6827,7 @@ class _DieselState extends State<DieselPage> {
                   ),
                 if (kind == 'receipt')
                   DropdownButtonFormField<int>(
-                    value: cb,
+                    initialValue: cb,
                     items: [
                       for (final x in cs)
                         DropdownMenuItem(
@@ -7119,7 +7119,7 @@ class _PaymentsState extends State<PaymentsPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
-                  value: target,
+                  initialValue: target,
                   items: const [
                     DropdownMenuItem(
                       value: 'beneficiary',
@@ -7144,7 +7144,7 @@ class _PaymentsState extends State<PaymentsPage> {
                   decoration: const InputDecoration(labelText: 'الطرف'),
                 ),
                 DropdownButtonFormField<int>(
-                  value: party,
+                  initialValue: party,
                   items: [
                     for (final x
                         in (target == 'beneficiary'
@@ -7453,7 +7453,7 @@ class _CashboxesState extends State<CashboxesPage> {
               decoration: const InputDecoration(labelText: 'اسم الصندوق *'),
             ),
             DropdownButtonFormField<String>(
-              value: ledger,
+              initialValue: ledger,
               items: const [
                 DropdownMenuItem(
                   value: 'cash',
@@ -7569,7 +7569,7 @@ class _CashboxesState extends State<CashboxesPage> {
               decoration: const InputDecoration(labelText: 'اسم طريقة الدفع *'),
             ),
             DropdownButtonFormField<String>(
-              value: type,
+              initialValue: type,
               items: [
                 for (final t in [
                   'cash',
@@ -7592,7 +7592,7 @@ class _CashboxesState extends State<CashboxesPage> {
               decoration: const InputDecoration(labelText: 'اسم البنك'),
             ),
             DropdownButtonFormField<int>(
-              value: boxes.any((e) => e['id'] == cb) ? cb : null,
+              initialValue: boxes.any((e) => e['id'] == cb) ? cb : null,
               items: [
                 for (final e in boxes)
                   DropdownMenuItem(
@@ -7661,7 +7661,7 @@ class _CashboxesState extends State<CashboxesPage> {
               decoration: const InputDecoration(labelText: 'اسم طريقة الدفع *'),
             ),
             DropdownButtonFormField<String>(
-              value: type,
+              initialValue: type,
               items: const [
                 DropdownMenuItem(value: 'cash', child: Text('نقدي')),
                 DropdownMenuItem(value: 'check', child: Text('شيك')),
@@ -7684,7 +7684,7 @@ class _CashboxesState extends State<CashboxesPage> {
               decoration: const InputDecoration(labelText: 'اسم البنك'),
             ),
             DropdownButtonFormField<int>(
-              value: cb,
+              initialValue: cb,
               items: [
                 for (final x in boxes)
                   DropdownMenuItem(
@@ -7735,7 +7735,7 @@ class _CashboxesState extends State<CashboxesPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<int>(
-                value: f,
+                initialValue: f,
                 items: [
                   for (final x in boxes)
                     DropdownMenuItem(
@@ -7747,7 +7747,7 @@ class _CashboxesState extends State<CashboxesPage> {
                 decoration: const InputDecoration(labelText: 'من صندوق'),
               ),
               DropdownButtonFormField<int>(
-                value: t,
+                initialValue: t,
                 items: [
                   for (final x in boxes)
                     DropdownMenuItem(
@@ -7971,7 +7971,7 @@ class _ExpensesState extends State<ExpensesPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: cat,
+                initialValue: cat,
                 items: [
                   for (final x in [
                     'workers',
@@ -8209,7 +8209,7 @@ class _WorkersState extends State<WorkersPage> {
                 ),
               ),
               DropdownButtonFormField<String>(
-                value: type,
+                initialValue: type,
                 items: const [
                   DropdownMenuItem(value: 'fixed', child: Text('راتب ثابت')),
                   DropdownMenuItem(value: 'hourly', child: Text('بالساعة')),
@@ -8300,7 +8300,7 @@ class _WorkersState extends State<WorkersPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<String>(
-                value: type,
+                initialValue: type,
                 items: const [
                   DropdownMenuItem(
                     value: 'accrual',
@@ -8313,7 +8313,7 @@ class _WorkersState extends State<WorkersPage> {
               ),
               if (type == 'payment' && methods.isNotEmpty)
                 DropdownButtonFormField<int>(
-                  value: pm,
+                  initialValue: pm,
                   items: [
                     for (final m in methods)
                       DropdownMenuItem(
@@ -8413,7 +8413,7 @@ class _WorkersState extends State<WorkersPage> {
                 decoration: const InputDecoration(labelText: 'الهاتف'),
               ),
               DropdownButtonFormField<String>(
-                value: type,
+                initialValue: type,
                 items: const [
                   DropdownMenuItem(value: 'fixed', child: Text('راتب ثابت')),
                   DropdownMenuItem(value: 'hourly', child: Text('بالساعة')),
@@ -8822,7 +8822,7 @@ class _PartnersState extends State<PartnersPage> {
                 ),
               ),
               DropdownButtonFormField<String>(
-                value: mode,
+                initialValue: mode,
                 items: const [
                   DropdownMenuItem(
                     value: 'percentage',
@@ -9056,7 +9056,7 @@ class _PartnersState extends State<PartnersPage> {
                 decoration: const InputDecoration(labelText: 'الهاتف'),
               ),
               DropdownButtonFormField<String>(
-                value: mode,
+                initialValue: mode,
                 items: const [
                   DropdownMenuItem(
                     value: 'percentage',
@@ -9875,7 +9875,7 @@ class _LedgerState extends State<LedgerPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           DropdownButtonFormField<String>(
-            value: hasCode ? code : null,
+            initialValue: hasCode ? code : null,
             isExpanded: true,
             items: [
               for (final a in accounts)
