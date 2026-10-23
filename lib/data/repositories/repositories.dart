@@ -1705,17 +1705,14 @@ class StationRepository {
         {
           final a = <Object?>[];
           var w = "i.status!='cancelled'";
-          // بعض السجلات القديمة قد تحمل i.date بتنسيق لا تفهمه SQLite date().
-          // استخدم تاريخ العملية أولًا، واسمح بوقت البداية كبديل حتى لا تختفي
-          // السقايات القديمة من التقرير بسبب اختلاف تنسيق التاريخ فقط.
+          // استخدم تاريخ العملية إن كان SQLite يستطيع قراءته، وإلا فارجع
+          // إلى start_datetime. طبّق حدّي الفترة على التاريخ الفعلي نفسه.
           if (from != null) {
-            w += ' AND (date(i.date)>=date(?) OR date(i.start_datetime)>=date(?))';
-            a.add(from.toIso8601String());
+            w += ' AND COALESCE(date(i.date), date(i.start_datetime))>=date(?)';
             a.add(from.toIso8601String());
           }
           if (to != null) {
-            w += ' AND (date(i.date)<=date(?) OR date(i.start_datetime)<=date(?))';
-            a.add(to.toIso8601String());
+            w += ' AND COALESCE(date(i.date), date(i.start_datetime))<=date(?)';
             a.add(to.toIso8601String());
           }
           if (beneficiaryId != null) { w += ' AND i.beneficiary_id=?'; a.add(beneficiaryId); }
