@@ -128,7 +128,21 @@ class ReportService {
     if (sourceHeaders.isEmpty && rows.isNotEmpty) {
       sourceHeaders.addAll(rows.first.keys.take(8));
     }
-    final headers = sourceHeaders.map((header) => _shapeArabic(_fieldName(header))).toList();
+    final headers = sourceHeaders.map((header) {
+      final label = key == 'irrigations'
+          ? ({
+              'party_name': 'الجهة',
+              'start_datetime': 'من',
+              'end_datetime': 'إلى',
+              'minutes': 'المدة',
+              'paid_amount': 'المدفوع',
+              'total_amount': 'المبلغ',
+              'cloud_minutes': 'الغيم',
+              'cloud_status': 'حالة الخصم',
+            }[header] ?? _fieldName(header))
+          : _fieldName(header);
+      return _shapeArabic(label);
+    }).toList();
     final data = rows
         .map(
           (row) => sourceHeaders
