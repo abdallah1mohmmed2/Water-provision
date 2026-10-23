@@ -1482,7 +1482,7 @@ void main() {
       expect(await glPayable('2100', 'worker_id', workerId), expected);
       final statement = await repo.workerTransactions(workerId);
       expect(statement, isNotEmpty);
-      expect((statement.last['balance'] as num).round(), expected);
+      expect((statement.first['balance'] as num).round(), expected);
     }
 
     // تقرير الربح والخسارة: الإيراد +100,000، أجور العمال +12,500،
