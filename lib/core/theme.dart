@@ -38,11 +38,11 @@ class SaqiaTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: const Color(0xfff7f7f1),
       appBarTheme: const AppBarTheme(
-        backgroundColor: const Color(0xfff7f7f1),
-        foregroundColor: const Color(0xff253023),
+        backgroundColor: Color(0xfff7f7f1),
+        foregroundColor: Color(0xff253023),
         elevation: 0,
         centerTitle: false,
-        titleTextStyle: const TextStyle(
+        titleTextStyle: TextStyle(
           color: Color(0xff253023),
           fontSize: 19,
           fontWeight: FontWeight.w800,
