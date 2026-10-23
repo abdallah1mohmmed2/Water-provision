@@ -9893,11 +9893,26 @@ class _LedgerState extends State<LedgerPage> {
                 children: [
                   Expanded(
                     child: Text(
-                      '${x['description']}',
-                      style: const TextStyle(fontWeight: FontWeight.w900),
+                      '${x['description'] ?? x['memo'] ?? 'حركة محاسبية'}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14,
+                        height: 1.25,
+                        color: Theme.of(c).colorScheme.onSurface,
+                      ),
                     ),
                   ),
-                  Text(_fmtLedgerDate(x['date']), style: muted),
+                  const SizedBox(width: 8),
+                  Text(
+                    _fmtLedgerDate(x['date']),
+                    style: TextStyle(
+                      color: Theme.of(c).colorScheme.onSurface,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
@@ -9921,11 +9936,17 @@ class _LedgerState extends State<LedgerPage> {
                 spacing: 18,
                 runSpacing: 4,
                 children: [
-                  Text('عليه ${d > 0 ? money(d) : '—'}'),
-                  Text('له ${cr > 0 ? money(cr) : '—'}'),
                   Text(
-                    'الرصيد: ${_drLabel((x['balance'] as num?)?.round() ?? 0)}',
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                    'عليه: ${d > 0 ? money(d) : '—'}',
+                    style: const TextStyle(color: _reportOrange, fontWeight: FontWeight.w800, fontSize: 12),
+                  ),
+                  Text(
+                    'له: ${cr > 0 ? money(cr) : '—'}',
+                    style: const TextStyle(color: _reportGreen, fontWeight: FontWeight.w800, fontSize: 12),
+                  ),
+                  Text(
+                    'الرصيد الجاري: ${_drLabel((x['balance'] as num?)?.round() ?? 0)}',
+                    style: TextStyle(color: Theme.of(c).colorScheme.onSurface, fontWeight: FontWeight.w900, fontSize: 13),
                   ),
                 ],
               ),
