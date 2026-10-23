@@ -317,7 +317,7 @@ class StationRepository {
     int? beneficiaryId,
   }) async {
     final currentType = (await settings())['system_type'] ?? 'diesel';
-    systemType = currentType;
+    systemType ??= currentType;
     final args = <Object?>[];
     var w = "i.status!='cancelled'";
     if (from != null) {
