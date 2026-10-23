@@ -3936,6 +3936,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   DateTime selectedDate = DateTime(AppClock.now().year, AppClock.now().month, AppClock.now().day);
   String? startPeriod;
   String? endPeriod;
+  // لا يُحدَّد زر فترة البداية عند فتح الشاشة؛ يبقى الاختيار محفوظاً حتى dispose.
+  bool isStartSelected = false;
   int timeStep = 0;
   bool managerOverride = false,
       loading = true,
@@ -4628,8 +4630,64 @@ int? parseClock(String raw) {
   String _oppositePeriod(String period) => period == 'am' ? 'pm' : 'am';
 
   void _ensureStartPeriodSelected() {
-    // الاختيار الأول يُحفظ في State ولا يُعاد إلى null بسبب setState أو build.
+    // يختار الفترة تلقائياً عند أول تفاعل فقط، ولا يُصفّرها setState أو build.
     startPeriod ??= start.hour < 12 ? 'am' : 'pm';
+    isStartSelected = true;
+  }
+
+  /// يختار وقت البداية ثم يفتح لاقط وقت النهاية مباشرةً دون الرجوع للشاشة.
+  Future<void> pickStartAndThenEnd() async {
+    final previousEnd = nextStartFromPreviousEnd;
+    final initialStart = previousEnd ?? start;
+    final pickedStart = await _showHybridTimePicker(
+      initial: initialStart,
+      title: 'اختيار وقت البداية',
+      confirmPeriod: true,
+      initialPeriod: startPeriod ?? (initialStart.hour < 12 ? 'am' : 'pm'),
+    );
+    if (!mounted || pickedStart == null) return;
+
+    final chosenStart = DateTime(
+      selectedDate.year, selectedDate.month, selectedDate.day,
+      pickedStart.hour, pickedStart.minute,
+    );
+    final defaultEnd = chosenStart.add(const Duration(hours: 1));
+    setState(() {
+      start = chosenStart;
+      startTimeController.text = _hm12(chosenStart);
+      startPeriod = chosenStart.hour < 12 ? 'am' : 'pm';
+      isStartSelected = true;
+      end = defaultEnd;
+      endTimeController.text = _hm12(defaultEnd);
+      endPeriod = defaultEnd.hour < 12 ? 'am' : 'pm';
+      timeStep = 1;
+    });
+
+    final pickedEnd = await _showHybridTimePicker(
+      initial: defaultEnd,
+      title: 'اختيار وقت النهاية',
+      confirmPeriod: true,
+      initialPeriod: endPeriod,
+    );
+    if (!mounted || pickedEnd == null) return;
+
+    setState(() {
+      end = DateTime(
+        start.year, start.month, start.day,
+        pickedEnd.hour, pickedEnd.minute,
+      );
+      if (!end.isAfter(start)) {
+        end = DateTime(
+          start.year, start.month, start.day + 1,
+          pickedEnd.hour, pickedEnd.minute,
+        );
+      }
+      endTimeController.text = _hm12(end);
+      endPeriod = end.hour < 12 ? 'am' : 'pm';
+      cloudPeriods.removeWhere(
+        (p) => p['start']!.isBefore(start) || p['end']!.isAfter(end),
+      );
+    });
   }
 
   void _updateEndPeriodFromTime() {
@@ -4994,9 +5052,8 @@ int? parseClock(String raw) {
       end = start.add(const Duration(hours: 1));
       startTimeController.text = _hm12(start);
       endTimeController.text = _hm12(end);
-      // لا تُصفّر اختيار زر بداية الوقت داخل عمر الشاشة؛ يبقى الاختيار حتى dispose.
-      // عند أول دخول فقط تكون startPeriod فارغة، وتُحدد عند أول تفاعل مع وقت البداية.
-      startPeriod ??= start.hour < 12 ? 'am' : 'pm';
+      // لا تُصفّر isStartSelected أو startPeriod أثناء عمر الشاشة.
+      // تُهيّأ فترة النهاية فقط، ويظل زر البداية على حالته السابقة حتى dispose.
       endPeriod = end.hour < 12 ? 'am' : 'pm';
       timeStep = 0;
       paid.text = '0';
@@ -5208,20 +5265,12 @@ int? parseClock(String raw) {
                   Row(children: [
                     SizedBox(width: 240, child: TextField(controller: startTimeController, keyboardType: TextInputType.datetime, onTap: () { if (startPeriod == null) setState(_ensureStartPeriodSelected); }, onChanged: (_) { if (startPeriod == null) setState(_ensureStartPeriodSelected); }, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '08:30'))),
                     IconButton(tooltip: 'لاقط وقت هجين للبداية', icon: const Icon(Icons.schedule), onPressed: () async {
-                      final value = _parseTimeMinutes(startTimeController.text);
-                      final hour24 = value == null ? start.hour : _to24Hour(value, startPeriod ?? (start.hour < 12 ? 'am' : 'pm'));
-                      final picked = await _showHybridTimePicker(initial: DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour24, value == null ? start.minute : value % 60), title: 'اختيار وقت البداية', confirmPeriod: true, initialPeriod: startPeriod);
-                      if (picked != null) {
-                        setState(() {
-                        startTimeController.text = '${(picked.hour % 12 == 0 ? 12 : picked.hour % 12).toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-                        startPeriod = picked.hour < 12 ? 'am' : 'pm'; _updateEndPeriodFromTime();
-                      });
-                      }
+                      await pickStartAndThenEnd();
                     }),
                   ]),
                   Wrap(spacing: 8, children: [
-                    ChoiceChip(label: const Text('صباحاً'), selected: startPeriod == 'am', onSelected: (_) => setState(() { startPeriod = 'am'; _updateEndPeriodFromTime(); })),
-                    ChoiceChip(label: const Text('مساءً'), selected: startPeriod == 'pm', onSelected: (_) => setState(() { startPeriod = 'pm'; _updateEndPeriodFromTime(); })),
+                    ChoiceChip(label: const Text('صباحاً'), selected: isStartSelected && startPeriod == 'am', onSelected: (_) => setState(() { isStartSelected = true; startPeriod = 'am'; _updateEndPeriodFromTime(); })),
+                    ChoiceChip(label: const Text('مساءً'), selected: isStartSelected && startPeriod == 'pm', onSelected: (_) => setState(() { isStartSelected = true; startPeriod = 'pm'; _updateEndPeriodFromTime(); })),
                   ]),
                   const SizedBox(height: 10),
                   Align(
