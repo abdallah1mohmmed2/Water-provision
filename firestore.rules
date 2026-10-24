@@ -6,8 +6,20 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // The bootstrap administrator is pinned to one Auth UID. Email verification is
+    // required; changing this UID requires a reviewed rules deployment.
+    function isSuperAdmin() {
+      return signedIn()
+        && request.auth.uid == 'wvzNFQ3S8mbH7jwszcvErj2kUv82'
+        && request.auth.token.email_verified == true;
+    }
+
     function membershipPath(stationId) {
       return /databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(stationId);
+    }
+
+    function accessRequestPath(uid) {
+      return /databases/$(database)/documents/accessRequests/$(uid);
     }
 
     function hasMembership(stationId) {
@@ -38,25 +50,156 @@ service cloud.firestore {
       return hasRole(stationId, ['manager', 'accountant']);
     }
 
-    match /users/{uid} {
-      allow read: if signedIn() && request.auth.uid == uid;
-      allow update: if signedIn()
+    function validRole(role) {
+      return role in [
+        'manager', 'accountant', 'operations',
+        'beneficiary', 'partner', 'worker'
+      ];
+    }
+
+    function needsSubject(role) {
+      return role in ['beneficiary', 'partner', 'worker'];
+    }
+
+    function subjectExists(stationId, role, subjectId) {
+      return (role == 'beneficiary'
+          && exists(/databases/$(database)/documents/stations/$(stationId)/beneficiaries/$(subjectId)))
+        || (role == 'partner'
+          && exists(/databases/$(database)/documents/stations/$(stationId)/partners/$(subjectId)))
+        || (role == 'worker'
+          && exists(/databases/$(database)/documents/stations/$(stationId)/workers/$(subjectId)));
+    }
+
+    function validMembership(data, stationId) {
+      return data.keys().hasAll(['role', 'active', 'assignedAt', 'assignedBy'])
+        && data.keys().hasOnly([
+          'role', 'active', 'subjectId', 'assignedAt', 'assignedBy'
+        ])
+        && validRole(data.role)
+        && data.active is bool
+        && data.assignedAt == request.time
+        && data.assignedBy == request.auth.uid
+        && (needsSubject(data.role)
+          ? ('subjectId' in data
+            && data.subjectId is string
+            && data.subjectId.size() > 0
+            && data.subjectId.size() <= 128
+            && subjectExists(stationId, data.role, data.subjectId))
+          : !('subjectId' in data));
+    }
+
+    match /accessRequests/{uid} {
+      allow read: if isSuperAdmin()
+        || (signedIn() && request.auth.uid == uid);
+
+      allow create: if signedIn()
         && request.auth.uid == uid
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string
+        && request.resource.data.keys().hasAll([
+          'email', 'displayName', 'status', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'email', 'displayName', 'status', 'createdAt'
+        ])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 120
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time;
+
+      // Keep a minimal decision record; clients cannot approve or edit role/station.
+      allow update: if isSuperAdmin()
+        && resource.data.status == 'pending'
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['displayName', 'preferredLanguage', 'updatedAt'])
-        && request.resource.data.updatedAt == request.time;
-      allow create, delete: if false;
+          .hasOnly(['status', 'reviewedAt', 'reviewedBy'])
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.reviewedAt == request.time
+        && request.resource.data.reviewedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if isSuperAdmin()
+        || (signedIn() && request.auth.uid == uid);
+
+      allow create: if isSuperAdmin()
+        && exists(accessRequestPath(uid))
+        && getAfter(accessRequestPath(uid)).data.status == 'approved'
+        && request.resource.data.keys().hasAll([
+          'email', 'displayName', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'email', 'displayName', 'createdAt'
+        ])
+        && request.resource.data.email == get(accessRequestPath(uid)).data.email
+        && request.resource.data.displayName == get(accessRequestPath(uid)).data.displayName
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if (
+          isSuperAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['displayName', 'updatedAt'])
+          && request.resource.data.displayName is string
+          && request.resource.data.displayName.size() <= 120
+          && request.resource.data.updatedAt == request.time
+        ) || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['displayName', 'preferredLanguage', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time
+        );
+
+      allow delete: if false;
 
       match /memberships/{stationId} {
-        allow read: if signedIn() && request.auth.uid == uid;
-        // Role, station, subject mapping, and activation are provisioned out of band.
-        allow write: if false;
+        allow read: if isSuperAdmin()
+          || (signedIn() && request.auth.uid == uid);
+
+        allow create: if isSuperAdmin()
+          && exists(accessRequestPath(uid))
+          && getAfter(accessRequestPath(uid)).data.status == 'approved'
+          && exists(/databases/$(database)/documents/stations/$(stationId))
+          && validMembership(request.resource.data, stationId);
+
+        allow update: if isSuperAdmin()
+          && exists(/databases/$(database)/documents/stations/$(stationId))
+          && validMembership(request.resource.data, stationId);
+
+        // Deactivate through the validated active=false update; preserve auditability.
+        allow delete: if false;
       }
     }
 
     match /stations/{stationId} {
-      allow read: if hasMembership(stationId);
-      allow write: if false;
+      allow read: if isSuperAdmin() || hasMembership(stationId);
+
+      allow create: if isSuperAdmin()
+        && request.resource.data.keys().hasAll([
+          'name', 'active', 'createdAt', 'createdBy'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'name', 'active', 'createdAt', 'createdBy'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.active == true
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.createdBy == request.auth.uid;
+
+      allow update: if isSuperAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['name', 'active', 'updatedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time;
+
+      // Station deletion can orphan memberships and records, so it is never client-writable.
+      allow delete: if false;
 
       match /beneficiaries/{beneficiaryId} {
         allow read: if canReadFinance(stationId)

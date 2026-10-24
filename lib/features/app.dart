@@ -19,6 +19,7 @@ import '../services/backup_service.dart';
 import '../services/report_service.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
+import 'cloud_admin_portal.dart';
 
 const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
 
@@ -536,6 +537,18 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
                         )).then((_) => _load()),
                         icon: const Icon(Icons.settings_outlined),
                         label: const Text('إعدادات التأمين'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: busy
+                            ? null
+                            : () => Navigator.push(
+                                c,
+                                MaterialPageRoute(
+                                  builder: (_) => const CloudAdminEntryPage(),
+                                ),
+                              ),
+                        icon: const Icon(Icons.cloud_outlined),
+                        label: const Text('دخول الإدارة السحابية'),
                       ),
                       const SizedBox(height: 4),
                       Text('يُحفظ رمز التأمين محليًا على هذا الجهاز ولا يُرسل إلى الخادم.',

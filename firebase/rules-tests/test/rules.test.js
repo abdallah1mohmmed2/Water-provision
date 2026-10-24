@@ -18,9 +18,11 @@ import {
   setDoc,
   Timestamp,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 
 const projectId = 'demo-saqia-rules-tests';
+const rootAdminUid = 'wvzNFQ3S8mbH7jwszcvErj2kUv82';
 const rules = readFileSync(new URL('../../../firestore.rules', import.meta.url), 'utf8');
 let testEnv;
 
@@ -33,14 +35,16 @@ const actors = {
   worker: 'user-worker',
   otherStationManager: 'user-other-station-manager',
   disabledManager: 'user-disabled-manager',
+  applicant: 'user-applicant',
+  secondApplicant: 'user-second-applicant',
 };
 
 function stationDoc(db, path) {
   return doc(db, `stations/station-a/${path}`);
 }
 
-function signedIn(uid) {
-  return testEnv.authenticatedContext(uid).firestore();
+function signedIn(uid, claims = {}) {
+  return testEnv.authenticatedContext(uid, claims).firestore();
 }
 
 before(async () => {
@@ -125,6 +129,18 @@ before(async () => {
         createdAt: Timestamp.now(),
       }),
       setDoc(doc(db, 'stations/station-b/beneficiaries/secret'), { name: 'سر' }),
+      setDoc(doc(db, `accessRequests/${actors.applicant}`), {
+        email: 'applicant@example.com',
+        displayName: 'مستخدم منتظر',
+        status: 'pending',
+        createdAt: Timestamp.now(),
+      }),
+      setDoc(doc(db, `accessRequests/${actors.secondApplicant}`), {
+        email: 'second@example.com',
+        displayName: 'مستخدم ثان',
+        status: 'pending',
+        createdAt: Timestamp.now(),
+      }),
     ]);
   });
 });
@@ -270,4 +286,170 @@ test('unauthenticated access and client deletes are denied', async () => {
   }));
   await assertFails(deleteDoc(stationDoc(db, 'beneficiaries/beneficiary-1')));
   await assertFails(getDocs(query(collection(db, 'stations/station-a/ledgerEntries'))));
+});
+
+test('verified users can request access but cannot choose a role or station', async () => {
+  const applicantDb = signedIn(actors.applicant, {
+    email: 'applicant@example.com',
+    email_verified: true,
+  });
+  const requestRef = doc(applicantDb, `accessRequests/${actors.applicant}`);
+  await assertSucceeds(getDoc(requestRef));
+  await assertFails(updateDoc(requestRef, { status: 'approved' }));
+  await assertFails(setDoc(doc(
+    applicantDb,
+    `users/${actors.applicant}/memberships/station-a`,
+  ), { role: 'manager', active: true }));
+
+  const unverifiedDb = signedIn('user-unverified', {
+    email: 'unverified@example.com',
+    email_verified: false,
+  });
+  await assertFails(setDoc(doc(unverifiedDb, 'accessRequests/user-unverified'), {
+    email: 'unverified@example.com',
+    displayName: 'غير موثق',
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  }));
+
+  await assertFails(setDoc(doc(applicantDb, 'accessRequests/spoofed'), {
+    email: 'victim@example.com',
+    displayName: 'بريد مزور',
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  }));
+  await assertFails(setDoc(doc(applicantDb, 'accessRequests/role-injection'), {
+    email: 'applicant@example.com',
+    displayName: 'طلب غير صالح',
+    status: 'pending',
+    role: 'manager',
+    stationId: 'station-a',
+    createdAt: serverTimestamp(),
+  }));
+});
+
+test('verified fixed superadmin can create stations and atomically approve valid memberships', async () => {
+  const adminDb = signedIn(rootAdminUid, {
+    email: 'owner@example.com',
+    email_verified: true,
+  });
+  await assertSucceeds(setDoc(doc(adminDb, 'stations/station-new'), {
+    name: 'محطة جديدة',
+    active: true,
+    createdAt: serverTimestamp(),
+    createdBy: rootAdminUid,
+  }));
+  await assertFails(deleteDoc(doc(adminDb, 'stations/station-new')));
+  await assertFails(getDoc(stationDoc(adminDb, 'payments/payment-1')));
+
+  const applicantProfile = doc(adminDb, `users/${actors.applicant}`);
+  const applicantMembership = doc(
+    adminDb,
+    `users/${actors.applicant}/memberships/station-a`,
+  );
+  const applicantRequest = doc(adminDb, `accessRequests/${actors.applicant}`);
+  const batch = writeBatch(adminDb);
+  batch.set(applicantProfile, {
+    email: 'applicant@example.com',
+    displayName: 'مستخدم منتظر',
+    createdAt: serverTimestamp(),
+  });
+  batch.set(applicantMembership, {
+    role: 'beneficiary',
+    active: true,
+    subjectId: 'beneficiary-1',
+    assignedAt: serverTimestamp(),
+    assignedBy: rootAdminUid,
+  });
+  batch.update(applicantRequest, {
+    status: 'approved',
+    reviewedAt: serverTimestamp(),
+    reviewedBy: rootAdminUid,
+  });
+  await assertSucceeds(batch.commit());
+
+  const applicantDb = signedIn(actors.applicant, {
+    email: 'applicant@example.com',
+    email_verified: true,
+  });
+  await assertSucceeds(getDoc(doc(
+    applicantDb,
+    `users/${actors.applicant}/memberships/station-a`,
+  )));
+  await assertSucceeds(getDoc(doc(applicantDb, 'stations/station-a/beneficiaries/beneficiary-1')));
+  await assertFails(getDoc(doc(applicantDb, 'stations/station-a/payments/payment-1')));
+
+  const missingSubjectBatch = writeBatch(adminDb);
+  missingSubjectBatch.set(doc(adminDb, `users/${actors.secondApplicant}`), {
+    email: 'second@example.com',
+    displayName: 'مستخدم ثان',
+    createdAt: serverTimestamp(),
+  });
+  missingSubjectBatch.set(doc(
+    adminDb,
+    `users/${actors.secondApplicant}/memberships/station-a`,
+  ), {
+    role: 'beneficiary',
+    active: true,
+    subjectId: 'missing-beneficiary',
+    assignedAt: serverTimestamp(),
+    assignedBy: rootAdminUid,
+  });
+  missingSubjectBatch.update(doc(adminDb, `accessRequests/${actors.secondApplicant}`), {
+    status: 'approved',
+    reviewedAt: serverTimestamp(),
+    reviewedBy: rootAdminUid,
+  });
+  await assertFails(missingSubjectBatch.commit());
+
+  const invalidRoleBatch = writeBatch(adminDb);
+  invalidRoleBatch.set(doc(adminDb, `users/${actors.secondApplicant}`), {
+    email: 'second@example.com',
+    displayName: 'مستخدم ثان',
+    createdAt: serverTimestamp(),
+  });
+  invalidRoleBatch.set(doc(
+    adminDb,
+    `users/${actors.secondApplicant}/memberships/station-a`,
+  ), {
+    role: 'superadmin',
+    active: true,
+    assignedAt: serverTimestamp(),
+    assignedBy: rootAdminUid,
+  });
+  invalidRoleBatch.update(doc(adminDb, `accessRequests/${actors.secondApplicant}`), {
+    status: 'approved',
+    reviewedAt: serverTimestamp(),
+    reviewedBy: rootAdminUid,
+  });
+  await assertFails(invalidRoleBatch.commit());
+
+  await assertSucceeds(updateDoc(applicantMembership, {
+    active: false,
+    assignedAt: serverTimestamp(),
+    assignedBy: rootAdminUid,
+  }));
+  await assertFails(getDoc(doc(applicantDb, 'stations/station-a/beneficiaries/beneficiary-1')));
+});
+
+test('non-admins and unverified superadmin cannot provision stations or memberships', async () => {
+  const regularDb = signedIn(actors.manager);
+  await assertFails(setDoc(doc(regularDb, 'stations/forged-station'), {
+    name: 'محطة مزورة',
+    active: true,
+    createdAt: serverTimestamp(),
+    createdBy: actors.manager,
+  }));
+
+  const unverifiedAdminDb = signedIn(rootAdminUid, {
+    email: 'owner@example.com',
+    email_verified: false,
+  });
+  await assertFails(getDocs(collection(unverifiedAdminDb, 'accessRequests')));
+  await assertFails(setDoc(doc(unverifiedAdminDb, 'stations/unverified-station'), {
+    name: 'مرفوضة',
+    active: true,
+    createdAt: serverTimestamp(),
+    createdBy: rootAdminUid,
+  }));
 });
