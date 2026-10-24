@@ -10132,7 +10132,7 @@ class _LedgerState extends State<LedgerPage> {
               for (final a in accounts)
                 DropdownMenuItem(
                   value: '${a['code']}',
-                  child: Text('${a['code']} • ${a['name']}'),
+                  child: Text('${a['parent_id'] == null ? '' : '↳ '}${a['code']} • ${a['name']}'),
                 ),
             ],
             onChanged: (v) {
