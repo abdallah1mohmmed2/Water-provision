@@ -1549,4 +1549,39 @@ void main() {
     expect(selectedRows.every((row) => (row['net_amount'] as num) >= 0), isTrue);
   });
 
+  test('تدقيق شجرة الحسابات يكشف الحلقة والنوع غير الصحيح ويحفظ علاقة الأب', () async {
+    final repo = StationRepository(db);
+    final parent = await db.insert('accounts', {
+      'code': 'TEST-TREE-PARENT',
+      'name': 'حساب أب للاختبار',
+      'type': 'asset',
+    });
+    final child = await db.insert('accounts', {
+      'parent_id': parent,
+      'code': 'TEST-TREE-CHILD',
+      'name': 'حساب فرعي للاختبار',
+      'type': 'liability',
+    });
+    final invalidType = await db.insert('accounts', {
+      'code': 'TEST-TREE-BADTYPE',
+      'name': 'نوع غير صالح للاختبار',
+      'type': 'not-a-ledger-type',
+    });
+    await db.update('accounts', {'parent_id': child}, 'id=?', [parent]);
+
+    final accounts = await repo.accounts();
+    final childRow = accounts.firstWhere((row) => row['id'] == child);
+    expect(childRow['parent_id'], parent);
+    expect(childRow['parent_code'], 'TEST-TREE-PARENT');
+
+    final issues = await repo.accountTreeIssues();
+    expect(issues.any((issue) => issue.contains('حلقة')), isTrue);
+    expect(issues.any((issue) => issue.contains('نوع حساب غير صالح: TEST-TREE-BADTYPE')), isTrue);
+
+    await db.update('accounts', {'parent_id': null}, 'id=?', [parent]);
+    await db.delete('accounts', 'id=?', [child]);
+    await db.delete('accounts', 'id=?', [invalidType]);
+    await db.delete('accounts', 'id=?', [parent]);
+  });
+
 }
