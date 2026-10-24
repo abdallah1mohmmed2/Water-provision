@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import '../core/app_clock.dart';
 import '../core/app_prefs.dart';
 import '../core/period_ranges.dart';
@@ -11132,7 +11133,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   }
 
   Widget _summaryCard(String title, String value, IconData icon, Color color, int delay) =>
-      Expanded(child: AnimatedContainer(
+      AnimatedContainer(
         duration: Duration(milliseconds: 280 + delay * 80),
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.all(14),
@@ -11152,7 +11153,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
             Text(value, style: const TextStyle(color: _reportInk, fontSize: 15, fontWeight: FontWeight.w900), maxLines: 2, overflow: TextOverflow.ellipsis),
           ])),
         ]),
-      ));
+      );
 
   void _sort(int column, bool ascendingValue) {
     const keys = ['invoice_id', 'party_name', 'start_datetime', 'end_datetime', 'minutes', 'total_amount', 'paid_amount', 'notes'];
@@ -11211,7 +11212,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           _summaryCard('القيمة الإجمالية', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 1),
                           _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 2),
                         ];
-                        if (!compact) return Row(children: [cards[0], const SizedBox(width: 9), cards[1], const SizedBox(width: 9), cards[2]]);
+                        if (!compact) return Row(children: [Expanded(child: cards[0]), const SizedBox(width: 9), Expanded(child: cards[1]), const SizedBox(width: 9), Expanded(child: cards[2])]);
                         return Column(children: [for (final card in cards) Padding(padding: const EdgeInsets.only(bottom: 8), child: card)]);
                       }),
                       const SizedBox(height: 8),
