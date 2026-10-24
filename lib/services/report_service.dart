@@ -999,20 +999,20 @@ class ReportService {
   }
 
   String _partyDueLabel(int balance) => balance > 0
-      ? 'له ${NumberFormat('#,##0', 'ar').format(balance)} ريال'
+      ? 'له ${NumberFormat('#,##0').format(balance)} ريال'
       : balance < 0
-      ? 'عليه ${NumberFormat('#,##0', 'ar').format(balance.abs())} ريال'
+      ? 'عليه ${NumberFormat('#,##0').format(balance.abs())} ريال'
       : 'متوازن';
 
   String _balanceLabel(int balance) => balance > 0
-      ? 'عليه ${NumberFormat('#,##0', 'ar').format(balance)} ريال'
+      ? 'عليه ${NumberFormat('#,##0').format(balance)} ريال'
       : balance < 0
-      ? 'له ${NumberFormat('#,##0', 'ar').format(balance.abs())} ريال'
+      ? 'له ${NumberFormat('#,##0').format(balance.abs())} ريال'
       : 'متوازن';
 
   String _format(Object? value) {
     if (value == null) return '-';
-    if (value is num) return NumberFormat('#,##0.##', 'ar').format(value);
+    if (value is num) return NumberFormat('#,##0.##').format(value);
     return '$value';
   }
 
