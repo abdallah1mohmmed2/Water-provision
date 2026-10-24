@@ -374,9 +374,12 @@ class ReportService {
         ? sumOf('total')
         : sumOf('amount');
     final cards = <List<String>>[
-      ['عدد السجلات', _format(rows.length)],
+      if (rows.isNotEmpty && rows.first.containsKey('minutes'))
+        ['إجمالي السقوات', _format(rows.length)],
       if (rows.any((row) => row.containsKey('minutes')))
         ['إجمالي الدقائق', '${_format(sumOf('minutes'))} دقيقة'],
+      if (!(rows.isNotEmpty && rows.first.containsKey('minutes')))
+        ['عدد السجلات', _format(rows.length)],
       if (rows.any((row) => row.containsKey('cloud_minutes')))
         ['إجمالي الغيم', '${_format(sumOf('cloud_minutes'))} دقيقة'],
       if (rows.any(
