@@ -1,36 +1,85 @@
-# SAQIA REST server (current implementation)
+# خادم ساقية REST — الحالة الحالية
 
-This package is a standalone Dart Shelf API backed by a pre-provisioned SQLite database. It is **not** a Firebase Functions/Cloud Run service and is not currently wired into the main Flutter admin application. Keep the local application/database as the source of truth until the documented API parity, authorization, and migration work is complete.
+هذا المجلد يحتوي خادمًا مستقلًا مبنيًا بـDart وShelf، ويستخدم ملف SQLite موجودًا مسبقًا. الخادم ليس Firebase Cloud Functions أو Cloud Run، ولا يتحقق من Firebase ID tokens، كما أن تطبيق Flutter الحالي غير موصول بمساراته. بوابة إدارة Firebase التي أضيفت للتطبيق تستخدم Firebase Auth وFirestore مباشرة؛ وهي منفصلة عن هذا الخادم.
 
-## Local startup
+**هذا التنفيذ ليس جاهزًا للنشر العام أو للاعتماد عليه مصدرًا مركزيًا للبيانات المالية.** صُمم أصلًا لتشغيل محلي/محطة واحدة، وما زالت مطابقة قواعد المحاسبة، وعزل المحطات، والمصادقة، وخطة ترحيل البيانات بحاجة إلى مراجعة واختبارات مستقلة. لا تنقل بيانات الإنتاج إليه ولا تفتح منفذه على الإنترنت.
 
-From the `server/` directory, provide a fresh, private JWT signing secret of at least 32 characters before starting the process:
+## المعمارية والملفات
+
+- `bin_server.dart`: يقرأ متغيرات البيئة، يفتح قاعدة SQLite، ثم يشغّل Shelf على جميع واجهات IPv4.
+- `lib/server.dart`: تعريف مسارات REST ومنطق الأعمال الحالي. يستخدم استعلامات SQLite مباشرة.
+- `lib/server_config.dart`: يرفض بدء التشغيل إن غاب `SAQIA_JWT_SECRET` أو كان أقصر من 32 حرفًا. هذا فحص طول فقط ولا يثبت أن القيمة عشوائية.
+- `lib/storage/storage_contract.dart`: واجهة مستقبلية صغيرة فقط؛ لا يستخدمها `server.dart` حاليًا، وليست محولًا جاهزًا إلى MySQL أو PostgreSQL.
+- `test/server_test.dart`: اختبارات إعداد المفتاح وبعض سلوك التوجيه والمصادقة، وليست اختبارات تكافؤ للمحاسبة أو لكل مسار.
+
+تفاصيل المسارات والأدوار موثقة في [مرجع API](API.md). تنطبق الأدوار على بوابة الخادم الحالية فقط، ولا تعني أن جميع الاستعلامات قد خضعت لتدقيق متعدد المحطات.
+
+## المتطلبات والتشغيل المحلي
+
+يلزم Dart SDK 3.3 أو أحدث، ومكتبة SQLite النظامية التي يستخدمها `sqlite3` عبر FFI. على Ubuntu يمكن تثبيت المكتبة بالأمر:
 
 ```bash
-export SAQIA_JWT_SECRET="$(openssl rand -base64 48)"
-export SAQIA_DB="../saqia_station_v2.db"
-export PORT="8080"
+sudo apt-get update
+sudo apt-get install -y libsqlite3-dev
+```
+
+من جذر المستودع شغّل:
+
+```bash
+cd server
 dart pub get
+export SAQIA_DB="$(pwd)/../saqia_station_v2.db"
+export SAQIA_JWT_SECRET="$(openssl rand -base64 48)"
+export PORT="8080"
 dart run bin_server.dart
 ```
 
-Do not commit the generated secret, put it in a client app, or use a shared example value. The server now exits before opening the database when `SAQIA_JWT_SECRET` is missing or too short. Store production secrets in the deployment environment's secret manager. `SAQIA_DB` must point to a compatible database; the server does not currently provision or migrate its schema on startup.
+هذا المثال يولّد سرًا مؤقتًا لهذه الجلسة. في أي تشغيل مستمر احفظ سرًا عشوائيًا ثابتًا في مدير أسرار موثوق، ولا تعِد توليده عند كل إعادة تشغيل؛ تغيير السر يبطل رموز JWT الصادرة سابقًا. لا تضعه في Flutter أو Git أو ملف عام.
 
-## Important deployment limits
+تحقّق من وجود قاعدة البيانات الصحيحة قبل التشغيل. القيمة الافتراضية لـ`SAQIA_DB` هي `../saqia_station_v2.db` نسبةً إلى مجلد العمل. يستخدم الخادم `sqlite3.open` ولا ينشئ المخطط ولا يشغّل migrations؛ وقد ينشئ SQLite ملفًا جديدًا فارغًا إذا كان المسار خاطئًا. التشغيل على ملف فارغ أو غير متوافق سيفشل لاحقًا عند تنفيذ الاستعلامات.
 
-- The current implementation uses direct SQLite queries and was designed for single-station/offline operation. It is not a safe multi-tenant or horizontal-scale deployment as-is.
-- The server uses custom JWT authentication, not Firebase Authentication ID-token verification. No Firestore adapter or Firebase Admin SDK integration exists.
-- Do not expose the listener directly to the public internet. A reviewed TLS/proxy, rate limiting, request-size limits, database backup/restore procedure, station scoping, and production secret management are still required.
-- OTP delivery to beneficiaries requires a real messaging provider; the current request-code handler does not send SMS.
-- The current server's accounting operations are not yet fully equivalent to `lib/domain/accounting/accounting_service.dart`; do not use it as the authoritative financial write path until parity tests pass.
-
-## Tests
-
-Run the server behavior tests from this directory:
+يستمع الخادم افتراضيًا على المنفذ `8080` وعلى `0.0.0.0`، أي على جميع واجهات IPv4 للجهاز. حتى في الاختبار المحلي، راجع إعدادات جدار الحماية كي لا يصبح متاحًا لأجهزة غير مقصودة. يمكن اختبار نقطة الوقت العامة محليًا:
 
 ```bash
-dart pub get
+curl -i http://127.0.0.1:8080/api/v1/time
+```
+
+## متغيرات البيئة
+
+| المتغير | إلزامي؟ | الافتراضي | الغرض والقيود |
+|---|---|---|---|
+| `SAQIA_JWT_SECRET` | نعم | لا يوجد | سر توقيع JWT؛ يقبل الخادم أي نص غير فارغ طوله 32 حرفًا على الأقل. استخدم سرًا عشوائيًا قويًا واحفظه خارج المستودع. |
+| `SAQIA_DB` | لا | `../saqia_station_v2.db` | مسار قاعدة SQLite موجودة ومتوافقة. لا توجد تهيئة أو ترقية تلقائية للمخطط. |
+| `PORT` | لا | `8080` | منفذ HTTP؛ لا يوفّر الخادم TLS بنفسه. |
+| `SAQIA_DEV_OTP` | لا | غير مفعّل | عند ضبطه حرفيًا على `true` يعيد مسار طلب رمز المستفيد الرمز في استجابة JSON. للتطوير المحلي فقط؛ لا تفعّله على خادم متاح عبر الشبكة. |
+
+## المصادقة وسلوك الرموز
+
+يسجّل دخول المدير عبر `POST /api/v1/auth/login` باستخدام اسم مستخدم وكلمة مرور موجودين مسبقًا في جدول `app_users`. لا يوفّر هذا الخادم مسارًا لإنشاء مستخدمين أو ربطهم بحساب Firebase. يقارن التنفيذ الحالي كلمة المرور باستخدام SHA-256 مباشرة؛ لا يستخدم KDF مخصصًا لكلمات المرور أو salt خاصًا بكل مستخدم، ولا توجد حماية عامة من محاولات تسجيل الدخول المتكررة. تعامل مع ذلك كقيد أمني قائم، لا كتوصية لتخزين كلمات المرور.
+
+يعيد تسجيل الدخول JWT صالحًا لمدة 12 ساعة. ترسل الطلبات المحمية الرمز هكذا: `Authorization: Bearer <token>`. يعتمد التحقق على السر المشترك والدور الموجود في الرمز. لا توجد جلسة إدارية مخزنة قابلة للإلغاء لكل رمز؛ تدوير المفتاح يبطل الرموز الموقعة بالمفتاح السابق.
+
+تسجيل المستفيد منفصل: ينشئ `POST /api/v1/beneficiary/request-code` رمزًا عشوائيًا صالحًا لعشر دقائق ويحفظ بصمته في SQLite، لكنه **لا يرسل SMS أو بريدًا**. لا يمكن استخدام المسار لتسجيل دخول فعلي حتى يضاف موفر توصيل موثوق وضوابط إساءة الاستخدام. الرمز يظهر في الاستجابة فقط عند تفعيل `SAQIA_DEV_OTP=true`، ولذلك يجب إبقاء هذا الخيار معطلًا على أي جهاز متاح عبر الشبكة. يقبل مسار الجلسة خمس محاولات للرمز، ثم يصدر رمز جلسة للمستفيد صالحًا 12 ساعة.
+
+## الاختبارات
+
+من داخل `server/`:
+
+```bash
+dart analyze
 dart test
 ```
 
-The server package needs a system SQLite shared library available to `sqlite3` FFI (on Ubuntu runners, install `libsqlite3-dev`).
+الاختبارات الحالية تتحقق من رفض السر المفقود أو القصير، وقبول السر بعد إزالة الفراغات، وإتاحة نقطة الوقت، ورفض المسارات المحمية دون رمز أو مع دور غير مسموح. لا تغطي حاليًا جميع أجسام الطلبات، أو كل صلاحيات المحطات، أو سلامة العمليات المالية، أو الاستعادة من النسخ الاحتياطية، أو تكافؤ قواعد الأعمال مع التطبيق.
+
+## مخاطر وحدود يجب حلها قبل أي نشر
+
+1. **لا تعرض الخادم مباشرة للإنترنت.** المستمع HTTP على جميع واجهات IPv4. يلزم على الأقل TLS عبر إعداد مُراجع، وجدار حماية، وتحديد معدل الطلبات وأحجامها، ومراقبة، وتخزين أسرار مناسب، وإجراء نسخ احتياطي واستعادة مجرّب.
+2. **لا تعتبره متعدد المحطات جاهزًا.** يحمل JWT رقم المحطة، لكن الشيفرة والاستعلامات الحالية لا تطبق عزل المحطات بصورة موحّدة في كل المسارات. كما أن قيمة المحطة الاحتياطية في الشيفرة هي `1` عند غياب claim؛ لا تعتمد على هذا السلوك كضابط أمني.
+3. **لا تعتمد عليه لمسار مالي إنتاجي.** توجد عمليات محاسبية في الخادم، لكن لم يثبت تكافؤها مع منطق Flutter المحلي ولم تُختبر كل السيناريوهات والمعاملات معًا. أبقِ SQLite المحلي مصدر البيانات الحالي إلى أن تنجح مراجعة تكافؤ وخطة ترحيل آمنة.
+4. **المصادقة ليست Firebase.** لا يتحقق الخادم من Firebase ID token، ولا توجد إدارة هوية مشتركة بين Firebase Auth ومستخدمي `app_users`.
+5. **الرمز المؤقت غير موصول بمزود إرسال.** لا تستخدم `SAQIA_DEV_OTP=true` خارج التطوير المحلي، ولا تعتبر رمز التطوير تحققًا آمنًا لهوية المستفيد.
+6. **النسخ والاستعادة يحتاجان مراجعة.** مسارا المدير يقبلان مسارًا للنسخ الاحتياطي وملف SQLite مرمّزًا بـBase64 للاستعادة. فحص الاستعادة يتحقق من ترويسة SQLite وبعض الجداول المطلوبة فقط؛ ليس بديلًا عن اختبار سلامة كامل. لا تفعّل هذين المسارين على خدمة عامة قبل تقييد مسارات الملفات والتحقق من الصلاحيات وخطة الاستعادة.
+7. **عقد التخزين ليس محولًا جاهزًا.** يلزم تنفيذ مخطط migrations ومخزن معاملات حقيقي يضمن عزل المحطات والأرقام المالية الدقيقة قبل الانتقال إلى قاعدة خادم.
+
+راجع [خطة بنية Spark](../docs/FREE_PLAN_ARCHITECTURE.md) لفصل ما يمكن إدارته مباشرة عبر Firestore عمّا يحتاج خادمًا موثوقًا. لا يستخدم هذا الخادم Firebase Functions أو Cloud Run، ولا يغيّر خطة Firebase.
