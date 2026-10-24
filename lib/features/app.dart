@@ -9961,6 +9961,7 @@ class _LedgerState extends State<LedgerPage> {
   String code = '1000';
   List<Map<String, Object?>> accounts = [];
   List<Map<String, Object?>> rows = [];
+  List<String> accountIssues = [];
   int opening = 0, totalDebit = 0, totalCredit = 0, closing = 0;
   DateTime? from, to;
   bool loading = true;
@@ -9977,9 +9978,11 @@ class _LedgerState extends State<LedgerPage> {
   Future<void> _init() async {
     try {
       final a = await widget.r.accounts();
+      final issues = await widget.r.accountTreeIssues();
       if (!mounted) return;
       setState(() {
         accounts = a;
+        accountIssues = issues;
         if (a.isNotEmpty && !a.any((x) => x['code'] == code)) {
           code = '${a.first['code']}';
         }
@@ -10142,6 +10145,26 @@ class _LedgerState extends State<LedgerPage> {
             },
             decoration: const InputDecoration(labelText: 'الحساب'),
           ),
+          if (accountIssues.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Card(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('تنبيه: توجد مشكلات في شجرة الحسابات', style: TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    for (final issue in accountIssues.take(8))
+                      Text('• $issue'),
+                    if (accountIssues.length > 8)
+                      Text('ومشكلات أخرى: ${accountIssues.length - 8}'),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           _DateRangeBar(
             from: from,
