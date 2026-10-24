@@ -1436,8 +1436,43 @@ class StationRepository {
     }).toList().reversed.toList();
   }
 
-  Future<List<Map<String, Object?>>> accounts() =>
-      db.rawQuery('SELECT code,name,type FROM accounts ORDER BY code');
+  /// حسابات الأستاذ مع بيانات الأب حتى يمكن عرض الحسابات الفرعية ضمن شجرتها.
+  Future<List<Map<String, Object?>>> accounts() => db.rawQuery(
+        'SELECT a.id,a.parent_id,a.code,a.name,a.type,p.code parent_code '
+        'FROM accounts a LEFT JOIN accounts p ON p.id=a.parent_id ORDER BY a.code',
+      );
+
+  /// تدقيق بنية شجرة الحسابات دون تغيير بياناتها.
+  /// يكشف البيانات القديمة غير السليمة حتى لو كانت قيود المفاتيح الأجنبية معطلة.
+  Future<List<String>> accountTreeIssues() async {
+    const allowedTypes = {'asset', 'liability', 'equity', 'revenue', 'expense'};
+    final rows = await db.rawQuery('SELECT id,parent_id,code,name,type FROM accounts ORDER BY code');
+    final byId = <int, Map<String, Object?>>{
+      for (final row in rows) (row['id'] as num).toInt(): row,
+    };
+    final issues = <String>[];
+    for (final row in rows) {
+      final id = (row['id'] as num).toInt();
+      final code = '${row['code']}';
+      final type = '${row['type']}';
+      if (!allowedTypes.contains(type)) issues.add('نوع حساب غير صالح: $code ($type)');
+      final rawParent = row['parent_id'];
+      if (rawParent != null && !byId.containsKey((rawParent as num).toInt())) {
+        issues.add('حساب أب غير موجود: $code');
+      }
+      final path = <int>{id};
+      var parent = rawParent == null ? null : (rawParent as num).toInt();
+      while (parent != null && byId.containsKey(parent)) {
+        if (!path.add(parent)) {
+          issues.add('حلقة في شجرة الحسابات عند: $code');
+          break;
+        }
+        final next = byId[parent]!['parent_id'];
+        parent = next == null ? null : (next as num).toInt();
+      }
+    }
+    return issues;
+  }
 
   Future<Map<String, Object?>> ledgerStatement(
     String accountCode, {
