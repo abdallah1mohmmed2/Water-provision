@@ -35,3 +35,23 @@ jobs:
 
       - name: Analyze ALL project source (الفحص الشامل لكل شيء)
         run: flutter analyze .
+
+  firestore-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: firebase/rules-tests/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install rule-test dependencies
+        working-directory: firebase/rules-tests
+        run: npm ci
+      - name: Test Firestore rules in local emulator
+        working-directory: firebase/rules-tests
+        run: npm test

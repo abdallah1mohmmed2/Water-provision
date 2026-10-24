@@ -50,7 +50,7 @@ The API has no route for server-side Firebase ID token verification, `/sync`, Fi
 - Multi-station scoping is inconsistent. Examples include unscoped dashboard, irrigation/session/queue/booking/payment/diesel/expense/journal/ledger/report reads and ID-based mutations without `_requireOwn`; see `server/lib/server.dart:108-110,116,123-124,126,144,146-152,154-186`.
 - `_body` converts malformed JSON and non-map bodies into `{}` (`server/lib/server.dart:79`), and there is no general body-size limit, pagination contract, or API-wide exception mapper. Some error responses include exception text.
 - `lib/api/api_client.dart:21-27` hardcodes `X-Station-Id: 1`; the server derives station from a JWT claim instead. The current main admin app does not construct this client, so that mismatch is not proof of active integration.
-- There is no checked-in Firestore rules or index file, and no Firestore database is set up in the observed console state. No client-side Firestore access was found in repository source.
+- At the initial audit, there were no checked-in Firestore rules or index files and no Firestore client access. The Spark-constrained follow-up now adds local rules and Emulator tests; the production Firestore database remains uncreated.
 
 ## 4. Business and financial compatibility constraints
 
@@ -64,11 +64,11 @@ Some business policies remain expressly unresolved in project docs, including di
 
 - Repository app config registers Android package `com.saqia.saqia_station` under Firebase project `water-provision` (`android/app/google-services.json`, `lib/firebase_options.dart`, `android/app/build.gradle.kts`). The Firebase client API key in these config files is public client configuration, not a service-account secret; it should still have appropriate API restrictions and is not an authorization boundary.
 - `firebase_core` is the only Firebase runtime dependency in `pubspec.yaml`; no `firebase_auth`, Firestore, Functions, Admin SDK, or App Check integration was found.
-- No `firebase.json`, `.firebaserc`, `firestore.rules`, `firestore.indexes.json`, Functions source tree, service deployment manifest, or Firebase deploy workflow is checked in.
+- At initial audit, there was no `firebase.json`, `.firebaserc`, `firestore.rules`, `firestore.indexes.json`, Functions source tree, service deployment manifest, or Firebase deploy workflow. The follow-up adds only `firebase.json` for local Emulator rules testing and a rules-test package; no Firebase deploy workflow or production target is configured.
 - Console read-only checks: plan is Spark; Firestore displays **Create database**; Authentication displays **Get started**; Functions indicates a billing account/Blaze plan is required; Hosting displays **Get started**. No production deployment or billing change was made.
 - Console pages inspected: [Firestore](https://console.firebase.google.com/project/water-provision/firestore), [Authentication](https://console.firebase.google.com/project/water-provision/authentication), [Functions](https://console.firebase.google.com/project/water-provision/functions), and [Hosting](https://console.firebase.google.com/project/water-provision/hosting).
 - No Firebase CLI, Flutter SDK, or `gcloud` executable was available at initial inspection. A Dart SDK was provisioned temporarily for local server-package testing; that does not grant access to Firebase project data or permit deployment.
-- GitHub CI now also installs the native SQLite library and runs the server behavioral tests; the pre-existing Flutter job still runs one accounting integration test and `flutter analyze`. Flutter runtime tests/builds were not claimed by current project status docs.
+- GitHub CI now installs the native SQLite library and runs server behavioral tests, and has a separate local Firestore Emulator rules-test job. The Flutter job still runs one accounting integration test and `flutter analyze`. Flutter runtime tests/builds were not claimed by current project status docs.
 
 ## 6. Test and build inventory
 
@@ -98,3 +98,9 @@ CI workflows are described in `.github/workflows/analyze.yml`, `.github/workflow
 | Production deployment, data migration, Firebase billing/rules changes | Not performed. |
 | Server behavioral test coverage | Added; `dart analyze` reports no issues and all 6 `dart test` tests pass locally. CI is updated to run them. |
 | Flutter runtime/build validation | Not available because Flutter SDK is not installed in the current environment. |
+
+## 9. Spark-constrained follow-up
+
+After the user required strict Spark-only operation, this branch added `firestore.rules`, a local-only `firebase.json`, `firebase/rules-tests/`, and `docs/FREE_PLAN_ARCHITECTURE.md`. The rules deny unauthenticated access, prevent client role/station assignment, restrict data by active station membership, distinguish manager/accountant/operations/beneficiary/partner/worker, and deny all direct writes to financial and ledger collections. A beneficiary may create/cancel only their own constrained booking request; manager/operations may perform a narrow review transition; only managers may publish announcements. Operations read a separate operational-profile path so full beneficiary/worker/partner documents can remain restricted.
+
+Rules tests run only against the Firebase Emulator under `demo-saqia-rules-tests`; 9 tests pass locally, including role reads/writes, cross-station denial, role escalation denial, and financial-write denial. This is not a deployment: production Firestore is still uncreated, Authentication remains unconfigured, no rules were published, no external hosting account was created, and no billing account was linked. The database region remains a required user decision because it is immutable after database creation. Read the architecture document for free-hosting constraints and the functions that remain unsafe without a trusted API.
