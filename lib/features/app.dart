@@ -9993,6 +9993,24 @@ class _LedgerState extends State<LedgerPage> {
     await load();
   }
 
+  String _accountIndent(Map<String, Object?> account) {
+    final byId = <int, Map<String, Object?>>{
+      for (final item in accounts)
+        if (item['id'] is num) (item['id'] as num).toInt(): item,
+    };
+    final visited = <int>{};
+    var parent = account['parent_id'] is num
+        ? (account['parent_id'] as num).toInt()
+        : null;
+    var depth = 0;
+    while (parent != null && byId.containsKey(parent) && visited.add(parent)) {
+      depth++;
+      final next = byId[parent]!['parent_id'];
+      parent = next is num ? next.toInt() : null;
+    }
+    return depth == 0 ? '' : '${List.filled(depth, '  ').join()}↳ ';
+  }
+
   Future<void> load() async {
     // رقم الطلب يتجاهل أي استجابة قديمة عند التبديل السريع بين الحسابات/التواريخ.
     final seq = ++_seq;
@@ -10120,7 +10138,7 @@ class _LedgerState extends State<LedgerPage> {
           label: const Text('طباعة كشف الحساب'),
         ),
         OutlinedButton.icon(
-          onPressed: loading ? null : load,
+          onPressed: loading ? null : _init,
           icon: const Icon(Icons.refresh),
           label: const Text('تحديث'),
         ),
@@ -10135,7 +10153,7 @@ class _LedgerState extends State<LedgerPage> {
               for (final a in accounts)
                 DropdownMenuItem(
                   value: '${a['code']}',
-                  child: Text('${a['parent_id'] == null ? '' : '↳ '}${a['code']} • ${a['name']}'),
+                  child: Text('${_accountIndent(a)}${a['code']} • ${a['name']}'),
                 ),
             ],
             onChanged: (v) {
