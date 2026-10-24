@@ -84,12 +84,12 @@ class SaqiaServer {
   Handler _auth(FutureOr<Response> Function(Request,Map<String,dynamic>) fn,{Set<String> roles=const{}})=>(Request r) async { final c=_verify(r); if(c==null)return _json({'error':'جلسة غير صالحة'},status:401); if(roles.isNotEmpty&&!roles.contains('${c['role']}'))return _json({'error':'لا تملك صلاحية تنفيذ العملية'},status:403); return fn(r,c); };
   Handler _beneficiaryAuth(FutureOr<Response> Function(Request,Map<String,dynamic>) fn)=>(Request r) async { final c=_verify(r); if(c==null||c['kind']!='beneficiary')return _json({'error':'جلسة المستفيد غير صالحة'},status:401); final exp=db.select('SELECT id FROM beneficiary_sessions WHERE beneficiary_id=? AND token_hash=? AND revoked_at IS NULL AND expires_at>? LIMIT 1',[c['beneficiaryId'],c['session'],DateTime.now().toIso8601String()]); if(exp.isEmpty)return _json({'error':'جلسة المستفيد منتهية'},status:401); return fn(r,c); };
 
-  void _journal({required String description, required String referenceType, int? referenceId, required List<Map<String,Object?>> lines, int? userId}) {
+  void _journal({required String description, required String referenceType, int? referenceId, required List<Map<String,Object?>> lines, int? userId, int? stationId}) {
     final debit=lines.fold<int>(0,(s,x)=>s+((x['debit'] as num?)?.round()??0));
     final credit=lines.fold<int>(0,(s,x)=>s+((x['credit'] as num?)?.round()??0));
     if(debit<=0 || debit!=credit) throw StateError('القيد غير متوازن');
     final now=DateTime.now().toIso8601String();
-    db.execute('INSERT INTO journal_entries(date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?)',[now,referenceType,referenceId,description,'posted',userId,now]);
+    db.execute('INSERT INTO journal_entries(station_id,date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',[stationId,now,referenceType,referenceId,description,'posted',userId,now]);
     final id=db.lastInsertRowId;
     for(final line in lines){db.execute('INSERT INTO journal_lines(journal_entry_id,account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo) VALUES(?,?,?,?,?,?,?,?)',[id,line['account_id'],line['beneficiary_id'],line['worker_id'],line['partner_id'],line['debit'],line['credit'],line['memo']]);}
   }
@@ -153,12 +153,76 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
   Future<Response> _bookingCancel(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);db.execute("UPDATE booking_requests SET status='cancelled',cancel_reason=?,reviewed_by=?,reviewed_at=? WHERE id=?",[b['reason'],c['userId'],DateTime.now().toIso8601String(),id]);return _json({'ok':true});}
 
   Future<Response> _payments(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT p.*,COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,pm.name method_name,c.name cashbox_name FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN cashboxes c ON c.id=p.cashbox_id ORDER BY p.date DESC')));
-  Future<Response> _paymentCreateUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final station=_stationId(c);_requireOwn('cashboxes',(b['cashbox_id'] as num?)?.toInt()??1,station,'الصندوق');_requireOwn('payment_methods',(b['payment_method_id'] as num?)?.toInt()??1,station,'طريقة الدفع');if(b['beneficiary_id']!=null)_requireOwn('beneficiaries',(b['beneficiary_id'] as num).toInt(),station,'المستفيد');if(b['worker_id']!=null)_requireOwn('workers',(b['worker_id'] as num).toInt(),station,'العامل');if(b['partner_id']!=null)_requireOwn('partners',(b['partner_id'] as num).toInt(),station,'الشريك');final amount=(b['amount'] as num?)?.round()??0;if(amount<=0)return _json({'error':'المبلغ يجب أن يكون أكبر من صفر'},status:422);final now=DateTime.now().toIso8601String();db.execute('INSERT INTO payments(beneficiary_id,partner_id,worker_id,amount,date,payment_method_id,cashbox_id,reference_number,notes,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[b['beneficiary_id'],b['partner_id'],b['worker_id'],amount,now,b['payment_method_id']??1,b['cashbox_id']??1,b['reference_number'],b['notes'],'posted',c['userId']]); final paymentId=db.lastInsertRowId; db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=?',[amount,b['cashbox_id']??1]);
-    final party=(b['beneficiary_id']!=null)?'1200':(b['partner_id']!=null)?'2200':'2100';
-    final method=db.select('SELECT ledger_account_code,type FROM payment_methods WHERE id=? LIMIT 1',[b['payment_method_id']??1]).first;
-    final code='${method['ledger_account_code']??((method['type']=='bank_transfer')?'1100':(method['type']=='wallet')?'1120':'1000')}';
-    _journal(description:'تسجيل دفعة',referenceType:'payment',referenceId:paymentId,lines:[{'account_id':_accountId(code),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':amount,'credit':0},{'account_id':_accountId(party),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':0,'credit':amount}],userId:c['userId']);
-    return _json({'id':paymentId});}
+  String _cashboxLedgerCode(int cashboxId) {
+    final cashbox = db.select('SELECT ledger_account_code FROM cashboxes WHERE id=? LIMIT 1', [cashboxId]);
+    if (cashbox.isEmpty) throw StateError('الصندوق غير موجود');
+    final ownCode = cashbox.first['ledger_account_code'] as String?;
+    if (ownCode != null && ownCode.isNotEmpty) return ownCode;
+    final methods = db.select('SELECT ledger_account_code,type FROM payment_methods WHERE cashbox_id=? AND active=1 ORDER BY id LIMIT 1', [cashboxId]);
+    if (methods.isEmpty) return '1000';
+    final methodCode = methods.first['ledger_account_code'] as String?;
+    if (methodCode != null && methodCode.isNotEmpty) return methodCode;
+    return switch ('${methods.first['type']}') {
+      'bank_transfer' => '1100',
+      'wallet' => '1120',
+      _ => '1000',
+    };
+  }
+
+  Future<Response> _paymentCreateUnsafe(Request r,Map<String,dynamic> c) async {
+    final b=await _body(r);
+    final station=_stationId(c);
+    final beneficiaryId=(b['beneficiary_id'] as num?)?.toInt();
+    final workerId=(b['worker_id'] as num?)?.toInt();
+    final partnerId=(b['partner_id'] as num?)?.toInt();
+    final partyCount=[beneficiaryId,workerId,partnerId].where((id)=>id!=null).length;
+    if(partyCount!=1)return _json({'error':'يجب تحديد طرف مالي واحد فقط'},status:422);
+
+    final rawAmount=b['amount'];
+    if(rawAmount is! num || rawAmount<=0 || rawAmount!=rawAmount.round()) {
+      return _json({'error':'المبلغ يجب أن يكون عددًا صحيحًا أكبر من صفر'},status:422);
+    }
+    final amount=rawAmount.round();
+    final cashboxId=(b['cashbox_id'] as num?)?.toInt();
+    final methodId=(b['payment_method_id'] as num?)?.toInt();
+    if(cashboxId==null||methodId==null)return _json({'error':'يجب تحديد طريقة الدفع والصندوق'},status:422);
+
+    _requireOwn('cashboxes',cashboxId,station,'الصندوق');
+    _requireOwn('payment_methods',methodId,station,'طريقة الدفع');
+    if(beneficiaryId!=null)_requireOwn('beneficiaries',beneficiaryId,station,'المستفيد');
+    if(workerId!=null)_requireOwn('workers',workerId,station,'العامل');
+    if(partnerId!=null)_requireOwn('partners',partnerId,station,'الشريك');
+
+    final methods=db.select('SELECT cashbox_id FROM payment_methods WHERE id=? AND station_id=? AND active=1 LIMIT 1',[methodId,station]);
+    final cashboxes=db.select('SELECT current_balance FROM cashboxes WHERE id=? AND station_id=? AND active=1 LIMIT 1',[cashboxId,station]);
+    if(methods.isEmpty)return _json({'error':'طريقة الدفع غير موجودة أو غير مفعّلة'},status:422);
+    if(cashboxes.isEmpty)return _json({'error':'الصندوق غير موجود أو غير مفعّل'},status:422);
+    final linkedCashbox=(methods.first['cashbox_id'] as num?)?.toInt();
+    if(linkedCashbox!=null&&linkedCashbox!=cashboxId)return _json({'error':'الصندوق لا يطابق طريقة الدفع'},status:422);
+
+    final isOutgoing=beneficiaryId==null;
+    final balance=(cashboxes.first['current_balance'] as num?)?.round()??0;
+    if(isOutgoing&&balance<amount)return _json({'error':'رصيد الصندوق غير كافٍ'},status:422);
+    final now=DateTime.now().toIso8601String();
+    db.execute('INSERT INTO payments(beneficiary_id,partner_id,worker_id,amount,date,payment_method_id,cashbox_id,reference_number,notes,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[beneficiaryId,partnerId,workerId,amount,now,methodId,cashboxId,b['reference_number'],b['notes'],'posted',c['userId']]);
+    final paymentId=db.lastInsertRowId;
+    db.execute('UPDATE cashboxes SET current_balance=current_balance${isOutgoing?'-':'+'}? WHERE id=?',[amount,cashboxId]);
+
+    if(workerId!=null) {
+      db.execute('INSERT INTO worker_transactions(worker_id,date,type,amount,cashbox_id,reference_type,reference_id,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?)',[workerId,now,'payment',amount,cashboxId,'payment',paymentId,b['notes'],c['userId']]);
+    }
+    if(partnerId!=null) {
+      db.execute('INSERT INTO partner_transactions(partner_id,date,type,amount,reference_type,reference_id,notes,created_by) VALUES(?,?,?,?,?,?,?,?)',[partnerId,now,'payment',amount,'payment',paymentId,b['notes'],c['userId']]);
+    }
+
+    final partyCode=beneficiaryId!=null?'1200':partnerId!=null?'2200':'2100';
+    final cashAccount=_accountId(_cashboxLedgerCode(cashboxId));
+    final partyAccount=_accountId(partyCode);
+    final partyLine={'account_id':partyAccount,'beneficiary_id':beneficiaryId,'worker_id':workerId,'partner_id':partnerId,'debit':isOutgoing?amount:0,'credit':isOutgoing?0:amount};
+    final cashLine={'account_id':cashAccount,'debit':isOutgoing?0:amount,'credit':isOutgoing?amount:0};
+    _journal(description:'تسجيل دفعة',referenceType:'payment',referenceId:paymentId,lines:isOutgoing?[partyLine,cashLine]:[cashLine,partyLine],userId:(c['userId'] as num?)?.toInt(),stationId:station);
+    return _json({'id':paymentId});
+  }
   Future<Response> _paymentCreate(Request r,Map<String,dynamic> c) => _atomic(() => _paymentCreateUnsafe(r,c));
   Future<Response> _cashboxes(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM cashboxes WHERE active=1 AND station_id=?',[_stationId(c)])));
   Future<Response> _cashboxTransferUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final from=(b['from_cashbox_id'] as num?)?.toInt();final to=(b['to_cashbox_id'] as num?)?.toInt();final amount=(b['amount'] as num?)?.round()??0;if(to==null||amount<=0)return _json({'error':'بيانات التحويل غير صحيحة'},status:422);if(from!=null){final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[from]).first['current_balance'] as num).round();if(bal<amount)return _json({'error':'الرصيد غير كافٍ'},status:422);db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,from]);}db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=?',[amount,to]);db.execute('INSERT INTO cashbox_transfers(from_cashbox_id,to_cashbox_id,amount,date,is_opening_transfer,reference,created_by) VALUES(?,?,?,?,?,?,?)',[from,to,amount,DateTime.now().toIso8601String(),from==null?1:0,b['reference'],c['userId']]);final transferId=db.lastInsertRowId;_requireOwn('cashboxes',to,_stationId(c),'الصندوق الهدف');if(from!=null)_requireOwn('cashboxes',from,_stationId(c),'الصندوق المصدر');_journal(description:'تحويل بين الصناديق',referenceType:'cashbox_transfer',referenceId:transferId,lines:[{'account_id':_accountId('1100'),'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);return _json({'id':transferId});}
