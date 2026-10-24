@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -80,8 +81,8 @@ class SaqiaServer {
   String _hash(String v) => sha256.convert(utf8.encode(v)).toString();
   String _token(Map<String,dynamic> claims) => JWT(claims).sign(SecretKey(jwtSecret), expiresIn: const Duration(hours: 12));
   Map<String,dynamic>? _verify(Request r) { final h=r.headers['authorization']??''; if(!h.startsWith('Bearer ')) return null; try { return JWT.verify(h.substring(7),SecretKey(jwtSecret)).payload as Map<String,dynamic>; } catch (_) { return null; } }
-  Handler _auth(Handler Function(Request,Map<String,dynamic>) fn,{Set<String> roles=const{}})=>(Request r) async { final c=_verify(r); if(c==null)return _json({'error':'جلسة غير صالحة'},status:401); if(roles.isNotEmpty&&!roles.contains('${c['role']}'))return _json({'error':'لا تملك صلاحية تنفيذ العملية'},status:403); return fn(r,c); };
-  Handler _beneficiaryAuth(Handler Function(Request,Map<String,dynamic>) fn)=>(Request r) async { final c=_verify(r); if(c==null||c['kind']!='beneficiary')return _json({'error':'جلسة المستفيد غير صالحة'},status:401); final exp=db.select('SELECT id FROM beneficiary_sessions WHERE beneficiary_id=? AND token_hash=? AND revoked_at IS NULL AND expires_at>? LIMIT 1',[c['beneficiaryId'],c['session'],DateTime.now().toIso8601String()]); if(exp.isEmpty)return _json({'error':'جلسة المستفيد منتهية'},status:401); return fn(r,c); };
+  Handler _auth(FutureOr<Response> Function(Request,Map<String,dynamic>) fn,{Set<String> roles=const{}})=>(Request r) async { final c=_verify(r); if(c==null)return _json({'error':'جلسة غير صالحة'},status:401); if(roles.isNotEmpty&&!roles.contains('${c['role']}'))return _json({'error':'لا تملك صلاحية تنفيذ العملية'},status:403); return fn(r,c); };
+  Handler _beneficiaryAuth(FutureOr<Response> Function(Request,Map<String,dynamic>) fn)=>(Request r) async { final c=_verify(r); if(c==null||c['kind']!='beneficiary')return _json({'error':'جلسة المستفيد غير صالحة'},status:401); final exp=db.select('SELECT id FROM beneficiary_sessions WHERE beneficiary_id=? AND token_hash=? AND revoked_at IS NULL AND expires_at>? LIMIT 1',[c['beneficiaryId'],c['session'],DateTime.now().toIso8601String()]); if(exp.isEmpty)return _json({'error':'جلسة المستفيد منتهية'},status:401); return fn(r,c); };
 
   void _journal({required String description, required String referenceType, int? referenceId, required List<Map<String,Object?>> lines, int? userId}) {
     final debit=lines.fold<int>(0,(s,x)=>s+((x['debit'] as num?)?.round()??0));
@@ -102,7 +103,7 @@ class SaqiaServer {
   bool _owns(String table,int id,int stationId){final r=db.select('SELECT id FROM $table WHERE id=? AND station_id=? LIMIT 1',[id,stationId]);return r.isNotEmpty;}
   void _requireOwn(String table,int? id,int stationId,String label){if(id==null||!_owns(table,id,stationId))throw StateError('$label لا يتبع المحطة الحالية');}
   void _audit(int userId,String operation,String table,int? recordId,{String? reason}){db.execute('INSERT INTO audit_logs(user_id,operation,table_name,record_id,reason,created_at) VALUES(?,?,?,?,?,?)',[userId,operation,table,recordId,reason,DateTime.now().toIso8601String()]);}
-  int _round(double v,String mode)=>mode=='up'?v.ceil():mode=='down'?v.floor():v.round();
+  int _round(num v,String mode)=>mode=='up'?v.ceil():mode=='down'?v.floor():v.round();
 
   Future<Response> _adminLogin(Request r) async { final b=await _body(r); final u='${b['username']??''}'; final p=_hash('${b['password']??''}'); final rows=db.select('SELECT id,station_id,name,role FROM app_users WHERE username=? AND password_hash=? AND active=1',[u,p]); if(rows.isEmpty)return _json({'error':'اسم المستخدم أو كلمة المرور غير صحيحة'},status:401); final x=_rows(rows).first; return _json({'token':_token({'kind':'admin','userId':x['id'],'stationId':x['station_id'],'role':x['role']}),'user':{'id':x['id'],'name':x['name'],'role':x['role']}}); }
   Future<Response> _dashboard(Request r,Map<String,dynamic> c) async { final x=_rows(db.select("SELECT (SELECT COUNT(*) FROM beneficiaries WHERE status='active') beneficiaries,(SELECT COUNT(*) FROM queue_entries WHERE status IN ('waiting','postponed')) queue,(SELECT COUNT(*) FROM booking_requests WHERE status IN ('new','under_review')) bookings,(SELECT COUNT(*) FROM irrigation_sessions WHERE status='running') running_sessions,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled') revenue,(SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='posted') paid,(SELECT COALESCE(SUM(amount),0) FROM expenses WHERE status='posted') expenses")).first; return _json(x); }

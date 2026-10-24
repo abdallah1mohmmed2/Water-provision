@@ -22,6 +22,13 @@ jobs:
       - name: Install Server dependencies (تجهيز الخادم)
         working-directory: ./server
         run: dart pub get
+
+      - name: Install SQLite native dependency (تجهيز SQLite للخادم)
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+
+      - name: Run server behavior tests (اختبارات واجهة الخادم)
+        working-directory: ./server
+        run: dart test
         
       - name: Run accounting integration tests (اختبارات المحاسبة والتراجع)
         run: flutter test test/accounting_integration_test.dart
