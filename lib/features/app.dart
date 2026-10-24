@@ -4934,10 +4934,6 @@ int? parseClock(String raw) {
               ),
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('إلغاء'),
-              ),
               FilledButton.icon(
                 onPressed: loading ? null : () async {
                   if (bid == null) {
