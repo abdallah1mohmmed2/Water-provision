@@ -53,7 +53,7 @@ class ReportService {
   'queue_bookings': ['source', 'name', 'status', 'date'],
   'payment_log': ['date', 'party_name', 'method_name', 'cashbox_name', 'amount'],
   'beneficiary_statement': ['date', 'description', 'lah', 'alayh', 'balance'],
-  'beneficiary_detailed': ['date', 'description', 'lah', 'alayh', 'balance'],
+  'beneficiary_detailed': ['date', 'description', 'start_datetime', 'end_datetime', 'minutes', 'cloud_minutes', 'lah', 'alayh', 'balance'],
   'worker_transactions': ['date', 'description', 'lah', 'alayh', 'balance'],
   'partner_accounts': ['date', 'description', 'lah', 'alayh', 'balance'],
   'partner_profit_distribution': ['name', 'mode', 'basis', 'gross_amount', 'partner_expenses', 'net_amount'],
@@ -95,7 +95,9 @@ class ReportService {
       throw StateError('تقرير الديزل غير متاح لأن المنظومة الحالية ليست ديزل');
     }
     systemType ??= currentType;
-    final rows = sourceRows ?? await repo.report(
+    final rows = (sourceRows != null && sourceRows.isNotEmpty)
+        ? _normalizeRows(key, sourceRows)
+        : _normalizeRows(key, await repo.report(
       key,
       from: from,
       to: to,
@@ -107,7 +109,7 @@ class ReportService {
       paymentMethodId: paymentMethodId,
       category: category,
       status: status,
-    );
+    ));
 
     // Include the actual selected person's name in every related report,
     // rather than showing only a generic "selected beneficiary/worker/partner".
@@ -144,13 +146,29 @@ class ReportService {
         'assets/fonts/NotoNaskhArabic-Bold.ttf',
       )).buffer.asByteData(),
     );
+    final availableKeys = <String>{
+      for (final row in rows) ...row.keys,
+    };
+    final expectedHeaders = reportColumns[key] ?? <String>[];
     final sourceHeaders = rows.isEmpty
         ? <String>[]
-        : (reportColumns[key] ?? rows.first.keys.take(8).toList())
-            .where((header) => rows.first.containsKey(header))
-            .toList();
+        : expectedHeaders.where(availableKeys.contains).toList();
     if (sourceHeaders.isEmpty && rows.isNotEmpty) {
       sourceHeaders.addAll(rows.first.keys.take(8));
+    } else if (sourceHeaders.length <= 1 && rows.isNotEmpty) {
+      if (key == 'worker_transactions' && availableKeys.contains('pay_type')) {
+        sourceHeaders
+          ..clear()
+          ..addAll(['name', 'phone', 'job_title', 'pay_type', 'balance'].where(availableKeys.contains));
+      } else if (key == 'partner_accounts' && availableKeys.contains('ownership_mode')) {
+        sourceHeaders
+          ..clear()
+          ..addAll(['name', 'phone', 'ownership_mode', 'shares_count', 'ownership_percentage', 'balance'].where(availableKeys.contains));
+      } else {
+        sourceHeaders
+          ..clear()
+          ..addAll(rows.first.keys.take(8));
+      }
     }
     final headers = sourceHeaders.map((header) {
       final label = key == 'irrigations'
@@ -850,11 +868,37 @@ class ReportService {
     return 'إجمالي المتبقي: متوازن';
   }
 
-  // Shape Arabic strings for PDF table cells, whose renderer does not shape Arabic glyphs.
-  String _shapeArabic(String value) => ArabicReshaper.instance.reshape(value);
+  // Guard the Arabic shaper so one unsupported value cannot abort PDF generation.
+  String _shapeArabic(String value) {
+    if (value.trim().isEmpty) return '-';
+    try {
+      return ArabicReshaper.instance.reshape(value);
+    } catch (_) {
+      return value;
+    }
+  }
+
+  List<Map<String, Object?>> _normalizeRows(
+    String key,
+    List<Map<String, Object?>> source,
+  ) {
+    if (source.isEmpty || key != 'irrigations') return source;
+    return source.map((row) {
+      final rawCloudMinutes = row['cloud_minutes'];
+      final cloudMinutes = rawCloudMinutes is num
+          ? rawCloudMinutes.round()
+          : int.tryParse('$rawCloudMinutes') ?? 0;
+      return <String, Object?>{
+        ...row,
+        'party_name': row['party_name'] ?? row['beneficiary_name'] ?? 'غير محدد',
+        'cloud_minutes': cloudMinutes,
+        'cloud_status': row['cloud_status'] ?? (cloudMinutes > 0 ? 'discounted' : 'none'),
+      };
+    }).toList();
+  }
 
   String _fieldName(String key) => {
-    'id':'الرقم','date':'التاريخ','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','gross_amount':'نصيب الشريك قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','pump_name':'المضخة','queue_position':'رقم الدور',
+    'id':'الرقم','date':'التاريخ','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','gross_amount':'نصيب الشريك قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
   }[key] ?? 'بيان';
 
   String _categoryName(String v) => {
@@ -887,9 +931,9 @@ class ReportService {
         final dateOnly = key == 'date' &&
             !'$value'.contains('T') &&
             !'$value'.contains(':');
+        // The custom pattern needs no locale data; avoid an uninitialized Arabic locale.
         return DateFormat(
           dateOnly ? 'yyyy/MM/dd' : 'yyyy/MM/dd HH:mm',
-          'ar',
         ).format(d);
       }
     }
