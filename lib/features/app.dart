@@ -4949,8 +4949,10 @@ int? parseClock(String raw) {
                     return;
                   }
                   setState(() => timeStep = 2);
-                  Navigator.of(dialogContext).pop();
                   await save();
+                  if (mounted && saved && dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop();
+                  }
                 },
                 icon: const Icon(Icons.save_rounded),
                 label: const Text('حفظ سقاية'),
