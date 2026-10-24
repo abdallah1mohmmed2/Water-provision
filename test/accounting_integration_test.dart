@@ -1568,14 +1568,14 @@ void main() {
       'type': 'not-a-ledger-type',
     });
     // محاكاة قاعدة قديمة فيها مرجع أب يتيم رغم تفعيل المفاتيح الأجنبية عادةً.
-    await db.execute('PRAGMA foreign_keys=OFF');
+    await (await db.db).execute('PRAGMA foreign_keys=OFF');
     final orphan = await db.insert('accounts', {
       'parent_id': 999999999,
       'code': 'TEST-TREE-ORPHAN',
       'name': 'حساب يتيم للاختبار',
       'type': 'asset',
     });
-    await db.execute('PRAGMA foreign_keys=ON');
+    await (await db.db).execute('PRAGMA foreign_keys=ON');
     await db.update('accounts', {'parent_id': child}, 'id=?', [parent]);
 
     final accounts = await repo.accounts();
