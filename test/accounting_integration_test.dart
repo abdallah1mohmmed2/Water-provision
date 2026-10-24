@@ -785,6 +785,8 @@ void main() {
     expect(integrity.single['integrity_check'], 'ok');
     final violations = await db.query('PRAGMA foreign_key_check');
     expect(violations, isEmpty);
+    final treeIssues = await StationRepository(db).accountTreeIssues();
+    expect(treeIssues, isEmpty, reason: 'يجب أن تكون شجرة الحسابات الافتراضية سليمة');
   });
 
   test('استعادة ملف SQLite سليم من النوع المطابق تعمل مع بقاء رفض النوع المختلف', () async {
