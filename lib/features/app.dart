@@ -4899,7 +4899,7 @@ int? parseClock(String raw) {
                     if (bid != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
-                        child: Text('المستفيد المحدد: ${beneficiaries.where((x) => x['id'] == bid).map((x) => x['name']).firstOrNull ?? 'محدد'}'),
+                        child: Text('المستفيد المحدد: ${beneficiaries.firstWhere((x) => x['id'] == bid, orElse: () => <String, Object?>{})['name'] ?? 'محدد'}'),
                       ),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
