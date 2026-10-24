@@ -34,6 +34,10 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Cloudflare Worker local secrets
+/server/worker-api/.dev.vars
+/server/worker-api/.dev.vars.local
+
 # Symbolication related
 app.*.symbols
 
