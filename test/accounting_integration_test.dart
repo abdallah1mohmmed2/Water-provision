@@ -1567,6 +1567,15 @@ void main() {
       'name': 'نوع غير صالح للاختبار',
       'type': 'not-a-ledger-type',
     });
+    // محاكاة قاعدة قديمة فيها مرجع أب يتيم رغم تفعيل المفاتيح الأجنبية عادةً.
+    await db.execute('PRAGMA foreign_keys=OFF');
+    final orphan = await db.insert('accounts', {
+      'parent_id': 999999999,
+      'code': 'TEST-TREE-ORPHAN',
+      'name': 'حساب يتيم للاختبار',
+      'type': 'asset',
+    });
+    await db.execute('PRAGMA foreign_keys=ON');
     await db.update('accounts', {'parent_id': child}, 'id=?', [parent]);
 
     final accounts = await repo.accounts();
@@ -1576,11 +1585,13 @@ void main() {
 
     final issues = await repo.accountTreeIssues();
     expect(issues.any((issue) => issue.contains('حلقة')), isTrue);
+    expect(issues.any((issue) => issue.contains('حساب أب غير موجود: TEST-TREE-ORPHAN')), isTrue);
     expect(issues.any((issue) => issue.contains('نوع حساب غير صالح: TEST-TREE-BADTYPE')), isTrue);
 
     await db.update('accounts', {'parent_id': null}, 'id=?', [parent]);
     await db.delete('accounts', 'id=?', [child]);
     await db.delete('accounts', 'id=?', [invalidType]);
+    await db.delete('accounts', 'id=?', [orphan]);
     await db.delete('accounts', 'id=?', [parent]);
   });
 
