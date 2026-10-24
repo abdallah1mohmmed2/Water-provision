@@ -769,6 +769,8 @@ class _ShellState extends State<AdminShell> {
   final GlobalKey<ScaffoldState> _shellScaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey<_BeneficiariesState> _beneficiariesKey =
       GlobalKey<_BeneficiariesState>();
+  final GlobalKey<_NewIrrigationState> _newIrrigationKey =
+      GlobalKey<_NewIrrigationState>();
   final GlobalKey<_ExpensesState> _expensesKey = GlobalKey<_ExpensesState>();
   int index = 0;
   bool collapsed = false;
@@ -1082,7 +1084,12 @@ class _ShellState extends State<AdminShell> {
               ),
             ),
             QuickActionOrb(
-              onIrrigation: () => go(2),
+              onIrrigation: () {
+                go(2);
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _newIrrigationKey.currentState?.openQuickForm();
+                });
+              },
               onCash: () => go(7),
               onQueue: () => go(5),
               onAddBeneficiary: () {
@@ -1146,7 +1153,7 @@ class _ShellState extends State<AdminShell> {
         userId: widget.userId,
         manager: role == AppRole.manager,
       ),
-      2 => NewIrrigationPage(repo, manager: role == AppRole.manager),
+      2 => NewIrrigationPage(repo, key: _newIrrigationKey, manager: role == AppRole.manager),
       3 => IrrigationsPage(
         repo,
         manager: role == AppRole.manager,
@@ -4809,6 +4816,150 @@ int? parseClock(String raw) {
       end = DateTime(selectedDate.year, selectedDate.month, selectedDate.day + dayOffset, end.hour, end.minute);
       cloudPeriods.clear();
     });
+  }
+
+  /// يفتح نموذجاً مختصراً من الفقاعة العائمة داخل نفس حالة السقاية؛
+  /// الحفظ يستدعي save() نفسها حتى تبقى قاعدة البيانات والقيود المحاسبية موحدة.
+  Future<void> openQuickForm() async {
+    if (!mounted || loading || saved) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, dialogSetState) {
+          final q = search.trim().toLowerCase();
+          final matches = beneficiaries.where((x) =>
+            '${x['name'] ?? ''}'.toLowerCase().contains(q)).take(8).toList();
+          Future<void> chooseTime(bool isStart) async {
+            final picked = await _showHybridTimePicker(
+              initial: isStart ? start : end,
+              title: isStart ? 'ساعة دورة وقت البداية' : 'ساعة دوارة وقت النهاية',
+              confirmPeriod: true,
+              initialPeriod: (isStart ? start.hour : end.hour) < 12 ? 'am' : 'pm',
+            );
+            if (picked == null || !mounted) return;
+            setState(() {
+              if (isStart) {
+                start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, picked.hour, picked.minute);
+                startTimeController.text = _hm12(start);
+                if (!end.isAfter(start)) end = start.add(const Duration(hours: 1));
+              } else {
+                end = DateTime(start.year, start.month, start.day, picked.hour, picked.minute);
+                if (!end.isAfter(start)) end = DateTime(start.year, start.month, start.day + 1, picked.hour, picked.minute);
+                endTimeController.text = _hm12(end);
+              }
+              timeStep = 2;
+              cloudPeriods.removeWhere((p) => p['start']!.isBefore(start) || p['end']!.isAfter(end));
+            });
+            dialogSetState(() {});
+          }
+          return AlertDialog(
+            title: const Text('سقاية جديدة'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text('بطاقة وقت التشغيل', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: searchController,
+                      onChanged: (v) => setState(() => search = v),
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        labelText: 'بحث عن المستفيد',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (matches.isNotEmpty)
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 150),
+                        margin: const EdgeInsets.only(top: 6),
+                        decoration: BoxDecoration(border: Border.all(color: Theme.of(context).dividerColor), borderRadius: BorderRadius.circular(10)),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: matches.length,
+                          itemBuilder: (context, i) {
+                            final item = matches[i];
+                            final id = item['id'] as int?;
+                            return ListTile(
+                              dense: true,
+                              title: Text('${item['name'] ?? 'غير معروف'}'),
+                              selected: bid == id,
+                              onTap: () {
+                                setState(() { partyType = 'beneficiary'; bid = id; workerId = null; partnerId = null; });
+                                dialogSetState(() {});
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    if (bid != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text('المستفيد المحدد: ${beneficiaries.where((x) => x['id'] == bid).map((x) => x['name']).firstOrNull ?? 'محدد'}'),
+                      ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => chooseTime(true),
+                      icon: const Icon(Icons.access_time),
+                      label: Text('بداية التشغيل: ${_hm12(start)}'),
+                    ),
+                    const SizedBox(height: 6),
+                    OutlinedButton.icon(
+                      onPressed: () => chooseTime(false),
+                      icon: const Icon(Icons.av_timer),
+                      label: Text('نهاية التشغيل: ${_hm12(end)}'),
+                    ),
+                    if (type == 'solar') ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          timeStep = 2;
+                          await addCloudPeriod();
+                          if (mounted) dialogSetState(() {});
+                        },
+                        icon: const Icon(Icons.cloud_outlined),
+                        label: Text(quickCloudMode ? 'تعديل الغيم' : 'إضافة غيم'),
+                      ),
+                      if (quickCloudMode)
+                        Text('الغيم: ${cloudQuickController.text} دقيقة'),
+                      if (!quickCloudMode && cloudPeriods.isNotEmpty)
+                        ...cloudPeriods.map((p) => Text('الغيم: ${_hm12(p['start']!)} – ${_hm12(p['end']!)}')),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('إلغاء'),
+              ),
+              FilledButton.icon(
+                onPressed: loading ? null : () async {
+                  if (bid == null) {
+                    msg('اختر مستفيداً من مربع البحث أولاً');
+                    return;
+                  }
+                  if (!end.isAfter(start)) {
+                    msg('وقت النهاية يجب أن يكون بعد وقت البداية');
+                    return;
+                  }
+                  setState(() => timeStep = 2);
+                  Navigator.of(dialogContext).pop();
+                  await save();
+                },
+                icon: const Icon(Icons.save_rounded),
+                label: const Text('حفظ سقاية'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<void> save() async {
