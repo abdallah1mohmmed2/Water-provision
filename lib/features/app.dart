@@ -11312,8 +11312,7 @@ class _InvoicesPdfPreviewPage extends StatelessWidget {
         build: (_) async => bytes,
         canChangeOrientation: false,
         canChangePageFormat: false,
-        allowPrinting: true,
-        allowSharing: true,
+        useActions: true,
       ),
     ),
   );
