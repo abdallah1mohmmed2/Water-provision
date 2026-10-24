@@ -3946,6 +3946,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       reason = TextEditingController();
   final searchController = TextEditingController();
   final searchFocusNode = FocusNode();
+  final quickFormSearchFocusNode = FocusNode();
   final startTimeController = TextEditingController();
   final endTimeController = TextEditingController();
   final List<Map<String, DateTime>> cloudPeriods = [];
@@ -3987,6 +3988,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   void dispose() {
     searchController.dispose();
     searchFocusNode.dispose();
+    quickFormSearchFocusNode.dispose();
     startTimeController.dispose();
     endTimeController.dispose();
     paid.dispose();
@@ -4866,6 +4868,8 @@ int? parseClock(String raw) {
                     const SizedBox(height: 10),
                     TextField(
                       controller: searchController,
+                      focusNode: quickFormSearchFocusNode,
+                      autofocus: true,
                       onChanged: (v) => setState(() => search = v),
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.search),
@@ -4946,9 +4950,45 @@ int? parseClock(String raw) {
                   }
                   setState(() => timeStep = 2);
                   await save();
-                  if (mounted && saved && dialogContext.mounted) {
-                    Navigator.of(dialogContext).pop();
-                  }
+                  if (!mounted || !saved || !dialogContext.mounted) return;
+                  // بعد نجاح الحفظ نجهز الفورم لسقاية تالية، ونبدأ من نهاية
+                  // السقاية المحفوظة دون إغلاق الفورم.
+                  final previousEnd = end;
+                  setState(() {
+                    selectedDate = DateTime(previousEnd.year, previousEnd.month, previousEnd.day);
+                    start = previousEnd;
+                    end = start.add(const Duration(hours: 1));
+                    startTimeController.text = _hm12(start);
+                    endTimeController.text = _hm12(end);
+                    bid = null;
+                    workerId = null;
+                    operatorWorkerId = null;
+                    partnerId = null;
+                    queueId = null;
+                    bookingId = null;
+                    sessionId = null;
+                    partyType = 'beneficiary';
+                    search = '';
+                    searchController.clear();
+                    paid.text = '0';
+                    reason.clear();
+                    cloudPeriods.clear();
+                    cloudQuickController.clear();
+                    quickCloudMode = false;
+                    managerOverride = false;
+                    useSession = false;
+                    timeStep = 0;
+                    startPeriod = start.hour < 12 ? 'am' : 'pm';
+                    endPeriod = end.hour < 12 ? 'am' : 'pm';
+                    isStartSelected = false;
+                    saved = false;
+                  });
+                  dialogSetState(() {});
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted && dialogContext.mounted) {
+                      quickFormSearchFocusNode.requestFocus();
+                    }
+                  });
                 },
                 icon: const Icon(Icons.save_rounded),
                 label: const Text('حفظ سقاية'),
