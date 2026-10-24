@@ -1747,6 +1747,41 @@ class StationRepository {
       args.add(systemType);
     }
     switch (key) {
+      case 'invoices':
+        {
+          final a = <Object?>[];
+          final filters = <String>["i.status!='cancelled'"];
+          if (from != null) {
+            filters.add("COALESCE(date(i.date),date(i.start_datetime))>=date(?)");
+            a.add(from.toIso8601String());
+          }
+          if (to != null) {
+            filters.add("COALESCE(date(i.date),date(i.start_datetime))<=date(?)");
+            a.add(to.toIso8601String());
+          }
+          if (beneficiaryId != null) {
+            filters.add('i.beneficiary_id=?');
+            a.add(beneficiaryId);
+          }
+          if (!allSystems) {
+            filters.add('i.system_type=?');
+            a.add(systemType);
+          }
+          return db.rawQuery(
+            '''SELECT i.id invoice_id,
+                      COALESCE(b.name,'غير محدد') party_name,
+                      i.start_datetime,i.end_datetime,
+                      COALESCE(i.minutes,0) minutes,
+                      COALESCE(i.total_amount,0) total_amount,
+                      COALESCE(i.paid_amount,0) paid_amount,
+                      COALESCE(i.notes,'') notes
+               FROM irrigations i
+               LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id
+               WHERE ${filters.join(' AND ')}
+               ORDER BY i.start_datetime DESC''',
+            a,
+          );
+        }
       case 'irrigations':
         {
           final a = <Object?>[];
