@@ -1,4 +1,5 @@
 // اختبارات تكامل على قاعدة SQLite حقيقية (sqflite_common_ffi).
+// تغطي هذه النسخة أيضًا فحص بنية شجرة الحسابات والحسابات اليتيمة.
 // تغطي الإصلاحات: اتجاه دفع العامل، منع ازدواج الديزل، عدم تضاعف السلفة،
 // القيد العكسي عند الإلغاء، وتاريخ القيد = تاريخ العملية.
 // ملاحظة: كُتبت دون تشغيل (لا يوجد Flutter SDK في بيئة الكتابة) — شغّلها بـ flutter test.
@@ -784,6 +785,8 @@ void main() {
     expect(integrity.single['integrity_check'], 'ok');
     final violations = await db.query('PRAGMA foreign_key_check');
     expect(violations, isEmpty);
+    final treeIssues = await StationRepository(db).accountTreeIssues();
+    expect(treeIssues, isEmpty, reason: 'يجب أن تكون شجرة الحسابات الافتراضية سليمة');
   });
 
   test('استعادة ملف SQLite سليم من النوع المطابق تعمل مع بقاء رفض النوع المختلف', () async {
@@ -1547,6 +1550,52 @@ void main() {
     expect(grossDistributed, (summaryAfter['distributable'] as num).round());
     expect(grossDistributed, greaterThan(0));
     expect(selectedRows.every((row) => (row['net_amount'] as num) >= 0), isTrue);
+  });
+
+  test('تدقيق شجرة الحسابات يكشف الحلقة والنوع غير الصحيح ويحفظ علاقة الأب', () async {
+    final repo = StationRepository(db);
+    final parent = await db.insert('accounts', {
+      'code': 'TEST-TREE-PARENT',
+      'name': 'حساب أب للاختبار',
+      'type': 'asset',
+    });
+    final child = await db.insert('accounts', {
+      'parent_id': parent,
+      'code': 'TEST-TREE-CHILD',
+      'name': 'حساب فرعي للاختبار',
+      'type': 'liability',
+    });
+    final invalidType = await db.insert('accounts', {
+      'code': 'TEST-TREE-BADTYPE',
+      'name': 'نوع غير صالح للاختبار',
+      'type': 'not-a-ledger-type',
+    });
+    // محاكاة قاعدة قديمة فيها مرجع أب يتيم رغم تفعيل المفاتيح الأجنبية عادةً.
+    await (await db.db).execute('PRAGMA foreign_keys=OFF');
+    final orphan = await db.insert('accounts', {
+      'parent_id': 999999999,
+      'code': 'TEST-TREE-ORPHAN',
+      'name': 'حساب يتيم للاختبار',
+      'type': 'asset',
+    });
+    await (await db.db).execute('PRAGMA foreign_keys=ON');
+    await db.update('accounts', {'parent_id': child}, 'id=?', [parent]);
+
+    final accounts = await repo.accounts();
+    final childRow = accounts.firstWhere((row) => row['id'] == child);
+    expect(childRow['parent_id'], parent);
+    expect(childRow['parent_code'], 'TEST-TREE-PARENT');
+
+    final issues = await repo.accountTreeIssues();
+    expect(issues.any((issue) => issue.contains('حلقة')), isTrue);
+    expect(issues.any((issue) => issue.contains('حساب أب غير موجود: TEST-TREE-ORPHAN')), isTrue);
+    expect(issues.any((issue) => issue.contains('نوع حساب غير صالح: TEST-TREE-BADTYPE')), isTrue);
+
+    await db.update('accounts', {'parent_id': null}, 'id=?', [parent]);
+    await db.delete('accounts', 'id=?', [child]);
+    await db.delete('accounts', 'id=?', [invalidType]);
+    await db.delete('accounts', 'id=?', [orphan]);
+    await db.delete('accounts', 'id=?', [parent]);
   });
 
 }

@@ -9961,6 +9961,7 @@ class _LedgerState extends State<LedgerPage> {
   String code = '1000';
   List<Map<String, Object?>> accounts = [];
   List<Map<String, Object?>> rows = [];
+  List<String> accountIssues = [];
   int opening = 0, totalDebit = 0, totalCredit = 0, closing = 0;
   DateTime? from, to;
   bool loading = true;
@@ -9977,9 +9978,11 @@ class _LedgerState extends State<LedgerPage> {
   Future<void> _init() async {
     try {
       final a = await widget.r.accounts();
+      final issues = await widget.r.accountTreeIssues();
       if (!mounted) return;
       setState(() {
         accounts = a;
+        accountIssues = issues;
         if (a.isNotEmpty && !a.any((x) => x['code'] == code)) {
           code = '${a.first['code']}';
         }
@@ -9988,6 +9991,24 @@ class _LedgerState extends State<LedgerPage> {
       if (mounted) setState(() => error = friendlyError(e));
     }
     await load();
+  }
+
+  String _accountIndent(Map<String, Object?> account) {
+    final byId = <int, Map<String, Object?>>{
+      for (final item in accounts)
+        if (item['id'] is num) (item['id'] as num).toInt(): item,
+    };
+    final visited = <int>{};
+    var parent = account['parent_id'] is num
+        ? (account['parent_id'] as num).toInt()
+        : null;
+    var depth = 0;
+    while (parent != null && byId.containsKey(parent) && visited.add(parent)) {
+      depth++;
+      final next = byId[parent]!['parent_id'];
+      parent = next is num ? next.toInt() : null;
+    }
+    return depth == 0 ? '' : '${List.filled(depth, '  ').join()}↳ ';
   }
 
   Future<void> load() async {
@@ -10117,7 +10138,7 @@ class _LedgerState extends State<LedgerPage> {
           label: const Text('طباعة كشف الحساب'),
         ),
         OutlinedButton.icon(
-          onPressed: loading ? null : load,
+          onPressed: loading ? null : _init,
           icon: const Icon(Icons.refresh),
           label: const Text('تحديث'),
         ),
@@ -10132,7 +10153,7 @@ class _LedgerState extends State<LedgerPage> {
               for (final a in accounts)
                 DropdownMenuItem(
                   value: '${a['code']}',
-                  child: Text('${a['code']} • ${a['name']}'),
+                  child: Text('${_accountIndent(a)}${a['code']} • ${a['name']}'),
                 ),
             ],
             onChanged: (v) {
@@ -10142,6 +10163,26 @@ class _LedgerState extends State<LedgerPage> {
             },
             decoration: const InputDecoration(labelText: 'الحساب'),
           ),
+          if (accountIssues.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Card(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('تنبيه: توجد مشكلات في شجرة الحسابات', style: TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    for (final issue in accountIssues.take(8))
+                      Text('• $issue'),
+                    if (accountIssues.length > 8)
+                      Text('ومشكلات أخرى: ${accountIssues.length - 8}'),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           _DateRangeBar(
             from: from,
