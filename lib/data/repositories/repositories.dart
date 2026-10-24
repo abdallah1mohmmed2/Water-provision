@@ -321,14 +321,14 @@ class StationRepository {
     final args = <Object?>[];
     var w = "i.status!='cancelled'";
     if (from != null) {
-      w += ' AND i.start_datetime>=?';
+      w += ' AND COALESCE(date(i.date),date(i.start_datetime))>=date(?)';
       args.add(from.toIso8601String());
     }
     if (to != null) {
-      w += ' AND i.start_datetime<=?';
+      w += ' AND COALESCE(date(i.date),date(i.start_datetime))<=date(?)';
       args.add(to.toIso8601String());
     }
-    {
+    if (systemType != 'all') {
       w += ' AND i.system_type=?';
       args.add(systemType);
     }
@@ -337,7 +337,18 @@ class StationRepository {
       args.add(beneficiaryId);
     }
     return db.rawQuery(
-      'SELECT i.*,COALESCE(b.name,w.name,pt.name) beneficiary_name,p.name pump_name FROM irrigations i LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id LEFT JOIN workers w ON w.id=i.worker_id LEFT JOIN partners pt ON pt.id=i.partner_id JOIN pumps p ON p.id=i.pump_id WHERE $w ORDER BY i.start_datetime DESC',
+      '''SELECT i.*,
+                COALESCE(b.name,w.name,pt.name,'غير محدد') beneficiary_name,
+                COALESCE(b.name,w.name,pt.name,'غير محدد') party_name,
+                p.name pump_name,
+                COALESCE(i.cloud_minutes,0) cloud_minutes,
+                CASE WHEN COALESCE(i.cloud_minutes,0)>0 THEN 'discounted' ELSE 'none' END cloud_status
+         FROM irrigations i
+         LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id
+         LEFT JOIN workers w ON w.id=i.worker_id
+         LEFT JOIN partners pt ON pt.id=i.partner_id
+         JOIN pumps p ON p.id=i.pump_id
+         WHERE $w ORDER BY i.start_datetime DESC''',
       args,
     );
   }
@@ -1798,7 +1809,13 @@ class StationRepository {
       case 'expenses':
         {
           final a = <Object?>[];
-          var w = "status='posted'";
+          var w = '1=1';
+          if (status != null && status.isNotEmpty) {
+            w += ' AND status=?';
+            a.add(status);
+          } else {
+            w += " AND status='posted'";
+          }
           if (from != null) {
             w += ' AND date>=?';
             a.add(from.toIso8601String());
@@ -1819,12 +1836,8 @@ class StationRepository {
             w += ' AND category=?';
             a.add(category);
           }
-          if (status != null) {
-            // تم التصحيح: استخدام replaceAll لتجنب خطأ لغة Dart
-            w = w.replaceAll("status='posted'", "status=?");
-          }
           return db.rawQuery(
-            'SELECT category,COUNT(*) count,SUM(amount) total FROM expenses WHERE $w GROUP BY category ORDER BY total DESC',
+            'SELECT category,COUNT(*) count,COALESCE(SUM(amount),0) total FROM expenses WHERE $w GROUP BY category ORDER BY total DESC',
             a,
           );
         }
@@ -1862,13 +1875,29 @@ class StationRepository {
           );
         }
       case 'beneficiary_statement':
-        return beneficiaryId == null
-            ? <Map<String, Object?>>[]
-            : await beneficiaryStatement(beneficiaryId, from: from, to: to);
       case 'beneficiary_detailed':
-        return beneficiaryId == null
-            ? <Map<String, Object?>>[]
-            : await beneficiaryStatement(beneficiaryId, from: from, to: to);
+        {
+          if (beneficiaryId != null) {
+            return beneficiaryStatement(beneficiaryId, from: from, to: to);
+          }
+          final allBeneficiaries = await db.rawQuery(
+            "SELECT id,name FROM beneficiaries WHERE status='active' ORDER BY name",
+          );
+          final combined = <Map<String, Object?>>[];
+          for (final beneficiary in allBeneficiaries) {
+            final id = (beneficiary['id'] as num).toInt();
+            final name = '${beneficiary['name'] ?? 'غير محدد'}';
+            final statement = await beneficiaryStatement(id, from: from, to: to);
+            for (final row in statement) {
+              combined.add({
+                ...row,
+                'beneficiary_name': name,
+                'description': '$name - ${row['description'] ?? ''}',
+              });
+            }
+          }
+          return combined;
+        }
       case 'beneficiary_stats':
         return db.rawQuery(
           "SELECT b.id,b.name,COUNT(i.id) irrigations,COALESCE(SUM(i.minutes),0) minutes,COALESCE(SUM(i.total_amount),0) total FROM beneficiaries b LEFT JOIN irrigations i ON i.beneficiary_id=b.id AND i.status!='cancelled' GROUP BY b.id ORDER BY total DESC",
@@ -1915,27 +1944,93 @@ class StationRepository {
         return journal(from: from, to: to);
       case 'worker_transactions':
         {
-          var rows=await workerTransactions(workerId ?? 0);
-          if(from!=null) rows=rows.where((x)=>DateTime.tryParse('${x['date']}')?.isAfter(from.subtract(const Duration(seconds:1))) ?? true).toList();
-          if(to!=null) rows=rows.where((x)=>DateTime.tryParse('${x['date']}')?.isBefore(to.add(const Duration(days:1))) ?? true).toList();
+          final rows = <Map<String, Object?>>[];
+          if (workerId != null && workerId > 0) {
+            rows.addAll(await workerTransactions(workerId));
+          } else {
+            for (final worker in await workers()) {
+              final id = (worker['id'] as num).toInt();
+              final name = '${worker['name'] ?? 'غير محدد'}';
+              final transactions = await workerTransactions(id);
+              if (transactions.isEmpty) {
+                final balance = (worker['balance'] as num?)?.round() ?? 0;
+                rows.add({
+                  'date': null,
+                  'worker_name': name,
+                  'description': '$name (الرصيد الحالي)',
+                  'lah': balance > 0 ? balance : 0,
+                  'alayh': balance < 0 ? -balance : 0,
+                  'balance': balance,
+                });
+              } else {
+                rows.addAll(transactions.map((row) => {
+                  ...row,
+                  'worker_name': name,
+                  'description': '$name - ${row['description'] ?? ''}',
+                }));
+              }
+            }
+          }
+          if (from != null) rows.removeWhere((row) {
+            final date = DateTime.tryParse('${row['date'] ?? ''}');
+            return date != null && date.isBefore(DateTime(from.year, from.month, from.day));
+          });
+          if (to != null) rows.removeWhere((row) {
+            final date = DateTime.tryParse('${row['date'] ?? ''}');
+            return date != null && !date.isBefore(DateTime(to.year, to.month, to.day).add(const Duration(days: 1)));
+          });
           return rows;
         }
       case 'partner_accounts':
         {
-          var rows=await partnerTransactions(partnerId ?? 0);
-          if(from!=null) rows=rows.where((x)=>DateTime.tryParse('${x['date']}')?.isAfter(from.subtract(const Duration(seconds:1))) ?? true).toList();
-          if(to!=null) rows=rows.where((x)=>DateTime.tryParse('${x['date']}')?.isBefore(to.add(const Duration(days:1))) ?? true).toList();
+          final rows = <Map<String, Object?>>[];
+          if (partnerId != null && partnerId > 0) {
+            rows.addAll(await partnerTransactions(partnerId));
+          } else {
+            for (final partner in await partners()) {
+              final id = (partner['id'] as num).toInt();
+              final name = '${partner['name'] ?? 'غير محدد'}';
+              final transactions = await partnerTransactions(id);
+              if (transactions.isEmpty) {
+                final balance = (partner['balance'] as num?)?.round() ?? 0;
+                rows.add({
+                  'date': null,
+                  'partner_name': name,
+                  'description': '$name (الرصيد الحالي)',
+                  'lah': balance > 0 ? balance : 0,
+                  'alayh': balance < 0 ? -balance : 0,
+                  'balance': balance,
+                });
+              } else {
+                rows.addAll(transactions.map((row) => {
+                  ...row,
+                  'partner_name': name,
+                  'description': '$name - ${row['description'] ?? ''}',
+                }));
+              }
+            }
+          }
+          if (from != null) rows.removeWhere((row) {
+            final date = DateTime.tryParse('${row['date'] ?? ''}');
+            return date != null && date.isBefore(DateTime(from.year, from.month, from.day));
+          });
+          if (to != null) rows.removeWhere((row) {
+            final date = DateTime.tryParse('${row['date'] ?? ''}');
+            return date != null && !date.isBefore(DateTime(to.year, to.month, to.day).add(const Duration(days: 1)));
+          });
           return rows;
         }
       case 'partner_profit_distribution':
-        if (from == null || to == null) return <Map<String, Object?>>[];
-        final summary = await partnerProfitSummary(from: from, to: to);
+        {
+        final effectiveFrom = from ?? DateTime(2020, 1, 1);
+        final effectiveTo = to ?? AppClock.now();
+        final summary = await partnerProfitSummary(from: effectiveFrom, to: effectiveTo);
         final ps = await partners();
         final totalShares = ps.fold<double>(0.0, (sum, p) => sum + ((p['shares_count'] as num?)?.toDouble() ?? 0.0));
         final profit = (summary['distributable'] as num?)?.round() ?? 0;
         final stationId = await accounting.currentStationId();
-        final start = DateTime(from.year, from.month, from.day).toIso8601String();
-        final endExclusive = DateTime(to.year, to.month, to.day + 1).toIso8601String();
+        final start = DateTime(effectiveFrom.year, effectiveFrom.month, effectiveFrom.day).toIso8601String();
+        final endExclusive = DateTime(effectiveTo.year, effectiveTo.month, effectiveTo.day + 1).toIso8601String();
         final individualExpenses = await db.rawQuery(
           "SELECT partner_id,COALESCE(SUM(amount),0) total FROM expenses WHERE status='posted' AND partner_id IS NOT NULL AND date>=? AND date<? AND partner_id IN (SELECT id FROM partners WHERE station_id=? AND active=1) GROUP BY partner_id",
           [start, endExclusive, stationId],
@@ -1999,6 +2094,7 @@ class StationRepository {
             'amount': gross - personalExpenses,
           };
         }).toList();
+        }
       default:
         throw StateError('نوع التقرير غير مدعوم: $key');
     }
