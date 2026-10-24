@@ -113,7 +113,7 @@ class ReportService {
       status: status,
     ));
     if (key == 'invoices') {
-      return invoicesPdf(rows: rows, from: from, to: to);
+      return await invoicesPdf(rows: rows, from: from, to: to);
     }
 
     // Include the actual selected person's name in every related report,
@@ -1178,7 +1178,7 @@ class ReportService {
               crossAxisAlignment: pw.CrossAxisAlignment.stretch,
               children: [
                 pw.Row(children: [
-                  pw.Expanded(child: pw.Text(shaped(settings['station_name'] ?? 'نظام ساقية لإدارة المحطة'),
+                  pw.Expanded(child: pw.Text(shaped('نظام ساقية لإدارة محطة ضخ مياه الري • ${settings['station_name'] ?? 'محطة ساقية'}'),
                     style: pw.TextStyle(font: bold, fontSize: 10, color: PdfColors.white))),
                   pw.Text(shaped('رقم التقرير: $reportNumber'),
                     style: pw.TextStyle(font: regular, fontSize: 8, color: PdfColor.fromHex('#D8E9E5'))),
