@@ -1453,12 +1453,58 @@ class ReportService {
       throw StateError('العامل المحدد غير موجود');
     }
 
-    final invoices = await repo.report(
-      'invoices',
-      from: from,
-      to: to,
-      systemType: 'all',
+    // ساعات العامل تُسجّل على حركة استحقاق العامل المرتبطة بالسقاية،
+    // وليس على irrigations.worker_id؛ فهذا الحقل يحدد عامل السقاية المختار
+    // ولا يمثل بالضرورة كل العمال الذين احتُسب لهم أجر.
+    final workerMinuteFilters = <String>[
+      "i.status!='cancelled'",
+    ];
+    final workerMinuteArgs = <Object?>[];
+    if (from != null) {
+      workerMinuteFilters.add("COALESCE(date(i.date),date(i.start_datetime))>=date(?)");
+      workerMinuteArgs.add(from.toIso8601String());
+    }
+    if (to != null) {
+      workerMinuteFilters.add("COALESCE(date(i.date),date(i.start_datetime))<=date(?)");
+      workerMinuteArgs.add(to.toIso8601String());
+    }
+    final workerMinuteRows = await repo.db.rawQuery(
+      \`\`\`
+      SELECT worker_id, SUM(minutes) minutes
+      FROM (
+        SELECT wt.worker_id, i.id irrigation_id,
+               COALESCE(MAX(wt.hours) * 60, i.chargeable_minutes, i.minutes, 0) minutes
+        FROM worker_transactions wt
+        JOIN irrigations i ON i.id=wt.reference_id
+        WHERE wt.reference_type='irrigation'
+          AND wt.type='irrigation'
+          AND wt.worker_id IS NOT NULL
+          AND ${workerMinuteFilters.join(' AND ')}
+        GROUP BY wt.worker_id, i.id
+
+        UNION ALL
+
+        SELECT i.worker_id, i.id irrigation_id,
+               COALESCE(i.chargeable_minutes, i.minutes, 0) minutes
+        FROM irrigations i
+        WHERE i.worker_id IS NOT NULL
+          AND ${workerMinuteFilters.join(' AND ')}
+          AND NOT EXISTS (
+            SELECT 1 FROM worker_transactions wt
+            WHERE wt.worker_id=i.worker_id
+              AND wt.reference_type='irrigation'
+              AND wt.reference_id=i.id
+              AND wt.type='irrigation'
+          )
+      )
+      GROUP BY worker_id
+      \`\`\`,
+      [...workerMinuteArgs, ...workerMinuteArgs],
     );
+    final minutesByWorker = <int, num>{
+      for (final row in workerMinuteRows)
+        _workerNum(row['worker_id']).toInt(): _workerNum(row['minutes']),
+    };
     final reportRows = <List<String>>[];
     num totalMinutes = 0;
     num totalDue = 0;
@@ -1486,8 +1532,7 @@ class ReportService {
         due: due,
         withdrawals: withdrawals,
       );
-      final minutes = invoices.where((row) => _workerNum(row['worker_id']).toInt() == workerId)
-          .fold<num>(0, (sum, row) => sum + _workerNum(row['minutes']));
+      final minutes = minutesByWorker[workerId] ?? 0;
       totalMinutes = minutes;
       totalDue = due;
       totalWithdrawals = withdrawals;
@@ -1560,8 +1605,7 @@ class ReportService {
         due: due,
         withdrawals: withdrawals,
       );
-      final minutes = invoices.where((row) => _workerNum(row['worker_id']).toInt() == id)
-          .fold<num>(0, (sum, row) => sum + _workerNum(row['minutes']));
+      final minutes = minutesByWorker[id] ?? 0;
       totalMinutes += minutes;
       totalDue += due;
       totalWithdrawals += withdrawals;
