@@ -1392,7 +1392,7 @@ class ReportService {
       final worker = selectedWorker!;
       final due = statementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['lah']));
       final withdrawals = statementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['alayh']));
-      final net = statementRows.isEmpty ? due - withdrawals : _workerNum(statementRows.last['balance']);
+      final net = statementRows.isEmpty ? due - withdrawals : _workerNum(statementRows.first['balance']);
       final minutes = invoices.where((row) => _workerNum(row['worker_id']).toInt() == workerId)
           .fold<num>(0, (sum, row) => sum + _workerNum(row['minutes']));
       totalMinutes = minutes;
@@ -1447,7 +1447,7 @@ class ReportService {
       final tx = await repo.report('worker_transactions', workerId: id, from: from, to: to);
       final due = tx.fold<num>(0, (sum, row) => sum + _workerNum(row['lah']));
       final withdrawals = tx.fold<num>(0, (sum, row) => sum + _workerNum(row['alayh']));
-      final net = tx.isEmpty ? due - withdrawals : _workerNum(tx.last['balance']);
+      final net = tx.isEmpty ? due - withdrawals : _workerNum(tx.first['balance']);
       final minutes = invoices.where((row) => _workerNum(row['worker_id']).toInt() == id)
           .fold<num>(0, (sum, row) => sum + _workerNum(row['minutes']));
       totalMinutes += minutes;
