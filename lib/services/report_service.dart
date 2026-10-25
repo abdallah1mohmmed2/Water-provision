@@ -1131,174 +1131,120 @@ class ReportService {
   }) async {
     final data = rows ?? await repo.report('invoices', from: from, to: to);
     final settings = await repo.settings();
-    final regular = pw.Font.ttf(
-      (await rootBundle.load('assets/fonts/NotoNaskhArabic-Regular.ttf')).buffer.asByteData(),
-    );
-    final bold = pw.Font.ttf(
-      (await rootBundle.load('assets/fonts/NotoNaskhArabic-Bold.ttf')).buffer.asByteData(),
-    );
     final now = AppClock.now();
-    final reportNumber = 'INV-${DateFormat('yyyyMMdd-HHmmss').format(now)}';
-    int n(Object? value) => value is num ? value.round() : int.tryParse('$value') ?? 0;
+
+    int n(Object? value) =>
+        value is num ? value.round() : int.tryParse('${value ?? ''}') ?? 0;
     String time(Object? value) {
-      final d = DateTime.tryParse('$value');
-      return d == null ? '—' : '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+      final d = DateTime.tryParse('${value ?? ''}');
+      return d == null
+          ? '—'
+          : '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
     }
     String duration(Object? value) {
       final minutes = n(value).clamp(0, 100000000);
       return '${minutes ~/ 60} س ${minutes % 60} د';
     }
-    String shaped(Object? value) {
+    String display(Object? value) {
       final text = value == null || '$value'.trim().isEmpty ? '—' : '$value';
-      try { return ArabicReshaper.instance.reshape(text); } catch (_) { return text; }
+      return _shapeArabic(text);
     }
-    final totalMinutes = data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
-    final totalAmount = data.fold<int>(0, (sum, row) => sum + n(row['total_amount']));
-    final totalPaid = data.fold<int>(0, (sum, row) => sum + n(row['paid_amount']));
+    String money(Object? value) => NumberFormat('#,##0').format(n(value));
+
+    final totalMinutes =
+        data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
+    final totalAmount =
+        data.fold<int>(0, (sum, row) => sum + n(row['total_amount']));
+    final totalPaid =
+        data.fold<int>(0, (sum, row) => sum + n(row['paid_amount']));
+    final remaining = totalAmount - totalPaid;
+    final dateFormat = DateFormat('yyyy/MM/dd');
+    final period = from == null && to == null
+        ? 'كل الفترات'
+        : '${from == null ? 'البداية' : dateFormat.format(from)} — ${to == null ? 'حتى الآن' : dateFormat.format(to)}';
+
     final tableRows = <List<String>>[
       for (var i = 0; i < data.length; i++)
         [
           '${i + 1}',
-          shaped(data[i]['party_name']),
+          display(data[i]['party_name']),
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
           duration(data[i]['minutes']),
-          NumberFormat('#,##0').format(n(data[i]['total_amount'])),
-          NumberFormat('#,##0').format(n(data[i]['paid_amount'])),
-          shaped(data[i]['notes']),
+          money(data[i]['total_amount']),
+          money(data[i]['paid_amount']),
+          display(data[i]['notes']),
         ],
     ];
-    final doc = pw.Document();
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape,
-        margin: const pw.EdgeInsets.fromLTRB(24, 24, 24, 28),
-        theme: pw.ThemeData.withFont(base: regular, bold: bold),
-        header: (context) => pw.Directionality(
-          textDirection: pw.TextDirection.rtl,
-          child: pw.Container(
-            padding: const pw.EdgeInsets.all(14),
-            margin: const pw.EdgeInsets.only(bottom: 12),
-            decoration: pw.BoxDecoration(
-              color: PdfColor.fromHex('#174A45'),
-              borderRadius: const pw.BorderRadius.all(pw.Radius.circular(9)),
-            ),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-              children: [
-                pw.Row(children: [
-                  pw.Expanded(child: pw.Text(shaped('نظام ساقية لإدارة محطة ضخ مياه الري • ${settings['station_name'] ?? 'محطة ساقية'}'),
-                    style: pw.TextStyle(font: bold, fontSize: 10, color: PdfColors.white))),
-                  pw.Text(shaped('رقم التقرير: $reportNumber'),
-                    style: pw.TextStyle(font: regular, fontSize: 8, color: PdfColor.fromHex('#D8E9E5'))),
-                ]),
-                pw.SizedBox(height: 5),
-                pw.Text(shaped('تقرير الفواتير'),
-                  style: pw.TextStyle(font: bold, fontSize: 18, color: PdfColors.white)),
-                pw.SizedBox(height: 4),
-                pw.Text(shaped('تاريخ الاستخراج: ${DateFormat('yyyy/MM/dd HH:mm').format(now)}'),
-                  style: pw.TextStyle(font: regular, fontSize: 8, color: PdfColor.fromHex('#D8E9E5'))),
-              ],
-            ),
-          ),
+
+    return OfficialReportTemplate.preview(
+      rightHeader1: 'الجمهورية اليمنية',
+      rightHeader2: 'نظام ساقية لإدارة محطة ضخ مياه الري',
+      rightHeader3: settings['station_name'] ?? 'محطة ساقية',
+      date: dateFormat.format(now),
+      refNumber: 'INV-${DateFormat('yyyyMMdd-HHmmss').format(now)}',
+      attachments: 'عدد الفواتير: ${data.length}',
+      reportTitle: 'تقرير الفواتير',
+      summaryBoxes: [
+        StatBoxData(
+          number: '1',
+          title: 'عدد الفواتير',
+          value: NumberFormat('#,##0').format(data.length),
+          isBlueTint: true,
         ),
-        footer: (context) => pw.Directionality(
-          textDirection: pw.TextDirection.rtl,
-          child: pw.Container(
-            margin: const pw.EdgeInsets.only(top: 8),
-            padding: const pw.EdgeInsets.only(top: 6),
-            decoration: pw.BoxDecoration(
-              border: pw.Border(top: pw.BorderSide(color: PdfColor.fromHex('#D8E3DF'), width: .7)),
-            ),
-            child: pw.Row(children: [
-              pw.Text(shaped('وثيقة صادرة من نظام ساقية'),
-                style: pw.TextStyle(font: regular, fontSize: 7, color: PdfColor.fromHex('#60736E'))),
-              pw.Spacer(),
-              pw.Text(shaped('صفحة ${context.pageNumber} من ${context.pagesCount}'),
-                style: pw.TextStyle(font: regular, fontSize: 7, color: PdfColor.fromHex('#45615E'))),
-            ]),
-          ),
+        StatBoxData(
+          number: '2',
+          title: 'إجمالي الساعات والدقائق',
+          value: duration(totalMinutes),
         ),
-        build: (context) => [
-          pw.Directionality(
-            textDirection: pw.TextDirection.rtl,
-            child: pw.TableHelper.fromTextArray(
-              headers: [
-                shaped('م'), shaped('اسم المستفيد'), shaped('وقت البداية'),
-                shaped('وقت النهاية'), shaped('إجمالي الساعات والدقائق'),
-                shaped('القيمة الإجمالية'), shaped('المسلّمة'), shaped('ملاحظات'),
-              ],
-              data: tableRows,
-              headerDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#287B70')),
-              headerStyle: pw.TextStyle(font: bold, fontSize: 8, color: PdfColors.white),
-              cellStyle: pw.TextStyle(font: regular, fontSize: 7.5, color: PdfColor.fromHex('#20312F')),
-              cellAlignment: pw.Alignment.center,
-              headerAlignment: pw.Alignment.center,
-              cellPadding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 5),
-              border: pw.TableBorder.all(color: PdfColor.fromHex('#D7E2DF'), width: .45),
-              oddRowDecoration: pw.BoxDecoration(color: PdfColor.fromHex('#F2F7F5')),
-              columnWidths: {
-                0: const pw.FixedColumnWidth(28),
-                1: const pw.FlexColumnWidth(2.0),
-                2: const pw.FlexColumnWidth(1.15),
-                3: const pw.FlexColumnWidth(1.15),
-                4: const pw.FlexColumnWidth(1.8),
-                5: const pw.FlexColumnWidth(1.35),
-                6: const pw.FlexColumnWidth(1.2),
-                7: const pw.FlexColumnWidth(2.0),
-              },
-            ),
-          ),
-          pw.SizedBox(height: 14),
-          pw.Directionality(
-            textDirection: pw.TextDirection.rtl,
-            child: pw.Container(
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(
-                color: PdfColor.fromHex('#E8F2EF'),
-                border: pw.Border.all(color: PdfColor.fromHex('#77A99D'), width: 1),
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
-              ),
-              child: pw.Row(children: [
-                pw.Expanded(child: pw.Column(children: [
-                  pw.Text(shaped('مجموع الساعات والدقائق'), style: pw.TextStyle(font: bold, fontSize: 8)),
-                  pw.SizedBox(height: 4),
-                  pw.Text(shaped(duration(totalMinutes)), style: pw.TextStyle(font: bold, fontSize: 11, color: PdfColor.fromHex('#174A45'))),
-                ])),
-                pw.Expanded(child: pw.Column(children: [
-                  pw.Text(shaped('القيمة الإجمالية'), style: pw.TextStyle(font: bold, fontSize: 8)),
-                  pw.SizedBox(height: 4),
-                  pw.Text(shaped('${NumberFormat('#,##0').format(totalAmount)} ريال'), style: pw.TextStyle(font: bold, fontSize: 11, color: PdfColor.fromHex('#174A45'))),
-                ])),
-                pw.Expanded(child: pw.Column(children: [
-                  pw.Text(shaped('المسلّمة'), style: pw.TextStyle(font: bold, fontSize: 8)),
-                  pw.SizedBox(height: 4),
-                  pw.Text(shaped('${NumberFormat('#,##0').format(totalPaid)} ريال'), style: pw.TextStyle(font: bold, fontSize: 11, color: PdfColor.fromHex('#174A45'))),
-                ])),
-              ]),
-            ),
-          ),
-          pw.SizedBox(height: 18),
-          pw.Directionality(
-            textDirection: pw.TextDirection.rtl,
-            child: pw.Row(children: [
-              pw.Expanded(child: pw.Container(height: 36,
-                decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColor.fromHex('#C7D7D1')),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6))),
-                alignment: pw.Alignment.center,
-                child: pw.Text(shaped('توقيع المحاسب'), style: pw.TextStyle(font: regular, fontSize: 8)))),
-              pw.SizedBox(width: 18),
-              pw.Expanded(child: pw.Container(height: 36,
-                decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColor.fromHex('#C7D7D1')),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6))),
-                alignment: pw.Alignment.center,
-                child: pw.Text(shaped('توقيع المشرف'), style: pw.TextStyle(font: regular, fontSize: 8)))),
-            ]),
-          ),
-        ],
-      ),
+        StatBoxData(
+          number: '3',
+          title: 'القيمة الإجمالية',
+          value: '${money(totalAmount)} ريال',
+          isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '4',
+          title: 'إجمالي المدفوع',
+          value: '${money(totalPaid)} ريال',
+        ),
+        StatBoxData(
+          number: '5',
+          title: 'المتبقي',
+          value: '${money(remaining)} ريال',
+          isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '6',
+          title: 'الفترة',
+          value: period,
+        ),
+      ],
+      columns: const [
+        'م',
+        'اسم المستفيد',
+        'وقت البداية',
+        'وقت النهاية',
+        'الساعات والدقائق',
+        'القيمة الإجمالية',
+        'المسلّم',
+        'ملاحظات',
+      ],
+      rows: tableRows,
+      footerTotalRow: [
+        '',
+        'الإجمالي',
+        '',
+        '',
+        duration(totalMinutes),
+        money(totalAmount),
+        money(totalPaid),
+        'المتبقي: ${money(remaining)}',
+      ],
+      thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
+      fileName: 'تقرير-الفواتير.pdf',
+      minTableRows: 7,
     );
-    return doc.save();
   }
 
   Future<void> printInvoicesPdf({
