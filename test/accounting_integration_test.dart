@@ -1689,6 +1689,7 @@ void main() {
     await db.update('partners', {'active': 0}, 'station_id=?', [stationId]);
     await db.update('workers', {'active': 0}, 'station_id=?', [stationId]);
     await db.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
+    await db.update('settings', {'value': '30000'}, 'key=?', ['solar_hourly_rate']);
     await seedCashEquityForTest(stationId, operationDate, 100000);
 
     final p1 = await repo.createPartner(name: 'اختبار صافي الربح شريك مباشر', mode: 'shares', shares: 1);
