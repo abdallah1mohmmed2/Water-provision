@@ -5181,15 +5181,14 @@ int? parseClock(String raw) {
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, dialogSetState) {
-          final q = search.trim().toLowerCase();
           final matches = <Map<String, Object?>>[
             ...beneficiaries.map((x) => <String, Object?>{'type': 'beneficiary', 'row': x}),
             ...workers.map((x) => <String, Object?>{'type': 'worker', 'row': x}),
             ...partners.map((x) => <String, Object?>{'type': 'partner', 'row': x}),
           ].where((item) {
             final row = item['row'] as Map<String, Object?>;
-            return q.isEmpty || '${row['name'] ?? ''}'.toLowerCase().contains(q);
-          }).take(8).toList();
+            return _matchesSearch(row['name'], search);
+          }).toList();
           Future<void> chooseTime(bool isStart) async {
             final picked = await _showHybridTimePicker(
               initial: isStart ? start : end,
@@ -5691,16 +5690,16 @@ int? parseClock(String raw) {
     final p = preview();
     bool keepSelected(Map<String, Object?> x, int? selected) =>
         x['id'] == selected;
-    final query = search.trim().toLowerCase();
+    final query = _normalizeSearchText(search);
     final matchingParties = <Map<String, Object?>>[
       ...beneficiaries
-          .where((x) => keepSelected(x, bid) || (query.isNotEmpty && '${x['name'] ?? ''}'.toLowerCase().contains(query)))
+          .where((x) => keepSelected(x, bid) || (query.isNotEmpty && _matchesSearch(x['name'], query)))
           .map((x) => <String, Object?>{'type': 'beneficiary', 'row': x}),
       ...workers
-          .where((x) => keepSelected(x, workerId) || (query.isNotEmpty && '${x['name'] ?? ''}'.toLowerCase().contains(query)))
+          .where((x) => keepSelected(x, workerId) || (query.isNotEmpty && _matchesSearch(x['name'], query)))
           .map((x) => <String, Object?>{'type': 'worker', 'row': x}),
       ...partners
-          .where((x) => keepSelected(x, partnerId) || (query.isNotEmpty && '${x['name'] ?? ''}'.toLowerCase().contains(query)))
+          .where((x) => keepSelected(x, partnerId) || (query.isNotEmpty && _matchesSearch(x['name'], query)))
           .map((x) => <String, Object?>{'type': 'partner', 'row': x}),
     ];
     return PageFrame(
