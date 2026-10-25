@@ -1508,7 +1508,7 @@ class AccountingService {
           date: start,
           userId: userId,
           // لا يُسجّل للشريك ربح مباشر من فاتورته الشخصية؛
-          // تبقى حصته ضمن صافي الربح القابل للتوزيع لاحقًا.
+          // يُعاد احتساب التوزيع المباشر على بقية الشركاء النشطين.
           excludedPartnerId: partyType == 'partner' ? partnerId : null,
         );
       }
