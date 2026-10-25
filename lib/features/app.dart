@@ -1087,9 +1087,20 @@ class _ShellState extends State<AdminShell> {
             ),
             QuickActionOrb(
               onIrrigation: () {
-                go(2);
+                // نموذج مستقل للإجراء العائم: لا ننتقل إلى شاشة السقايات الثابتة
+                // ولا نعتمد على حالة نموذج السقاية الموجود في قائمة التنقل.
+                final floatingIrrigationKey = GlobalKey<_NewIrrigationState>();
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => NewIrrigationPage(
+                      repo,
+                      key: floatingIrrigationKey,
+                      manager: role == AppRole.manager,
+                    ),
+                  ),
+                ).then((_) => refreshCounts());
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _newIrrigationKey.currentState?.openQuickForm();
+                  floatingIrrigationKey.currentState?.openQuickForm();
                 });
               },
               onCash: () => go(7),
@@ -4940,6 +4951,10 @@ int? parseClock(String raw) {
               ),
             ),
             actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('إغلاق'),
+              ),
               FilledButton.icon(
                 onPressed: loading ? null : () async {
                   if (bid == null) {
