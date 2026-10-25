@@ -1079,10 +1079,10 @@ class StationRepository {
     }
   }
 
-  Future<List<Map<String, Object?>>> partners() async {
+  Future<List<Map<String, Object?>>> partners({bool includeInactive = false}) async {
     final stationId = await accounting.currentStationId();
     return db.rawQuery(
-      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE p.station_id=? AND p.active=1 ORDER BY p.name",
+      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE p.station_id=? ${includeInactive ? '' : 'AND p.active=1'} ORDER BY p.name",
       [stationId],
     );
   }
