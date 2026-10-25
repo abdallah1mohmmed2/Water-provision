@@ -3705,7 +3705,6 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   @override
   void initState() {
     super.initState();
-    load();
     if (widget.compactOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
@@ -3714,6 +3713,8 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
         await add();
         if (mounted) Navigator.of(context).maybePop();
       });
+    } else {
+      load();
     }
   }
 
@@ -7704,7 +7705,18 @@ class _PaymentsState extends State<PaymentsPage> {
   @override
   void initState() {
     super.initState();
-    load();
+    if (widget.compactOnly) {
+      // حمّل خيارات المستفيدين والعمال والشركاء والصناديق قبل فتح نموذج الدفع.
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        await load();
+        if (!mounted) return;
+        await add();
+        if (mounted) Navigator.of(context).maybePop();
+      });
+    } else {
+      load();
+    }
   }
 
   Future<void> add() async {
