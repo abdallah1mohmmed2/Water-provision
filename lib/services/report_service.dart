@@ -639,7 +639,7 @@ class ReportService {
         ? sumOf('total')
         : sumOf('amount');
     final paid = sumOf('paid_amount');
-    final hasFinancial = rows.any(
+    final hasFinancial = financialRows.any(
       (row) =>
           row.containsKey('amount') ||
           row.containsKey('total') ||
