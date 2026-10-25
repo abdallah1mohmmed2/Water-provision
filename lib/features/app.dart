@@ -12439,7 +12439,9 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
           ? '${p['ownership_percentage'] ?? 0}%'
           : '${p['shares_count'] ?? 0} حصة';
 
-      final orderedRows = rows.reversed.toList();
+      final profitTotalRow = rows.where((x) => x['type'] == 'partner_profit_total').firstOrNull;
+      final orderedRows = rows.where((x) => x['type'] != 'partner_profit_total').toList().reversed.toList();
+      if (profitTotalRow != null) orderedRows.add(profitTotalRow);
       final movementRows = <List<String>>[];
       for (final x in orderedRows) {
         final type = '${x['type'] ?? ''}';
@@ -12487,8 +12489,8 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
         footerTotalRow: [
           'إجمالي الحركات / الرصيد النهائي',
           '',
-          amountText(rows.fold<int>(0, (sum, row) => sum + _n(row['lah']))),
-          amountText(rows.fold<int>(0, (sum, row) => sum + _n(row['alayh']))),
+          amountText(rows.where((row) => row['type'] != 'partner_profit_total' && row['type'] != 'partner_irrigation_info').fold<int>(0, (sum, row) => sum + _n(row['lah']))),
+          amountText(rows.where((row) => row['type'] != 'partner_profit_total' && row['type'] != 'partner_irrigation_info').fold<int>(0, (sum, row) => sum + _n(row['alayh']))),
           (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) > 0
               ? 'له ${amountText(orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance']))}'
               : (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) < 0
@@ -12508,16 +12510,17 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
   Map<String,Object?>? get partner=>selectedId==null?null:partners.cast<Map<String,Object?>>().firstWhere((x)=>x['id']==selectedId,orElse:()=>{});
   int _n(Object? v)=>(v as num?)?.round()??0;
   String _date(Object? value){final d=DateTime.tryParse('$value');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
-  String _type(Object? value)=>switch('$value'){ 'payment'=>'دفعة للشريك','share_accrual'=>'استحقاق أرباح','opening_balance'=>'رصيد افتتاحي','irrigation'=>'سقاية على حساب الشريك',_=>'حركة محاسبية'};
-  IconData _typeIcon(Object? value)=>switch('$value'){ 'payment'=>Icons.payments_rounded,'share_accrual'=>Icons.trending_up_rounded,'opening_balance'=>Icons.flag_rounded,_=>Icons.receipt_long_rounded};
+  String _type(Object? value)=>switch('$value'){ 'payment'=>'دفعة للشريك','share_accrual'=>'استحقاق أرباح','partner_profit_total'=>'إجمالي أرباح الشريك','partner_irrigation_info'=>'سقاية خاصة بالشريك','opening_balance'=>'رصيد افتتاحي','irrigation'=>'سقاية على حساب الشريك',_=>'حركة محاسبية'};
+  IconData _typeIcon(Object? value)=>switch('$value'){ 'payment'=>Icons.payments_rounded,'share_accrual'||'partner_profit_total'=>Icons.trending_up_rounded,'opening_balance'=>Icons.flag_rounded,_=>Icons.receipt_long_rounded};
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
-  Widget _movement(Map<String,Object?> x){final signed=_n(x['signed_amount']);final positive=signed>=0;final color=positive?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_typeIcon(x['type']),color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Expanded(child:Text('${x['description']??_type(x['type'])}',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk))),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:11))]),const SizedBox(height:5),Text(_type(x['type']),style:TextStyle(color:color,fontSize:11,fontWeight:FontWeight.w800)),const SizedBox(height:8),Row(children:[Text(positive?'له':'عليه',style:TextStyle(color:color,fontWeight:FontWeight.w900)),const SizedBox(width:6),Text(money(signed.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900)),const Spacer(),Text('الرصيد ${money(_n(x['balance']))}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])]))]));}
+  Widget _movement(Map<String,Object?> x){final kind='${x['type']??''}';final signed=_n(x['signed_amount']);final positive=signed>=0;final color=positive?_reportGreen:_reportOrange;final info=kind=='partner_irrigation_info';return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_typeIcon(x['type']),color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Expanded(child:Text('${x['description']??_type(x['type'])}',maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk))),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:11))]),const SizedBox(height:5),Text(_type(x['type']),style:TextStyle(color:color,fontSize:11,fontWeight:FontWeight.w800)),if(!info)...[const SizedBox(height:8),Row(children:[Text(positive?'له':'عليه',style:TextStyle(color:color,fontWeight:FontWeight.w900)),const SizedBox(width:6),Text(money(signed.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900)),const Spacer(),Text('الرصيد ${money(_n(x['balance']))}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])] else const Padding(padding:EdgeInsets.only(top:6),child:Text('بيان السقاية فقط؛ دون عرض ربحها بشكل منفصل',style:TextStyle(fontSize:11,color:_reportInk))) ]))]));}
   @override
   Widget build(BuildContext context) {
     final p = partner;
     final bal = _n(summary['balance']);
-    final lah = rows.fold<int>(0, (sum, x) => sum + _n(x['lah']));
-    final alayh = rows.fold<int>(0, (sum, x) => sum + _n(x['alayh']));
+    final financialRows = rows.where((x) => x['type'] != 'partner_profit_total' && x['type'] != 'partner_irrigation_info');
+    final lah = financialRows.fold<int>(0, (sum, x) => sum + _n(x['lah']));
+    final alayh = financialRows.fold<int>(0, (sum, x) => sum + _n(x['alayh']));
 
     return Directionality(
       textDirection: TextDirection.rtl,
