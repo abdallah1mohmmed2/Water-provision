@@ -891,7 +891,17 @@ class _ShellState extends State<AdminShell> {
         break;
       case 'queue':
         if (!visible.contains(5)) return;
-        go(5);
+        // افتح نموذج طلب الحجز نفسه دون عرض شاشة إدارة الدور.
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => QueueBookingPage(
+              repo,
+              userId: widget.userId,
+              manager: role == AppRole.manager,
+              quickRequest: true,
+            ),
+          ),
+        ).then((_) => refreshCounts());
         break;
       case 'beneficiary':
         if (!visible.contains(1)) return;
@@ -1145,7 +1155,20 @@ class _ShellState extends State<AdminShell> {
                   ),
                 ).then((_) => refreshCounts());
               },
-              onQueue: () => go(5),
+              onQueue: () {
+                if (!visible.contains(5)) return;
+                // نفس نموذج طلب الحجز المستخدم في الفقاعة الخارجية.
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => QueueBookingPage(
+                      repo,
+                      userId: widget.userId,
+                      manager: role == AppRole.manager,
+                      quickRequest: true,
+                    ),
+                  ),
+                ).then((_) => refreshCounts());
+              },
               onAddBeneficiary: () {
                 if (!visible.contains(1)) return;
                 // افتح نموذج الإضافة فقط دون الانتقال إلى شاشة المستفيدين الثابتة.
@@ -6730,10 +6753,12 @@ class QueueBookingPage extends StatefulWidget {
   final StationRepository r;
   final int userId;
   final bool manager;
+  final bool quickRequest;
   const QueueBookingPage(
     this.r, {
     required this.userId,
     required this.manager,
+    this.quickRequest = false,
     super.key,
   });
   @override
@@ -6770,7 +6795,18 @@ class _QueueState extends State<QueueBookingPage> {
   @override
   void initState() {
     super.initState();
-    load();
+    if (widget.quickRequest) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openQuickRequest());
+    } else {
+      load();
+    }
+  }
+
+  Future<void> _openQuickRequest() async {
+    await load();
+    if (!mounted) return;
+    await book();
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   Future<void> addQueue() async {
