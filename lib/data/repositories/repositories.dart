@@ -937,7 +937,59 @@ class StationRepository {
   }
 
   Future<List<Map<String, Object?>>> workerTransactions(int id) => _ledgerPartyTransactions(accountCode: '2100.W$id', partyColumn: null, id: id, legacyAccountCode: '2100');
-  Future<List<Map<String, Object?>>> partnerTransactions(int id) => _ledgerPartyTransactions(accountCode: '2200.P$id', partyColumn: null, id: id, legacyAccountCode: '2200', legacyPartyColumn: 'partner_id');
+
+  Future<List<Map<String, Object?>>> partnerTransactions(int id) async {
+    final ledgerRows = await _ledgerPartyTransactions(
+      accountCode: '2200.P$id',
+      partyColumn: null,
+      id: id,
+      legacyAccountCode: '2200',
+      legacyPartyColumn: 'partner_id',
+    );
+    // بعض قواعد البيانات القديمة تحتوي حركات الشريك التشغيلية قبل اكتمال
+    // ترحيلها إلى الأستاذ. لا نخلط المصدرين إذا كان الأستاذ يحتوي حركات؛
+    // نستخدم السجل التشغيلي فقط كمسار استعادة عندما يكون كشف الأستاذ فارغًا.
+    if (ledgerRows.isNotEmpty) return ledgerRows;
+
+    final sourceRows = await db.rawQuery('''
+      SELECT id, date, type, amount, reference_type, reference_id, notes
+      FROM partner_transactions
+      WHERE partner_id=?
+      ORDER BY date ASC, id ASC
+    ''', [id]);
+    final rows = <Map<String, Object?>>[];
+    var running = 0;
+    for (final row in sourceRows) {
+      final type = '${row['type'] ?? ''}';
+      final amount = (row['amount'] as num?)?.round() ?? 0;
+      final signed = switch (type) {
+        'share_accrual' || 'opening_balance' => amount,
+        'payment' || 'irrigation' || 'share_adjustment' => -amount,
+        'irrigation_reversal' => amount,
+        _ => 0,
+      };
+      running += signed;
+      rows.add({
+        ...row,
+        'journal_entry_id': null,
+        'journal_line_id': null,
+        'description': row['notes'] ?? switch (type) {
+          'share_accrual' => 'استحقاق أرباح',
+          'payment' => 'دفعة للشريك',
+          'irrigation' => 'سقاية على حساب الشريك',
+          'share_adjustment' => 'تسوية حصة الشريك',
+          'irrigation_reversal' => 'عكس سقاية',
+          _ => 'حركة شريك',
+        },
+        'amount': signed.abs(),
+        'signed_amount': signed,
+        'balance': running,
+        'lah': signed > 0 ? signed : 0,
+        'alayh': signed < 0 ? -signed : 0,
+      });
+    }
+    return rows.reversed.toList();
+  }
 
   Future<List<Map<String, Object?>>> _ledgerPartyTransactions({required String accountCode, required String? partyColumn, required int id, String? legacyAccountCode, String? legacyPartyColumn}) async {
     final partyFilter = partyColumn == null
