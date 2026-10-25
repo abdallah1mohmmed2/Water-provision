@@ -1547,6 +1547,8 @@ class ReportService {
   /// معاينة كشف حساب مستفيد واحد بالقالب الرسمي الجديد.
   Future<void> printBeneficiaryStatementOfficial({
     required int beneficiaryId,
+    DateTime? from,
+    DateTime? to,
   }) async {
     final settings = await repo.settings();
     final people = await repo.db.rawQuery(
@@ -1558,6 +1560,8 @@ class ReportService {
     final rawRows = await repo.report(
       'beneficiary_statement',
       beneficiaryId: beneficiaryId,
+      from: from,
+      to: to,
     );
     num number(Object? value) {
       if (value is num) return value;
@@ -1620,7 +1624,11 @@ class ReportService {
     List<Map<String, Object?>>? sourceRows,
   }) async {
     if (key == 'beneficiary_statement' && beneficiaryId != null) {
-      await printBeneficiaryStatementOfficial(beneficiaryId: beneficiaryId);
+      await printBeneficiaryStatementOfficial(
+        beneficiaryId: beneficiaryId,
+        from: from,
+        to: to,
+      );
       return;
     }
     if (key == 'worker_transactions') {
