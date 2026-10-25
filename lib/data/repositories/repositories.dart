@@ -1865,10 +1865,65 @@ class StationRepository {
           return db.rawQuery(q, args);
         }
       case 'monthly_financial':
-        return db.rawQuery(
-          "SELECT substr(date,1,7) month,COALESCE((SELECT SUM(total_amount) FROM irrigations x WHERE substr(x.date,1,7)=substr(i.date,1,7) AND x.status!='cancelled'),0) income,COALESCE((SELECT SUM(amount) FROM expenses e WHERE substr(e.date,1,7)=substr(i.date,1,7) AND e.status='posted'),0) expenses FROM irrigations i WHERE $iw GROUP BY substr(date,1,7) ORDER BY month",
-          args,
-        );
+        {
+          final stationId = await accounting.currentStationId();
+          final queryArgs = <Object?>[stationId, ...args];
+          final expenseMonthFilters = <String>[];
+          if (from != null) {
+            expenseMonthFilters.add('e.date>=?');
+            queryArgs.add(from.toIso8601String());
+          }
+          if (to != null) {
+            expenseMonthFilters.add('e.date<?');
+            queryArgs.add(to.add(const Duration(days: 1)).toIso8601String());
+          }
+          final expenseMonthWhere = expenseMonthFilters.isEmpty
+              ? ''
+              : ' AND ${expenseMonthFilters.join(' AND ')}';
+          return db.rawQuery(
+            '''WITH station_context AS (SELECT ? AS station_id),
+              scoped_irrigations AS (
+                SELECT i.* FROM irrigations i CROSS JOIN station_context s
+                WHERE i.station_id=s.station_id
+              ),
+              scoped_expenses AS (
+                SELECT e.* FROM expenses e CROSS JOIN station_context s
+                WHERE e.status='posted' AND (
+                  EXISTS (SELECT 1 FROM cashboxes c
+                          WHERE c.id=e.cashbox_id AND c.station_id=s.station_id)
+                  OR EXISTS (SELECT 1 FROM payment_methods pm
+                             WHERE pm.id=e.payment_method_id AND pm.station_id=s.station_id)
+                  OR EXISTS (SELECT 1 FROM app_users u
+                             WHERE u.id=e.created_by AND u.station_id=s.station_id)
+                )
+              ),
+              months AS (
+                SELECT substr(i.date,1,7) AS month
+                FROM scoped_irrigations i
+                WHERE $iw
+                GROUP BY substr(i.date,1,7)
+                UNION
+                SELECT substr(e.date,1,7) AS month
+                FROM scoped_expenses e
+                WHERE 1=1$expenseMonthWhere
+                GROUP BY substr(e.date,1,7)
+              )
+              SELECT m.month,
+                COALESCE((
+                  SELECT SUM(x.total_amount)
+                  FROM scoped_irrigations x
+                  WHERE substr(x.date,1,7)=m.month AND x.status!='cancelled'
+                ),0) AS income,
+                COALESCE((
+                  SELECT SUM(e.amount)
+                  FROM scoped_expenses e
+                  WHERE substr(e.date,1,7)=m.month
+                ),0) AS expenses
+              FROM months m
+              ORDER BY m.month''',
+            queryArgs,
+          );
+        }
       case 'income':
         return _systemReportWithOverall(
           "SELECT i.system_type,COUNT(*) operations,SUM(i.water_amount) water_income,SUM(i.diesel_amount) diesel_income,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY i.system_type",
