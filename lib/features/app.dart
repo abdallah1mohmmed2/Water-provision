@@ -3934,6 +3934,25 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
     }
   }
 
+  Future<void> _printBeneficiariesPdf() async {
+    if (loading) return;
+    if (rows.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لا توجد بيانات لعرضها في PDF')),
+      );
+      return;
+    }
+    try {
+      await ReportService(widget.r).printBeneficiariesOfficial(rows: rows);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendlyError(e))),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(c) => widget.compactOnly
       ? const Scaffold(
@@ -3945,9 +3964,9 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
     subtitle: 'بحث سريع وإدارة البيانات والأرصدة وكشف الحساب',
     actions: [
       OutlinedButton.icon(
-        onPressed: () => ReportService(widget.r).printPdf('beneficiary_list'),
+        onPressed: loading ? null : _printBeneficiariesPdf,
         icon: const Icon(Icons.picture_as_pdf_rounded),
-        label: const Text('تقرير المستفيدين'),
+        label: const Text('PDF المستفيدين'),
       ),
       FilledButton.icon(
         onPressed: add,
