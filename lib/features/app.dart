@@ -14341,7 +14341,11 @@ class _BackupState extends State<BackupPage> {
     try {
       if (saveToLocation) {
         final path = await service.saveBackupToLocation();
-        if (path != null) msg('تم حفظ النسخة والتحقق منها بنجاح');
+        if (path != null) {
+          msg('تم حفظ النسخة والتحقق من الملف النهائي بنجاح');
+        } else {
+          msg('تم إلغاء حفظ النسخة؛ لم يُسجَّل حفظ جديد');
+        }
       } else {
         await service.createAndShare();
         msg('تم إنشاء النسخة والتحقق منها ومشاركتها');
