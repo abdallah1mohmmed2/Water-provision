@@ -1423,6 +1423,7 @@ class ReportService {
         date: DateFormat('yyyy/MM/dd').format(now),
         refNumber: 'WST-${DateFormat('yyMMdd-HHmm').format(now)}',
         attachments: 'الفترة: ${_workerPeriod(from)} إلى ${_workerPeriod(to)}',
+        thirdSignatureLabel: 'إقرار العامل وتوقيعه: ....................',
         reportTitle: 'كشف حساب وتسوية مستحقات عامل — ${worker['name'] ?? 'غير محدد'}',
         summaryBoxes: [
           StatBoxData(number: '1', title: 'اسم العامل', value: '${worker['name'] ?? 'غير محدد'}'),
