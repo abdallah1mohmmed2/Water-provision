@@ -1789,13 +1789,22 @@ class StationRepository {
             filters.add('i.beneficiary_id=?');
             a.add(beneficiaryId);
           }
+          if (workerId != null) {
+            filters.add('i.worker_id=?');
+            a.add(workerId);
+          }
+          if (partnerId != null) {
+            filters.add('i.partner_id=?');
+            a.add(partnerId);
+          }
           if (!allSystems) {
             filters.add('i.system_type=?');
             a.add(systemType);
           }
           return db.rawQuery(
             '''SELECT i.id invoice_id,
-                      COALESCE(b.name,'غير محدد') party_name,
+                      i.beneficiary_id,i.worker_id,i.partner_id,
+                      COALESCE(NULLIF(TRIM(b.name),''),NULLIF(TRIM(wk.name),''),NULLIF(TRIM(pt.name),''),'غير محدد') party_name,
                       i.start_datetime,i.end_datetime,
                       COALESCE(i.minutes,0) minutes,
                       COALESCE(i.total_amount,0) total_amount,
@@ -1803,6 +1812,8 @@ class StationRepository {
                       COALESCE(i.notes,'') notes
                FROM irrigations i
                LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id
+               LEFT JOIN workers wk ON wk.id=i.worker_id
+               LEFT JOIN partners pt ON pt.id=i.partner_id
                WHERE ${filters.join(' AND ')}
                ORDER BY i.start_datetime DESC''',
             a,
