@@ -1372,6 +1372,45 @@ class ReportService {
     };
   }
 
+  num _workerPeriodEndingBalance({
+    required List<Map<String, Object?>> statementRows,
+    required List<Map<String, Object?>> movementRows,
+    required DateTime? from,
+    required num due,
+    required num withdrawals,
+  }) {
+    // With a start date, calculate the closing balance from the brought-forward
+    // balance plus movements in the selected period. Do not rely on transaction
+    // balance snapshots when calculating a period summary.
+    if (from != null) {
+      Map<String, Object?>? openingRow;
+      for (final row in statementRows) {
+        if (row['type'] == 'opening_balance') {
+          openingRow = row;
+          break;
+        }
+      }
+      if (openingRow != null) {
+        final openingBalance = _workerNum(openingRow['balance']);
+        return openingBalance + movementRows.fold<num>(
+          0,
+          (sum, row) =>
+              sum + _workerNum(row['lah']) - _workerNum(row['alayh']),
+        );
+      }
+    }
+
+    // Without a start date, the latest included transaction's cumulative
+    // balance is the closing balance as of the selected end date.
+    if (movementRows.isNotEmpty) {
+      return _workerNum(movementRows.first['balance']);
+    }
+    if (statementRows.isNotEmpty) {
+      return _workerNum(statementRows.first['balance']);
+    }
+    return due - withdrawals;
+  }
+
   Future<void> _printWorkerTransactionsOfficial({
     required int? workerId,
     required DateTime? from,
@@ -1418,11 +1457,13 @@ class ReportService {
       ).toList();
       final due = movementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['lah']));
       final withdrawals = movementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['alayh']));
-      final net = movementRows.isNotEmpty
-          ? _workerNum(movementRows.first['balance'])
-          : statementRows.isEmpty
-              ? due - withdrawals
-              : _workerNum(statementRows.first['balance']);
+      final net = _workerPeriodEndingBalance(
+        statementRows: statementRows,
+        movementRows: movementRows,
+        from: from,
+        due: due,
+        withdrawals: withdrawals,
+      );
       final minutes = invoices.where((row) => _workerNum(row['worker_id']).toInt() == workerId)
           .fold<num>(0, (sum, row) => sum + _workerNum(row['minutes']));
       totalMinutes = minutes;
@@ -1490,11 +1531,13 @@ class ReportService {
       ).toList();
       final due = movementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['lah']));
       final withdrawals = movementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['alayh']));
-      final net = movementRows.isNotEmpty
-          ? _workerNum(movementRows.first['balance'])
-          : tx.isEmpty
-              ? due - withdrawals
-              : _workerNum(tx.first['balance']);
+      final net = _workerPeriodEndingBalance(
+        statementRows: tx,
+        movementRows: movementRows,
+        from: from,
+        due: due,
+        withdrawals: withdrawals,
+      );
       final minutes = invoices.where((row) => _workerNum(row['worker_id']).toInt() == id)
           .fold<num>(0, (sum, row) => sum + _workerNum(row['minutes']));
       totalMinutes += minutes;
