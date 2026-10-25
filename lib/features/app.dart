@@ -18,6 +18,7 @@ import '../services/admin_service.dart';
 import '../services/local_security_service.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
+import '../services/official_report_template.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
 
@@ -11521,7 +11522,150 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
   } else {
     to=d;
   }});await _load();}}
-  Future<void> _print()async{try{await ReportService(widget.r).printPdf('partner_profit_distribution',from:from,to:to);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  Future<void> _print() async {
+    try {
+      final settings = await widget.r.settings();
+      final stationName = settings['station_name'] ?? 'منظومة السقاية';
+      final periodStart = DateTime(from.year, from.month, from.day);
+      final periodEndExclusive = DateTime(to.year, to.month, to.day)
+          .add(const Duration(days: 1));
+      final startText = periodStart.toIso8601String();
+      final endText = periodEndExclusive.toIso8601String();
+
+      // الأرقام التشغيلية من السجلات الحالية، دون إعادة احتساب القيود المحاسبية.
+      final irrigationRows = await widget.r.report(
+        'invoices',
+        from: from,
+        to: to,
+        systemType: 'all',
+      );
+      final totalMinutes = irrigationRows.fold<int>(
+        0,
+        (sum, row) => sum + ((row['minutes'] as num?)?.round() ?? 0),
+      );
+      final totalHours = totalMinutes / 60.0;
+      final collections = await widget.r.db.rawQuery(
+        "SELECT COALESCE(SUM(amount),0) total FROM payments "
+        "WHERE status='posted' AND beneficiary_id IS NOT NULL AND date>=? AND date<?",
+        [startText, endText],
+      );
+      final collected = (collections.first['total'] as num?)?.round() ?? 0;
+      final debtRows = await widget.r.report('debts');
+      final debts = debtRows.fold<int>(0, (sum, row) {
+        final balance = (row['balance'] as num?)?.round() ?? 0;
+        return sum + (balance > 0 ? balance : 0);
+      });
+      final stationId = await widget.r.accounting.currentStationId();
+      final partnerRecords = await widget.r.db.rawQuery(
+        'SELECT id,name,ownership_mode,shares_count,ownership_percentage '
+        'FROM partners WHERE station_id=? ORDER BY id',
+        [stationId],
+      );
+      final withdrawalsByPartner = <int, int>{};
+      var totalWithdrawals = 0;
+      for (final partner in partnerRecords) {
+        final id = (partner['id'] as num).toInt();
+        final paidRows = await widget.r.db.rawQuery(
+          "SELECT COALESCE(SUM(amount),0) total FROM payments "
+          "WHERE status='posted' AND partner_id=? AND date>=? AND date<?",
+          [id, startText, endText],
+        );
+        final amount = (paidRows.first['total'] as num?)?.round() ?? 0;
+        withdrawalsByPartner[id] = amount;
+        totalWithdrawals += amount;
+      }
+
+      final totalExpenses = _n(summary['expenses']);
+      final salaries = _n(summary['workers']);
+      final remainingAfterCostsAndWithdrawals =
+          _n(summary['revenue']) - totalExpenses - salaries - totalWithdrawals;
+
+      final partnerByName = <String, Map<String, Object?>>{
+        for (final p in partnerRecords) '${p['name'] ?? ''}': p,
+      };
+      final tableRows = <List<String>>[];
+      var totalPartnerIncome = 0;
+      var totalPartnerWithdrawals = 0;
+      var totalPartnerBalance = 0;
+      for (final p in partners) {
+        final name = '${p['name'] ?? 'غير محدد'}';
+        final record = partnerByName[name];
+        final id = (record?['id'] as num?)?.toInt();
+        final income = _n(p['gross_amount']);
+        final withdrawal = id == null ? 0 : (withdrawalsByPartner[id] ?? 0);
+        final balance = income - withdrawal;
+        totalPartnerIncome += income;
+        totalPartnerWithdrawals += withdrawal;
+        totalPartnerBalance += balance;
+        final mode = p['mode'] == 'percentage'
+            ? '${p['basis'] ?? 0}%'
+            : '${p['basis'] ?? 0} حصة';
+        final balanceLabel = balance > 0
+            ? 'له ${NumberFormat('#,##0').format(balance)}'
+            : balance < 0
+                ? 'عليه ${NumberFormat('#,##0').format(balance.abs())}'
+                : 'مصفّى';
+        tableRows.add([
+          name,
+          mode,
+          NumberFormat('#,##0').format(income),
+          NumberFormat('#,##0').format(withdrawal),
+          balanceLabel,
+          '',
+        ]);
+      }
+
+      String amountText(Object? value) =>
+          NumberFormat('#,##0').format((value as num?)?.round() ?? 0);
+      final now = AppClock.now();
+      await OfficialReportTemplate.preview(
+        rightHeader1: stationName,
+        rightHeader2: settings['organization_name'] ?? 'الإدارة المالية',
+        rightHeader3: 'نظام إدارة السقاية',
+        date: DateFormat('yyyy/MM/dd').format(now),
+        refNumber: 'SP-${DateFormat('yyMMdd-HHmm').format(now)}',
+        attachments: 'لا يوجد',
+        reportTitle: 'تقرير مالي وإحصائي للشركاء',
+        summaryBoxes: [
+          StatBoxData(number: '1', title: 'إجمالي عدد الساعات', value: '${totalHours.toStringAsFixed(2)} ساعة'),
+          StatBoxData(number: '2', title: 'إجمالي المصروفات', value: amountText(totalExpenses), isBlueTint: true),
+          StatBoxData(number: '3', title: 'الرواتب ومستحقات العمال', value: amountText(salaries)),
+          StatBoxData(number: '4', title: 'المتبقي بعد المصروفات والرواتب والمسحوبات', value: amountText(remainingAfterCostsAndWithdrawals), isBlueTint: true, isLarge: true),
+          StatBoxData(number: '5', title: 'المستلمات من الرعية', value: amountText(collected)),
+          StatBoxData(number: '6', title: 'المديونيات القائمة', value: amountText(debts), isBlueTint: true),
+          StatBoxData(number: '7', title: 'إجمالي المسحوبات', value: amountText(totalWithdrawals)),
+        ],
+        columns: const [
+          'اسم الشريك',
+          'حصص الشريك',
+          'الدخل الخاص بالشريك',
+          'مسحوبات الشريك',
+          'المتبقي له أو عليه',
+          'ملاحظات',
+        ],
+        rows: tableRows,
+        footerTotalRow: [
+          'الإجمالي',
+          '',
+          amountText(totalPartnerIncome),
+          amountText(totalPartnerWithdrawals),
+          totalPartnerBalance > 0
+              ? 'له ${amountText(totalPartnerBalance)}'
+              : totalPartnerBalance < 0
+                  ? 'عليه ${amountText(totalPartnerBalance.abs())}'
+                  : 'مصفّى',
+          '',
+        ],
+        minTableRows: 7,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendlyError(e))),
+        );
+      }
+    }
+  }
   int _n(Object? v)=>(v as num?)?.round()??0;
   String _money(Object? v)=>money(_n(v));
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
