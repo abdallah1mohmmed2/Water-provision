@@ -3,6 +3,7 @@
 *.log
 *.pyc
 *.swp
+node_modules/
 .DS_Store
 .atom/
 .build/
@@ -32,6 +33,10 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+
+# Cloudflare Worker local secrets
+/server/worker-api/.dev.vars
+/server/worker-api/.dev.vars.local
 
 # Symbolication related
 app.*.symbols

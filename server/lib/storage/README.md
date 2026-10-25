@@ -1,16 +1,14 @@
-# Cloud storage boundary
+# حدود طبقة التخزين
 
-The specification requires local SQLite and a future MySQL/PostgreSQL server layer.
-The Flutter data layer does not depend on SQL dialect details. The server currently
-runs SQLite for the single-station/offline deployment and exposes a storage contract
-so a MySQL/PostgreSQL adapter can replace the storage engine without changing the
-feature/API contract.
+يستخدم الخادم الحالي SQLite مباشرة عبر `sqlite3` واستعلامات SQL داخل `server/lib/server.dart`. الملف `storage_contract.dart` يعرّف واجهة مستقبلية صغيرة فحسب؛ لا يطبق الخادم هذه الواجهة حاليًا، ولا يوجد محول منفذ لـMySQL أو PostgreSQL. لذلك لا تفترض أن تغيير نوع قاعدة البيانات ممكن دون تنفيذ إضافي ومراجعة للشيفرة.
 
-The production cloud adapter must preserve:
+أي طبقة تخزين لاحقة يجب أن تحافظ على:
 
-- transactions for irrigation/payment/compound operations;
-- station/user isolation;
-- migrations without data loss;
-- exact integer monetary values;
-- the same 25 required business tables plus helper tables;
-- Arabic error semantics and permission checks.
+- معاملات صحيحة للعمليات المركبة، خصوصًا الري والدفعات والقيود المحاسبية.
+- عزل صارم بين المحطة والمستخدم في كل قراءة وكتابة.
+- migrations قابلة للاختبار من دون فقد البيانات، مع نسخ احتياطي واستعادة مجرّبين.
+- تمثيل دقيق للمبالغ المالية كأعداد صحيحة وعدم تغيير قواعد التقريب.
+- مخطط البيانات الحالي وجداول الأعمال والمساعدة، مع التحقق من توافقه قبل الترحيل.
+- رسائل الأخطاء العربية وفحوص الصلاحيات المتوافقة مع عقد التطبيق.
+
+لا تنفّذ نقل البيانات أو استبدال SQLite قبل وجود محول فعلي واختبارات تكافؤ وتكامل تغطي المعاملات وعزل المحطات والاستعادة.

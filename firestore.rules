@@ -1,0 +1,321 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // The bootstrap administrator is pinned to one Auth UID. Email verification is
+    // required; changing this UID requires a reviewed rules deployment.
+    function isSuperAdmin() {
+      return signedIn()
+        && request.auth.uid == 'wvzNFQ3S8mbH7jwszcvErj2kUv82'
+        && request.auth.token.email_verified == true;
+    }
+
+    function membershipPath(stationId) {
+      return /databases/$(database)/documents/users/$(request.auth.uid)/memberships/$(stationId);
+    }
+
+    function accessRequestPath(uid) {
+      return /databases/$(database)/documents/accessRequests/$(uid);
+    }
+
+    function hasMembership(stationId) {
+      return signedIn()
+        && exists(membershipPath(stationId))
+        && get(membershipPath(stationId)).data.active == true;
+    }
+
+    function membership(stationId) {
+      return get(membershipPath(stationId)).data;
+    }
+
+    function hasRole(stationId, allowedRoles) {
+      return hasMembership(stationId)
+        && membership(stationId).role in allowedRoles;
+    }
+
+    function ownsSubject(stationId, subjectType, subjectId) {
+      return hasRole(stationId, [subjectType])
+        && membership(stationId).subjectId == subjectId;
+    }
+
+    function isStaffReader(stationId) {
+      return hasRole(stationId, ['manager', 'accountant', 'operations']);
+    }
+
+    function canReadFinance(stationId) {
+      return hasRole(stationId, ['manager', 'accountant']);
+    }
+
+    function validRole(role) {
+      return role in [
+        'manager', 'accountant', 'operations',
+        'beneficiary', 'partner', 'worker'
+      ];
+    }
+
+    function needsSubject(role) {
+      return role in ['beneficiary', 'partner', 'worker'];
+    }
+
+    function subjectExists(stationId, role, subjectId) {
+      return (role == 'beneficiary'
+          && exists(/databases/$(database)/documents/stations/$(stationId)/beneficiaries/$(subjectId)))
+        || (role == 'partner'
+          && exists(/databases/$(database)/documents/stations/$(stationId)/partners/$(subjectId)))
+        || (role == 'worker'
+          && exists(/databases/$(database)/documents/stations/$(stationId)/workers/$(subjectId)));
+    }
+
+    function validMembership(data, stationId) {
+      return data.keys().hasAll(['role', 'active', 'assignedAt', 'assignedBy'])
+        && data.keys().hasOnly([
+          'role', 'active', 'subjectId', 'assignedAt', 'assignedBy'
+        ])
+        && validRole(data.role)
+        && data.active is bool
+        && data.assignedAt == request.time
+        && data.assignedBy == request.auth.uid
+        && (needsSubject(data.role)
+          ? ('subjectId' in data
+            && data.subjectId is string
+            && data.subjectId.size() > 0
+            && data.subjectId.size() <= 128
+            && subjectExists(stationId, data.role, data.subjectId))
+          : !('subjectId' in data));
+    }
+
+    match /accessRequests/{uid} {
+      allow read: if isSuperAdmin()
+        || (signedIn() && request.auth.uid == uid);
+
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string
+        && request.resource.data.keys().hasAll([
+          'email', 'displayName', 'status', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'email', 'displayName', 'status', 'createdAt'
+        ])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 120
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time;
+
+      // Keep a minimal decision record; clients cannot approve or edit role/station.
+      allow update: if isSuperAdmin()
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'reviewedAt', 'reviewedBy'])
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.reviewedAt == request.time
+        && request.resource.data.reviewedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if isSuperAdmin()
+        || (signedIn() && request.auth.uid == uid);
+
+      allow create: if isSuperAdmin()
+        && exists(accessRequestPath(uid))
+        && getAfter(accessRequestPath(uid)).data.status == 'approved'
+        && request.resource.data.keys().hasAll([
+          'email', 'displayName', 'createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'email', 'displayName', 'createdAt'
+        ])
+        && request.resource.data.email == get(accessRequestPath(uid)).data.email
+        && request.resource.data.displayName == get(accessRequestPath(uid)).data.displayName
+        && request.resource.data.createdAt == request.time;
+
+      allow update: if (
+          isSuperAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['displayName', 'updatedAt'])
+          && request.resource.data.displayName is string
+          && request.resource.data.displayName.size() <= 120
+          && request.resource.data.updatedAt == request.time
+        ) || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['displayName', 'preferredLanguage', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time
+        );
+
+      allow delete: if false;
+
+      match /memberships/{stationId} {
+        allow read: if isSuperAdmin()
+          || (signedIn() && request.auth.uid == uid);
+
+        allow create: if isSuperAdmin()
+          && exists(accessRequestPath(uid))
+          && getAfter(accessRequestPath(uid)).data.status == 'approved'
+          && exists(/databases/$(database)/documents/stations/$(stationId))
+          && validMembership(request.resource.data, stationId);
+
+        allow update: if isSuperAdmin()
+          && exists(/databases/$(database)/documents/stations/$(stationId))
+          && validMembership(request.resource.data, stationId);
+
+        // Deactivate through the validated active=false update; preserve auditability.
+        allow delete: if false;
+      }
+    }
+
+    match /stations/{stationId} {
+      allow read: if isSuperAdmin() || hasMembership(stationId);
+
+      allow create: if isSuperAdmin()
+        && request.resource.data.keys().hasAll([
+          'name', 'active', 'createdAt', 'createdBy'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'name', 'active', 'createdAt', 'createdBy'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.active == true
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.createdBy == request.auth.uid;
+
+      allow update: if isSuperAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['name', 'active', 'updatedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.active is bool
+        && request.resource.data.updatedAt == request.time;
+
+      // Station deletion can orphan memberships and records, so it is never client-writable.
+      allow delete: if false;
+
+      match /beneficiaries/{beneficiaryId} {
+        allow read: if canReadFinance(stationId)
+          || ownsSubject(stationId, 'beneficiary', beneficiaryId);
+        // Profile documents may contain balances and other derived financial fields.
+        allow write: if false;
+      }
+
+      match /partners/{partnerId} {
+        allow read: if canReadFinance(stationId)
+          || ownsSubject(stationId, 'partner', partnerId);
+        allow write: if false;
+      }
+
+      match /workers/{workerId} {
+        allow read: if canReadFinance(stationId)
+          || ownsSubject(stationId, 'worker', workerId);
+        allow write: if false;
+      }
+
+      match /statements/{subjectType}/accounts/{subjectId} {
+        allow read: if canReadFinance(stationId)
+          || ownsSubject(stationId, subjectType, subjectId);
+        allow write: if false;
+
+        match /entries/{entryId} {
+          allow read: if canReadFinance(stationId)
+            || ownsSubject(stationId, subjectType, subjectId);
+          allow write: if false;
+        }
+      }
+
+      match /bookingRequests/{requestId} {
+        allow read: if isStaffReader(stationId)
+          || (hasRole(stationId, ['beneficiary'])
+            && resource.data.beneficiaryId == membership(stationId).subjectId);
+
+        allow create: if hasRole(stationId, ['beneficiary'])
+          && request.resource.data.keys().hasAll(
+            ['beneficiaryId', 'requestedDate', 'status', 'createdAt'])
+          && request.resource.data.keys().hasOnly(
+            ['beneficiaryId', 'requestedDate', 'notes', 'status', 'createdAt'])
+          && request.resource.data.beneficiaryId == membership(stationId).subjectId
+          && request.resource.data.requestedDate is timestamp
+          && request.resource.data.status == 'new'
+          && request.resource.data.createdAt == request.time
+          && (!('notes' in request.resource.data)
+            || (request.resource.data.notes is string
+              && request.resource.data.notes.size() <= 500));
+
+        allow update: if (
+            hasRole(stationId, ['beneficiary'])
+            && resource.data.beneficiaryId == membership(stationId).subjectId
+            && resource.data.status in ['new', 'under_review']
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'cancelledAt'])
+            && request.resource.data.cancelledAt == request.time
+          ) || (
+            hasRole(stationId, ['manager', 'operations'])
+            && resource.data.status == 'new'
+            && request.resource.data.status in ['under_review', 'scheduled', 'rejected']
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'reviewedAt', 'reviewedBy'])
+            && request.resource.data.reviewedAt == request.time
+            && request.resource.data.reviewedBy == request.auth.uid
+          );
+
+        allow delete: if false;
+      }
+
+      match /announcements/{announcementId} {
+        allow read: if hasMembership(stationId);
+        allow create: if hasRole(stationId, ['manager'])
+          && request.resource.data.keys().hasAll(['title', 'body', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['title', 'body', 'createdAt'])
+          && request.resource.data.title is string
+          && request.resource.data.title.size() <= 120
+          && request.resource.data.body is string
+          && request.resource.data.body.size() <= 2000
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+
+      // Operational directory documents must contain no balance, wage, or ledger fields.
+      // Their schema is written only by a trusted backend or a controlled provisioning process.
+      match /operationalProfiles/{profileId} {
+        allow read: if isStaffReader(stationId);
+        allow write: if false;
+      }
+
+      // Operational records are readable only inside an active station membership.
+      // All writes go through a trusted API after its business rules are implemented.
+      match /{collection}/{documentId} {
+        allow read: if (
+            collection in ['irrigations', 'sessions', 'queueEntries']
+            && isStaffReader(stationId)
+          ) || (
+            collection in [
+              'ledgerEntries', 'journalEntries', 'payments', 'expenses',
+              'dieselMovements', 'cashboxes', 'transfers', 'periodClosures'
+            ]
+            && canReadFinance(stationId)
+          );
+        allow write: if false;
+      }
+
+      // No other station-scoped document is exposed by default.
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    // Deny every collection that is not explicitly matched above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

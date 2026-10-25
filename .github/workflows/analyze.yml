@@ -22,9 +22,36 @@ jobs:
       - name: Install Server dependencies (تجهيز الخادم)
         working-directory: ./server
         run: dart pub get
+
+      - name: Install SQLite native dependency (تجهيز SQLite للخادم)
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+
+      - name: Run server behavior tests (اختبارات واجهة الخادم)
+        working-directory: ./server
+        run: dart test
         
       - name: Run accounting integration tests (اختبارات المحاسبة والتراجع)
         run: flutter test test/accounting_integration_test.dart
 
       - name: Analyze ALL project source (الفحص الشامل لكل شيء)
         run: flutter analyze .
+
+  firestore-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: firebase/rules-tests/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install rule-test dependencies
+        working-directory: firebase/rules-tests
+        run: npm ci
+      - name: Test Firestore rules in local emulator
+        working-directory: firebase/rules-tests
+        run: npm test
