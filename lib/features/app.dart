@@ -8480,7 +8480,6 @@ class _ExpensesState extends State<ExpensesPage> {
   @override
   void initState() {
     super.initState();
-    load();
     if (widget.compactOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
@@ -8489,6 +8488,8 @@ class _ExpensesState extends State<ExpensesPage> {
         await add();
         if (mounted) Navigator.of(context).maybePop();
       });
+    } else {
+      load();
     }
   }
 
