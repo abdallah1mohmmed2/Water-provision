@@ -474,6 +474,51 @@ void main() {
     expect((await svc.partnerBalance(p))['balance'], 10000);
   });
 
+  test('كشف الشريك يعرض خصم السقاية ومدفوعاته ويطابق رصيد الأستاذ', () async {
+    await useSolar6000();
+    final repo = StationRepository(db);
+    final partner = await db.insert('partners', {
+      'name': 'شريك اختبار كشف السقاية والدفع',
+      'ownership_mode': 'shares',
+      'shares_count': 1,
+    });
+    await svc.createPartnerShare(
+      partnerId: partner,
+      amount: 10000,
+      date: DateTime(2026, 3, 1),
+    );
+
+    final irrigationId = await irrigationFor(
+      partnerId: partner,
+      start: DateTime(2026, 3, 3, 8),
+    );
+    await db.update('cashboxes', {'current_balance': 100000}, 'id=?', [1]);
+    final paymentId = await svc.payPartner(
+      partnerId: partner,
+      amount: 1000,
+      paymentMethodId: 1,
+      cashboxId: 1,
+      notes: 'دفعة اختبار كشف الشريك',
+    );
+
+    final statement = await repo.partnerTransactions(partner);
+    final irrigationRow = statement.singleWhere(
+      (row) => row['reference_type'] == 'irrigation' &&
+          row['reference_id'] == irrigationId,
+    );
+    final paymentRow = statement.singleWhere(
+      (row) => row['reference_type'] == 'payment' &&
+          row['reference_id'] == paymentId,
+    );
+
+    expect((irrigationRow['signed_amount'] as num).round(), -6000);
+    expect((paymentRow['signed_amount'] as num).round(), -1000);
+    expect((statement.first['balance'] as num).round(), 3000);
+    expect((await svc.partnerBalance(partner))['balance'], 3000);
+    expect(await glPayable('2200', 'partner_id', partner), 3000);
+    expect((await repo.partyFinancialSummary('partner', partner))['paid'], 1000);
+  });
+
   test('الدفعة المرافقة للسقاية مرفوضة لغير المستفيد', () async {
     await useSolar6000();
     final w = await db.insert('workers', {'name': 'عامل 2', 'pay_type': 'fixed'});
