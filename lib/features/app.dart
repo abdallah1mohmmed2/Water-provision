@@ -279,12 +279,12 @@ String categoryName(String v) =>
     v;
 String payTypeName(String v) =>
     {'fixed': 'راتب ثابت', 'hourly': 'بالساعة', 'percentage': 'نسبة'}[v] ?? v;
-String _normalizeSearchText(Object? value) => '${value ?? ''}'
+String _normalizeSearchText(Object? value) => '\${value ?? ''}'
     .toLowerCase()
-    .replaceAll(RegExp(r'[\\u064B-\\u065F\\u0670\\u0640]'), '')
+    .replaceAll(RegExp(r'[\u064B-\u065F\u0670\u0640]'), '')
     .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
     .replaceAll('ى', 'ي')
-    .replaceAll(RegExp(r'\\s+'), ' ')
+    .replaceAll(RegExp(r'\s+'), ' ')
     .trim();
 
 bool _matchesSearch(Object? value, String query) {
