@@ -56,6 +56,7 @@ class OfficialReportTemplate {
     List<String>? footerTotalRow,
     Uint8List? emblemImageBytes,
     String thirdSignatureLabel = 'الاعتماد والختم: ....................',
+    String fileName = 'official_report.pdf',
     int minTableRows = 7,
   }) async {
     if (columns.isEmpty) {
@@ -132,7 +133,7 @@ class OfficialReportTemplate {
 
     await Printing.layoutPdf(
       onLayout: (_) => document.save(),
-      name: 'official_report.pdf',
+      name: fileName,
     );
   }
 
