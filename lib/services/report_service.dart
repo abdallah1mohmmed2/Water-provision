@@ -1240,7 +1240,7 @@ class ReportService {
     }
     String duration(Object? value) {
       final minutes = n(value).clamp(0, 100000000);
-      return '${minutes ~/ 60} س ${minutes % 60} د';
+      return '${minutes}د';
     }
     String display(Object? value) {
       final text = value == null || '$value'.trim().isEmpty ? '—' : '$value';
@@ -1291,7 +1291,7 @@ class ReportService {
         ),
         StatBoxData(
           number: '2',
-          title: 'إجمالي الساعات والدقائق',
+          title: 'إجمالي الدقائق',
           value: duration(totalMinutes),
         ),
         StatBoxData(
@@ -1320,9 +1320,9 @@ class ReportService {
       columns: const [
         'م',
         'المستفيد / العامل / الشريك',
-        'وقت البداية',
-        'وقت النهاية',
-        'الساعات والدقائق',
+        'من',
+        'إلى',
+        'إجمالي الدقائق',
         'القيمة الإجمالية',
         'المسلّم',
         'ملاحظات',
