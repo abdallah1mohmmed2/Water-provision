@@ -11414,12 +11414,12 @@ class LedgerStatementsPage extends StatefulWidget {
 }
 
 class _LedgerStatementsState extends State<LedgerStatementsPage>{
-  String kind='beneficiary'; int? selectedId; DateTime? from,to;
+  String kind='beneficiary'; int? selectedId; DateTime? from,to; String personSearch='';
   List<Map<String,Object?>> rows=[],beneficiaries=[],workers=[],partners=[],cashboxes=[];
   bool loading=true; String? error;
   final labels=<String,String>{'beneficiary':'كشف المستفيد','worker':'كشف العامل','partner':'كشف الشريك','expenses':'كشف المصروفات','receipts':'كشف المقبوضات','payments':'كشف المدفوعات','cashbox':'كشف الصندوق'};
   @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_loadLists();}
-  Future<void> _loadLists()async{try{final b=await widget.r.beneficiaries(),w=await widget.r.workers(),p=await widget.r.partners(),c=await widget.r.cashboxes();if(mounted)setState((){beneficiaries=b;workers=w;partners=p;cashboxes=c;selectedId=b.isEmpty?null:b.first['id'] as int?;});await _load();}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
+  Future<void> _loadLists()async{try{final b=await widget.r.beneficiaries(),w=await widget.r.workers(),p=await widget.r.partners(),c=await widget.r.cashboxes();if(mounted)setState((){beneficiaries=b;workers=w;partners=p;cashboxes=c;selectedId=kind=='beneficiary'||b.isEmpty?null:b.first['id'] as int?;});await _load();}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _load()async{if((kind=='beneficiary'||kind=='worker'||kind=='partner'||kind=='cashbox')&&selectedId==null){if(mounted)setState(()=>rows=[]);return;}if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.partyLedgerStatement(kind:kind,id:selectedId,from:from,to:to);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   int _n(Object? v)=>(v as num?)?.round()??0;
   String _date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
@@ -11446,7 +11446,78 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
   } else {
     to=d;
   }});_load();}}
-  Widget _selector(){final needs=kind=='beneficiary'||kind=='worker'||kind=='partner'||kind=='cashbox';final list=kind=='beneficiary'?beneficiaries:kind=='worker'?workers:kind=='partner'?partners:cashboxes;return Column(children:[DropdownButtonFormField<String>(initialValue:kind,items:[for(final e in labels.entries)DropdownMenuItem(value:e.key,child:Text(e.value))],onChanged:(v){if(v==null)return;setState((){kind=v;final l=v=='beneficiary'?beneficiaries:v=='worker'?workers:v=='partner'?partners:cashboxes;selectedId=l.isEmpty?null:l.first['id'] as int?;});_load();},decoration:const InputDecoration(labelText:'نوع الكشف',prefixIcon:Icon(Icons.account_tree_rounded),border:OutlineInputBorder())),if(needs) ...[const SizedBox(height:10),DropdownButtonFormField<int>(initialValue:selectedId,items:[for(final x in list)DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']??''}'))],onChanged:(v){setState(()=>selectedId=v);_load();},decoration:InputDecoration(labelText:labels[kind],prefixIcon:const Icon(Icons.person_search_rounded),border:const OutlineInputBorder()))],const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])]);}
+  Widget _selector(){
+    final needs=kind=='beneficiary'||kind=='worker'||kind=='partner'||kind=='cashbox';
+    final list=kind=='beneficiary'?beneficiaries:kind=='worker'?workers:kind=='partner'?partners:cashboxes;
+    final matching=list.where((x)=>'${x['name']??''}'.toLowerCase().contains(personSearch.trim().toLowerCase())).toList();
+    return Column(children:[
+      DropdownButtonFormField<String>(
+        initialValue:kind,
+        items:[for(final e in labels.entries)DropdownMenuItem(value:e.key,child:Text(e.value))],
+        onChanged:(v){
+          if(v==null)return;
+          final l=v=='beneficiary'?beneficiaries:v=='worker'?workers:v=='partner'?partners:cashboxes;
+          setState((){
+            kind=v;
+            personSearch='';
+            selectedId=v=='beneficiary'||l.isEmpty?null:l.first['id'] as int?;
+          });
+          _load();
+        },
+        decoration:const InputDecoration(labelText:'نوع الكشف',prefixIcon:Icon(Icons.account_tree_rounded),border:OutlineInputBorder()),
+      ),
+      if(needs&&kind=='beneficiary') ...[
+        const SizedBox(height:10),
+        TextField(
+          onChanged:(v)=>setState(()=>personSearch=v),
+          decoration:InputDecoration(
+            labelText:'اكتب اسم المستفيد للبحث',
+            hintText:'ابدأ بكتابة الاسم هنا',
+            prefixIcon:const Icon(Icons.person_search_rounded),
+            suffixIcon:personSearch.isEmpty?null:IconButton(onPressed:()=>setState(()=>personSearch=''),icon:const Icon(Icons.close_rounded)),
+            border:const OutlineInputBorder(),
+          ),
+        ),
+        if(personSearch.trim().isNotEmpty) ...[
+          const SizedBox(height:8),
+          if(matching.isEmpty)
+            const Align(alignment:AlignmentDirectional.centerStart,child:Text('لا يوجد مستفيد بهذا الاسم')),
+          for(final x in matching.take(8))
+            ListTile(
+              dense:true,
+              leading:const Icon(Icons.person_outline_rounded,color:_reportOliveDark),
+              title:Text('${x['name']??''}'),
+              trailing:Icon(selectedId==x['id']?Icons.check_circle:Icons.chevron_left_rounded,color:selectedId==x['id']?_reportGreen:_reportOlive),
+              selected:selectedId==x['id'],
+              onTap:(){
+                setState(()=>selectedId=x['id'] as int?);
+                _load();
+              },
+            ),
+        ],
+        if(selectedId!=null)
+          Align(alignment:AlignmentDirectional.centerStart,child:TextButton.icon(
+            onPressed:(){setState((){selectedId=null;personSearch='';rows=[];});},
+            icon:const Icon(Icons.filter_alt_off_rounded,size:17),
+            label:const Text('إلغاء تحديد المستفيد'),
+          )),
+      ] else if(needs) ...[
+        const SizedBox(height:10),
+        DropdownButtonFormField<int>(
+          initialValue:selectedId,
+          items:[for(final x in list)DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']??''}'))],
+          onChanged:(v){setState(()=>selectedId=v);_load();},
+          decoration:InputDecoration(labelText:labels[kind],prefixIcon:const Icon(Icons.person_search_rounded),border:const OutlineInputBorder()),
+        ),
+      ],
+      const SizedBox(height:10),
+      Wrap(spacing:8,runSpacing:8,children:[
+        OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),
+        OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+        if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة')),
+      ]),
+    ]);
+  }
   Widget _line(Map<String,Object?> x,int i){final lah=_n(x['lah']),alayh=_n(x['alayh']),balance=_n(x['balance']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:34,height:34,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${i+1}',style:const TextStyle(fontWeight:FontWeight.w900,color:_reportOliveDark)))),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['description']??x['memo']??_movementLabel(x['reference_type'])}',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:3),Text('${_date(x['date'])} • ${_movementLabel(x['reference_type'])}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),if(lah>0)Text('له ${money(lah)}',style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),if(alayh>0)Padding(padding:const EdgeInsetsDirectional.only(start:10),child:Text('عليه ${money(alayh)}',style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:12)))]),const SizedBox(height:8),Row(children:[Text('${x['party_name']??''}',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10)),const Spacer(),Text('الرصيد ${money(balance)}',style:TextStyle(color:_reportInk.withValues(alpha: .7),fontWeight:FontWeight.w800,fontSize:11))]) ]));}
   @override Widget build(BuildContext context){final lah=rows.fold<int>(0,(s,x)=>s+_n(x['lah'])),alayh=rows.fold<int>(0,(s,x)=>s+_n(x['alayh']));return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(labels[kind]!,style:const TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,6,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الكشوف المالية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text('${labels[kind]} ${_name()}'.trim(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('عرض مبسط للحركات المالية والرصيد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.menu_book_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:_selector()),const SizedBox(height:12),Row(children:[Expanded(child:_stat('إجمالي له',money(lah),_reportGreen)),const SizedBox(width:8),Expanded(child:_stat('إجمالي عليه',money(alayh),_reportOrange)),const SizedBox(width:8),Expanded(child:_stat('عدد الحركات','${rows.length}',_reportOliveDark))]),const SizedBox(height:18),if(visible.isEmpty)const EmptyView('لا توجد حركات لهذا الكشف في الفترة المحددة')else ...[for(var i=0;i<visible.length&&i<500;i++)_line(visible[i],i)] ])));}
   Widget _stat(String label,String value,Color color)=>Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(17),border:Border.all(color:_reportLine)),child:Column(children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:4),Text(value,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:14))]));
