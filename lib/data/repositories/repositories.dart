@@ -2330,30 +2330,38 @@ class StationRepository {
       case 'partner_accounts':
         {
           final rows = <Map<String, Object?>>[];
+          final profitSummaryRows = <Map<String, Object?>>[];
           final selectedPartners = <Map<String, Object?>>[];
           if (partnerId != null && partnerId > 0) {
-            final found = await db.rawQuery(
-              'SELECT id,name,balance FROM partners WHERE id=? LIMIT 1',
+            selectedPartners.addAll(await db.rawQuery(
+              "SELECT p.id,p.name,${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE p.id=? LIMIT 1",
               [partnerId],
-            );
-            selectedPartners.addAll(found);
+            ));
           } else {
-            selectedPartners.addAll(await partners());
+            selectedPartners.addAll(await partners(includeInactive: true));
           }
 
           final periodStart = from == null
               ? null
               : DateTime(from.year, from.month, from.day);
+          final endExclusive = to == null
+              ? null
+              : DateTime(to.year, to.month, to.day).add(const Duration(days: 1));
+
           for (final partner in selectedPartners) {
             final id = (partner['id'] as num).toInt();
             final name = '${partner['name'] ?? 'غير محدد'}';
             final transactions = await partnerTransactions(id);
+            final periodTransactions = transactions.where((row) {
+              final date = DateTime.tryParse('${row['date'] ?? ''}');
+              if (date == null) return periodStart == null && endExclusive == null;
+              if (periodStart != null && date.isBefore(periodStart)) return false;
+              if (endExclusive != null && !date.isBefore(endExclusive)) return false;
+              return true;
+            }).toList();
 
-            // احسب الرصيد الافتتاحي بجمع صافي كل قيود الأستاذ المرحلة
-            // السابقة لبداية الفترة، بدل الاعتماد على رصيد صف حركة بعينه.
-            // signed_amount = credit - debit، وهي نفس إشارة رصيد الشريك في الأستاذ.
+            var openingBalance = 0;
             if (periodStart != null) {
-              var openingBalance = 0;
               for (final row in transactions) {
                 final date = DateTime.tryParse('${row['date'] ?? ''}');
                 if (date == null || !date.isBefore(periodStart)) continue;
@@ -2373,7 +2381,6 @@ class StationRepository {
                 'statement_kind': 'partner',
               });
             } else if (transactions.isEmpty) {
-              // لا نعرض الرصيد الحالي باعتباره رصيدًا تاريخيًا عند تحديد فترة.
               final balance = (partner['balance'] as num?)?.round() ?? 0;
               rows.add({
                 'date': null,
@@ -2390,33 +2397,95 @@ class StationRepository {
               });
             }
 
-            for (final row in transactions) {
+            // Keep the actual payments and the partner's own irrigation charges,
+            // but do not expose a separate profit amount for every irrigation.
+            final profitRows = periodTransactions.where((row) =>
+              row['type'] == 'share_accrual' ||
+              row['type'] == 'irrigation_profit'
+            ).toList();
+            final totalProfit = profitRows.fold<int>(0, (sum, row) =>
+              sum + ((row['signed_amount'] as num?)?.round() ?? 0));
+
+            rows.addAll(periodTransactions.where((row) =>
+              row['type'] != 'share_accrual' &&
+              row['type'] != 'irrigation_profit'
+            ).map((row) => {
+              ...row,
+              'partner_id': id,
+              'partner_name': name,
+              'description': '$name - ${row['description'] ?? ''}',
+              'statement_kind': 'partner',
+            }));
+
+            // Show partner-owned irrigation sessions as informational rows only
+            // when the ledger has not already included that irrigation charge.
+            final irrigationFilters = <String>[
+              "i.party_type='partner'",
+              "i.partner_id=?",
+              "i.status!='cancelled'",
+            ];
+            final irrigationArgs = <Object?>[id];
+            if (periodStart != null) {
+              irrigationFilters.add("date(i.date)>=date(?)");
+              irrigationArgs.add(periodStart.toIso8601String());
+            }
+            if (endExclusive != null) {
+              irrigationFilters.add("date(i.date)<date(?)");
+              irrigationArgs.add(endExclusive.toIso8601String());
+            }
+            final irrigationRows = await db.rawQuery('''
+              SELECT i.id,i.date,i.start_datetime,i.minutes,i.chargeable_minutes,
+                     i.total_amount
+              FROM irrigations i
+              WHERE ${irrigationFilters.join(' AND ')}
+              ORDER BY i.date DESC,i.id DESC
+            ''', irrigationArgs);
+            final representedIrrigations = periodTransactions
+                .where((row) => row['type'] == 'irrigation')
+                .map((row) => (row['reference_id'] as num?)?.toInt())
+                .whereType<int>()
+                .toSet();
+            for (final irrigation in irrigationRows) {
+              final irrigationId = (irrigation['id'] as num).toInt();
+              if (representedIrrigations.contains(irrigationId)) continue;
+              final minutes = (irrigation['chargeable_minutes'] as num?)?.round()
+                  ?? (irrigation['minutes'] as num?)?.round() ?? 0;
               rows.add({
-                ...row,
+                'date': irrigation['date'] ?? irrigation['start_datetime'],
                 'partner_id': id,
                 'partner_name': name,
-                'description': '$name - ${row['description'] ?? ''}',
+                'description': 'سقاية خاصة بالشريك — المدة: $minutes دقيقة',
+                'type': 'partner_irrigation_info',
+                'reference_id': irrigationId,
+                'lah': 0,
+                'alayh': 0,
+                'amount': 0,
+                'signed_amount': 0,
+                'statement_kind': 'partner',
               });
             }
-          }
 
-          if (periodStart != null) {
-            rows.removeWhere((row) {
-              final date = DateTime.tryParse('${row['date'] ?? ''}');
-              return date != null && date.isBefore(periodStart);
+            final closingBalance = periodStart != null
+                ? openingBalance + periodTransactions.fold<int>(0, (sum, row) =>
+                    sum + ((row['signed_amount'] as num?)?.round() ?? 0))
+                : (periodTransactions.isNotEmpty
+                    ? (periodTransactions.first['balance'] as num?)?.round() ?? 0
+                    : (partner['balance'] as num?)?.round() ?? 0);
+            profitSummaryRows.add({
+              'date': to?.toIso8601String() ?? (periodStart?.toIso8601String()),
+              'partner_id': id,
+              'partner_name': name,
+              'description': 'إجمالي أرباح الشريك',
+              'type': 'partner_profit_total',
+              'lah': totalProfit > 0 ? totalProfit : 0,
+              'alayh': totalProfit < 0 ? -totalProfit : 0,
+              'amount': totalProfit.abs(),
+              'signed_amount': totalProfit,
+              'balance': closingBalance,
+              'statement_kind': 'partner',
             });
           }
-          if (to != null) {
-            final endExclusive = DateTime(to.year, to.month, to.day)
-                .add(const Duration(days: 1));
-            rows.removeWhere((row) {
-              final date = DateTime.tryParse('${row['date'] ?? ''}');
-              return date != null && !date.isBefore(endExclusive);
-            });
-          }
 
-          // ترتيب موحد للتقرير المجمع، مع إبقاء الرصيد الافتتاحي قبل
-          // حركات يوم البداية عند تساوي التاريخ.
           rows.sort((a, b) {
             final ad = DateTime.tryParse('${a['date'] ?? ''}');
             final bd = DateTime.tryParse('${b['date'] ?? ''}');
@@ -2428,8 +2497,8 @@ class StationRepository {
             final aOpening = a['type'] == 'opening_balance';
             final bOpening = b['type'] == 'opening_balance';
             if (aOpening != bOpening) return aOpening ? -1 : 1;
-            final byPartner = (a['partner_id'] as num? ?? 0)
-                .compareTo(b['partner_id'] as num? ?? 0);
+            final byPartner = ((a['partner_id'] as num?) ?? 0)
+                .compareTo((b['partner_id'] as num?) ?? 0);
             if (byPartner != 0) return byPartner;
             final byEntry = ((b['journal_entry_id'] as num?) ?? 0)
                 .compareTo((a['journal_entry_id'] as num?) ?? 0);
@@ -2437,6 +2506,7 @@ class StationRepository {
             return ((b['journal_line_id'] as num?) ?? 0)
                 .compareTo((a['journal_line_id'] as num?) ?? 0);
           });
+          rows.addAll(profitSummaryRows);
           return rows;
         }
       case 'partner_profit_distribution':
