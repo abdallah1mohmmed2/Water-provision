@@ -10894,7 +10894,109 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
     );
   }
   Widget _badge(String label,String value,Color color)=>Container(margin:const EdgeInsetsDirectional.only(start:5),padding:const EdgeInsets.symmetric(horizontal:9,vertical:5),decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(9)),child:Text('$label $value',style:TextStyle(color:color,fontSize:11,fontWeight:FontWeight.w900)));
-  @override Widget build(BuildContext context){final net=visibleRows.isEmpty?'-':'${visibleRows.last['balance']??'-'}';return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(_title(),style:const TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:12),child:FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))),onPressed:()async{await ReportService(widget.r).printPdf(widget.keyName,from:widget.from,to:widget.to,beneficiaryId:widget.beneficiaryId,workerId:widget.workerId,partnerId:widget.partnerId,cashboxId:widget.cashboxId,paymentMethodId:_selectedPaymentMethodId,systemType:widget.systemType,category:widget.category,status:_hasQueueBookingStatusFilter?_selectedQueueBookingStatus:widget.status,sourceRows:visibleRows);},icon:const Icon(Icons.print_rounded),label:const Text('PDF')))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(26)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التقرير',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(_title(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(widget.filters.trim().isEmpty?'كل الفترات':widget.filters,style:TextStyle(color:Colors.white.withValues(alpha: .8),fontSize:11))]),),const Icon(Icons.assessment_rounded,color:Colors.white,size:48)])),const SizedBox(height:14),if(_hasBeneficiarySearch) ...[
+  Future<void> _printReport() async {
+    try {
+      if (widget.keyName != 'beneficiary_statement') {
+        await ReportService(widget.r).printPdf(
+          widget.keyName,
+          from: widget.from,
+          to: widget.to,
+          beneficiaryId: widget.beneficiaryId,
+          workerId: widget.workerId,
+          partnerId: widget.partnerId,
+          cashboxId: widget.cashboxId,
+          paymentMethodId: _selectedPaymentMethodId,
+          systemType: widget.systemType,
+          category: widget.category,
+          status: _hasQueueBookingStatusFilter
+              ? _selectedQueueBookingStatus
+              : widget.status,
+          sourceRows: visibleRows,
+        );
+        return;
+      }
+
+      final settings = await widget.r.settings();
+      var beneficiaryName = search.trim();
+      if (widget.beneficiaryId != null) {
+        final person = await widget.r.db.rawQuery(
+          'SELECT name FROM beneficiaries WHERE id=? LIMIT 1',
+          [widget.beneficiaryId],
+        );
+        if (person.isNotEmpty) {
+          beneficiaryName = '${person.first['name'] ?? ''}'.trim();
+        }
+      }
+      if (beneficiaryName.isEmpty) beneficiaryName = 'جميع المستفيدين';
+
+      final reportRows = visibleRows;
+      num amountOf(Map<String, Object?> row, String key) {
+        final value = row[key];
+        if (value is num) return value;
+        return num.tryParse('${value ?? ''}') ?? 0;
+      }
+
+      String amountText(num value) => NumberFormat('#,##0.##').format(value);
+      String dateText(DateTime? value) =>
+          value == null ? 'غير محدد' : DateFormat('yyyy/MM/dd').format(value);
+      String cellDate(Object? value) {
+        final parsed = DateTime.tryParse('${value ?? ''}');
+        return parsed == null ? '${value ?? ''}' : DateFormat('yyyy/MM/dd').format(parsed);
+      }
+
+      final totalLah = reportRows.fold<num>(
+        0,
+        (sum, row) => sum + amountOf(row, 'lah'),
+      );
+      final totalAlayh = reportRows.fold<num>(
+        0,
+        (sum, row) => sum + amountOf(row, 'alayh'),
+      );
+      final endingBalance = reportRows.isEmpty
+          ? 0
+          : amountOf(reportRows.last, 'balance');
+      final now = AppClock.now();
+      final tableRows = reportRows.map((row) => <String>[
+        cellDate(row['date']),
+        '${row['description'] ?? ''}',
+        amountText(amountOf(row, 'lah')),
+        amountText(amountOf(row, 'alayh')),
+        row['balance'] == null ? '' : amountText(amountOf(row, 'balance')),
+      ]).toList();
+
+      await OfficialReportTemplate.preview(
+        rightHeader1: settings['station_name'] ?? 'منظومة السقاية',
+        rightHeader2: settings['organization_name'] ?? 'الإدارة المالية',
+        rightHeader3: 'نظام إدارة السقاية',
+        date: DateFormat('yyyy/MM/dd').format(now),
+        refNumber: 'BEN-${DateFormat('yyMMdd-HHmm').format(now)}',
+        attachments: 'الفترة: ${dateText(widget.from)} إلى ${dateText(widget.to)}',
+        reportTitle: 'كشف حساب المستفيد: $beneficiaryName',
+        summaryBoxes: [
+          StatBoxData(number: '1', title: 'إجمالي له', value: amountText(totalLah)),
+          StatBoxData(number: '2', title: 'إجمالي عليه', value: amountText(totalAlayh), isBlueTint: true),
+          StatBoxData(number: '3', title: 'الرصيد الختامي', value: amountText(endingBalance), isLarge: true),
+        ],
+        columns: const ['التاريخ', 'البيان', 'له', 'عليه', 'الرصيد التراكمي'],
+        rows: tableRows,
+        footerTotalRow: [
+          'الإجمالي',
+          '',
+          amountText(totalLah),
+          amountText(totalAlayh),
+          amountText(endingBalance),
+        ],
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذرت طباعة التقرير: ${friendlyError(e)}')),
+        );
+      }
+    }
+  }
+
+  @override Widget build(BuildContext context){final net=visibleRows.isEmpty?'-':'${visibleRows.last['balance']??'-'}';return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(_title(),style:const TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:12),child:FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))),onPressed:_printReport,icon:const Icon(Icons.print_rounded),label:const Text('PDF')))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(26)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التقرير',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(_title(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(widget.filters.trim().isEmpty?'كل الفترات':widget.filters,style:TextStyle(color:Colors.white.withValues(alpha: .8),fontSize:11))]),),const Icon(Icons.assessment_rounded,color:Colors.white,size:48)])),const SizedBox(height:14),if(_hasBeneficiarySearch) ...[
   const SizedBox(height:14),
   TextField(
     onChanged:(value)=>setState(()=>search=value),
