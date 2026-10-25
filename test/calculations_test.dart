@@ -89,6 +89,32 @@ void main() {
       expect(AccountingCalculations.partnerShare(distributable: 100000, percentage: 25), 25000);
       expect(AccountingCalculations.partnerShareByMode(mode: 'shares', distributable: 100000, partnerShares: 2, totalShares: 8, percentage: 0), 25000);
     });
+    test('توزيع النسب والأسهم لا يتجاوز الربح المتاح ويرفض نسبًا فوق 100%', () {
+      final amounts = AccountingCalculations.partnerDistributionAmounts(
+        distributable: 100000,
+        partners: [
+          {'id': 1, 'ownership_mode': 'percentage', 'ownership_percentage': 20, 'shares_count': 0},
+          {'id': 2, 'ownership_mode': 'percentage', 'ownership_percentage': 30, 'shares_count': 0},
+          {'id': 3, 'ownership_mode': 'shares', 'ownership_percentage': 0, 'shares_count': 1},
+          {'id': 4, 'ownership_mode': 'shares', 'ownership_percentage': 0, 'shares_count': 3},
+        ],
+      );
+      expect(amounts[1], 20000);
+      expect(amounts[2], 30000);
+      expect(amounts[3], 12500);
+      expect(amounts[4], 37500);
+      expect(amounts.values.fold<int>(0, (sum, value) => sum + value), 100000);
+      expect(
+        () => AccountingCalculations.partnerDistributionAmounts(
+          distributable: 100000,
+          partners: [
+            {'id': 1, 'ownership_mode': 'percentage', 'ownership_percentage': 70, 'shares_count': 0},
+            {'id': 2, 'ownership_mode': 'percentage', 'ownership_percentage': 40, 'shares_count': 0},
+          ],
+        ),
+        throwsArgumentError,
+      );
+    });
     test('التقريب بالأعداد الصحيحة: 23 دقيقة × 300 لأعلى = 115 وليس 116', () {
       final x = AccountingCalculations.equivalent(
         start: start,
