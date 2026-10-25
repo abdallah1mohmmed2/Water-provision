@@ -1932,12 +1932,27 @@ class _DashboardState extends State<DashboardPage> {
     // افتح شاشة التقرير التفاعلية المقصودة، وليس شاشة الإدارة العامة أو PDF.
     switch (key) {
       case 'partner_accounts':
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => PartnerAccountsReportPage(widget.r),
-          ),
-        );
+        try {
+          final rows = await widget.r.report('partner_accounts');
+          if (!mounted) return;
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ReportPreviewPage(
+                widget.r,
+                keyName: 'partner_accounts',
+                rows: rows,
+                filters: '',
+              ),
+            ),
+          );
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('تعذر فتح معاينة حسابات الشركاء: ${friendlyError(e)}')),
+            );
+          }
+        }
         return;
       case 'partner_profit_distribution':
         Navigator.push(
@@ -1963,16 +1978,16 @@ class _DashboardState extends State<DashboardPage> {
           ),
         );
         return;
-      case 'beneficiary_list':
+      case 'beneficiary_statement':
         try {
-          final rows = await widget.r.report('beneficiary_list');
+          final rows = await widget.r.report('beneficiary_statement');
           if (!mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => ReportPreviewPage(
                 widget.r,
-                keyName: 'beneficiary_list',
+                keyName: 'beneficiary_statement',
                 rows: rows,
                 filters: '',
               ),
@@ -1981,7 +1996,7 @@ class _DashboardState extends State<DashboardPage> {
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('تعذر فتح تقرير المستفيدين: ${friendlyError(e)}')),
+              SnackBar(content: Text('تعذر فتح معاينة كشف حساب المستفيد: ${friendlyError(e)}')),
             );
           }
         }
@@ -2032,7 +2047,7 @@ class _DashboardState extends State<DashboardPage> {
       ('تقرير الشركاء العام', 'partner_profit_distribution', Icons.groups_rounded),
       ('تقرير العمال', 'worker_transactions', Icons.engineering_rounded),
       ('تقرير الفواتير', 'invoices', Icons.receipt_long_rounded),
-      ('تقرير المستفيدين', 'beneficiary_list', Icons.people_alt_rounded),
+      ('تقرير المستفيدين', 'beneficiary_statement', Icons.people_alt_rounded),
     ];
     const cyan = Color(0xFF00E5FF);
     const neon = Color(0xFF39FFB6);
