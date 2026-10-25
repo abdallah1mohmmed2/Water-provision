@@ -1507,6 +1507,9 @@ class AccountingService {
           amount: partnerPool,
           date: start,
           userId: userId,
+          // لا يُسجّل للشريك ربح مباشر من فاتورته الشخصية؛
+          // تبقى حصته ضمن صافي الربح القابل للتوزيع لاحقًا.
+          excludedPartnerId: partyType == 'partner' ? partnerId : null,
         );
       }
       if (partyType == 'worker') {
@@ -2278,8 +2281,15 @@ class AccountingService {
   }
 
   Future<void> _accruePartnersFromIrrigationTx(Transaction tx, {required int irrigationId, required int stationId,
-    required int amount, required DateTime date, int? userId}) async {
-    final partners = await tx.query('partners', where: 'station_id=? AND active=1', whereArgs: [stationId], orderBy: 'id');
+    required int amount, required DateTime date, int? userId, int? excludedPartnerId}) async {
+    final partners = await tx.query(
+      'partners',
+      where: excludedPartnerId == null
+          ? 'station_id=? AND active=1'
+          : 'station_id=? AND active=1 AND id!=?',
+      whereArgs: excludedPartnerId == null ? [stationId] : [stationId, excludedPartnerId],
+      orderBy: 'id',
+    );
     if (partners.isEmpty || amount <= 0) return;
     final sharePartners = partners.where((p) => '${p['ownership_mode']}' == 'shares').toList();
     final percentagePartners = partners.where((p) => '${p['ownership_mode']}' == 'percentage').toList();
