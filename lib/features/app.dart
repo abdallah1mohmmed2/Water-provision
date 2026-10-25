@@ -11575,10 +11575,11 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
         totalWithdrawals += amount;
       }
 
+      // نستخدم نفس صافي الربح المحاسبي الذي تعتمد عليه شاشة التوزيع
+      // والترحيل، المحسوب من القيود اليومية المرحلة فقط؛ المسحوبات لا تخصم منه.
       final totalExpenses = _n(summary['expenses']);
       final salaries = _n(summary['workers']);
-      final remainingAfterCostsAndWithdrawals =
-          _n(summary['revenue']) - totalExpenses - salaries - totalWithdrawals;
+      final distributableProfit = _n(summary['distributable']);
 
       final tableRows = <List<String>>[];
       var totalPartnerIncome = 0;
@@ -11626,7 +11627,7 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
           StatBoxData(number: '1', title: 'إجمالي عدد الساعات', value: '${totalHours.toStringAsFixed(2)} ساعة'),
           StatBoxData(number: '2', title: 'إجمالي المصروفات', value: amountText(totalExpenses), isBlueTint: true),
           StatBoxData(number: '3', title: 'الرواتب ومستحقات العمال', value: amountText(salaries)),
-          StatBoxData(number: '4', title: 'المتبقي بعد المصروفات والرواتب والمسحوبات', value: amountText(remainingAfterCostsAndWithdrawals), isBlueTint: true, isLarge: true),
+          StatBoxData(number: '4', title: 'صافي الربح المحاسبي المعتمد للتوزيع', value: amountText(distributableProfit), isBlueTint: true, isLarge: true),
           StatBoxData(number: '5', title: 'المستلمات من الرعية', value: amountText(collected)),
           StatBoxData(number: '6', title: 'المديونيات القائمة', value: amountText(debts), isBlueTint: true),
           StatBoxData(number: '7', title: 'إجمالي المسحوبات', value: amountText(totalWithdrawals)),
