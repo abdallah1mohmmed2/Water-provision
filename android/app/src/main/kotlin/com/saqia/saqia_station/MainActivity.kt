@@ -13,6 +13,26 @@ class MainActivity : FlutterFragmentActivity() {
     private val bubbleChannel = "saqia/floating_bubble"
     private var pendingQuickAction: String? = null
     private var bubbleMethodChannel: MethodChannel? = null
+    private var activityResumed = false
+
+    private fun notifyBubbleVisibility(foreground: Boolean) {
+        sendBroadcast(Intent(FloatingBubbleService.ACTION_APP_VISIBILITY).apply {
+            setPackage(packageName)
+            putExtra(FloatingBubbleService.EXTRA_APP_FOREGROUND, foreground)
+        })
+    }
+
+    override fun onResume() {
+        super.onResume()
+        activityResumed = true
+        notifyBubbleVisibility(true)
+    }
+
+    override fun onPause() {
+        activityResumed = false
+        notifyBubbleVisibility(false)
+        super.onPause()
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -37,7 +57,9 @@ class MainActivity : FlutterFragmentActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
                         result.error("OVERLAY_PERMISSION", "يجب السماح بالظهور فوق التطبيقات أولاً", null)
                     } else {
-                        val serviceIntent = Intent(this, FloatingBubbleService::class.java)
+                        val serviceIntent = Intent(this, FloatingBubbleService::class.java).apply {
+                            putExtra(FloatingBubbleService.EXTRA_APP_FOREGROUND, activityResumed)
+                        }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(serviceIntent) else startService(serviceIntent)
                         result.success(true)
                     }
