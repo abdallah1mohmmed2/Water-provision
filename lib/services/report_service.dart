@@ -1411,7 +1411,16 @@ class ReportService {
       totalDue = due;
       totalWithdrawals = withdrawals;
       totalNet = net;
+      // The repository returns rows newest-first and places the opening balance
+      // before same-day movements in that order. Reversing the whole list would
+      // move the opening row after the first day's movements, so move opening
+      // rows to the front after reversing for chronological print order.
       final ordered = statementRows.reversed.toList();
+      final openingRows = ordered
+          .where((row) => row['type'] == 'opening_balance')
+          .toList();
+      ordered.removeWhere((row) => row['type'] == 'opening_balance');
+      ordered.insertAll(0, openingRows);
       final movements = ordered.map((row) {
         final balance = _workerNum(row['balance']);
         final balanceText = balance > 0
