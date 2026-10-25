@@ -55,6 +55,7 @@ class OfficialReportTemplate {
     required List<List<String>> rows,
     List<String>? footerTotalRow,
     Uint8List? emblemImageBytes,
+    String thirdSignatureLabel = 'الاعتماد والختم: ....................',
     int minTableRows = 7,
   }) async {
     if (columns.isEmpty) {
@@ -124,7 +125,7 @@ class OfficialReportTemplate {
             boldFont: arabicBold,
           ),
           pw.SizedBox(height: 35),
-          _buildOfficialSignatures(arabicBold),
+          _buildOfficialSignatures(arabicBold, thirdLabel: thirdSignatureLabel),
         ],
       ),
     );
@@ -406,7 +407,10 @@ class OfficialReportTemplate {
     );
   }
 
-  static pw.Widget _buildOfficialSignatures(pw.Font boldFont) {
+  static pw.Widget _buildOfficialSignatures(
+    pw.Font boldFont, {
+    required String thirdLabel,
+  }) {
     final style = pw.TextStyle(font: boldFont, fontSize: 10.5);
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -418,7 +422,7 @@ class OfficialReportTemplate {
           child: pw.Text('المراجعة: ....................', style: style),
         ),
         pw.Expanded(
-          child: pw.Text('الاعتماد والختم: ....................', style: style),
+          child: pw.Text(thirdLabel, style: style),
         ),
       ],
     );
