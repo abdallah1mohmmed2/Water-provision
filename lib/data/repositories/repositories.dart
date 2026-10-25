@@ -1980,39 +1980,105 @@ class StationRepository {
       case 'worker_transactions':
         {
           final rows = <Map<String, Object?>>[];
+          final selectedWorkers = <Map<String, Object?>>[];
           if (workerId != null && workerId > 0) {
-            rows.addAll(await workerTransactions(workerId));
+            selectedWorkers.addAll(await db.rawQuery(
+              'SELECT id,name,balance FROM workers WHERE id=? LIMIT 1',
+              [workerId],
+            ));
           } else {
-            for (final worker in await workers()) {
-              final id = (worker['id'] as num).toInt();
-              final name = '${worker['name'] ?? 'غير محدد'}';
-              final transactions = await workerTransactions(id);
-              if (transactions.isEmpty) {
-                final balance = (worker['balance'] as num?)?.round() ?? 0;
-                rows.add({
-                  'date': null,
-                  'worker_name': name,
-                  'description': '$name (الرصيد الحالي)',
-                  'lah': balance > 0 ? balance : 0,
-                  'alayh': balance < 0 ? -balance : 0,
-                  'balance': balance,
-                });
-              } else {
-                rows.addAll(transactions.map((row) => {
-                  ...row,
-                  'worker_name': name,
-                  'description': '$name - ${row['description'] ?? ''}',
-                }));
-              }
-            }
+            selectedWorkers.addAll(await workers());
           }
-          if (from != null) rows.removeWhere((row) {
-            final date = DateTime.tryParse('${row['date'] ?? ''}');
-            return date != null && date.isBefore(DateTime(from.year, from.month, from.day));
-          });
-          if (to != null) rows.removeWhere((row) {
-            final date = DateTime.tryParse('${row['date'] ?? ''}');
-            return date != null && !date.isBefore(DateTime(to.year, to.month, to.day).add(const Duration(days: 1)));
+
+          final periodStart = from == null
+              ? null
+              : DateTime(from.year, from.month, from.day);
+          for (final worker in selectedWorkers) {
+            final id = (worker['id'] as num).toInt();
+            final name = '${worker['name'] ?? 'غير محدد'}';
+            final transactions = await workerTransactions(id);
+
+            // نحسب الرصيد الافتتاحي من أحدث حركة مرحّلة قبل بداية الفترة؛
+            // الأرصدة الجارية في الحركات محسوبة من كامل التاريخ.
+            if (periodStart != null) {
+              int openingBalance = 0;
+              DateTime? latestPriorDate;
+              for (final row in transactions) {
+                final date = DateTime.tryParse('${row['date'] ?? ''}');
+                if (date == null || !date.isBefore(periodStart)) continue;
+                if (latestPriorDate == null || date.isAfter(latestPriorDate)) {
+                  latestPriorDate = date;
+                  openingBalance = (row['balance'] as num?)?.round() ?? 0;
+                }
+              }
+              rows.add({
+                'date': periodStart.toIso8601String(),
+                'worker_id': id,
+                'worker_name': name,
+                'description': 'الرصيد المرحل قبل الفترة - $name',
+                'type': 'opening_balance',
+                'lah': openingBalance > 0 ? openingBalance : 0,
+                'alayh': openingBalance < 0 ? -openingBalance : 0,
+                'amount': openingBalance.abs(),
+                'balance': openingBalance,
+                'statement_kind': 'worker',
+              });
+            } else if (transactions.isEmpty) {
+              final balance = (worker['balance'] as num?)?.round() ?? 0;
+              rows.add({
+                'date': null,
+                'worker_id': id,
+                'worker_name': name,
+                'description': '$name (الرصيد الحالي)',
+                'type': 'current_balance',
+                'lah': balance > 0 ? balance : 0,
+                'alayh': balance < 0 ? -balance : 0,
+                'amount': balance.abs(),
+                'balance': balance,
+                'statement_kind': 'worker',
+              });
+            }
+
+            rows.addAll(transactions.map((row) => {
+              ...row,
+              'worker_id': id,
+              'worker_name': name,
+              'description': '$name - ${row['description'] ?? ''}',
+              'statement_kind': 'worker',
+            }));
+          }
+
+          if (periodStart != null) {
+            rows.removeWhere((row) {
+              final date = DateTime.tryParse('${row['date'] ?? ''}');
+              return date != null && date.isBefore(periodStart);
+            });
+          }
+          if (to != null) {
+            final endExclusive = DateTime(to.year, to.month, to.day)
+                .add(const Duration(days: 1));
+            rows.removeWhere((row) {
+              final date = DateTime.tryParse('${row['date'] ?? ''}');
+              return date != null && !date.isBefore(endExclusive);
+            });
+          }
+
+          rows.sort((a, b) {
+            final ad = DateTime.tryParse('${a['date'] ?? ''}');
+            final bd = DateTime.tryParse('${b['date'] ?? ''}');
+            if (ad == null && bd == null) {
+              return ((a['worker_id'] as num?) ?? 0)
+                  .compareTo((b['worker_id'] as num?) ?? 0);
+            }
+            if (ad == null) return 1;
+            if (bd == null) return -1;
+            final byDate = bd.compareTo(ad);
+            if (byDate != 0) return byDate;
+            final aOpening = a['type'] == 'opening_balance';
+            final bOpening = b['type'] == 'opening_balance';
+            if (aOpening != bOpening) return aOpening ? -1 : 1;
+            return ((a['worker_id'] as num?) ?? 0)
+                .compareTo((b['worker_id'] as num?) ?? 0);
           });
           return rows;
         }
