@@ -1425,7 +1425,7 @@ class ReportService {
         attachments: 'الفترة: ${_workerPeriod(from)} إلى ${_workerPeriod(to)}',
         reportTitle: 'كشف حساب وتسوية مستحقات عامل — ${worker['name'] ?? 'غير محدد'}',
         summaryBoxes: [
-          StatBoxData(number: '1', title: 'اسم العامل', value: '${worker['name'] ?? 'غير محدد}'),
+          StatBoxData(number: '1', title: 'اسم العامل', value: '${worker['name'] ?? 'غير محدد'}'),
           StatBoxData(number: '2', title: 'نوع وطريقة التحاسب', value: '${_workerPayType(worker)} — ${_workerPayBasis(worker)}'),
           StatBoxData(number: '3', title: 'إجمالي المستحق', value: _workerMoney(due)),
           StatBoxData(number: '4', title: 'إجمالي المسحوبات', value: _workerMoney(withdrawals), isBlueTint: true),
