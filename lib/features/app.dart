@@ -5367,8 +5367,12 @@ int? parseClock(String raw) {
               FilledButton.icon(
                 onPressed: loading ? null : () async {
                   final savedEnd = end;
-                  if (bid == null) {
-                    msg('اختر مستفيداً من مربع البحث أولاً');
+                  final hasSelectedParty =
+                      (partyType == 'beneficiary' && bid != null) ||
+                      (partyType == 'worker' && workerId != null) ||
+                      (partyType == 'partner' && partnerId != null);
+                  if (!hasSelectedParty) {
+                    msg('اختر مستفيداً أو عاملاً أو شريكاً من مربع البحث أولاً');
                     return;
                   }
                   if (!end.isAfter(start)) {
