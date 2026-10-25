@@ -215,7 +215,7 @@ class StationRepository {
     if (baseRows.isEmpty) return <Map<String, Object?>>[];
     final opening = (baseRows.first['opening_balance'] as num?)?.round() ?? 0;
     final carried = (baseRows.first['carried_balance'] as num?)?.round() ?? 0;
-    var running = opening + carried;
+    final initialBalance = opening + carried;
     final creditDelivery =
         (await settings())['diesel_delivery_financial_credit'] == 'true';
     final events = await db.rawQuery(
@@ -226,51 +226,77 @@ class StationRepository {
       "ORDER BY date,id",
       [id, id, id, if (creditDelivery) id],
     );
+
+    final fromDay = from == null
+        ? null
+        : DateTime(from.year, from.month, from.day);
+    final toExclusive = to == null
+        ? null
+        : DateTime(to.year, to.month, to.day).add(const Duration(days: 1));
+    var running = initialBalance;
+    var periodOpeningBalance = initialBalance;
     final result = <Map<String, Object?>>[];
+
     for (final raw in events) {
       final debit = (raw['debit'] as num?)?.round() ?? 0;
       final credit = (raw['credit'] as num?)?.round() ?? 0;
       running += debit - credit;
-      final row = {...raw, 'balance': running};
       final date = DateTime.tryParse('${raw['date'] ?? ''}');
-      // Date pickers provide midnight values. Treat both bounds as whole
-      // calendar days so movements later on the selected end date are included.
-      final fromDay = from == null
-          ? null
-          : DateTime(from.year, from.month, from.day);
-      final toExclusive = to == null
-          ? null
-          : DateTime(to.year, to.month, to.day).add(const Duration(days: 1));
-      if (fromDay != null && (date == null || date.isBefore(fromDay))) continue;
-      if (toExclusive != null && (date == null || !date.isBefore(toExclusive))) continue;
-      result.add(row);
+
+      // الحركات السابقة للفترة تدخل في الرصيد الافتتاحي، ولا تظهر كحركات
+      // داخل الفترة. نحتفظ بالرصيد الجاري التاريخي لكل حركة.
+      if (fromDay != null && (date == null || date.isBefore(fromDay))) {
+        periodOpeningBalance = running;
+        continue;
+      }
+      if (toExclusive != null && (date == null || !date.isBefore(toExclusive))) {
+        continue;
+      }
+      result.add({...raw, 'balance': running});
     }
-    // Include explicit opening/carried balance rows in the same statement source
-    // used by the detail screen and its PDF export, even when a date filter is set.
-    final openingRow = <String, Object?>{
-      'id': -1,
-      'date': null,
-      'type': 'opening_balance',
-      'description': 'رصيد افتتاحي',
-      'debit': opening > 0 ? opening : 0,
-      'credit': opening < 0 ? -opening : 0,
-      'lah': opening > 0 ? opening : 0,
-      'alayh': opening < 0 ? -opening : 0,
-      'balance': opening,
-    };
-    final carriedRow = <String, Object?>{
-      'id': -2,
-      'date': null,
-      'type': 'carried_balance',
-      'description': 'رصيد مرحّل',
-      'debit': carried > 0 ? carried : 0,
-      'credit': carried < 0 ? -carried : 0,
-      'lah': carried > 0 ? carried : 0,
-      'alayh': carried < 0 ? -carried : 0,
-      'balance': opening + carried,
-    };
-    if (opening != 0) result.insert(0, openingRow);
-    if (carried != 0) result.insert(opening != 0 ? 1 : 0, carriedRow);
+
+    if (fromDay != null) {
+      result.insert(0, {
+        'id': -3,
+        'date': fromDay.toIso8601String(),
+        'type': 'opening_balance',
+        'description': 'الرصيد المرحّل قبل الفترة',
+        'debit': periodOpeningBalance > 0 ? periodOpeningBalance : 0,
+        'credit': periodOpeningBalance < 0 ? -periodOpeningBalance : 0,
+        'lah': periodOpeningBalance > 0 ? periodOpeningBalance : 0,
+        'alayh': periodOpeningBalance < 0 ? -periodOpeningBalance : 0,
+        'balance': periodOpeningBalance,
+      });
+    } else {
+      // عند عرض الكشف الكامل فقط، نظهر الرصيدين الافتتاحي والمرحّل
+      // منفصلين؛ ولا نكررهما عند طلب فترة محددة.
+      if (opening != 0) {
+        result.insert(0, {
+          'id': -1,
+          'date': null,
+          'type': 'opening_balance',
+          'description': 'رصيد افتتاحي',
+          'debit': opening > 0 ? opening : 0,
+          'credit': opening < 0 ? -opening : 0,
+          'lah': opening > 0 ? opening : 0,
+          'alayh': opening < 0 ? -opening : 0,
+          'balance': opening,
+        });
+      }
+      if (carried != 0) {
+        result.insert(opening != 0 ? 1 : 0, {
+          'id': -2,
+          'date': null,
+          'type': 'carried_balance',
+          'description': 'رصيد مرحّل',
+          'debit': carried > 0 ? carried : 0,
+          'credit': carried < 0 ? -carried : 0,
+          'lah': carried > 0 ? carried : 0,
+          'alayh': carried < 0 ? -carried : 0,
+          'balance': initialBalance,
+        });
+      }
+    }
     return result;
   }
 
