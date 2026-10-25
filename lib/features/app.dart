@@ -11494,13 +11494,13 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
   late DateTime from,to;Map<String,Object?> summary={};List<Map<String,Object?>> partners=[];String partnerSearch='';bool loading=true;String? error;
   @override void initState(){super.initState();final now=AppClock.now();from=widget.initialFrom??DateTime(now.year,now.month,1);to=widget.initialTo??DateTime(now.year,now.month,now.day);_load();}
   Future<void> _load()async{
-    if(mounted)setState(()=>{loading=true;error=null;});
+    if(mounted)setState((){loading=true;error=null;});
     try{
       final a=await widget.r.partnerProfitSummary(from:from,to:to);
       final p=await widget.r.report('partner_profit_distribution',from:from,to:to);
-      if(mounted)setState(()=>{summary=a;partners=p;loading=false;});
+      if(mounted)setState((){summary=a;partners=p;loading=false;});
     }catch(e){
-      if(mounted)setState(()=>{error=friendlyError(e);loading=false;});
+      if(mounted)setState((){error=friendlyError(e);loading=false;});
     }
   }
   Future<void> _postDistribution() async {
