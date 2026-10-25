@@ -2282,6 +2282,7 @@ class StationRepository {
           return <String, Object?>{
             'name': p['name'],
             'mode': p['ownership_mode'],
+            'active': p['active'],
             'basis': p['ownership_mode'] == 'percentage' ? p['ownership_percentage'] : p['shares_count'],
             'direct_amount': directByPartner[id] ?? 0,
             'share_amount': shareOfRemaining,
