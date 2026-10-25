@@ -952,10 +952,19 @@ class StationRepository {
     if (ledgerRows.isNotEmpty) return ledgerRows;
 
     final sourceRows = await db.rawQuery('''
-      SELECT id, date, type, amount, reference_type, reference_id, notes
-      FROM partner_transactions
-      WHERE partner_id=?
-      ORDER BY date ASC, id ASC
+      SELECT pt.id, pt.date, pt.type, pt.amount, pt.reference_type,
+             pt.reference_id, pt.notes,
+             CASE WHEN pt.type='irrigation_reversal' AND EXISTS (
+               SELECT 1 FROM partner_transactions original
+               WHERE original.partner_id=pt.partner_id
+                 AND original.reference_type='irrigation'
+                 AND original.reference_id=pt.reference_id
+                 AND original.type='irrigation'
+                 AND original.amount=pt.amount
+             ) THEN 1 ELSE 0 END reversal_of_direct_irrigation
+      FROM partner_transactions pt
+      WHERE pt.partner_id=?
+      ORDER BY pt.date ASC, pt.id ASC
     ''', [id]);
     final rows = <Map<String, Object?>>[];
     var running = 0;
@@ -965,7 +974,10 @@ class StationRepository {
       final signed = switch (type) {
         'share_accrual' || 'opening_balance' => amount,
         'payment' || 'irrigation' || 'share_adjustment' => -amount,
-        'irrigation_reversal' => amount,
+        'irrigation_reversal' =>
+          (row['reversal_of_direct_irrigation'] as num?)?.toInt() == 1
+              ? amount
+              : -amount,
         _ => 0,
       };
       running += signed;
