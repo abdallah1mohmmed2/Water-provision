@@ -12224,7 +12224,6 @@ class _NotificationsState extends State<NotificationsPage> {
           ),
   );
 }
-}
 
 class SettingsPage extends StatefulWidget {
   final StationRepository r;
