@@ -11188,22 +11188,26 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     await _load();
   }
 
-  void _quickRange(String value) {
+  Future<void> _quickRange(String value) async {
     final now = AppClock.now();
     final today = DateTime(now.year, now.month, now.day);
-    setState(() {
-      if (value == 'today') {
-        from = today;
-        to = today;
-      } else if (value == 'week') {
-        from = PeriodRanges.weekStart(today, 'saturday');
-        to = today;
-      } else {
-        from = null;
-        to = null;
-      }
-    });
-    _load();
+    final settings = await widget.r.settings();
+    DateTime? start;
+    if (value == 'today') {
+      start = today;
+    } else if (value == 'week') {
+      start = PeriodRanges.weekStart(today, settings['week_start'] ?? 'saturday');
+    } else if (value == 'month') {
+      start = DateTime(today.year, today.month, 1);
+    } else if (value == 'financial') {
+      start = PeriodRanges.financialYearStart(
+        today,
+        settings['financial_year_start'] ?? '01-01',
+      );
+    }
+    if (!mounted) return;
+    setState(() { from = start; to = start == null ? null : today; });
+    await _load();
   }
 
   List<Map<String, Object?>> get visible {
@@ -11356,6 +11360,13 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                             ChoiceChip(label: const Text('كل الفترات'), selected: from == null && to == null, onSelected: (_) => _quickRange('all')),
                             OutlinedButton.icon(onPressed: () => _pickDate(true), icon: const Icon(Icons.calendar_today_rounded, size: 16), label: Text('من: ${_dateLabel(from)}')),
                             OutlinedButton.icon(onPressed: () => _pickDate(false), icon: const Icon(Icons.event_rounded, size: 16), label: Text('إلى: ${_dateLabel(to)}')),
+                            ...reportQuickRangeButtons(
+                              context,
+                              onSelected: (rangeFrom, rangeTo) {
+                                setState(() { from = rangeFrom; to = rangeTo; });
+                                _load();
+                              },
+                            ),
                             if (from != null || to != null) TextButton(onPressed: () => _quickRange('all'), child: const Text('مسح الفترة')),
                           ]),
                         ]),
