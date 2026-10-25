@@ -12138,6 +12138,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
       ),
     );
   }
+}
 
 class NotificationsPage extends StatefulWidget {
   final StationRepository r;
