@@ -2219,10 +2219,10 @@ class StationRepository {
         final effectiveFrom = from ?? DateTime(2020, 1, 1);
         final effectiveTo = to ?? AppClock.now();
         final summary = await partnerProfitSummary(from: effectiveFrom, to: effectiveTo);
+        final stationId = await accounting.currentStationId();
         final ps = await db.rawQuery("SELECT * FROM partners WHERE station_id=? AND active=1 ORDER BY id", [stationId]);
         final totalShares = ps.fold<double>(0.0, (sum, p) => sum + ((p['shares_count'] as num?)?.toDouble() ?? 0.0));
         final profit = (summary['distributable'] as num?)?.round() ?? 0;
-        final stationId = await accounting.currentStationId();
         final start = DateTime(effectiveFrom.year, effectiveFrom.month, effectiveFrom.day).toIso8601String();
         final endExclusive = DateTime(effectiveTo.year, effectiveTo.month, effectiveTo.day + 1).toIso8601String();
         final individualExpenses = await db.rawQuery(
