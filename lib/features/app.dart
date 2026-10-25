@@ -12351,7 +12351,31 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
       final list=await widget.r.partners(includeInactive: true);
       final id=selectedId;
       var detail=<Map<String,Object?>>[]; var totals=<String,Object?>{};
-      if(id!=null){detail=await widget.r.report('partner_accounts',partnerId:id,from:from,to:to);totals=await widget.r.partyFinancialSummary('partner',id);}
+      if(id!=null){
+        detail=await widget.r.report('partner_accounts',partnerId:id,from:from,to:to);
+        totals=await widget.r.partyFinancialSummary('partner',id);
+        // لا تترك جدول الكشف فارغًا تمامًا إذا لم توجد حركات مطابقة للفترة؛
+        // اعرض الرصيد الحالي بوضوح دون تقديمه على أنه رصيد تاريخي للفترة.
+        if(detail.isEmpty){
+          final balance=(totals['balance'] as num?)?.round() ?? 0;
+          final selected=list.where((x)=>x['id']==id).firstOrNull;
+          detail=[{
+            'date':null,
+            'partner_id':id,
+            'partner_name':selected?['name'] ?? '',
+            'description':(from!=null || to!=null)
+                ? 'لا توجد حركات مطابقة للفترة — الرصيد الحالي'
+                : 'الرصيد الحالي',
+            'type':'current_balance',
+            'amount':balance.abs(),
+            'signed_amount':balance,
+            'lah':balance>0?balance:0,
+            'alayh':balance<0?-balance:0,
+            'balance':balance,
+            'statement_kind':'partner',
+          }];
+        }
+      }
       if(mounted)setState((){partners=list;selectedId=id;rows=detail;summary=totals;loading=false;});
     }catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}
   }
