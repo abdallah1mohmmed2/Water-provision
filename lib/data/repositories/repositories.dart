@@ -2280,6 +2280,7 @@ class StationRepository {
           final gross = (directByPartner[id] ?? 0) + shareOfRemaining;
           final personalExpenses = expensesByPartner[id] ?? 0;
           return <String, Object?>{
+            'id': id,
             'name': p['name'],
             'mode': p['ownership_mode'],
             'active': p['active'],
