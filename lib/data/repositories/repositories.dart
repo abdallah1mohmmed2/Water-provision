@@ -2019,39 +2019,106 @@ class StationRepository {
       case 'partner_accounts':
         {
           final rows = <Map<String, Object?>>[];
+          final selectedPartners = <Map<String, Object?>>[];
           if (partnerId != null && partnerId > 0) {
-            rows.addAll(await partnerTransactions(partnerId));
+            final found = await db.rawQuery(
+              'SELECT id,name,balance FROM partners WHERE id=? LIMIT 1',
+              [partnerId],
+            );
+            selectedPartners.addAll(found);
           } else {
-            for (final partner in await partners()) {
-              final id = (partner['id'] as num).toInt();
-              final name = '${partner['name'] ?? 'غير محدد'}';
-              final transactions = await partnerTransactions(id);
-              if (transactions.isEmpty) {
-                final balance = (partner['balance'] as num?)?.round() ?? 0;
-                rows.add({
-                  'date': null,
-                  'partner_name': name,
-                  'description': '$name (الرصيد الحالي)',
-                  'lah': balance > 0 ? balance : 0,
-                  'alayh': balance < 0 ? -balance : 0,
-                  'balance': balance,
-                });
-              } else {
-                rows.addAll(transactions.map((row) => {
-                  ...row,
-                  'partner_name': name,
-                  'description': '$name - ${row['description'] ?? ''}',
-                }));
+            selectedPartners.addAll(await partners());
+          }
+
+          final periodStart = from == null
+              ? null
+              : DateTime(from.year, from.month, from.day);
+          for (final partner in selectedPartners) {
+            final id = (partner['id'] as num).toInt();
+            final name = '${partner['name'] ?? 'غير محدد'}';
+            final transactions = await partnerTransactions(id);
+
+            // الأرصدة في transactions محسوبة من كامل التاريخ تصاعديًا قبل عكس
+            // ترتيب العرض؛ لذلك نأخذ آخر رصيد سابق لبداية الفترة كرصد افتتاحي.
+            if (periodStart != null) {
+              int openingBalance = 0;
+              DateTime? latestPriorDate;
+              for (final row in transactions) {
+                final date = DateTime.tryParse('${row['date'] ?? ''}');
+                if (date == null || !date.isBefore(periodStart)) continue;
+                if (latestPriorDate == null || date.isAfter(latestPriorDate)) {
+                  latestPriorDate = date;
+                  openingBalance = (row['balance'] as num?)?.round() ?? 0;
+                }
               }
+              rows.add({
+                'date': periodStart.toIso8601String(),
+                'partner_id': id,
+                'partner_name': name,
+                'description': 'الرصيد المرحل قبل الفترة - $name',
+                'type': 'opening_balance',
+                'lah': openingBalance > 0 ? openingBalance : 0,
+                'alayh': openingBalance < 0 ? -openingBalance : 0,
+                'amount': openingBalance.abs(),
+                'balance': openingBalance,
+                'statement_kind': 'partner',
+              });
+            } else if (transactions.isEmpty) {
+              // لا نعرض الرصيد الحالي باعتباره رصيدًا تاريخيًا عند تحديد فترة.
+              final balance = (partner['balance'] as num?)?.round() ?? 0;
+              rows.add({
+                'date': null,
+                'partner_id': id,
+                'partner_name': name,
+                'description': '$name (الرصيد الحالي)',
+                'lah': balance > 0 ? balance : 0,
+                'alayh': balance < 0 ? -balance : 0,
+                'amount': balance.abs(),
+                'balance': balance,
+                'statement_kind': 'partner',
+              });
+            }
+
+            for (final row in transactions) {
+              rows.add({
+                ...row,
+                'partner_id': id,
+                'partner_name': name,
+                'description': '$name - ${row['description'] ?? ''}',
+              });
             }
           }
-          if (from != null) rows.removeWhere((row) {
-            final date = DateTime.tryParse('${row['date'] ?? ''}');
-            return date != null && date.isBefore(DateTime(from.year, from.month, from.day));
-          });
-          if (to != null) rows.removeWhere((row) {
-            final date = DateTime.tryParse('${row['date'] ?? ''}');
-            return date != null && !date.isBefore(DateTime(to.year, to.month, to.day).add(const Duration(days: 1)));
+
+          if (periodStart != null) {
+            rows.removeWhere((row) {
+              final date = DateTime.tryParse('${row['date'] ?? ''}');
+              return date != null && date.isBefore(periodStart);
+            });
+          }
+          if (to != null) {
+            final endExclusive = DateTime(to.year, to.month, to.day)
+                .add(const Duration(days: 1));
+            rows.removeWhere((row) {
+              final date = DateTime.tryParse('${row['date'] ?? ''}');
+              return date != null && !date.isBefore(endExclusive);
+            });
+          }
+
+          // ترتيب موحد للتقرير المجمع، مع إبقاء الرصيد الافتتاحي قبل
+          // حركات يوم البداية عند تساوي التاريخ.
+          rows.sort((a, b) {
+            final ad = DateTime.tryParse('${a['date'] ?? ''}');
+            final bd = DateTime.tryParse('${b['date'] ?? ''}');
+            if (ad == null && bd == null) return 0;
+            if (ad == null) return 1;
+            if (bd == null) return -1;
+            final byDate = bd.compareTo(ad);
+            if (byDate != 0) return byDate;
+            final aOpening = a['type'] == 'opening_balance';
+            final bOpening = b['type'] == 'opening_balance';
+            if (aOpening != bOpening) return aOpening ? -1 : 1;
+            return (a['partner_id'] as num? ?? 0)
+                .compareTo(b['partner_id'] as num? ?? 0);
           });
           return rows;
         }
