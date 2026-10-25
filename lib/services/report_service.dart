@@ -1439,7 +1439,7 @@ class ReportService {
     required DateTime? to,
   }) async {
     final settings = await repo.settings();
-    final workers = await repo.workers();
+    final workers = await repo.workers(includeInactive: true);
     Map<String, Object?>? selectedWorker;
     if (workerId != null) {
       for (final worker in workers) {
