@@ -2136,6 +2136,7 @@ class StationRepository {
       case 'worker_transactions':
         {
           final rows = <Map<String, Object?>>[];
+          final finalIncomeRows = <Map<String, Object?>>[];
           final selectedWorkers = <Map<String, Object?>>[];
           if (workerId != null && workerId > 0) {
             selectedWorkers.addAll(await db.rawQuery(
@@ -2149,16 +2150,25 @@ class StationRepository {
           final periodStart = from == null
               ? null
               : DateTime(from.year, from.month, from.day);
+          final endExclusive = to == null
+              ? null
+              : DateTime(to.year, to.month, to.day).add(const Duration(days: 1));
+
           for (final worker in selectedWorkers) {
             final id = (worker['id'] as num).toInt();
             final name = '${worker['name'] ?? 'غير محدد'}';
             final transactions = await workerTransactions(id);
+            bool inPeriod(Map<String, Object?> row) {
+              final date = DateTime.tryParse('${row['date'] ?? ''}');
+              if (date == null) return periodStart == null && endExclusive == null;
+              if (periodStart != null && date.isBefore(periodStart)) return false;
+              if (endExclusive != null && !date.isBefore(endExclusive)) return false;
+              return true;
+            }
 
-            // نحسب الرصيد الافتتاحي من أحدث حركة مرحّلة قبل بداية الفترة؛
-            // الأرصدة الجارية في الحركات محسوبة من كامل التاريخ.
+            int openingBalance = 0;
+            DateTime? latestPriorDate;
             if (periodStart != null) {
-              int openingBalance = 0;
-              DateTime? latestPriorDate;
               for (final row in transactions) {
                 final date = DateTime.tryParse('${row['date'] ?? ''}');
                 if (date == null || !date.isBefore(periodStart)) continue;
@@ -2176,6 +2186,7 @@ class StationRepository {
                 'lah': openingBalance > 0 ? openingBalance : 0,
                 'alayh': openingBalance < 0 ? -openingBalance : 0,
                 'amount': openingBalance.abs(),
+                'signed_amount': openingBalance,
                 'balance': openingBalance,
                 'statement_kind': 'worker',
               });
@@ -2190,32 +2201,102 @@ class StationRepository {
                 'lah': balance > 0 ? balance : 0,
                 'alayh': balance < 0 ? -balance : 0,
                 'amount': balance.abs(),
+                'signed_amount': balance,
                 'balance': balance,
                 'statement_kind': 'worker',
               });
             }
 
-            rows.addAll(transactions.map((row) => {
-              ...row,
+            // تُعرض الاستحقاقات المرتبطة بالسقايات كمجموع واحد في نهاية الكشف،
+            // لا كسطر أجر منفصل لكل سقاية. تبقى الدفعات والسقايات الشخصية ظاهرة.
+            final periodTransactions = transactions.where(inPeriod).toList();
+            final income = periodTransactions
+                .where((row) => row['type'] == 'accrual')
+                .fold<int>(0, (sum, row) =>
+                    sum + ((row['signed_amount'] as num?)?.round() ??
+                        (((row['lah'] as num?)?.round() ?? 0) -
+                         ((row['alayh'] as num?)?.round() ?? 0))));
+            rows.addAll(periodTransactions
+                .where((row) => row['type'] != 'accrual')
+                .map((row) => {
+                      ...row,
+                      'worker_id': id,
+                      'worker_name': name,
+                      'description': '$name - ${row['description'] ?? ''}',
+                      'statement_kind': 'worker',
+                    }));
+
+            // إظهار السقايات المرتبطة بالعامل دون عرض أجر كل سقاية.
+            final irrigationFilters = <String>[
+              "i.status!='cancelled'",
+              "(i.worker_id=? OR i.operator_worker_id=? OR EXISTS (SELECT 1 FROM worker_transactions wt WHERE wt.worker_id=? AND wt.reference_type='irrigation' AND wt.reference_id=i.id AND wt.type='irrigation'))",
+            ];
+            final irrigationArgs = <Object?>[id, id, id];
+            if (periodStart != null) {
+              irrigationFilters.add("COALESCE(date(i.date),date(i.start_datetime))>=date(?)");
+              irrigationArgs.add(periodStart.toIso8601String());
+            }
+            if (endExclusive != null) {
+              irrigationFilters.add("COALESCE(date(i.date),date(i.start_datetime))<date(?)");
+              irrigationArgs.add(endExclusive.toIso8601String());
+            }
+            final irrigationRows = await db.rawQuery('''
+              SELECT i.id,i.date,i.start_datetime,i.minutes,i.chargeable_minutes,
+                     i.worker_id,i.operator_worker_id
+              FROM irrigations i
+              WHERE ${irrigationFilters.join(' AND ')}
+              ORDER BY COALESCE(i.date,i.start_datetime) DESC,i.id DESC
+            ''', irrigationArgs);
+            for (final irrigation in irrigationRows) {
+              final minutes = (irrigation['chargeable_minutes'] as num?)?.round()
+                  ?? (irrigation['minutes'] as num?)?.round() ?? 0;
+              rows.add({
+                'date': irrigation['date'] ?? irrigation['start_datetime'],
+                'worker_id': id,
+                'worker_name': name,
+                'description': 'سقاية مرتبطة بالعامل — المدة: $minutes دقيقة',
+                'type': 'worker_irrigation_info',
+                'irrigation_id': irrigation['id'],
+                'lah': 0,
+                'alayh': 0,
+                'amount': 0,
+                'signed_amount': 0,
+                'statement_kind': 'worker',
+              });
+            }
+
+            // الرصيد الختامي للفترة: الرصيد قبل الفترة + صافي حركات الفترة.
+            int closingBalance;
+            if (periodStart != null) {
+              closingBalance = openingBalance + periodTransactions.fold<int>(
+                0,
+                (sum, row) => sum + ((row['signed_amount'] as num?)?.round() ??
+                    (((row['lah'] as num?)?.round() ?? 0) -
+                     ((row['alayh'] as num?)?.round() ?? 0))),
+              );
+            } else {
+              final eligible = transactions.where((row) {
+                final date = DateTime.tryParse('${row['date'] ?? ''}');
+                return date != null && (endExclusive == null || date.isBefore(endExclusive));
+              }).toList();
+              closingBalance = eligible.isNotEmpty
+                  ? (eligible.first['balance'] as num?)?.round() ?? 0
+                  : (worker['balance'] as num?)?.round() ?? 0;
+            }
+            final finalDate = to?.toIso8601String() ??
+                (periodStart == null ? null : periodStart.toIso8601String());
+            finalIncomeRows.add({
+              'date': finalDate,
               'worker_id': id,
               'worker_name': name,
-              'description': '$name - ${row['description'] ?? ''}',
+              'description': 'إجمالي دخل العامل (بالساعة أو بالنسبة)',
+              'type': 'worker_income_total',
+              'lah': income > 0 ? income : 0,
+              'alayh': income < 0 ? -income : 0,
+              'amount': income.abs(),
+              'signed_amount': income,
+              'balance': closingBalance,
               'statement_kind': 'worker',
-            }));
-          }
-
-          if (periodStart != null) {
-            rows.removeWhere((row) {
-              final date = DateTime.tryParse('${row['date'] ?? ''}');
-              return date != null && date.isBefore(periodStart);
-            });
-          }
-          if (to != null) {
-            final endExclusive = DateTime(to.year, to.month, to.day)
-                .add(const Duration(days: 1));
-            rows.removeWhere((row) {
-              final date = DateTime.tryParse('${row['date'] ?? ''}');
-              return date != null && !date.isBefore(endExclusive);
             });
           }
 
@@ -2242,6 +2323,8 @@ class StationRepository {
             return ((b['journal_line_id'] as num?) ?? 0)
                 .compareTo((a['journal_line_id'] as num?) ?? 0);
           });
+          // يُضاف ملخص الدخل أخيرًا بعد ترتيب الحركات والسقايات.
+          rows.addAll(finalIncomeRows);
           return rows;
         }
       case 'partner_accounts':
