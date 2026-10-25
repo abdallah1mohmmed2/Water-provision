@@ -1857,6 +1857,90 @@ class _DashboardState extends State<DashboardPage> {
     super.dispose();
   }
 
+  Future<void> _printDashboardReport(String key) async {
+    try {
+      await ReportService(widget.r).printPdf(key);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendlyError(e))),
+        );
+      }
+    }
+  }
+
+  Widget _dashboardReportsCard() {
+    const items = <(String, String, IconData)>[
+      ('تقرير الشركاء الخاص', 'partner_accounts', Icons.person_pin_circle_rounded),
+      ('تقرير الشركاء العام', 'partner_profit_distribution', Icons.groups_rounded),
+      ('تقرير العمال', 'worker_transactions', Icons.engineering_rounded),
+      ('تقرير الفواتير', 'invoices', Icons.receipt_long_rounded),
+      ('تقرير المستفيدين', 'beneficiary_list', Icons.people_alt_rounded),
+    ];
+    const cyan = Color(0xFF00E5FF);
+    const neon = Color(0xFF39FFB6);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 320),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF101E2E),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: cyan.withValues(alpha: .30)),
+        boxShadow: [
+          BoxShadow(color: cyan.withValues(alpha: .06), blurRadius: 20),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(children: [
+            const Icon(Icons.assessment_rounded, color: neon),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'التقارير المهمة',
+                style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900),
+              ),
+            ),
+            Text('5 تقارير', style: TextStyle(color: cyan.withValues(alpha: .8), fontSize: 10)),
+          ]),
+          const SizedBox(height: 8),
+          Text(
+            'افتح التقرير المطلوب مباشرة أو اطبعه بصيغة PDF.',
+            style: TextStyle(color: Colors.white.withValues(alpha: .60), fontSize: 11),
+          ),
+          const SizedBox(height: 10),
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Material(
+                color: const Color(0xFF0B1725),
+                borderRadius: BorderRadius.circular(14),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => _printDashboardReport(item.$2),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+                    child: Row(children: [
+                      Icon(item.$3, color: item.$2 == 'partner_profit_distribution' ? neon : cyan, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          item.$1,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+                        ),
+                      ),
+                      Icon(Icons.picture_as_pdf_rounded, color: Colors.white.withValues(alpha: .55), size: 18),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget card(String title, String value, IconData icon, Color color) =>
       Container(
         width: 205,
@@ -2031,9 +2115,32 @@ class _DashboardState extends State<DashboardPage> {
                   ),
                 ),
                 const SizedBox(height: 23),
-                _DashboardCircularMenu(
-                  availableMenu: widget.availableMenu,
-                  onOpen: widget.onOpen,
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final wide = constraints.maxWidth >= 900;
+                    final circularMenu = _DashboardCircularMenu(
+                      availableMenu: widget.availableMenu,
+                      onOpen: widget.onOpen,
+                    );
+                    final reportsCard = _dashboardReportsCard();
+                    if (wide) {
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(flex: 6, child: circularMenu),
+                          const SizedBox(width: 14),
+                          Expanded(flex: 5, child: reportsCard),
+                        ],
+                      );
+                    }
+                    return Column(
+                      children: [
+                        circularMenu,
+                        const SizedBox(height: 14),
+                        reportsCard,
+                      ],
+                    );
+                  },
                 ),
                 const SizedBox(height: 22),
                 Row(children: [
