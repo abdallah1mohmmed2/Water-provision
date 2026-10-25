@@ -893,7 +893,16 @@ class _ShellState extends State<AdminShell> {
                 await quickKey.currentState?.openQuickForm();
                 if (routeContext.mounted) Navigator.of(routeContext).maybePop();
               });
-              return NewIrrigationPage(repo, key: quickKey, manager: role == AppRole.manager);
+              return Scaffold(
+                backgroundColor: Theme.of(routeContext).scaffoldBackgroundColor,
+                body: SafeArea(
+                  child: NewIrrigationPage(
+                    repo,
+                    key: quickKey,
+                    manager: role == AppRole.manager,
+                  ),
+                ),
+              );
             },
           ),
         ).then((_) => refreshCounts());
@@ -1175,10 +1184,15 @@ class _ShellState extends State<AdminShell> {
                           Navigator.of(routeContext).maybePop();
                         }
                       });
-                      return NewIrrigationPage(
-                        repo,
-                        key: floatingIrrigationKey,
-                        manager: role == AppRole.manager,
+                      return Scaffold(
+                        backgroundColor: Theme.of(routeContext).scaffoldBackgroundColor,
+                        body: SafeArea(
+                          child: NewIrrigationPage(
+                            repo,
+                            key: floatingIrrigationKey,
+                            manager: role == AppRole.manager,
+                          ),
+                        ),
                       );
                     },
                   ),
