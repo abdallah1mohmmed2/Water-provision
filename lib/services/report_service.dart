@@ -1424,6 +1424,7 @@ class ReportService {
         refNumber: 'WST-${DateFormat('yyMMdd-HHmm').format(now)}',
         attachments: 'الفترة: ${_workerPeriod(from)} إلى ${_workerPeriod(to)}',
         thirdSignatureLabel: 'إقرار العامل وتوقيعه: ....................',
+        fileName: 'كشف-حساب-وتسوية-مستحقات-عامل.pdf',
         reportTitle: 'كشف حساب وتسوية مستحقات عامل — ${worker['name'] ?? 'غير محدد'}',
         summaryBoxes: [
           StatBoxData(number: '1', title: 'اسم العامل', value: '${worker['name'] ?? 'غير محدد'}'),
@@ -1473,6 +1474,7 @@ class ReportService {
       date: DateFormat('yyyy/MM/dd').format(now),
       refNumber: 'WPR-${DateFormat('yyMMdd-HHmm').format(now)}',
       attachments: 'الفترة: ${_workerPeriod(from)} إلى ${_workerPeriod(to)}',
+      fileName: 'تقرير-أجور-ومسير-مستحقات-العمال.pdf',
       reportTitle: 'تقرير أجور ومسير مستحقات العمال',
       summaryBoxes: [
         StatBoxData(number: '1', title: 'إجمالي ساعات العمل', value: '${(totalMinutes / 60).toStringAsFixed(2)} ساعة'),
