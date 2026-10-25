@@ -1443,6 +1443,78 @@ class ReportService {
   String _workerPeriod(DateTime? value) =>
       value == null ? 'غير محدد' : DateFormat('yyyy/MM/dd').format(value);
 
+  /// يعرض قائمة المستفيدين بالقالب الرسمي، مع احترام نتائج البحث الحالية في الشاشة.
+  Future<void> printBeneficiariesOfficial({
+    required List<Map<String, Object?>> rows,
+  }) async {
+    final settings = await repo.settings();
+    final now = AppClock.now();
+    num number(Object? value) {
+      if (value is num) return value;
+      return num.tryParse('${value ?? ''}') ?? 0;
+    }
+
+    final totalBalance = rows.fold<num>(
+      0,
+      (sum, row) => sum + number(row['balance']),
+    );
+    final tableRows = <List<String>>[
+      for (var i = 0; i < rows.length; i++)
+        [
+          '${i + 1}',
+          '${rows[i]['name'] ?? 'غير محدد'}',
+          '${rows[i]['phone'] ?? '—'}',
+          '${rows[i]['jerba_number'] ?? '—'}',
+          '${rows[i]['location'] ?? rows[i]['address'] ?? '—'}',
+          NumberFormat('#,##0').format(number(rows[i]['balance'])),
+        ],
+    ];
+
+    await OfficialReportTemplate.preview(
+      rightHeader1: 'الجمهورية اليمنية',
+      rightHeader2: 'نظام ساقية لإدارة محطة ضخ مياه الري',
+      rightHeader3: settings['station_name'] ?? 'محطة ساقية',
+      date: DateFormat('yyyy/MM/dd').format(now),
+      refNumber: 'BEN-${DateFormat('yyyyMMdd-HHmmss').format(now)}',
+      attachments: 'عدد المستفيدين: ${rows.length}',
+      reportTitle: 'كشف قائمة المستفيدين',
+      summaryBoxes: [
+        StatBoxData(
+          number: '1',
+          title: 'عدد المستفيدين',
+          value: NumberFormat('#,##0').format(rows.length),
+          isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '2',
+          title: 'إجمالي الأرصدة الحالية',
+          value: '${NumberFormat('#,##0').format(totalBalance)} ريال',
+          isLarge: true,
+        ),
+      ],
+      columns: const [
+        'م',
+        'اسم المستفيد',
+        'رقم الهاتف',
+        'رقم الجربة',
+        'الموقع / العنوان',
+        'الرصيد الحالي (ريال)',
+      ],
+      rows: tableRows,
+      footerTotalRow: [
+        '',
+        'الإجمالي',
+        '',
+        '',
+        'عدد المستفيدين: ${rows.length}',
+        NumberFormat('#,##0').format(totalBalance),
+      ],
+      thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
+      fileName: 'كشف-قائمة-المستفيدين.pdf',
+      minTableRows: 7,
+    );
+  }
+
   Future<void> printPdf(
     String key, {
     DateTime? from,
