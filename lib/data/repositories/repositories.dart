@@ -865,8 +865,8 @@ class StationRepository {
     return db.rawQuery('SELECT e.*,pm.name method_name,c.name cashbox_name FROM expenses e LEFT JOIN payment_methods pm ON pm.id=e.payment_method_id LEFT JOIN cashboxes c ON c.id=e.cashbox_id WHERE $w ORDER BY e.date DESC,e.id DESC',args);
   }
   
-  Future<List<Map<String, Object?>>> workers() => db.rawQuery(
-    "SELECT w.*, ${BalanceSql.workerPersonal('w')} balance FROM workers w WHERE w.active=1 ORDER BY w.name",
+  Future<List<Map<String, Object?>>> workers({bool includeInactive = false}) => db.rawQuery(
+    "SELECT w.*, ${BalanceSql.workerPersonal('w')} balance FROM workers w ${includeInactive ? '' : 'WHERE w.active=1'} ORDER BY w.name",
   );
 
   // تم التصحيح: إزالة args:
@@ -2079,7 +2079,7 @@ class StationRepository {
               [workerId],
             ));
           } else {
-            selectedWorkers.addAll(await workers());
+            selectedWorkers.addAll(await workers(includeInactive: true));
           }
 
           final periodStart = from == null
