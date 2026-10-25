@@ -279,6 +279,19 @@ String categoryName(String v) =>
     v;
 String payTypeName(String v) =>
     {'fixed': 'راتب ثابت', 'hourly': 'بالساعة', 'percentage': 'نسبة'}[v] ?? v;
+String _normalizeSearchText(Object? value) => '${value ?? ''}'
+    .toLowerCase()
+    .replaceAll(RegExp(r'[\\u064B-\\u065F\\u0670\\u0640]'), '')
+    .replaceAll(RegExp(r'[أإآٱ]'), 'ا')
+    .replaceAll('ى', 'ي')
+    .replaceAll(RegExp(r'\\s+'), ' ')
+    .trim();
+
+bool _matchesSearch(Object? value, String query) {
+  final q = _normalizeSearchText(query);
+  return q.isEmpty || _normalizeSearchText(value).contains(q);
+}
+
 String targetName(String v) =>
     {'beneficiary': 'مستفيد', 'worker': 'عامل', 'partner': 'شريك'}[v] ?? v;
 
@@ -6357,7 +6370,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
   @override
   Widget build(BuildContext c) {
     final filtered = rows
-        .where((x) => '${x['beneficiary_name']}'.contains(q))
+        .where((x) => _matchesSearch(x['beneficiary_name'], q))
         .toList();
     return PageFrame(
       title: 'السقايات',
@@ -6800,7 +6813,7 @@ class _SessionsState extends State<SessionsPage> {
   @override
   Widget build(BuildContext c) {
     final filtered = rows
-        .where((x) => '${x['beneficiary_name']} ${x['pump_name']}'.contains(q))
+        .where((x) => _matchesSearch('${x['beneficiary_name']} ${x['pump_name']}', q))
         .toList();
     return PageFrame(
       title: 'جلسات السقي',
@@ -8929,7 +8942,7 @@ class _ExpensesState extends State<ExpensesPage> {
           child: ListView(
             children: [
               for (final x in rows.where(
-                (x) => '${x['title']} ${x['category']}'.contains(q),
+                (x) => _matchesSearch('${x['title']} ${x['category']}', q),
               ))
                 Card(
                   child: ListTile(
@@ -9419,7 +9432,7 @@ class _WorkersState extends State<WorkersPage> {
   @override
   Widget build(BuildContext c) {
     final filtered = rows
-        .where((x) => '${x['name']} ${x['phone'] ?? ''}'.contains(q))
+        .where((x) => _matchesSearch('${x['name']} ${x['phone'] ?? ''}', q))
         .toList();
     return PageFrame(
       title: 'العمال',
@@ -10019,7 +10032,7 @@ class _PartnersState extends State<PartnersPage> {
   @override
   Widget build(BuildContext c) {
     final filtered = rows
-        .where((x) => '${x['name']} ${x['phone'] ?? ''}'.contains(q))
+        .where((x) => _matchesSearch('${x['name']} ${x['phone'] ?? ''}', q))
         .toList();
     return PageFrame(
       title: 'الشركاء',
