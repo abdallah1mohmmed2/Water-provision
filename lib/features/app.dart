@@ -3957,25 +3957,6 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
     }
   }
 
-  Future<void> _printBeneficiariesPdf() async {
-    if (loading) return;
-    if (rows.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا توجد بيانات لعرضها في PDF')),
-      );
-      return;
-    }
-    try {
-      await ReportService(widget.r).printBeneficiariesOfficial(rows: rows);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e))),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(c) => widget.compactOnly
       ? const Scaffold(
@@ -3986,11 +3967,6 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
     title: 'المستفيدون',
     subtitle: 'بحث سريع وإدارة البيانات والأرصدة وكشف الحساب',
     actions: [
-      OutlinedButton.icon(
-        onPressed: loading ? null : _printBeneficiariesPdf,
-        icon: const Icon(Icons.picture_as_pdf_rounded),
-        label: const Text('PDF المستفيدين'),
-      ),
       FilledButton.icon(
         onPressed: add,
         icon: const Icon(Icons.person_add),
@@ -4137,6 +4113,24 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                               onPressed: () => details(x),
                                               icon: const Icon(Icons.open_in_new),
                                               label: const Text('التفاصيل'),
+                                            ),
+                                            OutlinedButton.icon(
+                                              onPressed: () async {
+                                                try {
+                                                  await ReportService(widget.r).printPdf(
+                                                    'beneficiary_statement',
+                                                    beneficiaryId: x['id'] as int,
+                                                  );
+                                                } catch (e) {
+                                                  if (mounted) {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      SnackBar(content: Text(friendlyError(e))),
+                                                    );
+                                                  }
+                                                }
+                                              },
+                                              icon: const Icon(Icons.picture_as_pdf_rounded),
+                                              label: const Text('كشف الحساب PDF'),
                                             ),
                                             OutlinedButton.icon(
                                               onPressed: () => sendAccountSummary(x),
