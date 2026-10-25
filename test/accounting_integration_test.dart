@@ -1749,6 +1749,11 @@ void main() {
     );
 
     await svc.distributePartnerProfits(from: start, to: end, userId: 1);
+    final postedShares = await db.query(
+      "SELECT COALESCE(SUM(amount),0) total FROM partner_transactions WHERE reference_type='profit_distribution' AND reference_id=?",
+      args: [start.millisecondsSinceEpoch],
+    );
+    expect((postedShares.single['total'] as num).round(), 55000);
     final afterPosting = await repo.report('partner_profit_distribution', from: start, to: end);
     expect(afterPosting, beforePosting);
     expect(await glPayable('2200', 'partner_id', p1), 50500);
