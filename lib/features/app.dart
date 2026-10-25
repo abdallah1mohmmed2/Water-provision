@@ -12396,7 +12396,7 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
   Widget _selector(){
     final needs=kind=='beneficiary'||kind=='worker'||kind=='partner'||kind=='cashbox';
     final list=kind=='beneficiary'?beneficiaries:kind=='worker'?workers:kind=='partner'?partners:cashboxes;
-    final matching=list.where((x)=>'${x['name']??''}'.toLowerCase().contains(personSearch.trim().toLowerCase())).toList();
+    final matching=list.where((x)=>_matchesSearch(x['name'],personSearch)).toList();
     return Column(children:[
       DropdownButtonFormField<String>(
         initialValue:kind,
@@ -12413,28 +12413,43 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
         },
         decoration:const InputDecoration(labelText:'نوع الكشف',prefixIcon:Icon(Icons.account_tree_rounded),border:OutlineInputBorder()),
       ),
-      if(needs&&kind=='beneficiary') ...[
+      if(needs) ...[
         const SizedBox(height:10),
         TextField(
           onChanged:(v)=>setState(()=>personSearch=v),
           decoration:InputDecoration(
-            labelText:'اكتب اسم المستفيد للبحث',
-            hintText:'ابدأ بكتابة الاسم هنا',
+            labelText:'ابحث في ${labels[kind]}',
+            hintText:'اكتب حرفًا أو جزءًا من الاسم لعرض النتائج',
             prefixIcon:const Icon(Icons.person_search_rounded),
-            suffixIcon:personSearch.isEmpty?null:IconButton(onPressed:()=>setState(()=>personSearch=''),icon:const Icon(Icons.close_rounded)),
+            suffixIcon:personSearch.isEmpty?null:IconButton(
+              onPressed:()=>setState(()=>personSearch=''),
+              icon:const Icon(Icons.close_rounded),
+            ),
             border:const OutlineInputBorder(),
           ),
         ),
         if(personSearch.trim().isNotEmpty) ...[
           const SizedBox(height:8),
           if(matching.isEmpty)
-            const Align(alignment:AlignmentDirectional.centerStart,child:Text('لا يوجد مستفيد بهذا الاسم')),
-          for(final x in matching.take(8))
+            Align(
+              alignment:AlignmentDirectional.centerStart,
+              child:Text('لا توجد نتائج مطابقة في ${labels[kind]}'),
+            ),
+          for(final x in matching.take(10))
             ListTile(
               dense:true,
-              leading:const Icon(Icons.person_outline_rounded,color:_reportOliveDark),
+              leading:Icon(
+                kind=='worker'?Icons.engineering_rounded:
+                kind=='partner'?Icons.groups_rounded:
+                kind=='cashbox'?Icons.account_balance_wallet_rounded:
+                Icons.person_outline_rounded,
+                color:_reportOliveDark,
+              ),
               title:Text('${x['name']??''}'),
-              trailing:Icon(selectedId==x['id']?Icons.check_circle:Icons.chevron_left_rounded,color:selectedId==x['id']?_reportGreen:_reportOlive),
+              trailing:Icon(
+                selectedId==x['id']?Icons.check_circle:Icons.chevron_left_rounded,
+                color:selectedId==x['id']?_reportGreen:_reportOlive,
+              ),
               selected:selectedId==x['id'],
               onTap:(){
                 setState(()=>selectedId=x['id'] as int?);
@@ -12443,19 +12458,17 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
             ),
         ],
         if(selectedId!=null)
-          Align(alignment:AlignmentDirectional.centerStart,child:TextButton.icon(
-            onPressed:(){setState((){selectedId=null;personSearch='';rows=[];});},
-            icon:const Icon(Icons.filter_alt_off_rounded,size:17),
-            label:const Text('إلغاء تحديد المستفيد'),
-          )),
-      ] else if(needs) ...[
-        const SizedBox(height:10),
-        DropdownButtonFormField<int>(
-          initialValue:selectedId,
-          items:[for(final x in list)DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']??''}'))],
-          onChanged:(v){setState(()=>selectedId=v);_load();},
-          decoration:InputDecoration(labelText:labels[kind],prefixIcon:const Icon(Icons.person_search_rounded),border:const OutlineInputBorder()),
-        ),
+          Align(
+            alignment:AlignmentDirectional.centerStart,
+            child:TextButton.icon(
+              onPressed:(){
+                setState(()=>selectedId=null);
+                _load();
+              },
+              icon:const Icon(Icons.filter_alt_off_rounded,size:17),
+              label:Text('إلغاء تحديد ${labels[kind]}'),
+            ),
+          ),
       ],
       const SizedBox(height:10),
       Wrap(spacing:8,runSpacing:8,children:[
