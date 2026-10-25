@@ -11580,17 +11580,13 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
       final remainingAfterCostsAndWithdrawals =
           _n(summary['revenue']) - totalExpenses - salaries - totalWithdrawals;
 
-      final partnerByName = <String, Map<String, Object?>>{
-        for (final p in partnerRecords) '${p['name'] ?? ''}': p,
-      };
       final tableRows = <List<String>>[];
       var totalPartnerIncome = 0;
       var totalPartnerWithdrawals = 0;
       var totalPartnerBalance = 0;
       for (final p in partners) {
         final name = '${p['name'] ?? 'غير محدد'}';
-        final record = partnerByName[name];
-        final id = (record?['id'] as num?)?.toInt();
+        final id = (p['id'] as num?)?.toInt();
         final income = _n(p['gross_amount']);
         final withdrawal = id == null ? 0 : (withdrawalsByPartner[id] ?? 0);
         final balance = income - withdrawal;
