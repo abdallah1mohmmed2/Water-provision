@@ -5111,7 +5111,10 @@ int? parseClock(String raw) {
                       controller: searchController,
                       focusNode: quickFormSearchFocusNode,
                       autofocus: true,
-                      onChanged: (v) => setState(() => search = v),
+                      onChanged: (v) {
+                        setState(() => search = v);
+                        dialogSetState(() {});
+                      },
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.search),
                         labelText: 'بحث عن المستفيد',
@@ -5185,6 +5188,7 @@ int? parseClock(String raw) {
               ),
               FilledButton.icon(
                 onPressed: loading ? null : () async {
+                  final savedEnd = end;
                   if (bid == null) {
                     msg('اختر مستفيداً من مربع البحث أولاً');
                     return;
@@ -5194,11 +5198,11 @@ int? parseClock(String raw) {
                     return;
                   }
                   setState(() => timeStep = 2);
-                  await save();
+                  await save(keepQuickForm: true);
                   if (!mounted || !saved || !dialogContext.mounted) return;
                   // بعد نجاح الحفظ نجهز الفورم لسقاية تالية، ونبدأ من نهاية
                   // السقاية المحفوظة دون إغلاق الفورم.
-                  final previousEnd = end;
+                  final previousEnd = savedEnd;
                   setState(() {
                     selectedDate = DateTime(previousEnd.year, previousEnd.month, previousEnd.day);
                     start = previousEnd;
@@ -5225,7 +5229,6 @@ int? parseClock(String raw) {
                     timeStep = 0;
                     startPeriod = start.hour < 12 ? 'am' : 'pm';
                     endPeriod = end.hour < 12 ? 'am' : 'pm';
-                    isStartSelected = false;
                     saved = false;
                   });
                   dialogSetState(() {});
@@ -5245,7 +5248,7 @@ int? parseClock(String raw) {
     );
   }
 
-  Future<void> save() async {
+  Future<void> save({bool keepQuickForm = false}) async {
     if (timeStep != 2) {
       msg('أكمل تحديد وقت البداية والنهاية بالضغط على التالي أولاً');
       return;
@@ -5475,8 +5478,9 @@ int? parseClock(String raw) {
           message: message,
         );
       }
-      // جهّز النموذج تلقائياً للسقاية التالية وأعد المؤشر إلى البحث.
-      if (mounted) await newOperation();
+      // الشاشة الكاملة تجهّز العملية التالية تلقائياً؛ النموذج السريع
+      // يعيد تهيئة حقوله داخل الحوار حتى لا يغيّر وقت النهاية المحفوظة.
+      if (mounted && !keepQuickForm) await newOperation();
     } catch (e) {
       msg(friendlyError(e));
     } finally {
