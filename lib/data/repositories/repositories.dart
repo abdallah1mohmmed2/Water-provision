@@ -1438,7 +1438,7 @@ class StationRepository {
     DateTime? to,
   }) => journal(from: from, to: to, accountCode: accountCode);
 
-  Future<List<Map<String, Object?>>> partyLedgerStatement({
+  Future<Map<String, Object?>> partyLedgerStatementData({
     required String kind,
     int? id,
     DateTime? from,
@@ -1473,17 +1473,17 @@ class StationRepository {
     }
     switch (kind) {
       case 'beneficiary':
-        if (id == null) return <Map<String, Object?>>[];
+        if (id == null) return {'opening_balance': 0, 'total_lah': 0, 'total_alayh': 0, 'net_movement': 0, 'closing_balance': 0, 'rows': <Map<String, Object?>>[]};
         where.add('jl.beneficiary_id=?');
         args.add(id);
         break;
       case 'worker':
-        if (id == null) return <Map<String, Object?>>[];
+        if (id == null) return {'opening_balance': 0, 'total_lah': 0, 'total_alayh': 0, 'net_movement': 0, 'closing_balance': 0, 'rows': <Map<String, Object?>>[]};
         where.add("(a.code=? OR (a.code='2100' AND jl.worker_id=?))");
         args..add('2100.W$id')..add(id);
         break;
       case 'partner':
-        if (id == null) return <Map<String, Object?>>[];
+        if (id == null) return {'opening_balance': 0, 'total_lah': 0, 'total_alayh': 0, 'net_movement': 0, 'closing_balance': 0, 'rows': <Map<String, Object?>>[]};
         where.add("(a.code=? OR (a.code='2200' AND jl.partner_id=?))");
         args..add('2200.P$id')..add(id);
         break;
@@ -1499,7 +1499,7 @@ class StationRepository {
         where.add("je.reference_type='payment' AND (pay.worker_id IS NOT NULL OR pay.partner_id IS NOT NULL OR pay.beneficiary_id IS NULL)");
         break;
       case 'cashbox':
-        if (id == null) return <Map<String, Object?>>[];
+        if (id == null) return {'opening_balance': 0, 'total_lah': 0, 'total_alayh': 0, 'net_movement': 0, 'closing_balance': 0, 'rows': <Map<String, Object?>>[]};
         where.add('a.code=?');
         args.add(cashAccountCode ?? '1000');
         movementJoin = 'LEFT JOIN payments pay ON pay.id=je.reference_id LEFT JOIN expenses exp ON exp.id=je.reference_id LEFT JOIN cashbox_transfers tr ON tr.id=je.reference_id';
@@ -1566,14 +1566,34 @@ class StationRepository {
       };
     }).toList();
     final closing = running;
-    return statementRows.map((row) => <String, Object?>{
+    final totalLah = statementRows.fold<int>(0, (sum, row) => sum + ((row['lah'] as num?)?.round() ?? 0));
+    final totalAlayh = statementRows.fold<int>(0, (sum, row) => sum + ((row['alayh'] as num?)?.round() ?? 0));
+    final displayedRows = statementRows.map((row) => <String, Object?>{
       ...row,
       'opening_balance': opening,
       'closing_balance': closing,
     }).toList().reversed.toList();
+    return {
+      'opening_balance': opening,
+      'total_lah': totalLah,
+      'total_alayh': totalAlayh,
+      'net_movement': totalLah - totalAlayh,
+      'closing_balance': closing,
+      'rows': displayedRows,
+    };
   }
 
-  /// حسابات الأستاذ مع بيانات الأب حتى يمكن عرض الحسابات الفرعية ضمن شجرتها.
+  Future<List<Map<String, Object?>>> partyLedgerStatement({
+    required String kind,
+    int? id,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final data = await partyLedgerStatementData(kind: kind, id: id, from: from, to: to);
+    return (data['rows'] as List).cast<Map<String, Object?>>();
+  }
+
+    /// حسابات الأستاذ مع بيانات الأب حتى يمكن عرض الحسابات الفرعية ضمن شجرتها.
   Future<List<Map<String, Object?>>> accounts() => db.rawQuery(
         'SELECT a.id,a.parent_id,a.code,a.name,a.type,p.code parent_code '
         'FROM accounts a LEFT JOIN accounts p ON p.id=a.parent_id ORDER BY a.code',
