@@ -2290,6 +2290,10 @@ class StationRepository {
             'partner_expenses': personalExpenses,
             'net_amount': gross - personalExpenses,
             'amount': gross - personalExpenses,
+            'period_revenue': summary['revenue'],
+            'period_expenses': summary['expenses'],
+            'period_workers': summary['workers'],
+            'distributable_profit': profit,
           };
         }).toList();
         }
