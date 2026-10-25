@@ -1932,27 +1932,20 @@ class _DashboardState extends State<DashboardPage> {
     // افتح شاشة التقرير التفاعلية المقصودة، وليس شاشة الإدارة العامة أو PDF.
     switch (key) {
       case 'partner_accounts':
-        try {
-          final rows = await widget.r.report('partner_accounts');
-          if (!mounted) return;
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ReportPreviewPage(
-                widget.r,
-                keyName: 'partner_accounts',
-                rows: rows,
-                filters: '',
-              ),
+        // هذا الزر يفتح شاشة معاينة تفاصيل كشف حساب كل شريك،
+        // وليس تقرير القائمة العامة للشركاء أو معاينة PDF.
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PartnerAccountsReportPage(
+              widget.r,
+              initialPartnerId: null,
+              initialFrom: null,
+              initialTo: null,
+              userId: null,
             ),
-          );
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('تعذر فتح معاينة حسابات الشركاء: ${friendlyError(e)}')),
-            );
-          }
-        }
+          ),
+        );
         return;
       case 'partner_profit_distribution':
         Navigator.push(
