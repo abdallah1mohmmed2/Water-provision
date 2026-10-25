@@ -1422,10 +1422,18 @@ class ReportService {
       }
     }
 
-    // Without a start date, the latest included transaction's cumulative
-    // balance is the closing balance as of the selected end date.
-    if (movementRows.isNotEmpty) {
-      return _workerNum(movementRows.first['balance']);
+    // The aggregate-income row carries the closing balance, while the
+    // informational irrigation rows intentionally have no financial balance.
+    final aggregate = statementRows.where((row) => row['type'] == 'worker_income_total').firstOrNull;
+    if (aggregate != null) return _workerNum(aggregate['balance']);
+
+    // Without a start date, the latest included financial transaction's
+    // cumulative balance is the closing balance as of the selected end date.
+    final latestFinancial = movementRows.where((row) =>
+      row['type'] != 'worker_irrigation_info' && row['balance'] != null
+    ).toList();
+    if (latestFinancial.isNotEmpty) {
+      return _workerNum(latestFinancial.first['balance']);
     }
     if (statementRows.isNotEmpty) {
       return _workerNum(statementRows.first['balance']);
