@@ -11806,15 +11806,338 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
   IconData _typeIcon(Object? value)=>switch('$value'){ 'payment'=>Icons.payments_rounded,'share_accrual'=>Icons.trending_up_rounded,'opening_balance'=>Icons.flag_rounded,_=>Icons.receipt_long_rounded};
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
   Widget _movement(Map<String,Object?> x){final signed=_n(x['signed_amount']);final positive=signed>=0;final color=positive?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_typeIcon(x['type']),color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Expanded(child:Text('${x['description']??_type(x['type'])}',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk))),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:11))]),const SizedBox(height:5),Text(_type(x['type']),style:TextStyle(color:color,fontSize:11,fontWeight:FontWeight.w800)),const SizedBox(height:8),Row(children:[Text(positive?'له':'عليه',style:TextStyle(color:color,fontWeight:FontWeight.w900)),const SizedBox(width:6),Text(money(signed.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900)),const Spacer(),Text('الرصيد ${money(_n(x['balance']))}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])]))]));}
-  @override Widget build(BuildContext context){final p=partner;final bal=_n(summary['balance']);final lah=rows.fold<int>(0,(sum,x)=>sum+_n(x['lah']));final alayh=rows.fold<int>(0,(sum,x)=>sum+_n(x['alayh']));return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تفاصيل حسابات الشركاء',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('كشف حساب مالي',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(p==null?'اختر شريكاً':p['name']?.toString()??'اختر شريكاً',style:const TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('كل الحركات مترجمة إلى له وعليه من دفتر الأستاذ المركزي',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.groups_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[TextField(onChanged:(v)=>setState(()=>partnerSearch=v),decoration:const InputDecoration(labelText:'اكتب اسم الشريك للبحث',hintText:'اكتب الاسم ثم اختر الشريك من النتائج',prefixIcon:Icon(Icons.person_search_rounded),border:OutlineInputBorder())),if(partnerSearch.trim().isNotEmpty) ...[const SizedBox(height:8),for(final x in partners.where((x)=>'${x['name']??''}'.toLowerCase().contains(partnerSearch.trim().toLowerCase())).take(8))ListTile(dense:true,leading:const Icon(Icons.person_outline_rounded,color:_reportOliveDark),title:Text('${x['name']??''}'),selected:selectedId==x['id'],onTap:(){setState(() { selectedId=x['id'] as int; partnerSearch='${x['name']??''}'; });_load();}),if(partners.where((x)=>'${x['name']??''}'.toLowerCase().contains(partnerSearch.trim().toLowerCase())).isEmpty)const Padding(padding:EdgeInsets.all(8),child:Text('لا توجد أسماء مطابقة'))]]),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pickDate(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pickDate(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
-        ...reportQuickRangeButtons(
-          context,
-          onSelected: (rangeFrom, rangeTo) {
-            setState(() { from = rangeFrom; to = rangeTo; });
-            _load();
-          },
-        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))]),const SizedBox(height:15),if(p!=null)Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:Icon(p['ownership_mode']=='percentage'?Icons.percent_rounded:Icons.pie_chart_rounded,color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('أساس توزيع الأرباح',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:3),Text(p['ownership_mode']=='percentage'?'نسبة ملكية ${p['ownership_percentage']??0}%':'${p['shares_count']??0} حصص',style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk,fontSize:17))])),OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'partner',id:selectedId!,title:'تفاصيل الشريك'))),icon:const Icon(Icons.open_in_new_rounded,size:16),label:const Text('ملف الشريك'))])),const SizedBox(height:12),Row(children:[_kpi('الرصيد الحالي',money(bal),Icons.account_balance_wallet_rounded,bal>=0?_reportGreen:_reportOrange),const SizedBox(width:9),_kpi('إجمالي له',money(lah),Icons.south_west_rounded,_reportGreen),const SizedBox(width:9),_kpi('إجمالي عليه',money(alayh),Icons.north_east_rounded,_reportOrange)]),const SizedBox(height:18),Row(children:[const Icon(Icons.timeline_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل الحركات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${rows.length} حركة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(selectedId==null||partners.isEmpty)const EmptyView('أضف شريكاً لعرض كشف الحساب')else if(rows.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حركات في الفترة المحددة')]))else ...[for(final x in rows.take(300))_movement(x)]])));}
-}
+  @override
+  Widget build(BuildContext context) {
+    final p = partner;
+    final bal = _n(summary['balance']);
+    final lah = rows.fold<int>(0, (sum, x) => sum + _n(x['lah']));
+    final alayh = rows.fold<int>(0, (sum, x) => sum + _n(x['alayh']));
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        backgroundColor: _reportCream,
+        appBar: AppBar(
+          backgroundColor: _reportCream,
+          elevation: 0,
+          foregroundColor: _reportInk,
+          title: const Text(
+            'تفاصيل حسابات الشركاء',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          actions: [
+            IconButton(
+              onPressed: _load,
+              tooltip: 'تحديث',
+              icon: const Icon(Icons.refresh_rounded),
+            ),
+            Padding(
+              padding: const EdgeInsetsDirectional.only(end: 10),
+              child: FilledButton.icon(
+                onPressed: _print,
+                style: FilledButton.styleFrom(
+                  backgroundColor: _reportOliveDark,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                ),
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                label: const Text('PDF'),
+              ),
+            ),
+          ],
+        ),
+        body: loading
+            ? const Center(child: CircularProgressIndicator())
+            : error != null
+                ? ErrorBox(error!)
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(18, 4, 18, 30),
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(21),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [_reportOliveDark, _reportOlive],
+                          ),
+                          borderRadius: BorderRadius.circular(27),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'كشف حساب مالي',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: .72),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    p == null
+                                        ? 'اختر شريكاً'
+                                        : p['name']?.toString() ?? 'اختر شريكاً',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 23,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 7),
+                                  Text(
+                                    'كل الحركات مترجمة إلى له وعليه من دفتر الأستاذ المركزي',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: .82),
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.groups_rounded,
+                              color: Colors.white,
+                              size: 46,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: _reportLine),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextField(
+                              onChanged: (v) => setState(() => partnerSearch = v),
+                              decoration: const InputDecoration(
+                                labelText: 'اكتب اسم الشريك للبحث',
+                                hintText: 'اكتب الاسم ثم اختر الشريك من النتائج',
+                                prefixIcon: Icon(Icons.person_search_rounded),
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            if (partnerSearch.trim().isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              for (final x in partners
+                                  .where((x) => '${x['name'] ?? ''}'
+                                      .toLowerCase()
+                                      .contains(partnerSearch.trim().toLowerCase()))
+                                  .take(8))
+                                ListTile(
+                                  dense: true,
+                                  leading: const Icon(
+                                    Icons.person_outline_rounded,
+                                    color: _reportOliveDark,
+                                  ),
+                                  title: Text('${x['name'] ?? ''}'),
+                                  selected: selectedId == x['id'],
+                                  onTap: () {
+                                    setState(() {
+                                      selectedId = x['id'] as int;
+                                      partnerSearch = '${x['name'] ?? ''}';
+                                    });
+                                    _load();
+                                  },
+                                ),
+                              if (partners
+                                  .where((x) => '${x['name'] ?? ''}'
+                                      .toLowerCase()
+                                      .contains(partnerSearch.trim().toLowerCase()))
+                                  .isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: Text('لا توجد أسماء مطابقة'),
+                                ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => _pickDate(true),
+                            icon: const Icon(Icons.calendar_today_rounded, size: 16),
+                            label: Text(
+                              from == null ? 'من تاريخ' : 'من ${_date(from)}',
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => _pickDate(false),
+                            icon: const Icon(Icons.event_rounded, size: 16),
+                            label: Text(
+                              to == null ? 'إلى تاريخ' : 'إلى ${_date(to)}',
+                            ),
+                          ),
+                          ...reportQuickRangeButtons(
+                            context,
+                            onSelected: (rangeFrom, rangeTo) {
+                              setState(() {
+                                from = rangeFrom;
+                                to = rangeTo;
+                              });
+                              _load();
+                            },
+                          ),
+                          if (from != null || to != null)
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  from = null;
+                                  to = null;
+                                });
+                                _load();
+                              },
+                              child: const Text('مسح الفترة'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 15),
+                      if (p != null)
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: _reportLine),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: _reportCream,
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                                child: Icon(
+                                  p['ownership_mode'] == 'percentage'
+                                      ? Icons.percent_rounded
+                                      : Icons.pie_chart_rounded,
+                                  color: _reportOliveDark,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'أساس توزيع الأرباح',
+                                      style: TextStyle(
+                                        color: _reportInk.withValues(alpha: .55),
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      p['ownership_mode'] == 'percentage'
+                                          ? 'نسبة ملكية ${p['ownership_percentage'] ?? 0}%'
+                                          : '${p['shares_count'] ?? 0} حصص',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        color: _reportInk,
+                                        fontSize: 17,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => RecordDetailsPage(
+                                      widget.r,
+                                      kind: 'partner',
+                                      id: selectedId!,
+                                      title: 'تفاصيل الشريك',
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                                label: const Text('ملف الشريك'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          _kpi(
+                            'الرصيد الحالي',
+                            money(bal),
+                            Icons.account_balance_wallet_rounded,
+                            bal >= 0 ? _reportGreen : _reportOrange,
+                          ),
+                          const SizedBox(width: 9),
+                          _kpi('إجمالي له', money(lah), Icons.south_west_rounded, _reportGreen),
+                          const SizedBox(width: 9),
+                          _kpi('إجمالي عليه', money(alayh), Icons.north_east_rounded, _reportOrange),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      Row(
+                        children: [
+                          const Icon(Icons.timeline_rounded, color: _reportOliveDark),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'سجل الحركات',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 19,
+                              color: _reportInk,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '${rows.length} حركة',
+                            style: TextStyle(
+                              color: _reportInk.withValues(alpha: .55),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      if (selectedId == null || partners.isEmpty)
+                        const EmptyView('أضف شريكاً لعرض كشف الحساب')
+                      else if (rows.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.all(30),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Column(
+                            children: [
+                              Icon(Icons.inbox_rounded, size: 42, color: _reportOlive),
+                              SizedBox(height: 8),
+                              Text('لا توجد حركات في الفترة المحددة'),
+                            ],
+                          ),
+                        )
+                      else
+                        ...[
+                          for (final x in rows.take(300)) _movement(x),
+                        ],
+                    ],
+                  ),
+      ),
+    );
+  }
 
 class NotificationsPage extends StatefulWidget {
   final StationRepository r;
