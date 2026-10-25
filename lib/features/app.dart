@@ -11355,8 +11355,6 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           ),
                           const SizedBox(height: 10),
                           Wrap(spacing: 8, runSpacing: 8, children: [
-                            ChoiceChip(label: const Text('اليوم'), selected: from != null && to != null && from == DateTime(AppClock.now().year, AppClock.now().month, AppClock.now().day) && to == from, onSelected: (_) => _quickRange('today')),
-                            ChoiceChip(label: const Text('هذا الأسبوع'), selected: false, onSelected: (_) => _quickRange('week')),
                             ChoiceChip(label: const Text('كل الفترات'), selected: from == null && to == null, onSelected: (_) => _quickRange('all')),
                             OutlinedButton.icon(onPressed: () => _pickDate(true), icon: const Icon(Icons.calendar_today_rounded, size: 16), label: Text('من: ${_dateLabel(from)}')),
                             OutlinedButton.icon(onPressed: () => _pickDate(false), icon: const Icon(Icons.event_rounded, size: 16), label: Text('إلى: ${_dateLabel(to)}')),
