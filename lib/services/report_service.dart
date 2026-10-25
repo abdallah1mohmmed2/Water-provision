@@ -405,12 +405,20 @@ class ReportService {
         ['عدد السجلات', _format(rows.length)],
       if (rows.any((row) => row.containsKey('cloud_minutes')))
         ['إجمالي الغيم', '${_format(sumOf('cloud_minutes'))} دقيقة'],
+      if (rows.isNotEmpty && rows.first.containsKey('distributable_profit'))
+        ['صافي الربح القابل للتوزيع', '${_format(rows.first['distributable_profit'])} ر.س'],
+      if (rows.any((row) => row.containsKey('gross_amount')))
+        ['إجمالي استحقاقات الشركاء', '${_format(sumOf('gross_amount'))} ر.س'],
+      if (rows.any((row) => row.containsKey('partner_expenses')))
+        ['مصروفات الشركاء الخاصة', '${_format(sumOf('partner_expenses'))} ر.س'],
+      if (rows.any((row) => row.containsKey('net_amount')))
+        ['صافي الاستحقاقات بعد المصروفات', '${_format(sumOf('net_amount'))} ر.س'],
       if (rows.any(
         (row) =>
             row.containsKey('total_amount') ||
             row.containsKey('total') ||
             row.containsKey('amount'),
-      ))
+      ) && !(rows.isNotEmpty && rows.first.containsKey('distributable_profit')))
         ['إجمالي القيمة', '${_format(total)} ر.س'],
       if (rows.any((row) => row.containsKey('paid_amount')))
         ['إجمالي المدفوع', '${_format(sumOf('paid_amount'))} ر.س'],
