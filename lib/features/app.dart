@@ -1392,7 +1392,8 @@ class _DashboardCircularMenuState extends State<_DashboardCircularMenu>
           SizedBox(
             height: 286,
             child: GestureDetector(
-              onPanUpdate: _rotateFromDrag,
+              // أفقيًا ينتقل المستخدم بين القائمة والتقارير، وعموديًا يدير عناصر العجلة.
+              onVerticalDragUpdate: _rotateFromDrag,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
@@ -1821,6 +1822,8 @@ class _DashboardState extends State<DashboardPage> {
   String systemType = 'diesel';
   bool loading = true;
   late final PageController _statsController = PageController(viewportFraction: .78);
+  late final PageController _menuReportsController = PageController();
+  int _menuReportsPage = 0;
   Future<void> load() async {
     try {
       final a = await widget.r.dashboard(),
@@ -1854,6 +1857,7 @@ class _DashboardState extends State<DashboardPage> {
   @override
   void dispose() {
     _statsController.dispose();
+    _menuReportsController.dispose();
     super.dispose();
   }
 
@@ -1867,6 +1871,43 @@ class _DashboardState extends State<DashboardPage> {
         );
       }
     }
+  }
+
+  Widget _menuReportsIndicator({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    const cyan = Color(0xFF00E5FF);
+    const neon = Color(0xFF39FFB6);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      decoration: BoxDecoration(
+        color: selected ? cyan.withValues(alpha: .14) : const Color(0xFF101E2E),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: (selected ? neon : cyan).withValues(alpha: selected ? .8 : .3)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(
+              selected ? Icons.radio_button_checked_rounded : Icons.circle_outlined,
+              size: 13,
+              color: selected ? neon : cyan,
+            ),
+            const SizedBox(width: 7),
+            Text(label, style: TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
+            )),
+          ]),
+        ),
+      ),
+    );
   }
 
   Widget _dashboardReportsCard() {
@@ -2115,32 +2156,60 @@ class _DashboardState extends State<DashboardPage> {
                   ),
                 ),
                 const SizedBox(height: 23),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = constraints.maxWidth >= 900;
-                    final circularMenu = _DashboardCircularMenu(
-                      availableMenu: widget.availableMenu,
-                      onOpen: widget.onOpen,
-                    );
-                    final reportsCard = _dashboardReportsCard();
-                    if (wide) {
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                Column(
+                  children: [
+                    SizedBox(
+                      height: 410,
+                      child: PageView(
+                        controller: _menuReportsController,
+                        physics: const PageScrollPhysics(),
+                        onPageChanged: (page) => setState(() => _menuReportsPage = page),
                         children: [
-                          Expanded(flex: 6, child: circularMenu),
-                          const SizedBox(width: 14),
-                          Expanded(flex: 5, child: reportsCard),
+                          Center(
+                            child: _DashboardCircularMenu(
+                              availableMenu: widget.availableMenu,
+                              onOpen: widget.onOpen,
+                            ),
+                          ),
+                          SingleChildScrollView(
+                            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+                            child: _dashboardReportsCard(),
+                          ),
                         ],
-                      );
-                    }
-                    return Column(
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        circularMenu,
-                        const SizedBox(height: 14),
-                        reportsCard,
+                        _menuReportsIndicator(
+                          label: 'القائمة الدوارة',
+                          selected: _menuReportsPage == 0,
+                          onTap: () => _menuReportsController.animateToPage(
+                            0,
+                            duration: const Duration(milliseconds: 280),
+                            curve: Curves.easeOutCubic,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        _menuReportsIndicator(
+                          label: 'التقارير',
+                          selected: _menuReportsPage == 1,
+                          onTap: () => _menuReportsController.animateToPage(
+                            1,
+                            duration: const Duration(milliseconds: 280),
+                            curve: Curves.easeOutCubic,
+                          ),
+                        ),
                       ],
-                    );
-                  },
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'اسحب يمينًا أو يسارًا للتبديل بين القائمة والتقارير',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white.withValues(alpha: .55), fontSize: 10),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 22),
                 Row(children: [
