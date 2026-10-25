@@ -12348,7 +12348,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
   Future<void> _load() async {
     if (mounted) setState((){loading=true;error=null;});
     try {
-      final list=await widget.r.partners();
+      final list=await widget.r.partners(includeInactive: true);
       final id=selectedId;
       var detail=<Map<String,Object?>>[]; var totals=<String,Object?>{};
       if(id!=null){detail=await widget.r.report('partner_accounts',partnerId:id,from:from,to:to);totals=await widget.r.partyFinancialSummary('partner',id);}
@@ -12622,6 +12622,9 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                     color: _reportOliveDark,
                                   ),
                                   title: Text('${x['name'] ?? ''}'),
+                                  subtitle: (x['active'] as num?)?.toInt() == 1
+                                      ? null
+                                      : const Text('شريك غير نشط — كشف تاريخي'),
                                   selected: selectedId == x['id'],
                                   onTap: () {
                                     setState(() {
