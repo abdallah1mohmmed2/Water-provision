@@ -1541,7 +1541,11 @@ class ReportService {
       // before same-day movements in that order. Reversing the whole list would
       // move the opening row after the first day's movements, so move opening
       // rows to the front after reversing for chronological print order.
-      final ordered = statementRows.reversed.toList();
+      final ordered = statementRows
+          .where((row) => row['type'] != 'worker_income_total')
+          .toList()
+          .reversed
+          .toList();
       final openingRows = ordered
           .where((row) => row['type'] == 'opening_balance')
           .toList();
@@ -1562,6 +1566,22 @@ class ReportService {
           balanceText,
         ];
       }).toList();
+      final incomeSummary = statementRows.where((row) => row['type'] == 'worker_income_total').firstOrNull;
+      if (incomeSummary != null) {
+        final balance = _workerNum(incomeSummary['balance']);
+        final balanceText = balance > 0
+            ? 'له ${_workerMoney(balance)}'
+            : balance < 0
+                ? 'عليه ${_workerMoney(balance.abs())}'
+                : 'صفر';
+        movements.add([
+          _workerDate(incomeSummary['date']),
+          '${incomeSummary['description'] ?? 'إجمالي دخل العامل'}',
+          _workerMoney(incomeSummary['lah']),
+          _workerMoney(incomeSummary['alayh']),
+          balanceText,
+        ]);
+      }
       final now = AppClock.now();
       await OfficialReportTemplate.preview(
         rightHeader1: settings['station_name'] ?? 'منظومة السقاية',
