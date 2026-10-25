@@ -12461,10 +12461,10 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
         columns: const ['التاريخ', 'البيان', 'له', 'عليه', 'الرصيد المتراكم'],
         rows: movementRows,
         footerTotalRow: [
-          'الرصيد النهائي',
+          'إجمالي الحركات / الرصيد النهائي',
           '',
-          amountText(rows.isEmpty ? 0 : _n(rows.last['lah'])),
-          amountText(rows.isEmpty ? 0 : _n(rows.last['alayh'])),
+          amountText(rows.fold<int>(0, (sum, row) => sum + _n(row['lah']))),
+          amountText(rows.fold<int>(0, (sum, row) => sum + _n(row['alayh']))),
           (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) > 0
               ? 'له ${amountText(orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance']))}'
               : (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) < 0
