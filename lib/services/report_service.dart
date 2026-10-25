@@ -7,6 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/calculations.dart';
+import 'official_report_template.dart';
 
 class ReportService {
   final StationRepository repo;
@@ -1321,6 +1322,174 @@ class ReportService {
     await Printing.sharePdf(bytes: bytes, filename: 'تقرير-الفواتير.pdf');
   }
 
+  num _workerNum(Object? value) {
+    if (value is num) return value;
+    return num.tryParse('${value ?? ''}') ?? 0;
+  }
+
+  String _workerMoney(Object? value) =>
+      NumberFormat('#,##0.##').format(_workerNum(value));
+
+  String _workerPayType(Map<String, Object?> worker) {
+    final type = '${worker['pay_type'] ?? ''}';
+    return switch (type) {
+      'hourly' => 'بالساعة',
+      'percentage' => 'بالنسبة',
+      'fixed' || 'monthly' || 'salary' => 'راتب مقطوع',
+      _ => 'راتب مقطوع',
+    };
+  }
+
+  String _workerPayBasis(Map<String, Object?> worker) {
+    final type = '${worker['pay_type'] ?? ''}';
+    return switch (type) {
+      'hourly' => '${_workerMoney(worker['hourly_rate'])} لكل ساعة',
+      'percentage' => '${_workerMoney(worker['percentage'])}% من الدخل',
+      'fixed' || 'monthly' || 'salary' =>
+        '${_workerMoney(worker['monthly_salary'])} راتب شهري',
+      _ => '${_workerMoney(worker['monthly_salary'])} راتب شهري',
+    };
+  }
+
+  Future<void> _printWorkerTransactionsOfficial({
+    required int? workerId,
+    required DateTime? from,
+    required DateTime? to,
+  }) async {
+    final settings = await repo.settings();
+    final workers = await repo.workers();
+    final selectedWorker = workerId == null
+        ? null
+        : workers.cast<Map<String, Object?>>().where((w) => _workerNum(w['id']).toInt() == workerId).firstOrNull;
+    if (workerId != null && selectedWorker == null) {
+      throw StateError('العامل المحدد غير موجود');
+    }
+
+    final invoices = await repo.report(
+      'invoices',
+      from: from,
+      to: to,
+      systemType: 'all',
+    );
+    final reportRows = <List<String>>[];
+    num totalMinutes = 0;
+    num totalDue = 0;
+    num totalWithdrawals = 0;
+    num totalNet = 0;
+
+    List<Map<String, Object?>> movementsFor(int id) => [];
+    // Keep each worker's original ledger entries as the source of financial totals.
+    final workerRows = <Map<String, Object?>>[];
+    final statementRows = workerId == null
+        ? <Map<String, Object?>>[]
+        : await repo.report('worker_transactions', workerId: workerId, from: from, to: to);
+
+    if (workerId != null) {
+      final worker = selectedWorker!;
+      final due = statementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['lah']));
+      final withdrawals = statementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['alayh']));
+      final net = statementRows.isEmpty ? due - withdrawals : _workerNum(statementRows.last['balance']);
+      final minutes = invoices.where((row) => _workerNum(row['worker_id']).toInt() == workerId)
+          .fold<num>(0, (sum, row) => sum + _workerNum(row['minutes']));
+      totalMinutes = minutes;
+      totalDue = due;
+      totalWithdrawals = withdrawals;
+      totalNet = net;
+      final ordered = statementRows.reversed.toList();
+      final movements = ordered.map((row) {
+        final balance = _workerNum(row['balance']);
+        final balanceText = balance > 0
+            ? 'له ${_workerMoney(balance)}'
+            : balance < 0
+                ? 'عليه ${_workerMoney(balance.abs())}'
+                : 'صفر';
+        return <String>[
+          _workerDate(row['date']),
+          '${row['description'] ?? ''}',
+          _workerMoney(row['lah']),
+          _workerMoney(row['alayh']),
+          balanceText,
+        ];
+      }).toList();
+      final now = AppClock.now();
+      await OfficialReportTemplate.preview(
+        rightHeader1: settings['station_name'] ?? 'منظومة السقاية',
+        rightHeader2: settings['organization_name'] ?? 'الإدارة المالية',
+        rightHeader3: 'الجمهورية اليمنية',
+        date: DateFormat('yyyy/MM/dd').format(now),
+        refNumber: 'WST-${DateFormat('yyMMdd-HHmm').format(now)}',
+        attachments: 'الفترة: ${_workerPeriod(from)} إلى ${_workerPeriod(to)}',
+        reportTitle: 'كشف حساب وتسوية مستحقات عامل — ${worker['name'] ?? 'غير محدد'}',
+        summaryBoxes: [
+          StatBoxData(number: '1', title: 'اسم العامل', value: '${worker['name'] ?? 'غير محدد}'),
+          StatBoxData(number: '2', title: 'نوع وطريقة التحاسب', value: '${_workerPayType(worker)} — ${_workerPayBasis(worker)}'),
+          StatBoxData(number: '3', title: 'إجمالي المستحق', value: _workerMoney(due)),
+          StatBoxData(number: '4', title: 'إجمالي المسحوبات', value: _workerMoney(withdrawals), isBlueTint: true),
+          StatBoxData(number: '5', title: 'الصافي النهائي', value: net > 0 ? 'له ${_workerMoney(net)}' : net < 0 ? 'عليه ${_workerMoney(net.abs())}' : 'صفر', isLarge: true),
+        ],
+        columns: const ['التاريخ', 'البيان', 'له', 'عليه', 'المتبقي (له / عليه)'],
+        rows: movements,
+        footerTotalRow: ['الإجمالي', '', _workerMoney(due), _workerMoney(withdrawals), net > 0 ? 'له ${_workerMoney(net)}' : net < 0 ? 'عليه ${_workerMoney(net.abs())}' : 'صفر'],
+        minTableRows: 1,
+      );
+      return;
+    }
+
+    for (final worker in workers) {
+      final id = _workerNum(worker['id']).toInt();
+      if (id == 0) continue;
+      final tx = await repo.report('worker_transactions', workerId: id, from: from, to: to);
+      final due = tx.fold<num>(0, (sum, row) => sum + _workerNum(row['lah']));
+      final withdrawals = tx.fold<num>(0, (sum, row) => sum + _workerNum(row['alayh']));
+      final net = tx.isEmpty ? due - withdrawals : _workerNum(tx.last['balance']);
+      final minutes = invoices.where((row) => _workerNum(row['worker_id']).toInt() == id)
+          .fold<num>(0, (sum, row) => sum + _workerNum(row['minutes']));
+      totalMinutes += minutes;
+      totalDue += due;
+      totalWithdrawals += withdrawals;
+      totalNet += net;
+      final netText = net > 0 ? 'له ${_workerMoney(net)}' : net < 0 ? 'عليه ${_workerMoney(net.abs())}' : 'صفر';
+      reportRows.add([
+        '${reportRows.length + 1}',
+        '${worker['name'] ?? 'غير محدد'}',
+        _workerPayType(worker),
+        _workerPayBasis(worker),
+        _workerMoney(due),
+        _workerMoney(withdrawals),
+        netText,
+        '',
+      ]);
+    }
+    final now = AppClock.now();
+    await OfficialReportTemplate.preview(
+      rightHeader1: settings['station_name'] ?? 'منظومة السقاية',
+      rightHeader2: settings['organization_name'] ?? 'الإدارة المالية',
+      rightHeader3: 'الجمهورية اليمنية',
+      date: DateFormat('yyyy/MM/dd').format(now),
+      refNumber: 'WPR-${DateFormat('yyMMdd-HHmm').format(now)}',
+      attachments: 'الفترة: ${_workerPeriod(from)} إلى ${_workerPeriod(to)}',
+      reportTitle: 'تقرير أجور ومسير مستحقات العمال',
+      summaryBoxes: [
+        StatBoxData(number: '1', title: 'إجمالي ساعات العمل', value: '${(totalMinutes / 60).toStringAsFixed(2)} ساعة'),
+        StatBoxData(number: '2', title: 'إجمالي الأجور المستحقة', value: _workerMoney(totalDue), isBlueTint: true),
+        StatBoxData(number: '3', title: 'إجمالي المسحوبات والسلف', value: _workerMoney(totalWithdrawals)),
+        StatBoxData(number: '4', title: 'صافي المتبقي للعمال', value: totalNet > 0 ? 'له ${_workerMoney(totalNet)}' : totalNet < 0 ? 'عليه ${_workerMoney(totalNet.abs())}' : 'صفر', isLarge: true),
+      ],
+      columns: const ['م', 'اسم العامل', 'طريقة التحاسب', 'أساس الاحتساب', 'إجمالي الاستحقاق', 'المسحوبات', 'المتبقي (له / عليه)', 'ملاحظات'],
+      rows: reportRows,
+      footerTotalRow: ['الإجمالي', '', '', '', _workerMoney(totalDue), _workerMoney(totalWithdrawals), totalNet > 0 ? 'له ${_workerMoney(totalNet)}' : totalNet < 0 ? 'عليه ${_workerMoney(totalNet.abs())}' : 'صفر', ''],
+      minTableRows: 1,
+    );
+  }
+
+  String _workerDate(Object? value) {
+    final date = DateTime.tryParse('${value ?? ''}');
+    return date == null ? '${value ?? '—'}' : DateFormat('yyyy/MM/dd').format(date);
+  }
+
+  String _workerPeriod(DateTime? value) =>
+      value == null ? 'غير محدد' : DateFormat('yyyy/MM/dd').format(value);
+
   Future<void> printPdf(
     String key, {
     DateTime? from,
@@ -1335,6 +1504,10 @@ class ReportService {
     String? status,
     List<Map<String, Object?>>? sourceRows,
   }) async {
+    if (key == 'worker_transactions') {
+      await _printWorkerTransactionsOfficial(workerId: workerId, from: from, to: to);
+      return;
+    }
     // Generate the document before opening Android's print UI so exceptions
     // from fonts, data formatting, or PDF layout surface in the calling screen.
     final bytes = await pdf(
