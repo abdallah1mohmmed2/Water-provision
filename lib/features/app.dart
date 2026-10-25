@@ -1972,7 +1972,14 @@ class _DashboardState extends State<DashboardPage> {
                 borderRadius: BorderRadius.circular(14),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  onTap: () => _printDashboardReport(item.$2),
+                  onTap: () {
+                    if (item.$2 == 'partner_accounts') {
+                      // افتح شاشة حسابات الشركاء الموجودة في القائمة الرئيسية.
+                      widget.onOpen(11);
+                      return;
+                    }
+                    _printDashboardReport(item.$2);
+                  },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
                     child: Row(children: [
