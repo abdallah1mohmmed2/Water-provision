@@ -387,7 +387,15 @@ class ReportService {
     required pw.Font font,
     required pw.Font bold,
   }) {
-    num sumOf(String field) => rows.fold<num>(0, (sum, row) {
+    const balanceRowTypes = {
+      'opening_balance',
+      'carried_balance',
+      'current_balance',
+    };
+    // Balance-only rows remain visible in the table but are not movements.
+    final totalRows = rows.where((row) =>
+        !balanceRowTypes.contains(row['type'])).toList();
+    num sumOf(String field) => totalRows.fold<num>(0, (sum, row) {
       final value = row[field];
       if (value is num) return sum + value;
       return sum + (num.tryParse('$value') ?? 0);
@@ -397,6 +405,10 @@ class ReportService {
         : sumOf('total') != 0
         ? sumOf('total')
         : sumOf('amount');
+    final latestBalanceRow = totalRows.firstWhere(
+      (row) => row.containsKey('balance'),
+      orElse: () => <String, Object?>{},
+    );
     final cards = <List<String>>[
       if (rows.isNotEmpty && rows.first.containsKey('minutes'))
         ['إجمالي السقوات', _format(rows.length)],
@@ -423,8 +435,8 @@ class ReportService {
         ['إجمالي القيمة', '${_format(total)} ر.س'],
       if (rows.any((row) => row.containsKey('paid_amount')))
         ['إجمالي المدفوع', '${_format(sumOf('paid_amount'))} ر.س'],
-      if (rows.any((row) => row.containsKey('balance')))
-        ['الرصيد الختامي', _format(rows.last['balance'])],
+      if (latestBalanceRow.isNotEmpty)
+        ['الرصيد الختامي', _format(latestBalanceRow['balance'])],
     ];
     return pw.Container(
       padding: const pw.EdgeInsets.all(12),
@@ -601,7 +613,22 @@ class ReportService {
     required pw.Font font,
     required pw.Font bold,
   }) {
-    num sumOf(String field) => rows.fold<num>(0, (sum, row) {
+    const balanceRowTypes = {
+      'opening_balance',
+      'carried_balance',
+      'current_balance',
+    };
+    final isBalanceReport = const {
+      'beneficiary_statement',
+      'beneficiary_detailed',
+      'worker_transactions',
+      'partner_accounts',
+      'debts',
+    }.contains(key);
+    final financialRows = isBalanceReport
+        ? rows.where((row) => !balanceRowTypes.contains(row['type'])).toList()
+        : rows;
+    num sumOf(String field) => financialRows.fold<num>(0, (sum, row) {
       final value = row[field];
       if (value is num) return sum + value;
       return sum + (num.tryParse('$value') ?? 0);
@@ -618,17 +645,7 @@ class ReportService {
           row.containsKey('total') ||
           row.containsKey('total_amount'),
     );
-    final isBalanceReport = const {
-      'beneficiary_statement',
-      'beneficiary_detailed',
-      'worker_transactions',
-      'partner_accounts',
-      'debts',
-    }.contains(key);
-    final balanceMovements = rows.where((row) =>
-      !const ['opening_balance', 'carried_balance', 'current_balance']
-          .contains(row['type'])
-    ).toList();
+    final balanceMovements = financialRows;
     // Balance reports are displayed newest-first; the first actual movement
     // carries the latest running balance. Using last would show an older one.
     final latestBalanceRow =
