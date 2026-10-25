@@ -895,12 +895,52 @@ class _ShellState extends State<AdminShell> {
               });
               return Scaffold(
                 backgroundColor: Theme.of(routeContext).scaffoldBackgroundColor,
-                body: SafeArea(
-                  child: NewIrrigationPage(
-                    repo,
-                    key: quickKey,
-                    manager: role == AppRole.manager,
-                  ),
+                body: Stack(
+                  children: [
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 460),
+                          child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(28),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.water_drop_rounded,
+                                    size: 46,
+                                    color: Theme.of(routeContext).colorScheme.primary,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  const Text(
+                                    'سقاية جديدة',
+                                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'نموذج السقاية السريع',
+                                    style: TextStyle(color: Theme.of(routeContext).colorScheme.onSurfaceVariant),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Offstage(
+                      offstage: true,
+                      child: NewIrrigationPage(
+                        repo,
+                        key: quickKey,
+                        manager: role == AppRole.manager,
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
