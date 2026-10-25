@@ -1837,6 +1837,7 @@ class _DashboardState extends State<DashboardPage> {
   String systemType = 'diesel';
   bool loading = true;
   late final PageController _statsController = PageController(viewportFraction: .78);
+  late final PageController _homeCardsController = PageController(viewportFraction: .91);
   Future<void> load() async {
     try {
       final a = await widget.r.dashboard(),
@@ -1870,6 +1871,7 @@ class _DashboardState extends State<DashboardPage> {
   @override
   void dispose() {
     _statsController.dispose();
+    _homeCardsController.dispose();
     super.dispose();
   }
 
@@ -2050,7 +2052,7 @@ class _DashboardState extends State<DashboardPage> {
                 SizedBox(
                   height: 390,
                   child: PageView(
-                    controller: PageController(viewportFraction: .91),
+                    controller: _homeCardsController,
                     padEnds: false,
                     children: [
                       Padding(
