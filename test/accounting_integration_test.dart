@@ -513,9 +513,11 @@ void main() {
 
     expect((irrigationRow['signed_amount'] as num).round(), -6000);
     expect((paymentRow['signed_amount'] as num).round(), -1000);
-    expect((statement.first['balance'] as num).round(), 3000);
-    expect((await svc.partnerBalance(partner))['balance'], 3000);
-    expect(await glPayable('2200', 'partner_id', partner), 3000);
+    // يشمل الرصيد حصة الشريك من أرباح السقاية الشخصية، إضافةً إلى الرصيد السابق
+    // بعد خصم قيمة السقاية والمدفوعات: 10,000 + 1,800 - 6,000 - 1,000 = 4,800.
+    expect((statement.first['balance'] as num).round(), 4800);
+    expect((await svc.partnerBalance(partner))['balance'], 4800);
+    expect(await glPayable('2200', 'partner_id', partner), 4800);
     expect((await repo.partyFinancialSummary('partner', partner))['paid'], 1000);
   });
 
