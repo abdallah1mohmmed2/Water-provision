@@ -1874,12 +1874,16 @@ class _DashboardState extends State<DashboardPage> {
     super.dispose();
   }
 
-  void _openDashboardReport(String key) {
-    // افتح شاشات التقارير التفاعلية الموجودة؛ لا تطبع PDF من بطاقة الاختصارات.
+  Future<void> _openDashboardReport(String key) async {
+    // افتح شاشة التقرير التفاعلية المقصودة، وليس شاشة الإدارة العامة أو PDF.
     switch (key) {
       case 'partner_accounts':
-        // شاشة حسابات الشركاء الموجودة في القائمة الرئيسية.
-        widget.onOpen(11);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PartnerAccountsReportPage(widget.r),
+          ),
+        );
         return;
       case 'partner_profit_distribution':
         Navigator.push(
@@ -1906,8 +1910,27 @@ class _DashboardState extends State<DashboardPage> {
         );
         return;
       case 'beneficiary_list':
-        // شاشة المستفيدين الموجودة في القائمة الرئيسية.
-        widget.onOpen(1);
+        try {
+          final rows = await widget.r.report('beneficiary_list');
+          if (!mounted) return;
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ReportPreviewPage(
+                widget.r,
+                keyName: 'beneficiary_list',
+                rows: rows,
+                filters: '',
+              ),
+            ),
+          );
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('تعذر فتح تقرير المستفيدين: ${friendlyError(e)}')),
+            );
+          }
+        }
         return;
     }
   }
