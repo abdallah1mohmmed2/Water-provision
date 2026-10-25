@@ -4213,6 +4213,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       (settings['manager_override_required'] ?? 'true') == 'true';
   List<Map<String, Object?>> methods = [];
   int? payMethod;
+  late Future<void> _initialLoadFuture;
   @override
   void initState() {
     super.initState();
@@ -4222,7 +4223,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     end = start.add(const Duration(hours: 1));
     startTimeController.text = _hm12(start);
     endTimeController.text = _hm12(end);
-    load();
+    // احتفظ بمهمة التحميل الأولى حتى ينتظرها النموذج السريع قبل فتح الحوار.
+    _initialLoadFuture = load();
   }
 
   @override
@@ -5064,7 +5066,19 @@ int? parseClock(String raw) {
   /// يفتح نموذجاً مختصراً من الفقاعة العائمة داخل نفس حالة السقاية؛
   /// الحفظ يستدعي save() نفسها حتى تبقى قاعدة البيانات والقيود المحاسبية موحدة.
   Future<void> openQuickForm() async {
+    if (!mounted || saved) return;
+
+    // كانت الفقاعة تستدعي هذه الدالة بعد أول إطار، وغالباً كان load()
+    // ما يزال يجلب البيانات؛ شرط loading السابق كان ينهي الدالة بصمت.
+    // انتظر التحميل الأول بدلاً من إسقاط طلب فتح النموذج.
+    try {
+      await _initialLoadFuture;
+    } catch (e) {
+      if (mounted) msg('تعذر تحميل بيانات السقاية: ${friendlyError(e)}');
+      return;
+    }
     if (!mounted || loading || saved) return;
+
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
