@@ -2202,18 +2202,15 @@ class StationRepository {
             final name = '${partner['name'] ?? 'غير محدد'}';
             final transactions = await partnerTransactions(id);
 
-            // الأرصدة في transactions محسوبة من كامل التاريخ تصاعديًا قبل عكس
-            // ترتيب العرض؛ لذلك نأخذ آخر رصيد سابق لبداية الفترة كرصد افتتاحي.
+            // احسب الرصيد الافتتاحي بجمع صافي كل قيود الأستاذ المرحلة
+            // السابقة لبداية الفترة، بدل الاعتماد على رصيد صف حركة بعينه.
+            // signed_amount = credit - debit، وهي نفس إشارة رصيد الشريك في الأستاذ.
             if (periodStart != null) {
-              int openingBalance = 0;
-              DateTime? latestPriorDate;
+              var openingBalance = 0;
               for (final row in transactions) {
                 final date = DateTime.tryParse('${row['date'] ?? ''}');
                 if (date == null || !date.isBefore(periodStart)) continue;
-                if (latestPriorDate == null || date.isAfter(latestPriorDate)) {
-                  latestPriorDate = date;
-                  openingBalance = (row['balance'] as num?)?.round() ?? 0;
-                }
+                openingBalance += (row['signed_amount'] as num?)?.round() ?? 0;
               }
               rows.add({
                 'date': periodStart.toIso8601String(),
