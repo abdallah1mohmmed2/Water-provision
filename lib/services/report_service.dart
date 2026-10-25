@@ -1365,10 +1365,10 @@ class ReportService {
     final type = '${worker['pay_type'] ?? ''}';
     return switch (type) {
       'hourly' => '${_workerMoney(worker['hourly_rate'])} لكل ساعة',
-      'percentage' => '${_workerMoney(worker['percentage'])}% من الدخل',
+      'percentage' => '${_workerMoney(worker['percentage_rate'])}% من الدخل',
       'fixed' || 'monthly' || 'salary' =>
-        '${_workerMoney(worker['monthly_salary'])} راتب شهري',
-      _ => '${_workerMoney(worker['monthly_salary'])} راتب شهري',
+        '${_workerMoney(worker['fixed_salary'])} راتب شهري',
+      _ => '${_workerMoney(worker['fixed_salary'])} راتب شهري',
     };
   }
 
