@@ -1391,6 +1391,98 @@ class _DashboardCircularMenuState extends State<_DashboardCircularMenu>
   }
 }
 
+class _DashboardNewReportsCard extends StatelessWidget {
+  final ValueChanged<String> onOpen;
+  const _DashboardNewReportsCard({required this.onOpen});
+
+  static const _reports = <(String, String, IconData, Color)>[
+    ('invoices', 'تقرير الفواتير', Icons.receipt_long_rounded, Color(0xFF39FFB6)),
+    ('beneficiary_statement', 'كشف حساب المستفيد', Icons.person_pin_rounded, Color(0xFF00E5FF)),
+    ('worker_transactions', 'تقرير أجور العمال', Icons.engineering_rounded, Color(0xFF39FFB6)),
+    ('partner_accounts', 'كشف حساب الشريك', Icons.handshake_rounded, Color(0xFF00E5FF)),
+    ('partner_profit_distribution', 'التقرير المالي وتوزيعات الشركاء', Icons.analytics_rounded, Color(0xFF39FFB6)),
+  ];
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: const Color(0xFF08111F),
+      borderRadius: BorderRadius.circular(28),
+      border: Border.all(color: const Color(0xFF39FFB6).withValues(alpha: .30)),
+      boxShadow: [
+        BoxShadow(color: const Color(0xFF39FFB6).withValues(alpha: .07), blurRadius: 26),
+        BoxShadow(color: const Color(0xFF00E5FF).withValues(alpha: .05), blurRadius: 38),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: [
+          const Icon(Icons.picture_as_pdf_rounded, color: Color(0xFF39FFB6)),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'التقارير الجديدة',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17),
+            ),
+          ),
+          Text('اسحب لعرضها', style: TextStyle(color: Colors.white.withValues(alpha: .55), fontSize: 10)),
+        ]),
+        const SizedBox(height: 7),
+        Text(
+          'تقارير بالقالب الرسمي الجديد',
+          style: TextStyle(color: Colors.white.withValues(alpha: .60), fontSize: 11),
+        ),
+        const SizedBox(height: 9),
+        Expanded(
+          child: ListView.separated(
+            physics: const ClampingScrollPhysics(),
+            padding: EdgeInsets.zero,
+            itemCount: _reports.length,
+            separatorBuilder: (_, __) => Divider(
+              height: 1,
+              color: Colors.white.withValues(alpha: .08),
+            ),
+            itemBuilder: (context, index) {
+              final item = _reports[index];
+              return InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => onOpen(item.$1),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 5),
+                  child: Row(children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: item.$4.withValues(alpha: .10),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: item.$4.withValues(alpha: .30)),
+                      ),
+                      child: Icon(item.$3, color: item.$4, size: 20),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        item.$2,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    const Icon(Icons.chevron_left_rounded, color: Color(0xFF8CA3B8)),
+                  ]),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _NeonBottomBar extends StatelessWidget {
   final int currentIndex;
   final bool isManager, canFinance;
@@ -1955,9 +2047,37 @@ class _DashboardState extends State<DashboardPage> {
                   ),
                 ),
                 const SizedBox(height: 23),
-                _DashboardCircularMenu(
-                  availableMenu: widget.availableMenu,
-                  onOpen: widget.onOpen,
+                SizedBox(
+                  height: 390,
+                  child: PageView(
+                    controller: PageController(viewportFraction: .91),
+                    padEnds: false,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(end: 12),
+                        child: _DashboardCircularMenu(
+                          availableMenu: widget.availableMenu,
+                          onOpen: widget.onOpen,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(end: 12),
+                        child: _DashboardNewReportsCard(
+                          onOpen: (key) {
+                            Navigator.push(
+                              c,
+                              MaterialPageRoute(
+                                builder: (_) => ReportsPage(
+                                  widget.r,
+                                  initialReportKey: key,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 22),
                 Row(children: [
@@ -10629,7 +10749,8 @@ List<Widget> reportQuickRangeButtons(
 
 class ReportsPage extends StatefulWidget {
   final StationRepository r;
-  const ReportsPage(this.r, {super.key});
+  final String? initialReportKey;
+  const ReportsPage(this.r, {this.initialReportKey, super.key});
   static const keys = [
     'invoices','irrigations','time_comparison','monthly_financial','income',
     'payment_methods','expenses','cashboxes','queue_bookings',
@@ -10653,7 +10774,19 @@ class _ReportsState extends State<ReportsPage> {
     final now=AppClock.now(),today=DateTime(now.year,now.month,now.day);
     return [('اليوم',today,today),('هذا الأسبوع',PeriodRanges.weekStart(today,_cfg['week_start']??'saturday'),today),('هذا الشهر',DateTime(now.year,now.month,1),today),('السنة المالية',PeriodRanges.financialYearStart(today,_cfg['financial_year_start']??'01-01'),today)];
   }
-  Future<void> load() async { final b=await widget.r.workers(),p=await widget.r.partners(),c=await widget.r.cashboxes(),m=await widget.r.paymentMethods(),cfg=await widget.r.settings(); if(mounted)setState((){_cfg=cfg;ws=b;ps=p;cs=c;ms=m;bid=null;wid=null;pid=null;cid=cid??(c.isEmpty?null:c.first['id'] as int?);mid=null;currentType=cfg['system_type']??'diesel';type = currentType;}); }
+  Future<void> load() async {
+    final b=await widget.r.workers(),p=await widget.r.partners(),c=await widget.r.cashboxes(),m=await widget.r.paymentMethods(),cfg=await widget.r.settings();
+    if(!mounted)return;
+    setState((){_cfg=cfg;ws=b;ps=p;cs=c;ms=m;bid=null;wid=null;pid=null;cid=cid??(c.isEmpty?null:c.first['id'] as int?);mid=null;currentType=cfg['system_type']??'diesel';type = currentType;});
+    final initialKey = widget.initialReportKey;
+    if (!_initialReportOpened && initialKey != null && keys.contains(initialKey)) {
+      _initialReportOpened = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) previewR(initialKey);
+      });
+    }
+  }
+  bool _initialReportOpened = false;
   @override void initState(){super.initState();load();}
   Future<List<Map<String,Object?>>> _rows(String k)=>widget.r.report(k,from:from,to:to,beneficiaryId:bid,workerId:wid,partnerId:pid,systemType:type,cashboxId:cid,paymentMethodId:mid,category:category,status:status);
   Future<void> previewR(String k) async {
