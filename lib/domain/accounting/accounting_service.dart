@@ -2465,22 +2465,16 @@ class AccountingService {
       }
       final remainingProfit = (profit - directTotal).clamp(0, profit).toInt();
       final ps = await tx.query('partners', where: 'station_id=? AND active=1', whereArgs: [stationId]);
-      final totalShares = ps.fold<double>(
-        0.0,
-        (sum, partner) => sum + ((partner['shares_count'] as num?)?.toDouble() ?? 0.0),
+      final allocations = AccountingCalculations.partnerDistributionAmounts(
+        distributable: remainingProfit,
+        partners: ps,
       );
       final distributionDate = endExclusive.subtract(const Duration(microseconds: 1));
       var count = 0;
       for (final p in ps) {
-        final amount = AccountingCalculations.partnerShareByMode(
-          mode: '${p['ownership_mode']}',
-          distributable: remainingProfit,
-          partnerShares: (p['shares_count'] as num?)?.toDouble() ?? 0.0,
-          totalShares: totalShares,
-          percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0.0,
-        );
-        if (amount <= 0) continue;
         final partnerId = (p['id'] as num).toInt();
+        final amount = allocations[partnerId] ?? 0;
+        if (amount <= 0) continue;
         final id = await tx.insert('partner_transactions', {
           'partner_id': partnerId,
           'date': distributionDate.toIso8601String(),
