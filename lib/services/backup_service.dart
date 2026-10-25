@@ -39,20 +39,23 @@ class BackupService {
       if (check['valid'] != true) {
         throw StateError('${check['error'] ?? 'النسخة الاحتياطية غير صالحة'}');
       }
-      // إعادة فتح الاتصال صراحةً قبل كتابة سجل النسخ.
-      await accounting.database.db;
-      await accounting.database.insert('backup_records', {
-        'path': target.path,
-        'created_at': DateTime.now().toIso8601String(),
-        'status': 'created',
-        'notes': 'نسخة SQLite مكتملة ومتحقق منها',
-      });
       return target;
     } catch (_) {
       // لا نترك الخدمة في حالة اتصال مغلق إذا فشل النسخ.
       await accounting.database.db;
       rethrow;
     }
+  }
+
+  Future<void> _recordBackup(String path, String notes) async {
+    // لا نسجل العملية إلا بعد اكتمالها والتحقق من الملف النهائي.
+    await accounting.database.db;
+    await accounting.database.insert('backup_records', {
+      'path': path,
+      'created_at': DateTime.now().toIso8601String(),
+      'status': 'created',
+      'notes': notes,
+    });
   }
 
   Future<String?> saveBackupToLocation() async {
@@ -63,9 +66,23 @@ class BackupService {
       type: FileType.custom,
       allowedExtensions: ['db'],
     );
-    if (path == null) return null;
-    await File(file.path).copy(path);
-    return path;
+    // إلغاء نافذة اختيار المكان ليس عملية حفظ، لذلك لا نضيف سجلًا.
+    if (path == null || path.trim().isEmpty) return null;
+
+    final destination = File(path);
+    await File(file.path).copy(destination.path);
+
+    // تحقق من النسخة بعد نسخها إلى وجهتها النهائية، وليس من الملف المؤقت فقط.
+    final check = await validateDatabaseFile(destination.path);
+    if (check['valid'] != true) {
+      throw StateError('${check['error'] ?? 'تعذر التحقق من النسخة المحفوظة'}');
+    }
+
+    await _recordBackup(
+      destination.path,
+      'نسخة SQLite حُفظت في الجهاز وتم التحقق من الملف النهائي',
+    );
+    return destination.path;
   }
 
   Future<void> createAndShare() async {
@@ -77,6 +94,7 @@ class BackupService {
         mimeType: 'application/octet-stream',
       ),
     ], text: 'نسخة احتياطية لقاعدة بيانات ساقية');
+    await _recordBackup(file.path, 'نسخة SQLite مكتملة ومتحقق منها ومُرسلة إلى المشاركة');
   }
 
   Future<Uint8List> buildPortableJsonBackup() async =>
