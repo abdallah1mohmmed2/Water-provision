@@ -269,4 +269,81 @@ class AccountingCalculations {
     }
     return (distributable * partnerShares / totalShares).round();
   }
+
+  /// يوزع المتبقي دون تجاوز المبلغ المتاح حتى عند خلط النسب والأسهم.
+  /// النسب تُحتسب أولاً من المتبقي؛ وحملة الأسهم يقتسمون الرصيد بعد النسب.
+  /// إذا تجاوز مجموع نسب الملكية 100% تُرفض البيانات بدل ترحيل توزيع غير صحيح.
+  static Map<int, int> partnerDistributionAmounts({
+    required int distributable,
+    required List<Map<String, Object?>> partners,
+  }) {
+    if (distributable < 0) {
+      throw ArgumentError('المبلغ القابل للتوزيع لا يمكن أن يكون سالبًا');
+    }
+    final percentagePartners = partners
+        .where((p) => '${p['ownership_mode']}' == 'percentage')
+        .toList();
+    final sharePartners = partners
+        .where((p) => '${p['ownership_mode']}' != 'percentage')
+        .toList();
+    final percentageTotal = percentagePartners.fold<double>(0, (sum, p) {
+      final value = (p['ownership_percentage'] as num?)?.toDouble() ?? 0;
+      if (value < 0) throw ArgumentError('نسبة ملكية الشريك لا يمكن أن تكون سالبة');
+      return sum + value;
+    });
+    if (percentageTotal > 100.0000001) {
+      throw ArgumentError('مجموع نسب ملكية الشركاء يتجاوز 100%');
+    }
+
+    final result = <int, int>{};
+    final percentagePool = (distributable * percentageTotal / 100)
+        .round()
+        .clamp(0, distributable)
+        .toInt();
+    var percentageAllocated = 0;
+    for (var i = 0; i < percentagePartners.length; i++) {
+      final p = percentagePartners[i];
+      final id = (p['id'] as num).toInt();
+      final percentage = (p['ownership_percentage'] as num?)?.toDouble() ?? 0;
+      final remaining = percentagePool - percentageAllocated;
+      final amount = i == percentagePartners.length - 1
+          ? remaining
+          : percentageTotal <= 0
+              ? 0
+              : (percentagePool * percentage / percentageTotal)
+                  .round()
+                  .clamp(0, remaining)
+                  .toInt();
+      result[id] = amount;
+      percentageAllocated += amount;
+    }
+
+    final sharePool = distributable - percentageAllocated;
+    if (sharePartners.isNotEmpty) {
+      final totalShares = sharePartners.fold<double>(0, (sum, p) {
+        final value = (p['shares_count'] as num?)?.toDouble() ?? 0;
+        if (value < 0) throw ArgumentError('عدد حصص الشريك لا يمكن أن يكون سالبًا');
+        return sum + value;
+      });
+      if (totalShares <= 0) {
+        throw ArgumentError('إجمالي حصص الشركاء يجب أن يكون أكبر من صفر');
+      }
+      var sharesAllocated = 0;
+      for (var i = 0; i < sharePartners.length; i++) {
+        final p = sharePartners[i];
+        final id = (p['id'] as num).toInt();
+        final shares = (p['shares_count'] as num?)?.toDouble() ?? 0;
+        final remaining = sharePool - sharesAllocated;
+        final amount = i == sharePartners.length - 1
+            ? remaining
+            : (sharePool * shares / totalShares)
+                .round()
+                .clamp(0, remaining)
+                .toInt();
+        result[id] = amount;
+        sharesAllocated += amount;
+      }
+    }
+    return result;
+  }
 }
