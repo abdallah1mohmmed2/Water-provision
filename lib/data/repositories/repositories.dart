@@ -1549,7 +1549,7 @@ class StationRepository {
     }
 
     var running = opening;
-    return rows.map((row) {
+    final statementRows = rows.map((row) {
       final debit = (row['debit'] as num?)?.round() ?? 0;
       final credit = (row['credit'] as num?)?.round() ?? 0;
       final partyPerspective = kind == 'worker' || kind == 'partner';
@@ -1564,6 +1564,12 @@ class StationRepository {
         'amount': lah + alayh,
         'statement_kind': kind,
       };
+    }).toList();
+    final closing = running;
+    return statementRows.map((row) => <String, Object?>{
+      ...row,
+      'opening_balance': opening,
+      'closing_balance': closing,
     }).toList().reversed.toList();
   }
 
