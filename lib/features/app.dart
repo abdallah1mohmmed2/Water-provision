@@ -4082,9 +4082,9 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
 
   @override
   Widget build(c) => widget.compactOnly
-      ? const Scaffold(
-          backgroundColor: Colors.transparent,
-          body: SizedBox.shrink(),
+      ? Scaffold(
+          backgroundColor: Theme.of(c).scaffoldBackgroundColor,
+          body: const SizedBox.shrink(),
         )
       : PageFrame(
     title: 'المستفيدون',
@@ -7312,6 +7312,14 @@ class _QueueState extends State<QueueBookingPage> {
 
   @override
   Widget build(BuildContext c) {
+    // في وضع الاختصار نعرض خلفية ثابتة فقط أثناء ظهور نموذج الحجز،
+    // ولا نكشف شاشة إدارة الدور تحت النموذج.
+    if (widget.quickRequest) {
+      return Scaffold(
+        backgroundColor: Theme.of(c).scaffoldBackgroundColor,
+        body: const SizedBox.shrink(),
+      );
+    }
     final modeTitle = isBookingMode ? 'حجز' : 'دور دائري';
     final entries = isBookingMode ? b : q;
     return PageFrame(
@@ -8099,9 +8107,9 @@ class _PaymentsState extends State<PaymentsPage> {
 
   @override
   Widget build(c) => widget.compactOnly
-      ? const Scaffold(
-          backgroundColor: Colors.transparent,
-          body: SizedBox.shrink(),
+      ? Scaffold(
+          backgroundColor: Theme.of(c).scaffoldBackgroundColor,
+          body: const SizedBox.shrink(),
         )
       : PageFrame(
     title: 'المدفوعات',
@@ -8944,9 +8952,9 @@ class _ExpensesState extends State<ExpensesPage> {
 
   @override
   Widget build(c) => widget.compactOnly
-      ? const Scaffold(
-          backgroundColor: Colors.transparent,
-          body: SizedBox.shrink(),
+      ? Scaffold(
+          backgroundColor: Theme.of(c).scaffoldBackgroundColor,
+          body: const SizedBox.shrink(),
         )
       : PageFrame(
     title: 'المصروفات',
