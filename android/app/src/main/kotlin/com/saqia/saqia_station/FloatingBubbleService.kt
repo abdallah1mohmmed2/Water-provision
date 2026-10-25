@@ -28,6 +28,16 @@ class FloatingBubbleService : Service() {
     private var params: WindowManager.LayoutParams? = null
     private var expanded = false
 
+    private val visibilityReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            if (intent?.action == ACTION_APP_VISIBILITY) {
+                setBubbleVisible(intent.getBooleanExtra(EXTRA_APP_FOREGROUND, false).not())
+            }
+        }
+    }
+
+    private var attached = false
+
     override fun onCreate() {
         super.onCreate()
         manager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -37,11 +47,49 @@ class FloatingBubbleService : Service() {
             stopSelf()
             return
         }
-        addBubble()
-        isRunning = true
+        val filter = android.content.IntentFilter(ACTION_APP_VISIBILITY)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(visibilityReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(visibilityReceiver, filter)
+        }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (overlay == null) addBubble()
+        setBubbleVisible(intent?.getBooleanExtra(EXTRA_APP_FOREGROUND, false) != true)
+        isRunning = true
+        return START_NOT_STICKY
+    }
+
+    private fun setBubbleVisible(visible: Boolean) {
+        val root = overlay ?: return
+        val windowParams = params ?: return
+        if (visible) {
+            windowParams.alpha = 1f
+            windowParams.flags = windowParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            if (!attached) {
+                try {
+                    manager.addView(root, windowParams)
+                    attached = true
+                } catch (_: Exception) { }
+            } else {
+                try { manager.updateViewLayout(root, windowParams) } catch (_: Exception) { }
+            }
+        } else {
+            expanded = false
+            menu?.visibility = View.GONE
+            windowParams.width = dp(48)
+            windowParams.height = dp(48)
+            windowParams.alpha = 0f
+            windowParams.flags = windowParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            if (attached) {
+                try { manager.removeView(root) } catch (_: Exception) { }
+                attached = false
+            }
+        }
+    }
 
     private fun makeNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -177,14 +225,10 @@ class FloatingBubbleService : Service() {
                 else -> false
             }
         }
-        try {
-            manager.addView(root, windowParams)
-            overlay = root
-            menu = actionMenu
-            params = windowParams
-        } catch (_: Exception) {
-            stopSelf()
-        }
+        overlay = root
+        menu = actionMenu
+        params = windowParams
+        attached = false
     }
 
     private fun toggleMenu(root: LinearLayout, actionMenu: LinearLayout, windowParams: WindowManager.LayoutParams) {
@@ -204,7 +248,9 @@ class FloatingBubbleService : Service() {
     }
 
     override fun onDestroy() {
-        overlay?.let { try { manager.removeView(it) } catch (_: Exception) {} }
+        if (attached) overlay?.let { try { manager.removeView(it) } catch (_: Exception) {} }
+        attached = false
+        try { unregisterReceiver(visibilityReceiver) } catch (_: Exception) {}
         overlay = null
         menu = null
         params = null
@@ -215,5 +261,9 @@ class FloatingBubbleService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    companion object { @Volatile var isRunning: Boolean = false }
+    companion object {
+        const val ACTION_APP_VISIBILITY = "com.saqia.saqia_station.APP_VISIBILITY"
+        const val EXTRA_APP_FOREGROUND = "saqia.app_foreground"
+        @Volatile var isRunning: Boolean = false
+    }
 }
