@@ -519,6 +519,39 @@ void main() {
     expect((await repo.partyFinancialSummary('partner', partner))['paid'], 1000);
   });
 
+  test('كشف الشريك يستعيد الحركات القديمة إذا كان الأستاذ فارغًا', () async {
+    final repo = StationRepository(db);
+    final partner = await db.insert('partners', {
+      'name': 'شريك حركات قديمة',
+      'ownership_mode': 'shares',
+      'shares_count': 1,
+    });
+    await db.insert('partner_transactions', {
+      'partner_id': partner,
+      'date': DateTime(2026, 3, 1).toIso8601String(),
+      'type': 'share_accrual',
+      'amount': 8000,
+      'reference_type': 'legacy_test',
+      'reference_id': 1,
+      'notes': 'استحقاق قديم',
+    });
+    await db.insert('partner_transactions', {
+      'partner_id': partner,
+      'date': DateTime(2026, 3, 2).toIso8601String(),
+      'type': 'payment',
+      'amount': 2000,
+      'reference_type': 'payment',
+      'reference_id': 2,
+      'notes': 'دفعة قديمة',
+    });
+
+    final rows = await repo.partnerTransactions(partner);
+    expect(rows, hasLength(2));
+    expect((rows.first['signed_amount'] as num).round(), -2000);
+    expect((rows.last['signed_amount'] as num).round(), 8000);
+    expect((rows.first['balance'] as num).round(), 6000);
+  });
+
   test('الدفعة المرافقة للسقاية مرفوضة لغير المستفيد', () async {
     await useSolar6000();
     final w = await db.insert('workers', {'name': 'عامل 2', 'pay_type': 'fixed'});
