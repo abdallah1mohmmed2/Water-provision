@@ -2139,7 +2139,7 @@ class StationRepository {
           final selectedWorkers = <Map<String, Object?>>[];
           if (workerId != null && workerId > 0) {
             selectedWorkers.addAll(await db.rawQuery(
-              'SELECT id,name,balance FROM workers WHERE id=? LIMIT 1',
+              "SELECT w.id,w.name,${BalanceSql.workerPersonal('w')} balance FROM workers w WHERE w.id=? LIMIT 1",
               [workerId],
             ));
           } else {
