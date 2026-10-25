@@ -42,7 +42,7 @@ class OfficialReportTemplate {
   }
 
   /// معاينة وطباعة التقرير بصيغة PDF.
-  static Future<void> preview({
+  static Future<Uint8List> preview({
     String rightHeader1 = 'الجمهورية اليمنية',
     String rightHeader2 = 'وزارة ... / ..............',
     String rightHeader3 = 'المؤسسة العامة ...',
@@ -131,10 +131,12 @@ class OfficialReportTemplate {
       ),
     );
 
+    final bytes = await document.save();
     await Printing.layoutPdf(
-      onLayout: (_) => document.save(),
+      onLayout: (_) async => bytes,
       name: fileName,
     );
+    return bytes;
   }
 
   static List<String> _fitRow(List<String> row, int columnCount) {
