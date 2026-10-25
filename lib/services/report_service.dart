@@ -1147,16 +1147,32 @@ class ReportService {
       final placeholders = List.filled(irrigationIds.length, '?').join(',');
       final partyRows = await repo.db.rawQuery(
         '''SELECT i.id invoice_id,
-                  COALESCE(
-                    NULLIF(TRIM(b.name),''),
-                    NULLIF(TRIM(w.name),''),
-                    NULLIF(TRIM(p.name),''),
-                    CASE i.party_type
-                      WHEN 'worker' THEN COALESCE('عامل #' || i.worker_id, 'عامل غير محدد')
-                      WHEN 'partner' THEN COALESCE('شريك #' || i.partner_id, 'شريك غير محدد')
-                      ELSE 'غير محدد'
-                    END
-                  ) party_name
+                  CASE i.party_type
+                    WHEN 'beneficiary' THEN COALESCE(
+                      NULLIF(TRIM(b.name),''),
+                      CASE WHEN i.beneficiary_id IS NOT NULL
+                        THEN 'مستفيد #' || i.beneficiary_id
+                        ELSE 'مستفيد غير محدد' END
+                    )
+                    WHEN 'worker' THEN COALESCE(
+                      NULLIF(TRIM(w.name),''),
+                      CASE WHEN i.worker_id IS NOT NULL
+                        THEN 'عامل #' || i.worker_id
+                        ELSE 'عامل غير محدد' END
+                    )
+                    WHEN 'partner' THEN COALESCE(
+                      NULLIF(TRIM(p.name),''),
+                      CASE WHEN i.partner_id IS NOT NULL
+                        THEN 'شريك #' || i.partner_id
+                        ELSE 'شريك غير محدد' END
+                    )
+                    ELSE COALESCE(
+                      NULLIF(TRIM(b.name),''),
+                      NULLIF(TRIM(w.name),''),
+                      NULLIF(TRIM(p.name),''),
+                      'غير محدد'
+                    )
+                  END party_name
            FROM irrigations i
            LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id
            LEFT JOIN workers w ON w.id=i.worker_id
@@ -1166,7 +1182,7 @@ class ReportService {
       );
       for (final row in partyRows) {
         final id = (row['invoice_id'] as num?)?.toInt();
-        final name = '\${row['party_name'] ?? ''}'.trim();
+        final name = '${row['party_name'] ?? ''}'.trim();
         if (id != null && name.isNotEmpty) resolvedPartyNames[id] = name;
       }
     }
@@ -1178,14 +1194,16 @@ class ReportService {
         row['beneficiary_name'],
         row['worker_name'],
         row['partner_name'],
-      ].map((value) => '\${value ?? ''}'.trim()).firstWhere(
+      ].map((value) => '${value ?? ''}'.trim()).firstWhere(
             (value) => value.isNotEmpty && value != 'غير محدد',
             orElse: () => '',
           );
       final resolved = id == null ? null : resolvedPartyNames[id];
-      row['party_name'] = currentName.isNotEmpty
-          ? currentName
-          : (resolved ?? 'غير محدد');
+      row['party_name'] = resolved != null &&
+              resolved.isNotEmpty &&
+              resolved != 'غير محدد'
+          ? resolved
+          : (currentName.isNotEmpty ? currentName : (resolved ?? 'غير محدد'));
     }
     final settings = await repo.settings();
     final now = AppClock.now();
