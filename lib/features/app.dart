@@ -1138,10 +1138,16 @@ class _ShellState extends State<AdminShell> {
               },
               onAddExpense: () {
                 if (!visible.contains(9)) return;
-                go(9);
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _expensesKey.currentState?.add();
-                });
+                // افتح نموذج المصروف فقط دون عرض شاشة المصروفات الثابتة.
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ExpensesPage(
+                      repo,
+                      userId: widget.userId,
+                      compactOnly: true,
+                    ),
+                  ),
+                ).then((_) => refreshCounts());
               },
               canCash: visible.contains(7),
               canAddBeneficiary: visible.contains(1),
@@ -8338,7 +8344,13 @@ class _CashboxesState extends State<CashboxesPage> {
 class ExpensesPage extends StatefulWidget {
   final StationRepository r;
   final int userId;
-  const ExpensesPage(this.r, {required this.userId, super.key});
+  final bool compactOnly;
+  const ExpensesPage(
+    this.r, {
+    required this.userId,
+    this.compactOnly = false,
+    super.key,
+  });
   @override
   State<ExpensesPage> createState() => _ExpensesState();
 }
@@ -8366,6 +8378,15 @@ class _ExpensesState extends State<ExpensesPage> {
   void initState() {
     super.initState();
     load();
+    if (widget.compactOnly) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        await load();
+        if (!mounted) return;
+        await add();
+        if (mounted) Navigator.of(context).maybePop();
+      });
+    }
   }
 
   Future<void> add() async {
@@ -8529,7 +8550,12 @@ class _ExpensesState extends State<ExpensesPage> {
   }
 
   @override
-  Widget build(c) => PageFrame(
+  Widget build(c) => widget.compactOnly
+      ? const Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SizedBox.shrink(),
+        )
+      : PageFrame(
     title: 'المصروفات',
     subtitle: 'تسجيل المصروفات مع التصنيف والصندوق والقيد المحاسبي',
     actions: [
