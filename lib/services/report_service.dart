@@ -1152,8 +1152,8 @@ class ReportService {
                     NULLIF(TRIM(w.name),''),
                     NULLIF(TRIM(p.name),''),
                     CASE i.party_type
-                      WHEN 'worker' THEN 'عامل #' || i.worker_id
-                      WHEN 'partner' THEN 'شريك #' || i.partner_id
+                      WHEN 'worker' THEN COALESCE('عامل #' || i.worker_id, 'عامل غير محدد')
+                      WHEN 'partner' THEN COALESCE('شريك #' || i.partner_id, 'شريك غير محدد')
                       ELSE 'غير محدد'
                     END
                   ) party_name
