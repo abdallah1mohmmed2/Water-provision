@@ -1358,9 +1358,15 @@ class ReportService {
   }) async {
     final settings = await repo.settings();
     final workers = await repo.workers();
-    final selectedWorker = workerId == null
-        ? null
-        : workers.cast<Map<String, Object?>>().where((w) => _workerNum(w['id']).toInt() == workerId).firstOrNull;
+    Map<String, Object?>? selectedWorker;
+    if (workerId != null) {
+      for (final worker in workers) {
+        if (_workerNum(worker['id']).toInt() == workerId) {
+          selectedWorker = worker;
+          break;
+        }
+      }
+    }
     if (workerId != null && selectedWorker == null) {
       throw StateError('العامل المحدد غير موجود');
     }
@@ -1377,9 +1383,7 @@ class ReportService {
     num totalWithdrawals = 0;
     num totalNet = 0;
 
-    List<Map<String, Object?>> movementsFor(int id) => [];
     // Keep each worker's original ledger entries as the source of financial totals.
-    final workerRows = <Map<String, Object?>>[];
     final statementRows = workerId == null
         ? <Map<String, Object?>>[]
         : await repo.report('worker_transactions', workerId: workerId, from: from, to: to);
