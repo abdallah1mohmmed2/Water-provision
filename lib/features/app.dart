@@ -11018,6 +11018,22 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         0,
         (sum, row) => sum + amountOf(row, 'alayh'),
       );
+      final totalMinutes = reportRows.fold<num>(
+        0,
+        (sum, row) => sum + amountOf(row, 'minutes'),
+      );
+      final totalCloud = reportRows.fold<num>(
+        0,
+        (sum, row) => sum + amountOf(row, 'cloud_minutes'),
+      );
+      final totalValue = reportRows.fold<num>(
+        0,
+        (sum, row) => sum + amountOf(row, 'total_amount'),
+      );
+      final totalPaid = reportRows.fold<num>(
+        0,
+        (sum, row) => sum + amountOf(row, 'paid_amount'),
+      );
       final endingBalance = reportRows.isEmpty
           ? 0
           : amountOf(reportRows.last, 'balance');
@@ -11039,9 +11055,12 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         attachments: 'الفترة: ${dateText(widget.from)} إلى ${dateText(widget.to)}',
         reportTitle: 'كشف حساب المستفيد: $beneficiaryName',
         summaryBoxes: [
-          StatBoxData(number: '1', title: 'إجمالي له', value: amountText(totalLah)),
-          StatBoxData(number: '2', title: 'إجمالي عليه', value: amountText(totalAlayh), isBlueTint: true),
-          StatBoxData(number: '3', title: 'الرصيد الختامي', value: amountText(endingBalance), isLarge: true),
+          StatBoxData(number: '1', title: 'إجمالي عدد السقايات', value: amountText(reportRows.length)),
+          StatBoxData(number: '2', title: 'إجمالي الدقائق', value: amountText(totalMinutes)),
+          StatBoxData(number: '3', title: 'إجمالي الغيم', value: amountText(totalCloud)),
+          StatBoxData(number: '4', title: 'إجمالي القيمة', value: amountText(totalValue), isBlueTint: true),
+          StatBoxData(number: '5', title: 'إجمالي المدفوع', value: amountText(totalPaid)),
+          StatBoxData(number: '6', title: 'إجمالي له أو عليه', value: 'له ${amountText(totalLah)} / عليه ${amountText(totalAlayh)}', isLarge: true),
         ],
         columns: const ['التاريخ', 'البيان', 'له', 'عليه', 'الرصيد التراكمي'],
         rows: tableRows,
