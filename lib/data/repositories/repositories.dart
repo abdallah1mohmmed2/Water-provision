@@ -1565,9 +1565,35 @@ class StationRepository {
         'statement_kind': kind,
       };
     }).toList();
-    final closing = running;
+    final calculatedClosing = running;
     final totalLah = statementRows.fold<int>(0, (sum, row) => sum + ((row['lah'] as num?)?.round() ?? 0));
     final totalAlayh = statementRows.fold<int>(0, (sum, row) => sum + ((row['alayh'] as num?)?.round() ?? 0));
+    final closingWhere = <String>[...where];
+    final closingArgs = <Object?>[
+      kind == 'worker' || kind == 'partner' ? 1 : 0,
+      ...args,
+    ];
+    if (to != null) {
+      closingWhere.add('je.date<?');
+      closingArgs.add(DateTime(to.year, to.month, to.day).add(const Duration(days: 1)).toIso8601String());
+    }
+    final closingRows = await db.rawQuery('''
+      SELECT COALESCE(SUM(
+        CASE WHEN ? = 1 THEN jl.credit - jl.debit
+             ELSE jl.debit - jl.credit END
+      ),0) closing
+      FROM journal_entries je
+      JOIN journal_lines jl ON jl.journal_entry_id=je.id
+      JOIN accounts a ON a.id=jl.account_id
+      ${movementJoin ?? ''}
+      LEFT JOIN beneficiaries b ON b.id=jl.beneficiary_id
+      LEFT JOIN workers w ON w.id=jl.worker_id
+      LEFT JOIN partners p ON p.id=jl.partner_id
+      WHERE ${closingWhere.join(' AND ')}
+    ''', closingArgs);
+    final closing = (closingRows.first['closing'] as num?)?.round() ?? 0;
+    final netMovement = totalLah - totalAlayh;
+    final reconciles = opening + netMovement == closing;
     final displayedRows = statementRows.map((row) => <String, Object?>{
       ...row,
       'opening_balance': opening,
@@ -1577,8 +1603,11 @@ class StationRepository {
       'opening_balance': opening,
       'total_lah': totalLah,
       'total_alayh': totalAlayh,
-      'net_movement': totalLah - totalAlayh,
+      'net_movement': netMovement,
       'closing_balance': closing,
+      'calculated_closing_balance': calculatedClosing,
+      'reconciles': reconciles,
+      'difference': closing - calculatedClosing,
       'rows': displayedRows,
     };
   }
