@@ -1124,10 +1124,17 @@ class _ShellState extends State<AdminShell> {
               onQueue: () => go(5),
               onAddBeneficiary: () {
                 if (!visible.contains(1)) return;
-                go(1);
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _beneficiariesKey.currentState?.add();
-                });
+                // افتح نموذج الإضافة فقط دون الانتقال إلى شاشة المستفيدين الثابتة.
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => BeneficiariesPage(
+                      repo,
+                      userId: widget.userId,
+                      manager: role == AppRole.manager,
+                      compactOnly: true,
+                    ),
+                  ),
+                ).then((_) => refreshCounts());
               },
               onAddExpense: () {
                 if (!visible.contains(9)) return;
@@ -3477,10 +3484,12 @@ class BeneficiariesPage extends StatefulWidget {
   final StationRepository r;
   final int userId;
   final bool manager;
+  final bool compactOnly;
   const BeneficiariesPage(
     this.r, {
     required this.userId,
     required this.manager,
+    this.compactOnly = false,
     super.key,
   });
   @override
@@ -3774,7 +3783,12 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   }
 
   @override
-  Widget build(c) => PageFrame(
+  Widget build(c) => widget.compactOnly
+      ? const Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SizedBox.shrink(),
+        )
+      : PageFrame(
     title: 'المستفيدون',
     subtitle: 'بحث سريع وإدارة البيانات والأرصدة وكشف الحساب',
     actions: [
