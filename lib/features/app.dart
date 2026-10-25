@@ -10854,7 +10854,7 @@ class _ReportsState extends State<ReportsPage> {
     if(!mounted)return;
     setState((){_cfg=cfg;ws=b;ps=p;cs=c;ms=m;bid=null;wid=null;pid=null;cid=cid??(c.isEmpty?null:c.first['id'] as int?);mid=null;currentType=cfg['system_type']??'diesel';type = currentType;});
     final initialKey = widget.initialReportKey;
-    if (!_initialReportOpened && initialKey != null && keys.contains(initialKey)) {
+    if (!_initialReportOpened && initialKey != null && ReportService.titles.containsKey(initialKey)) {
       _initialReportOpened = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) previewR(initialKey);
