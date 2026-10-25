@@ -11513,7 +11513,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   }
   String _duration(Object? value) {
     final minutes = _n(value).clamp(0, 100000000);
-    return '${minutes ~/ 60} س ${minutes % 60} د';
+    return '${minutes}د';
   }
   String _money(Object? value) => NumberFormat('#,##0').format(_n(value));
 
@@ -11697,7 +11697,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       LayoutBuilder(builder: (context, constraints) {
                         final compact = constraints.maxWidth < 650;
                         final cards = [
-                          _summaryCard('إجمالي الساعات والدقائق', _duration(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
+                          _summaryCard('إجمالي الدقائق', _duration(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
                           _summaryCard('القيمة الإجمالية', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 1),
                           _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 2),
                         ];
@@ -11754,9 +11754,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                               columns: [
                                 DataColumn(label: const Text('م'), onSort: _sort),
                                 DataColumn(label: const Text('اسم المستفيد'), onSort: _sort),
-                                DataColumn(label: const Text('وقت البداية'), onSort: _sort),
-                                DataColumn(label: const Text('وقت النهاية'), onSort: _sort),
-                                DataColumn(label: const Text('إجمالي الساعات والدقائق'), onSort: _sort),
+                                DataColumn(label: const Text('من'), onSort: _sort),
+                                DataColumn(label: const Text('إلى'), onSort: _sort),
+                                DataColumn(label: const Text('إجمالي الدقائق'), onSort: _sort),
                                 DataColumn(label: const Text('القيمة الإجمالية'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('المسلّمة'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('ملاحظات'), onSort: _sort),
