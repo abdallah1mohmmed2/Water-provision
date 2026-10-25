@@ -2285,6 +2285,7 @@ class StationRepository {
                 'lah': openingBalance > 0 ? openingBalance : 0,
                 'alayh': openingBalance < 0 ? -openingBalance : 0,
                 'amount': openingBalance.abs(),
+                'signed_amount': openingBalance,
                 'balance': openingBalance,
                 'statement_kind': 'partner',
               });
@@ -2300,6 +2301,7 @@ class StationRepository {
                 'lah': balance > 0 ? balance : 0,
                 'alayh': balance < 0 ? -balance : 0,
                 'amount': balance.abs(),
+                'signed_amount': balance,
                 'balance': balance,
                 'statement_kind': 'partner',
               });
