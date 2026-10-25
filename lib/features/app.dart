@@ -1115,7 +1115,7 @@ class _ShellState extends State<AdminShell> {
                   MaterialPageRoute<void>(
                     builder: (_) => PaymentsPage(
                       repo,
-                      userId: currentUserId,
+                      userId: widget.userId,
                       compactOnly: true,
                     ),
                   ),
@@ -3524,6 +3524,8 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
     load();
     if (widget.compactOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        await load();
         if (!mounted) return;
         await add();
         if (mounted) Navigator.of(context).maybePop();
