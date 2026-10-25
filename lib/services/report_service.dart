@@ -1393,9 +1393,18 @@ class ReportService {
 
     if (workerId != null) {
       final worker = selectedWorker!;
-      final due = statementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['lah']));
-      final withdrawals = statementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['alayh']));
-      final net = statementRows.isEmpty ? due - withdrawals : _workerNum(statementRows.first['balance']);
+      // Opening/carried/current balance rows describe a balance, not a movement;
+      // including them in the period totals double-counts amounts.
+      final movementRows = statementRows.where((row) =>
+        !const ['opening_balance', 'carried_balance', 'current_balance'].contains(row['type'])
+      ).toList();
+      final due = movementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['lah']));
+      final withdrawals = movementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['alayh']));
+      final net = movementRows.isNotEmpty
+          ? _workerNum(movementRows.first['balance'])
+          : statementRows.isEmpty
+              ? due - withdrawals
+              : _workerNum(statementRows.first['balance']);
       final minutes = invoices.where((row) => _workerNum(row['worker_id']).toInt() == workerId)
           .fold<num>(0, (sum, row) => sum + _workerNum(row['minutes']));
       totalMinutes = minutes;
@@ -1448,9 +1457,17 @@ class ReportService {
       final id = _workerNum(worker['id']).toInt();
       if (id == 0) continue;
       final tx = await repo.report('worker_transactions', workerId: id, from: from, to: to);
-      final due = tx.fold<num>(0, (sum, row) => sum + _workerNum(row['lah']));
-      final withdrawals = tx.fold<num>(0, (sum, row) => sum + _workerNum(row['alayh']));
-      final net = tx.isEmpty ? due - withdrawals : _workerNum(tx.first['balance']);
+      // The opening/current balance is a carried position, not an in-period transaction.
+      final movementRows = tx.where((row) =>
+        !const ['opening_balance', 'carried_balance', 'current_balance'].contains(row['type'])
+      ).toList();
+      final due = movementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['lah']));
+      final withdrawals = movementRows.fold<num>(0, (sum, row) => sum + _workerNum(row['alayh']));
+      final net = movementRows.isNotEmpty
+          ? _workerNum(movementRows.first['balance'])
+          : tx.isEmpty
+              ? due - withdrawals
+              : _workerNum(tx.first['balance']);
       final minutes = invoices.where((row) => _workerNum(row['worker_id']).toInt() == id)
           .fold<num>(0, (sum, row) => sum + _workerNum(row['minutes']));
       totalMinutes += minutes;
