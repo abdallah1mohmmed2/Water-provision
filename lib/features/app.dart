@@ -12106,10 +12106,10 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
           '',
           amountText(rows.isEmpty ? 0 : _n(rows.last['lah'])),
           amountText(rows.isEmpty ? 0 : _n(rows.last['alayh'])),
-          _n(summary['balance']) > 0
-              ? 'له ${amountText(_n(summary['balance']))}'
-              : _n(summary['balance']) < 0
-                  ? 'عليه ${amountText(_n(summary['balance']).abs())}'
+          (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) > 0
+              ? 'له ${amountText(orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance']))}'
+              : (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) < 0
+                  ? 'عليه ${amountText((orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])).abs())}'
                   : 'صفر',
         ],
         minTableRows: 8,
