@@ -2389,7 +2389,7 @@ class AccountingService {
       await _assertPeriodRangeOpen(tx, start, endExclusive, stationId: stationId);
       final args = [stationId, start.toIso8601String(), endExclusive.toIso8601String()];
       final rev = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND je.date>=? AND je.date<?",
+        "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
         args,
       );
       final general = await tx.rawQuery(
