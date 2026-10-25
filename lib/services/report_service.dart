@@ -1469,7 +1469,7 @@ class ReportService {
       workerMinuteArgs.add(to.toIso8601String());
     }
     final workerMinuteRows = await repo.db.rawQuery(
-      \`\`\`
+      '''
       SELECT worker_id, SUM(minutes) minutes
       FROM (
         SELECT wt.worker_id, i.id irrigation_id,
@@ -1498,7 +1498,7 @@ class ReportService {
           )
       )
       GROUP BY worker_id
-      \`\`\`,
+      ''',
       [...workerMinuteArgs, ...workerMinuteArgs],
     );
     final minutesByWorker = <int, num>{
