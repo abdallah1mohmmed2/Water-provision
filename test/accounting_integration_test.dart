@@ -13,6 +13,7 @@ import 'package:saqia_station/data/repositories/repositories.dart';
 import 'package:saqia_station/domain/accounting/accounting_service.dart';
 import 'package:saqia_station/services/admin_service.dart';
 import 'package:saqia_station/services/backup_service.dart';
+import 'package:saqia_station/services/report_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -1596,6 +1597,168 @@ void main() {
     await db.delete('accounts', 'id=?', [invalidType]);
     await db.delete('accounts', 'id=?', [orphan]);
     await db.delete('accounts', 'id=?', [parent]);
+  });
+
+  test('صافي الأرباح وتوزيعات الشركاء تتطابق مع السقايات والمصروفات والأستاذ وPDF مع استبعاد قيد الإقفال', () async {
+    final repo = StationRepository(db);
+    final stationId = await svc.currentStationId();
+    final settings = await svc.settings();
+    final pumpId = int.parse(settings['selected_pump_id']!);
+    final start = DateTime(2035, 1, 1);
+    final end = DateTime(2035, 12, 31);
+    final operationDate = DateTime(2035, 3, 5, 8);
+
+    await db.update('partners', {'active': 0}, 'station_id=?', [stationId]);
+    await db.update('workers', {'active': 0}, 'station_id=?', [stationId]);
+    await db.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
+    await seedCashEquityForTest(stationId, operationDate, 100000);
+
+    final p1 = await repo.createPartner(name: 'اختبار صافي الربح شريك مباشر', mode: 'shares', shares: 1);
+    final beneficiary = await db.insert('beneficiaries', {
+      'name': 'مستفيد اختبار توزيع الأرباح',
+      'created_at': operationDate.toIso8601String(),
+      'updated_at': operationDate.toIso8601String(),
+    });
+
+    final irrigationId = await svc.recordIrrigation(
+      stationId: stationId,
+      pumpId: pumpId,
+      beneficiaryId: beneficiary,
+      start: operationDate,
+      end: operationDate.add(const Duration(hours: 1)),
+      systemType: 'solar',
+      waterRate: 0,
+      litersPerHour: 0,
+      dieselPrice: 0,
+      solarRate: 30000,
+      thirdRate: 0,
+      cloudMinutes: 0,
+      paidAmount: 0,
+    );
+    expect(
+      ((await db.query('SELECT total_amount FROM irrigations WHERE id=?', args: [irrigationId])).single['total_amount'] as num).round(),
+      30000,
+    );
+
+    final p2 = await repo.createPartner(name: 'اختبار صافي الربح شريك ثان', mode: 'shares', shares: 1);
+    final worker = await repo.createWorker(name: 'اختبار صافي الربح عامل', payType: 'hourly', hourlyRate: 1000);
+    await svc.createWorkerAccrual(workerId: worker, amount: 5000, date: operationDate, hours: 5, rateSnapshot: 1000);
+
+    final accountRows = await db.query(
+      "SELECT code,id FROM accounts WHERE code IN ('1000','3300') OR type='revenue' ORDER BY code",
+    );
+    final accountIds = {for (final row in accountRows) '${row['code']}': (row['id'] as num).toInt()};
+    final revenueAccountRows = await db.query("SELECT id FROM accounts WHERE type='revenue' ORDER BY id LIMIT 1");
+    final revenueAccount = (revenueAccountRows.single['id'] as num).toInt();
+    final cashAccount = accountIds['1000']!;
+    final equityAccount = accountIds['3300']!;
+
+    Future<int> insertTestEntry(String referenceType, int amount, DateTime date, {required bool creditRevenue}) async {
+      final entryId = await db.insert('journal_entries', {
+        'station_id': stationId,
+        'date': date.toIso8601String(),
+        'reference_type': referenceType,
+        'description': 'قيد اختبار تقرير صافي الأرباح: $referenceType',
+        'status': 'posted',
+        'created_by': 1,
+        'created_at': date.toIso8601String(),
+      });
+      await db.insert('journal_lines', {
+        'journal_entry_id': entryId,
+        'account_id': creditRevenue ? cashAccount : equityAccount,
+        'debit': amount,
+        'credit': 0,
+        'memo': 'طرف مدين للاختبار',
+      });
+      await db.insert('journal_lines', {
+        'journal_entry_id': entryId,
+        'account_id': revenueAccount,
+        'debit': 0,
+        'credit': amount,
+        'memo': 'طرف دائن للاختبار',
+      });
+      return entryId;
+    }
+
+    final extraRevenueEntry = await db.insert('journal_entries', {
+      'station_id': stationId,
+      'date': operationDate.add(const Duration(hours: 2)).toIso8601String(),
+      'reference_type': 'test_profit_revenue',
+      'description': 'إيراد إضافي للاختبار',
+      'status': 'posted',
+      'created_by': 1,
+      'created_at': operationDate.toIso8601String(),
+    });
+    await db.insert('journal_lines', {
+      'journal_entry_id': extraRevenueEntry,
+      'account_id': cashAccount,
+      'debit': 70000,
+      'credit': 0,
+      'memo': 'نقد اختبار',
+    });
+    await db.insert('journal_lines', {
+      'journal_entry_id': extraRevenueEntry,
+      'account_id': revenueAccount,
+      'debit': 0,
+      'credit': 70000,
+      'memo': 'إيراد اختبار',
+    });
+    await db.update('cashboxes', {'current_balance': await cashboxBalance(1) + 70000}, 'id=?', [1]);
+
+    await svc.addExpense(
+      category: 'maintenance',
+      title: 'مصروف عام لاختبار التوزيع',
+      amount: 10000,
+      date: operationDate.add(const Duration(hours: 3)),
+      paymentMethodId: 1,
+      cashboxId: 1,
+    );
+    await svc.addExpense(
+      category: 'maintenance',
+      title: 'مصروف خاص لاختبار التوزيع',
+      amount: 7000,
+      date: operationDate.add(const Duration(hours: 4)),
+      paymentMethodId: 1,
+      cashboxId: 1,
+      partnerId: p1,
+    );
+
+    // قيد إقفال السنة: يجب ألا يضخم إيرادات أو صافي ربح الفترة.
+    await insertTestEntry('year_close', 900000, DateTime(2035, 12, 31, 23, 59), creditRevenue: false);
+
+    final summary = await repo.partnerProfitSummary(from: start, to: end);
+    expect(summary['revenue'], 100000);
+    expect(summary['expenses'], 10000);
+    expect(summary['workers'], 5000);
+    expect(summary['distributable'], 85000);
+
+    final beforePosting = await repo.report('partner_profit_distribution', from: start, to: end);
+    final before1 = beforePosting.singleWhere((row) => row['name'] == 'اختبار صافي الربح شريك مباشر');
+    final before2 = beforePosting.singleWhere((row) => row['name'] == 'اختبار صافي الربح شريك ثان');
+    expect(before1['direct_amount'], 30000);
+    expect(before1['share_amount'], 27500);
+    expect(before1['gross_amount'], 57500);
+    expect(before1['partner_expenses'], 7000);
+    expect(before1['net_amount'], 50500);
+    expect(before2['direct_amount'], 0);
+    expect(before2['share_amount'], 27500);
+    expect(before2['net_amount'], 27500);
+    expect(
+      beforePosting.fold<int>(0, (sum, row) => sum + ((row['gross_amount'] as num).round())),
+      85000,
+    );
+
+    await svc.distributePartnerProfits(from: start, to: end, userId: 1);
+    final afterPosting = await repo.report('partner_profit_distribution', from: start, to: end);
+    expect(afterPosting, beforePosting);
+    expect(await glPayable('2200', 'partner_id', p1), 50500);
+    expect(await glPayable('2200', 'partner_id', p2), 27500);
+    expect((await svc.partnerBalance(p1))['balance'], 50500);
+    expect((await svc.partnerBalance(p2))['balance'], 27500);
+
+    final pdfBytes = await ReportService(repo).pdf('partner_profit_distribution', from: start, to: end);
+    expect(pdfBytes, isNotEmpty);
+    expect(String.fromCharCodes(pdfBytes.take(4)), '%PDF');
   });
 
 }
