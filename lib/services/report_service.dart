@@ -1129,7 +1129,64 @@ class ReportService {
     DateTime? from,
     DateTime? to,
   }) async {
-    final data = rows ?? await repo.report('invoices', from: from, to: to);
+    final sourceRows = rows ?? await repo.report('invoices', from: from, to: to);
+    // بعض مسارات المعاينة القديمة تمرر beneficiary_name أو رقم السقاية فقط،
+    // لذلك لا نعتمد على party_name القادم من الشاشة وحده.
+    final data = sourceRows
+        .map((row) => <String, Object?>{...row})
+        .toList(growable: false);
+    final irrigationIds = data
+        .map((row) => row['invoice_id'] ?? row['irrigation_id'] ?? row['id'])
+        .whereType<num>()
+        .map((id) => id.toInt())
+        .where((id) => id > 0)
+        .toSet()
+        .toList();
+    final resolvedPartyNames = <int, String>{};
+    if (irrigationIds.isNotEmpty) {
+      final placeholders = List.filled(irrigationIds.length, '?').join(',');
+      final partyRows = await repo.db.rawQuery(
+        '''SELECT i.id invoice_id,
+                  COALESCE(
+                    NULLIF(TRIM(b.name),''),
+                    NULLIF(TRIM(w.name),''),
+                    NULLIF(TRIM(p.name),''),
+                    CASE i.party_type
+                      WHEN 'worker' THEN 'عامل #' || i.worker_id
+                      WHEN 'partner' THEN 'شريك #' || i.partner_id
+                      ELSE 'غير محدد'
+                    END
+                  ) party_name
+           FROM irrigations i
+           LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id
+           LEFT JOIN workers w ON w.id=i.worker_id
+           LEFT JOIN partners p ON p.id=i.partner_id
+           WHERE i.id IN ($placeholders)''',
+        irrigationIds.cast<Object?>(),
+      );
+      for (final row in partyRows) {
+        final id = (row['invoice_id'] as num?)?.toInt();
+        final name = '\${row['party_name'] ?? ''}'.trim();
+        if (id != null && name.isNotEmpty) resolvedPartyNames[id] = name;
+      }
+    }
+    for (final row in data) {
+      final rawId = row['invoice_id'] ?? row['irrigation_id'] ?? row['id'];
+      final id = rawId is num ? rawId.toInt() : int.tryParse('$rawId');
+      final currentName = [
+        row['party_name'],
+        row['beneficiary_name'],
+        row['worker_name'],
+        row['partner_name'],
+      ].map((value) => '\${value ?? ''}'.trim()).firstWhere(
+            (value) => value.isNotEmpty && value != 'غير محدد',
+            orElse: () => '',
+          );
+      final resolved = id == null ? null : resolvedPartyNames[id];
+      row['party_name'] = currentName.isNotEmpty
+          ? currentName
+          : (resolved ?? 'غير محدد');
+    }
     final settings = await repo.settings();
     final now = AppClock.now();
 
