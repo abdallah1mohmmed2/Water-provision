@@ -865,7 +865,12 @@ class _ShellState extends State<AdminShell> {
     if (!mounted) return;
     switch (action) {
       case 'irrigation':
-        if (!visible.contains(2)) return;
+        if (!visible.contains(2)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('ليس لديك صلاحية فتح نموذج السقاية الجديدة')),
+          );
+          return;
+        }
         // استخدم نفس نموذج السقاية السريع الذي تفتحه الفقاعة داخل التطبيق.
         final quickKey = GlobalKey<_NewIrrigationState>();
         Navigator.of(context).push(
@@ -881,7 +886,12 @@ class _ShellState extends State<AdminShell> {
         ).then((_) => refreshCounts());
         break;
       case 'cash':
-        if (!visible.contains(7)) return;
+        if (!visible.contains(7)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('ليس لديك صلاحية الصرف والقبض')),
+          );
+          return;
+        }
         // نموذج صرف/قبض سريع موحّد مع الفقاعة داخل التطبيق.
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -890,7 +900,12 @@ class _ShellState extends State<AdminShell> {
         ).then((_) => refreshCounts());
         break;
       case 'queue':
-        if (!visible.contains(5)) return;
+        if (!visible.contains(5)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('ليس لديك صلاحية طلب حجز دور')),
+          );
+          return;
+        }
         // افتح نموذج طلب الحجز نفسه دون عرض شاشة إدارة الدور.
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -904,7 +919,12 @@ class _ShellState extends State<AdminShell> {
         ).then((_) => refreshCounts());
         break;
       case 'beneficiary':
-        if (!visible.contains(1)) return;
+        if (!visible.contains(1)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('ليس لديك صلاحية إضافة مستفيد')),
+          );
+          return;
+        }
         Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => BeneficiariesPage(
@@ -914,13 +934,22 @@ class _ShellState extends State<AdminShell> {
         ).then((_) => refreshCounts());
         break;
       case 'expense':
-        if (!visible.contains(9)) return;
+        if (!visible.contains(9)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('ليس لديك صلاحية إضافة مصروف')),
+          );
+          return;
+        }
         Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => ExpensesPage(repo, userId: widget.userId, compactOnly: true),
           ),
         ).then((_) => refreshCounts());
         break;
+      default:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('اختصار عائم غير معروف: $action')),
+        );
     }
   }
 
