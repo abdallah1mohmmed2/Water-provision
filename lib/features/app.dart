@@ -865,27 +865,51 @@ class _ShellState extends State<AdminShell> {
     if (!mounted) return;
     switch (action) {
       case 'irrigation':
-        go(2);
+        if (!visible.contains(2)) return;
+        // استخدم نفس نموذج السقاية السريع الذي تفتحه الفقاعة داخل التطبيق.
+        final quickKey = GlobalKey<_NewIrrigationState>();
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (routeContext) {
+              WidgetsBinding.instance.addPostFrameCallback((_) async {
+                await quickKey.currentState?.openQuickForm();
+                if (routeContext.mounted) Navigator.of(routeContext).maybePop();
+              });
+              return NewIrrigationPage(repo, key: quickKey, manager: role == AppRole.manager);
+            },
+          ),
+        ).then((_) => refreshCounts());
         break;
       case 'cash':
-        go(7);
+        if (!visible.contains(7)) return;
+        // نموذج صرف/قبض سريع موحّد مع الفقاعة داخل التطبيق.
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => PaymentsPage(repo, userId: widget.userId, compactOnly: true),
+          ),
+        ).then((_) => refreshCounts());
         break;
       case 'queue':
+        if (!visible.contains(5)) return;
         go(5);
         break;
       case 'beneficiary':
         if (!visible.contains(1)) return;
-        go(1);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _beneficiariesKey.currentState?.add();
-        });
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => BeneficiariesPage(
+              repo, userId: widget.userId, manager: role == AppRole.manager, compactOnly: true,
+            ),
+          ),
+        ).then((_) => refreshCounts());
         break;
       case 'expense':
         if (!visible.contains(9)) return;
-        go(9);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _expensesKey.currentState?.add();
-        });
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ExpensesPage(repo, userId: widget.userId, compactOnly: true),
+          ),
+        ).then((_) => refreshCounts());
         break;
     }
   }
@@ -13649,7 +13673,7 @@ class _SettingsState extends State<SettingsPage> {
                     ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.bubble_chart_rounded, color: _reportOliveDark),
                 title: const Text('إظهار فقاعة ساقية فوق التطبيقات'),
-                subtitle: const Text('تعمل فقط بعد تفعيلك لها. تطلب صلاحية الظهور فوق التطبيقات عند التشغيل الأول، وتعرض إشعاراً أثناء عملها. لا تسجل الشاشة ولا تجمع بيانات التطبيقات الأخرى، ولا تعمل تلقائياً بعد إعادة تشغيل الهاتف.'),
+                subtitle: const Text('فقاعة واحدة: تظهر داخل ساقية كالمعتاد، وتنتقل للظهور فوق التطبيقات عند تفعيل هذا المفتاح. تختفي نسخة التراكب تلقائياً أثناء استخدام التطبيق لمنع التكرار. تتطلب صلاحية الظهور فوق التطبيقات وتعرض إشعاراً أثناء عملها.'),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               ),
             ],
