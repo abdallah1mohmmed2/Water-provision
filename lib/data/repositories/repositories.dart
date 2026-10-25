@@ -2350,7 +2350,18 @@ class StationRepository {
             });
             directTotal += available;
           }
-          var excess = (directTotal - profit).clamp(0, directTotal).toInt();
+          // إذا رُحّل توزيع هذه الفترة، فمصدر الحقيقة هو سجل الترحيل نفسه:
+          // amount هو المبلغ الفعلي وownership_snapshot هو أساس الملكية وقت الترحيل.
+          // لا نعيد توزيع الفترة التاريخية باستخدام نسب الشركاء الحالية.
+          final distributionRef = startDate.millisecondsSinceEpoch;
+          final postedDistributionRows = await db.rawQuery(
+            "SELECT pt.partner_id,pt.amount,pt.ownership_snapshot FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id WHERE p.station_id=? AND pt.reference_type='profit_distribution' AND pt.reference_id=? AND pt.type='share_accrual' ORDER BY pt.id",
+            [stationId, distributionRef],
+          );
+          final hasPostedDistribution = postedDistributionRows.isNotEmpty;
+          var excess = hasPostedDistribution
+              ? 0
+              : (directTotal - profit).clamp(0, directTotal).toInt();
           for (final row in directAvailable) {
             final available = row['available']!;
             final correction = available < excess ? available : excess;
@@ -2363,16 +2374,6 @@ class StationRepository {
             0,
             (sum, amount) => sum + amount,
           );
-
-          // إذا رُحّل توزيع هذه الفترة، فمصدر الحقيقة هو سجل الترحيل نفسه:
-          // amount هو المبلغ الفعلي وownership_snapshot هو أساس الملكية وقت الترحيل.
-          // لا نعيد توزيع الفترة التاريخية باستخدام نسب الشركاء الحالية.
-          final distributionRef = startDate.millisecondsSinceEpoch;
-          final postedDistributionRows = await db.rawQuery(
-            "SELECT pt.partner_id,pt.amount,pt.ownership_snapshot FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id WHERE p.station_id=? AND pt.reference_type='profit_distribution' AND pt.reference_id=? AND pt.type='share_accrual' ORDER BY pt.id",
-            [stationId, distributionRef],
-          );
-          final hasPostedDistribution = postedDistributionRows.isNotEmpty;
           final postedShareByPartner = <int, int>{};
           final snapshotByPartner = <int, Object?>{};
           for (final row in postedDistributionRows) {
