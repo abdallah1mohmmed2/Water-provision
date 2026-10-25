@@ -1444,15 +1444,21 @@ class StationRepository {
     DateTime? from,
     DateTime? to,
   }) async {
+    // Keep the account/party filters separate from the period filters so the
+    // opening balance can be calculated from posted ledger entries before the
+    // selected period, using the exact same subledger scope.
     final args = <Object?>[];
     final where = <String>["je.status='posted'"];
-    if (from != null) {
-      where.add('je.date>=?');
-      args.add(from.toIso8601String());
+    final periodWhere = <String>[];
+    final periodArgs = <Object?>[];
+    final periodStart = from == null ? null : DateTime(from.year, from.month, from.day);
+    if (periodStart != null) {
+      periodWhere.add('je.date>=?');
+      periodArgs.add(periodStart.toIso8601String());
     }
     if (to != null) {
-      where.add('je.date<?');
-      args.add(DateTime(to.year, to.month, to.day).add(const Duration(days: 1)).toIso8601String());
+      periodWhere.add('je.date<?');
+      periodArgs.add(DateTime(to.year, to.month, to.day).add(const Duration(days: 1)).toIso8601String());
     }
     String? movementJoin;
     String? cashAccountCode;
@@ -1515,10 +1521,34 @@ class StationRepository {
       LEFT JOIN beneficiaries b ON b.id=jl.beneficiary_id
       LEFT JOIN workers w ON w.id=jl.worker_id
       LEFT JOIN partners p ON p.id=jl.partner_id
-      WHERE ${where.join(' AND ')}
+      WHERE ${[...where, ...periodWhere].join(' AND ')}
       ORDER BY je.date ASC,je.id ASC,jl.id ASC
-    ''', args);
-    var running = 0;
+    ''', [...args, ...periodArgs]);
+
+    var opening = 0;
+    if (periodStart != null) {
+      final openingRows = await db.rawQuery('''
+        SELECT COALESCE(SUM(
+          CASE WHEN ? = 1 THEN jl.credit - jl.debit
+               ELSE jl.debit - jl.credit END
+        ),0) opening
+        FROM journal_entries je
+        JOIN journal_lines jl ON jl.journal_entry_id=je.id
+        JOIN accounts a ON a.id=jl.account_id
+        ${movementJoin ?? ''}
+        LEFT JOIN beneficiaries b ON b.id=jl.beneficiary_id
+        LEFT JOIN workers w ON w.id=jl.worker_id
+        LEFT JOIN partners p ON p.id=jl.partner_id
+        WHERE ${[...where, 'je.date<?'].join(' AND ')}
+      ''', [
+        kind == 'worker' || kind == 'partner' ? 1 : 0,
+        ...args,
+        periodStart.toIso8601String(),
+      ]);
+      opening = (openingRows.first['opening'] as num?)?.round() ?? 0;
+    }
+
+    var running = opening;
     return rows.map((row) {
       final debit = (row['debit'] as num?)?.round() ?? 0;
       final credit = (row['credit'] as num?)?.round() ?? 0;
