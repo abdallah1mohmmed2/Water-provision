@@ -2222,7 +2222,6 @@ class StationRepository {
         final stationId = await accounting.currentStationId();
         final ps = await db.rawQuery("SELECT * FROM partners WHERE station_id=? AND active=1 ORDER BY id", [stationId]);
         final allPartners = await db.rawQuery("SELECT * FROM partners WHERE station_id=? ORDER BY id", [stationId]);
-        final totalShares = ps.fold<double>(0.0, (sum, p) => sum + ((p['shares_count'] as num?)?.toDouble() ?? 0.0));
         final profit = (summary['distributable'] as num?)?.round() ?? 0;
         final start = DateTime(effectiveFrom.year, effectiveFrom.month, effectiveFrom.day).toIso8601String();
         final endExclusive = DateTime(effectiveTo.year, effectiveTo.month, effectiveTo.day + 1).toIso8601String();
@@ -2264,6 +2263,10 @@ class StationRepository {
         }
         directTotal = directByPartner.values.fold<int>(0, (sum, amount) => sum + amount);
         final remainingProfit = (profit - directTotal).clamp(0, profit).toInt();
+        final allocations = AccountingCalculations.partnerDistributionAmounts(
+          distributable: remainingProfit,
+          partners: ps,
+        );
         final reportPartners = allPartners.where((p) {
           final id = (p['id'] as num).toInt();
           return (p['active'] as num?)?.toInt() == 1 ||
@@ -2273,13 +2276,7 @@ class StationRepository {
         return reportPartners.map((p) {
           final id = (p['id'] as num).toInt();
           final isActive = (p['active'] as num?)?.toInt() == 1;
-          final shareOfRemaining = isActive ? AccountingCalculations.partnerShareByMode(
-            mode: '${p['ownership_mode']}',
-            distributable: remainingProfit,
-            partnerShares: (p['shares_count'] as num?)?.toDouble() ?? 0.0,
-            totalShares: totalShares,
-            percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0,
-          ) : 0;
+          final shareOfRemaining = isActive ? (allocations[id] ?? 0) : 0;
           final gross = (directByPartner[id] ?? 0) + shareOfRemaining;
           final personalExpenses = expensesByPartner[id] ?? 0;
           return <String, Object?>{
