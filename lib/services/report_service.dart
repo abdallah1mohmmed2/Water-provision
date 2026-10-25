@@ -1443,29 +1443,40 @@ class ReportService {
   String _workerPeriod(DateTime? value) =>
       value == null ? 'غير محدد' : DateFormat('yyyy/MM/dd').format(value);
 
-  /// يعرض قائمة المستفيدين بالقالب الرسمي، مع احترام نتائج البحث الحالية في الشاشة.
-  Future<void> printBeneficiariesOfficial({
-    required List<Map<String, Object?>> rows,
+  /// معاينة كشف حساب مستفيد واحد بالقالب الرسمي الجديد.
+  Future<void> printBeneficiaryStatementOfficial({
+    required int beneficiaryId,
   }) async {
     final settings = await repo.settings();
-    final now = AppClock.now();
+    final people = await repo.db.rawQuery(
+      'SELECT name FROM beneficiaries WHERE id=? LIMIT 1',
+      [beneficiaryId],
+    );
+    if (people.isEmpty) throw StateError('المستفيد المحدد غير موجود');
+    final name = '${people.first['name'] ?? 'المستفيد'}';
+    final rawRows = await repo.report(
+      'beneficiary_statement',
+      beneficiaryId: beneficiaryId,
+    );
     num number(Object? value) {
       if (value is num) return value;
       return num.tryParse('${value ?? ''}') ?? 0;
     }
 
-    final totalBalance = rows.fold<num>(
-      0,
-      (sum, row) => sum + number(row['balance']),
-    );
+    final rows = rawRows.map((row) => Map<String, Object?>.from(row)).toList();
+    final totalCredit = rows.fold<num>(0, (sum, row) => sum + number(row['lah']));
+    final totalDebit = rows.fold<num>(0, (sum, row) => sum + number(row['alayh']));
+    final balance = rows.isEmpty ? 0 : number(rows.last['balance']);
+    final dateFormat = DateFormat('yyyy/MM/dd');
+    final now = AppClock.now();
     final tableRows = <List<String>>[
       for (var i = 0; i < rows.length; i++)
         [
           '${i + 1}',
-          '${rows[i]['name'] ?? 'غير محدد'}',
-          '${rows[i]['phone'] ?? '—'}',
-          '${rows[i]['jerba_number'] ?? '—'}',
-          '${rows[i]['location'] ?? rows[i]['address'] ?? '—'}',
+          '${rows[i]['date'] ?? '—'}',
+          '${rows[i]['description'] ?? '—'}',
+          NumberFormat('#,##0').format(number(rows[i]['lah'])),
+          NumberFormat('#,##0').format(number(rows[i]['alayh'])),
           NumberFormat('#,##0').format(number(rows[i]['balance'])),
         ],
     ];
@@ -1474,43 +1485,21 @@ class ReportService {
       rightHeader1: 'الجمهورية اليمنية',
       rightHeader2: 'نظام ساقية لإدارة محطة ضخ مياه الري',
       rightHeader3: settings['station_name'] ?? 'محطة ساقية',
-      date: DateFormat('yyyy/MM/dd').format(now),
-      refNumber: 'BEN-${DateFormat('yyyyMMdd-HHmmss').format(now)}',
-      attachments: 'عدد المستفيدين: ${rows.length}',
-      reportTitle: 'كشف قائمة المستفيدين',
+      date: dateFormat.format(now),
+      refNumber: 'BST-${DateFormat('yyyyMMdd-HHmmss').format(now)}',
+      attachments: 'المستفيد: $name',
+      reportTitle: 'كشف حساب المستفيد: $name',
       summaryBoxes: [
-        StatBoxData(
-          number: '1',
-          title: 'عدد المستفيدين',
-          value: NumberFormat('#,##0').format(rows.length),
-          isBlueTint: true,
-        ),
-        StatBoxData(
-          number: '2',
-          title: 'إجمالي الأرصدة الحالية',
-          value: '${NumberFormat('#,##0').format(totalBalance)} ريال',
-          isLarge: true,
-        ),
+        StatBoxData(number: '1', title: 'عدد الحركات', value: NumberFormat('#,##0').format(rows.length), isBlueTint: true),
+        StatBoxData(number: '2', title: 'إجمالي له', value: '${NumberFormat('#,##0').format(totalCredit)} ريال'),
+        StatBoxData(number: '3', title: 'إجمالي عليه', value: '${NumberFormat('#,##0').format(totalDebit)} ريال', isBlueTint: true),
+        StatBoxData(number: '4', title: 'الرصيد الحالي', value: '${NumberFormat('#,##0').format(balance)} ريال', isLarge: true),
       ],
-      columns: const [
-        'م',
-        'اسم المستفيد',
-        'رقم الهاتف',
-        'رقم الجربة',
-        'الموقع / العنوان',
-        'الرصيد الحالي (ريال)',
-      ],
+      columns: const ['م', 'التاريخ', 'البيان', 'له (ريال)', 'عليه (ريال)', 'الرصيد المتراكم (ريال)'],
       rows: tableRows,
-      footerTotalRow: [
-        '',
-        'الإجمالي',
-        '',
-        '',
-        'عدد المستفيدين: ${rows.length}',
-        NumberFormat('#,##0').format(totalBalance),
-      ],
+      footerTotalRow: ['', 'الإجمالي', '', NumberFormat('#,##0').format(totalCredit), NumberFormat('#,##0').format(totalDebit), NumberFormat('#,##0').format(balance)],
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
-      fileName: 'كشف-قائمة-المستفيدين.pdf',
+      fileName: 'كشف-حساب-$name.pdf',
       minTableRows: 7,
     );
   }
@@ -1529,6 +1518,10 @@ class ReportService {
     String? status,
     List<Map<String, Object?>>? sourceRows,
   }) async {
+    if (key == 'beneficiary_statement' && beneficiaryId != null) {
+      await printBeneficiaryStatementOfficial(beneficiaryId: beneficiaryId);
+      return;
+    }
     if (key == 'worker_transactions') {
       await _printWorkerTransactionsOfficial(workerId: workerId, from: from, to: to);
       return;
