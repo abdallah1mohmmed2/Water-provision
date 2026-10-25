@@ -1108,7 +1108,19 @@ class _ShellState extends State<AdminShell> {
                   ),
                 ).then((_) => refreshCounts());
               },
-              onCash: () => go(7),
+              onCash: () {
+                // فورم مستقل لتسجيل الدفعة من الزر العائم؛ لا ننتقل إلى
+                // شاشة المدفوعات الثابتة ولا نعرض جدولها.
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => PaymentsPage(
+                      repo,
+                      userId: currentUserId,
+                      compactOnly: true,
+                    ),
+                  ),
+                ).then((_) => refreshCounts());
+              },
               onQueue: () => go(5),
               onAddBeneficiary: () {
                 if (!visible.contains(1)) return;
@@ -3510,6 +3522,13 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   void initState() {
     super.initState();
     load();
+    if (widget.compactOnly) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        await add();
+        if (mounted) Navigator.of(context).maybePop();
+      });
+    }
   }
 
   Future<void> add() async {
@@ -7409,7 +7428,13 @@ class _DieselState extends State<DieselPage> {
 class PaymentsPage extends StatefulWidget {
   final StationRepository r;
   final int userId;
-  const PaymentsPage(this.r, {required this.userId, super.key});
+  final bool compactOnly;
+  const PaymentsPage(
+    this.r, {
+    required this.userId,
+    this.compactOnly = false,
+    super.key,
+  });
   @override
   State<PaymentsPage> createState() => _PaymentsState();
 }
@@ -7659,7 +7684,12 @@ class _PaymentsState extends State<PaymentsPage> {
   }
 
   @override
-  Widget build(c) => PageFrame(
+  Widget build(c) => widget.compactOnly
+      ? const Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SizedBox.shrink(),
+        )
+      : PageFrame(
     title: 'المدفوعات',
     subtitle: 'قبض المستفيدين ودفع مستحقات العمال والشركاء',
     actions: [
