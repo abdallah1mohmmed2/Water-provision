@@ -1759,6 +1759,25 @@ void main() {
     final pdfBytes = await ReportService(repo).pdf('partner_profit_distribution', from: start, to: end);
     expect(pdfBytes, isNotEmpty);
     expect(String.fromCharCodes(pdfBytes.take(4)), '%PDF');
+
+    // الفترة المقفلة فعليًا يجب أن تمنع ترحيل توزيع جديد حتى لو كان التقرير قابلًا للعرض.
+    final closedStart = DateTime(2034, 1, 1);
+    final closedEndExclusive = DateTime(2035, 1, 1);
+    await db.insert('period_closures', {
+      'station_id': stationId,
+      'period_start': closedStart.toIso8601String(),
+      'period_end': closedEndExclusive.subtract(const Duration(microseconds: 1)).toIso8601String(),
+      'period_end_exclusive': closedEndExclusive.toIso8601String(),
+      'closed_at': operationDate.toIso8601String(),
+      'closed_by': 1,
+      'opening_transfer': 0,
+      'net_profit': 0,
+      'status': 'closed',
+    });
+    await expectLater(
+      svc.distributePartnerProfits(from: closedStart, to: closedEndExclusive.subtract(const Duration(days: 1)), userId: 1),
+      throwsStateError,
+    );
   });
 
 }
