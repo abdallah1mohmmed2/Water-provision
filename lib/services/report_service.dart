@@ -1569,8 +1569,20 @@ class ReportService {
     }
 
     final rows = rawRows.map((row) => Map<String, Object?>.from(row)).toList();
-    final totalCredit = rows.fold<num>(0, (sum, row) => sum + number(row['lah']));
-    final totalDebit = rows.fold<num>(0, (sum, row) => sum + number(row['alayh']));
+    // Opening/carried balance rows show a brought-forward position, not
+    // movements in the selected period. Exclude them from movement totals.
+    final movementRows = rows.where((row) =>
+      !const ['opening_balance', 'carried_balance', 'current_balance']
+          .contains(row['type'])
+    ).toList();
+    final totalCredit = movementRows.fold<num>(
+      0,
+      (sum, row) => sum + number(row['lah']),
+    );
+    final totalDebit = movementRows.fold<num>(
+      0,
+      (sum, row) => sum + number(row['alayh']),
+    );
     final balance = rows.isEmpty ? 0 : number(rows.last['balance']);
     final dateFormat = DateFormat('yyyy/MM/dd');
     final now = AppClock.now();
