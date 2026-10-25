@@ -1874,15 +1874,41 @@ class _DashboardState extends State<DashboardPage> {
     super.dispose();
   }
 
-  Future<void> _printDashboardReport(String key) async {
-    try {
-      await ReportService(widget.r).printPdf(key);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(e))),
+  void _openDashboardReport(String key) {
+    // افتح شاشات التقارير التفاعلية الموجودة؛ لا تطبع PDF من بطاقة الاختصارات.
+    switch (key) {
+      case 'partner_accounts':
+        // شاشة حسابات الشركاء الموجودة في القائمة الرئيسية.
+        widget.onOpen(11);
+        return;
+      case 'partner_profit_distribution':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PartnerProfitDistributionPage(widget.r),
+          ),
         );
-      }
+        return;
+      case 'worker_transactions':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => WorkerTransactionsOverviewPage(widget.r),
+          ),
+        );
+        return;
+      case 'invoices':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => InvoicesReportPage(widget.r),
+          ),
+        );
+        return;
+      case 'beneficiary_list':
+        // شاشة المستفيدين الموجودة في القائمة الرئيسية.
+        widget.onOpen(1);
+        return;
     }
   }
 
@@ -1972,14 +1998,7 @@ class _DashboardState extends State<DashboardPage> {
                 borderRadius: BorderRadius.circular(14),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  onTap: () {
-                    if (item.$2 == 'partner_accounts') {
-                      // افتح شاشة حسابات الشركاء الموجودة في القائمة الرئيسية.
-                      widget.onOpen(11);
-                      return;
-                    }
-                    _printDashboardReport(item.$2);
-                  },
+                  onTap: () => _openDashboardReport(item.$2),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
                     child: Row(children: [
@@ -1991,7 +2010,7 @@ class _DashboardState extends State<DashboardPage> {
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
                         ),
                       ),
-                      Icon(Icons.picture_as_pdf_rounded, color: Colors.white.withValues(alpha: .55), size: 18),
+                      Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withValues(alpha: .55), size: 15),
                     ]),
                   ),
                 ),
