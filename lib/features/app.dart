@@ -5169,8 +5169,14 @@ int? parseClock(String raw) {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, dialogSetState) {
           final q = search.trim().toLowerCase();
-          final matches = beneficiaries.where((x) =>
-            '${x['name'] ?? ''}'.toLowerCase().contains(q)).take(8).toList();
+          final matches = <Map<String, Object?>>[
+            ...beneficiaries.map((x) => <String, Object?>{'type': 'beneficiary', 'row': x}),
+            ...workers.map((x) => <String, Object?>{'type': 'worker', 'row': x}),
+            ...partners.map((x) => <String, Object?>{'type': 'partner', 'row': x}),
+          ].where((item) {
+            final row = item['row'] as Map<String, Object?>;
+            return q.isEmpty || '${row['name'] ?? ''}'.toLowerCase().contains(q);
+          }).take(8).toList();
           Future<void> chooseTime(bool isStart) async {
             final picked = await _showHybridTimePicker(
               initial: isStart ? start : end,
@@ -5215,7 +5221,8 @@ int? parseClock(String raw) {
                       },
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.search),
-                        labelText: 'بحث عن المستفيد',
+                        labelText: 'ابحث عن مستفيد أو عامل أو شريك',
+                        hintText: 'اكتب الاسم لعرض جميع الأنواع',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -5228,24 +5235,59 @@ int? parseClock(String raw) {
                           shrinkWrap: true,
                           itemCount: matches.length,
                           itemBuilder: (context, i) {
-                            final item = matches[i];
+                            final result = matches[i];
+                            final item = result['row'] as Map<String, Object?>;
+                            final itemType = result['type'] as String;
                             final id = item['id'] as int?;
+                            final typeLabel = itemType == 'beneficiary'
+                                ? 'مستفيد'
+                                : itemType == 'worker' ? 'عامل' : 'شريك';
+                            final selected = itemType == partyType &&
+                                (itemType == 'beneficiary' ? bid == id
+                                    : itemType == 'worker' ? workerId == id
+                                    : partnerId == id);
                             return ListTile(
                               dense: true,
+                              leading: Icon(itemType == 'beneficiary'
+                                  ? Icons.person_outline_rounded
+                                  : itemType == 'worker'
+                                      ? Icons.engineering_rounded
+                                      : Icons.groups_rounded),
                               title: Text('${item['name'] ?? 'غير معروف'}'),
-                              selected: bid == id,
-                              onTap: () {
-                                setState(() { partyType = 'beneficiary'; bid = id; workerId = null; partnerId = null; });
+                              subtitle: Text(typeLabel),
+                              selected: selected,
+                              trailing: selected ? const Icon(Icons.check_circle_rounded) : null,
+                              onTap: () async {
+                                if (id == null) return;
+                                await selectParty(itemType, id);
+                                if (!mounted) return;
+                                searchController.text = '${item['name'] ?? ''}';
+                                setState(() => search = searchController.text);
                                 dialogSetState(() {});
                               },
                             );
                           },
                         ),
                       ),
-                    if (bid != null)
+                    if ((partyType == 'beneficiary' && bid != null) ||
+                        (partyType == 'worker' && workerId != null) ||
+                        (partyType == 'partner' && partnerId != null))
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
-                        child: Text('المستفيد المحدد: ${beneficiaries.firstWhere((x) => x['id'] == bid, orElse: () => <String, Object?>{})['name'] ?? 'محدد'}'),
+                        child: Text(() {
+                          final list = partyType == 'beneficiary'
+                              ? beneficiaries
+                              : partyType == 'worker' ? workers : partners;
+                          final id = partyType == 'beneficiary'
+                              ? bid : partyType == 'worker' ? workerId : partnerId;
+                          final selected = list.firstWhere(
+                            (x) => x['id'] == id,
+                            orElse: () => <String, Object?>{},
+                          );
+                          final label = partyType == 'beneficiary'
+                              ? 'مستفيد' : partyType == 'worker' ? 'عامل' : 'شريك';
+                          return 'المحدد: ${selected['name'] ?? 'غير معروف'} • $label';
+                        }()),
                       ),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
