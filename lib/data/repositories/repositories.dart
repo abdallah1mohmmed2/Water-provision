@@ -2180,6 +2180,7 @@ class StationRepository {
                 'partner_id': id,
                 'partner_name': name,
                 'description': '$name (الرصيد الحالي)',
+                'type': 'current_balance',
                 'lah': balance > 0 ? balance : 0,
                 'alayh': balance < 0 ? -balance : 0,
                 'amount': balance.abs(),
