@@ -945,7 +945,7 @@ class StationRepository {
         : "a.code=? AND jl.$partyColumn=?";
     final args = partyColumn == null ? [accountCode, legacyAccountCode, id] : [accountCode, id];
     final rows = await db.rawQuery('''
-      SELECT je.id journal_entry_id,je.date,je.description,je.reference_type,je.reference_id,jl.debit,jl.credit,jl.memo
+      SELECT je.id journal_entry_id,jl.id journal_line_id,je.date,je.description,je.reference_type,je.reference_id,jl.debit,jl.credit,jl.memo
       FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id
       WHERE $partyFilter AND je.status='posted' ORDER BY je.date ASC,je.id ASC,jl.id ASC''', args);
     var running=0; final out=<Map<String,Object?>>[];
@@ -2114,8 +2114,14 @@ class StationRepository {
             final aOpening = a['type'] == 'opening_balance';
             final bOpening = b['type'] == 'opening_balance';
             if (aOpening != bOpening) return aOpening ? -1 : 1;
-            return ((a['worker_id'] as num?) ?? 0)
+            final byWorker = ((a['worker_id'] as num?) ?? 0)
                 .compareTo((b['worker_id'] as num?) ?? 0);
+            if (byWorker != 0) return byWorker;
+            final byEntry = ((b['journal_entry_id'] as num?) ?? 0)
+                .compareTo((a['journal_entry_id'] as num?) ?? 0);
+            if (byEntry != 0) return byEntry;
+            return ((b['journal_line_id'] as num?) ?? 0)
+                .compareTo((a['journal_line_id'] as num?) ?? 0);
           });
           return rows;
         }
@@ -2220,8 +2226,14 @@ class StationRepository {
             final aOpening = a['type'] == 'opening_balance';
             final bOpening = b['type'] == 'opening_balance';
             if (aOpening != bOpening) return aOpening ? -1 : 1;
-            return (a['partner_id'] as num? ?? 0)
+            final byPartner = (a['partner_id'] as num? ?? 0)
                 .compareTo(b['partner_id'] as num? ?? 0);
+            if (byPartner != 0) return byPartner;
+            final byEntry = ((b['journal_entry_id'] as num?) ?? 0)
+                .compareTo((a['journal_entry_id'] as num?) ?? 0);
+            if (byEntry != 0) return byEntry;
+            return ((b['journal_line_id'] as num?) ?? 0)
+                .compareTo((a['journal_line_id'] as num?) ?? 0);
           });
           return rows;
         }
