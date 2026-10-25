@@ -626,12 +626,17 @@ class ReportService {
       'debts',
     }.contains(key);
     final balanceMovements = rows.where((row) =>
-      !const ['opening_balance', 'carried_balance'].contains(row['type'])
+      !const ['opening_balance', 'carried_balance', 'current_balance']
+          .contains(row['type'])
     ).toList();
+    // Balance reports are displayed newest-first; the first actual movement
+    // carries the latest running balance. Using last would show an older one.
+    final latestBalanceRow =
+        balanceMovements.isEmpty ? null : balanceMovements.first;
     final netSummary = isBalanceReport &&
-            balanceMovements.isNotEmpty &&
-            balanceMovements.last.containsKey('balance')
-        ? _reportNetSummary(balanceMovements.last)
+            latestBalanceRow != null &&
+            latestBalanceRow.containsKey('balance')
+        ? _reportNetSummary(latestBalanceRow)
         : null;
     return pw.Container(
       margin: const pw.EdgeInsets.only(top: 10),
