@@ -1092,9 +1092,12 @@ class _ShellState extends State<AdminShell> {
                 final floatingIrrigationKey = GlobalKey<_NewIrrigationState>();
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        floatingIrrigationKey.currentState?.openQuickForm();
+                    builder: (routeContext) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) async {
+                        await floatingIrrigationKey.currentState?.openQuickForm();
+                        if (routeContext.mounted) {
+                          Navigator.of(routeContext).maybePop();
+                        }
                       });
                       return NewIrrigationPage(
                         repo,
