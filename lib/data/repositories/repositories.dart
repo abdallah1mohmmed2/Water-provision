@@ -2219,7 +2219,7 @@ class StationRepository {
         final effectiveFrom = from ?? DateTime(2020, 1, 1);
         final effectiveTo = to ?? AppClock.now();
         final summary = await partnerProfitSummary(from: effectiveFrom, to: effectiveTo);
-        final ps = await partners();
+        final ps = await db.rawQuery("SELECT * FROM partners WHERE station_id=? AND active=1 ORDER BY id", [stationId]);
         final totalShares = ps.fold<double>(0.0, (sum, p) => sum + ((p['shares_count'] as num?)?.toDouble() ?? 0.0));
         final profit = (summary['distributable'] as num?)?.round() ?? 0;
         final stationId = await accounting.currentStationId();
@@ -2233,38 +2233,35 @@ class StationRepository {
           for (final row in individualExpenses)
             (row['partner_id'] as num).toInt(): (row['total'] as num).round(),
         };
-        // صافي الاستحقاقات المباشرة من السقايات بعد تسويات الفائض، مع استبعاد الملغى.
+        // نستخدم نفس ترتيب وآلية التسوية الموجودة في distributePartnerProfits:
+        // عند تجاوز الاستحقاقات المباشرة صافي الربح، يُخفض الأحدث أولاً (pt.id DESC).
         final directRows = await db.rawQuery(
-          "SELECT pt.partner_id,pt.amount-COALESCE((SELECT SUM(adj.amount) FROM partner_transactions adj WHERE adj.reference_type='partner_profit_adjustment' AND adj.reference_id=pt.id AND adj.type='share_adjustment'),0) net FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id JOIN irrigations i ON i.id=pt.reference_id WHERE p.station_id=? AND pt.reference_type='irrigation_profit' AND COALESCE(i.status,'')!='cancelled' AND pt.date>=? AND pt.date<?",
+          "SELECT pt.id,pt.partner_id,pt.amount,COALESCE((SELECT SUM(adj.amount) FROM partner_transactions adj WHERE adj.reference_type='partner_profit_adjustment' AND adj.reference_id=pt.id AND adj.type='share_adjustment'),0) adjusted FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id JOIN irrigations i ON i.id=pt.reference_id WHERE p.station_id=? AND pt.reference_type='irrigation_profit' AND COALESCE(i.status,'')!='cancelled' AND pt.date>=? AND pt.date<? ORDER BY pt.id DESC",
           [stationId, start, endExclusive],
         );
         final directByPartner = <int, int>{};
         var directTotal = 0;
+        final directAvailable = <Map<String, int>>[];
         for (final row in directRows) {
-          final amount = ((row['net'] as num?)?.round() ?? 0).clamp(0, 1 << 62).toInt();
-          final id = (row['partner_id'] as num).toInt();
-          directByPartner[id] = (directByPartner[id] ?? 0) + amount;
-          directTotal += amount;
+          final original = ((row['amount'] as num?)?.round() ?? 0).clamp(0, 1 << 62).toInt();
+          final adjusted = ((row['adjusted'] as num?)?.round() ?? 0).clamp(0, original).toInt();
+          final available = (original - adjusted).clamp(0, original).toInt();
+          directAvailable.add({
+            'partner_id': (row['partner_id'] as num).toInt(),
+            'available': available,
+          });
+          directTotal += available;
         }
-        // إذا تجاوزت الاستحقاقات القديمة صافي الربح، لا يعرض التقرير إجماليًا
-        // يتجاوز الربح المتاح؛ الترحيل الفعلي يسجل قيد التسوية عند تنفيذ التوزيع.
-        if (directTotal > profit && directTotal > 0) {
-          final capped = <int, int>{};
-          var assigned = 0;
-          final entries = directByPartner.entries.toList();
-          for (var i = 0; i < entries.length; i++) {
-            final e = entries[i];
-            final value = i == entries.length - 1
-                ? profit - assigned
-                : (profit * e.value / directTotal).round().clamp(0, profit - assigned).toInt();
-            capped[e.key] = value;
-            assigned += value;
-          }
-          directByPartner
-            ..clear()
-            ..addAll(capped);
-          directTotal = profit;
+        var excess = (directTotal - profit).clamp(0, directTotal).toInt();
+        for (final row in directAvailable) {
+          final available = row['available']!;
+          final correction = available < excess ? available : excess;
+          final net = available - correction;
+          final partnerId = row['partner_id']!;
+          directByPartner[partnerId] = (directByPartner[partnerId] ?? 0) + net;
+          excess -= correction;
         }
+        directTotal = directByPartner.values.fold<int>(0, (sum, amount) => sum + amount);
         final remainingProfit = (profit - directTotal).clamp(0, profit).toInt();
         return ps.map((p) {
           final id = (p['id'] as num).toInt();
@@ -2281,9 +2278,10 @@ class StationRepository {
             'name': p['name'],
             'mode': p['ownership_mode'],
             'basis': p['ownership_mode'] == 'percentage' ? p['ownership_percentage'] : p['shares_count'],
+            'direct_amount': directByPartner[id] ?? 0,
+            'share_amount': shareOfRemaining,
             'gross_amount': gross,
             'partner_expenses': personalExpenses,
-            // قد تصبح النتيجة سالبة إذا تجاوزت المصروفات الخاصة حصة الشريك.
             'net_amount': gross - personalExpenses,
             'amount': gross - personalExpenses,
           };
