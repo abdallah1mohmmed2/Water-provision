@@ -1240,7 +1240,7 @@ class ReportService {
     }
     String duration(Object? value) {
       final minutes = n(value).clamp(0, 100000000);
-      return '${minutes}د';
+      return '$minutesد';
     }
     String display(Object? value) {
       final text = value == null || '$value'.trim().isEmpty ? '—' : '$value';
