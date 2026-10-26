@@ -2369,7 +2369,7 @@ class StationRepository {
                   : (worker['balance'] as num?)?.round() ?? 0;
             }
             final finalDate = to?.toIso8601String() ??
-                (periodStart == null ? null : periodStart.toIso8601String());
+                (periodStart?.toIso8601String());
             finalIncomeRows.add({
               'date': finalDate,
               'worker_id': id,
