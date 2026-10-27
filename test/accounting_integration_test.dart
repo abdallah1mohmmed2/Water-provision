@@ -363,6 +363,36 @@ void main() {
     expect((after['mismatched_irrigations'] as List).single['irrigation_id'], irrigationId);
   });
 
+  test('تقرير السقايات يشمل كامل اليوم المحدد ولا يخلط اليوم التالي', () async {
+    await useSolar6000();
+    await db.update('workers', {'active': 0}, 'id>?', [0]);
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
+    final day = DateTime(2043, 6, 12);
+    final partnerId = await db.insert('partners', {
+      'name': 'شريك اختبار فلتر اليوم',
+      'ownership_mode': 'shares',
+      'shares_count': 1,
+      'active': 1,
+    });
+    final sameDayId = await irrigationFor(
+      partnerId: partnerId,
+      start: day.add(const Duration(hours: 8)),
+    );
+    final nextDayId = await irrigationFor(
+      partnerId: partnerId,
+      start: day.add(const Duration(days: 1, hours: 8)),
+    );
+    final rows = await StationRepository(db).report(
+      'irrigations',
+      from: day,
+      to: day,
+      systemType: 'solar',
+    );
+    final ids = rows.map((r) => (r['irrigation_id'] as num).toInt()).toSet();
+    expect(ids, contains(sameDayId));
+    expect(ids, isNot(contains(nextDayId)));
+  });
+
   test('السقاية تخصم أجر العامل أولاً ثم توزع الصافي على الشركاء', () async {
     await db.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
     await db.update('settings', {'value': '5000'}, 'key=?', ['solar_hourly_rate']);
