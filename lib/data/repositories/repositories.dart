@@ -957,16 +957,12 @@ class StationRepository {
       FROM $table x WHERE x.id=?
     ''', [id, id, id]);
     if (rows.isEmpty) return {'irrigation_minutes': 0, 'irrigation_total': 0, 'earnings': 0, 'paid': 0, 'balance': 0};
-    if (!isWorker) {
-      // Keep the summary balance aligned with the statement's ledger/legacy fallback.
-      final movements = await partnerTransactions(id);
-      final currentBalance = movements.fold<int>(
-        0,
-        (sum, row) => sum + ((row['signed_amount'] as num?)?.round() ?? 0),
-      );
-      return {...rows.first, 'balance': currentBalance};
-    }
-    return rows.first;
+    // Keep the summary balance aligned with the party balance service, including
+    // the legacy subledger fallback when no personal GL entries exist.
+    final currentBalance = isWorker
+        ? (await accounting.workerBalance(id))['balance'] ?? 0
+        : (await accounting.partnerBalance(id))['balance'] ?? 0;
+    return {...rows.first, 'balance': currentBalance};
   }
 
   // تم التصحيح: استخدام rawQuery وحذف args:
