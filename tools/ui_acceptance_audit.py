@@ -5,6 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 app=(ROOT/'lib/features/app.dart').read_text(encoding='utf8')
 theme=(ROOT/'lib/core/theme.dart').read_text(encoding='utf8')
 report=(ROOT/'lib/services/report_service.dart').read_text(encoding='utf8')
+template=(ROOT/'lib/services/official_report_template.dart').read_text(encoding='utf8')
 errors=[]
 checks={
  'RTL root': 'TextDirection.rtl' in app,
@@ -33,11 +34,22 @@ checks={
  'performance screen': 'class PerformancePage' in app,
  '24 required reports': len(re.findall(r"'[^']+':", report.split('titles = {',1)[1].split('};',1)[0])) >= 24,
  '30 default PDF rows': "pdf_rows" in report and "configuredRows" in report and "30" in report,
- 'no blank report page': (
-     'pw.MultiPage(' in report
-     and re.search(r'if\s*\(rows\.isEmpty\)\s*_emptyReportState\(', report) is not None
+ 'official template handles empty reports': (
+     'OfficialReportTemplate.preview(' in report
      and 'لا توجد بيانات مطابقة' in report
-     and 'doc.addPage(' in report
+     and 'rows.isEmpty' in report
+     and 'columns.isEmpty' in template
+ ),
+ 'all report PDF paths use the official template': (
+     'OfficialReportTemplate.preview(' in report
+     and 'printAfterGenerate: false' in report
+     and 'Future<Uint8List> paymentReceiptPdf' in report
+     and 'Future<Uint8List> invoicesPdf' in report
+ ),
+ 'official template controls PDF layout and optional printing': (
+     'pw.MultiPage(' in template
+     and 'pageFormat: pageFormat' in template
+     and 'if (printAfterGenerate)' in template
  ),
  'PDF print path': 'Printing.layoutPdf' in report,
 }
