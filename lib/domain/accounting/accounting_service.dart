@@ -1637,6 +1637,7 @@ class AccountingService {
     int? userId,
     String? referenceNumber,
     String? notes,
+    bool sendNotification = true,
   }) async {
     if (amount <= 0) throw ArgumentError('المبلغ يجب أن يكون أكبر من صفر');
     final now = AppClock.now().toIso8601String();
@@ -1702,7 +1703,7 @@ class AccountingService {
       ],
       userId: userId,
     );
-    if (beneficiaryId != null) {
+    if (beneficiaryId != null && sendNotification) {
       final templates = await tx.query(
         'settings',
         columns: ['key', 'value'],
@@ -3456,6 +3457,60 @@ class AccountingService {
       oldValues: pay,
       reason: reason,
     );
+  }
+
+  /// تعديل سند قبض/صرف بطريقة قابلة للتتبع: يُعكس السند السابق ويُنشأ البديل
+  /// داخل المعاملة نفسها؛ عند أي فشل تُلغى العمليتان معًا.
+  /// السندات المرتبطة بالسقايات تُعدّل من شاشة السقايات حتى لا ينفصل paid_amount.
+  Future<int> replacePayment({
+    required int id,
+    required int userId,
+    required String reason,
+    int? beneficiaryId,
+    int? partnerId,
+    int? workerId,
+    required int amount,
+    required int paymentMethodId,
+    required int cashboxId,
+    String? referenceNumber,
+    String? notes,
+  }) async {
+    if (reason.trim().isEmpty) throw ArgumentError('سبب تعديل السند مطلوب');
+    final partyCount = [beneficiaryId, partnerId, workerId]
+        .where((value) => value != null).length;
+    if (partyCount != 1) throw ArgumentError('يجب تحديد طرف واحد فقط للسند');
+    if (amount <= 0) throw ArgumentError('المبلغ يجب أن يكون أكبر من صفر');
+    return database.transaction((tx) async {
+      final rows = await tx.query('payments', where: 'id=?', whereArgs: [id], limit: 1);
+      if (rows.isEmpty || rows.first['status'] != 'posted') {
+        throw StateError('السند غير موجود أو ملغى مسبقًا');
+      }
+      final old = rows.first;
+      final oldReference = '${old['reference_number'] ?? ''}';
+      if (oldReference.startsWith('IRR-')) {
+        throw StateError('هذا السند مرتبط بسقاية؛ عدّل السقاية من شاشة فواتير السقايات حتى يبقى رصيدها صحيحًا.');
+      }
+      await _assertPeriodOpen(tx, DateTime.parse('${old['date']}'));
+      await _cancelPaymentRowTx(tx, old,
+        reason: 'تعديل السند: ${reason.trim()}', userId: userId);
+      final replacementId = await _paymentInTx(
+        tx, beneficiaryId: beneficiaryId, partnerId: partnerId, workerId: workerId,
+        amount: amount, paymentMethodId: paymentMethodId, cashboxId: cashboxId,
+        userId: userId, referenceNumber: referenceNumber, notes: notes,
+        sendNotification: false,
+      );
+      final replacementRows = await tx.query('payments',
+        where: 'id=?', whereArgs: [replacementId], limit: 1);
+      await database.auditTx(tx, userId: userId, operation: 'replace',
+        table: 'payments', recordId: replacementId,
+        oldValues: {'replaced_payment_id': id, 'payment': old},
+        newValues: {
+          'replacement_payment_id': replacementId,
+          'payment': replacementRows.isEmpty ? null : replacementRows.first,
+        },
+        reason: reason.trim());
+      return replacementId;
+    });
   }
 
   /// إلغاء دفعة (قبض من مستفيد أو دفع لعامل/شريك) مع عكس أثرها كاملًا.
