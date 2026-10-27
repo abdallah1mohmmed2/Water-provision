@@ -2362,4 +2362,23 @@ void main() {
     );
   });
 
+  test('تعديل رصيد المستفيد يرفض الكسور ولا يغيّر الحقل أو الأستاذ', () async {
+    final repo = StationRepository(db);
+    final beneficiary = await repo.createBeneficiary(
+      name: 'مستفيد رصيد صحيح',
+      opening: 250,
+    );
+    final ledgerBefore = await glPayable('1200', 'beneficiary_id', beneficiary);
+    await expectLater(
+      repo.updateBeneficiary(beneficiary, {'opening_balance': 250.5}, 1),
+      throwsA(isA<ArgumentError>()),
+    );
+    final saved = (await db.query(
+      'SELECT opening_balance FROM beneficiaries WHERE id=?',
+      args: [beneficiary],
+    )).single;
+    expect((saved['opening_balance'] as num).round(), 250);
+    expect(await glPayable('1200', 'beneficiary_id', beneficiary), ledgerBefore);
+  });
+
 }
