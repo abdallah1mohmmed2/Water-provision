@@ -2969,7 +2969,7 @@ class AccountingService {
       }
       await _reverseEntriesTx(
         tx, referenceType: 'irrigation', referenceId: id,
-        reason: 'تصحيح بيانات السقاية رقم $id', userId: userId,
+        reason: 'تصحيح بيانات السقاية رقم $id', userId: userId, date: oldStart,
       );
       final waterRevenue = await _accountIdTx(tx, '4000');
       final fuelRevenue = await _accountIdTx(tx, '4010');
