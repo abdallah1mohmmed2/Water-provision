@@ -2148,4 +2148,26 @@ void main() {
     expect((saved['percentage_rate'] as num).toDouble(), 0);
   });
 
+  test('رفض عدد حصص الشريك الكسري لأنه يخالف نوع العمود وقاعدة التوزيع', () async {
+    final repo = StationRepository(db);
+    await expectLater(
+      repo.createPartner(name: 'شريك حصص كسرية', mode: 'shares', shares: 1.5),
+      throwsA(isA<ArgumentError>()),
+    );
+    final partner = await repo.createPartner(
+      name: 'شريك حصص صحيحة',
+      mode: 'shares',
+      shares: 2,
+    );
+    await expectLater(
+      repo.updatePartner(partner, {'shares_count': 2.5}, null),
+      throwsA(isA<ArgumentError>()),
+    );
+    final saved = (await db.query(
+      'SELECT shares_count FROM partners WHERE id=?',
+      args: [partner],
+    )).single;
+    expect((saved['shares_count'] as num).round(), 2);
+  });
+
 }
