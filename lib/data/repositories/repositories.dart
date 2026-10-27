@@ -5511,6 +5511,9 @@ class StationRepository {
           rows.sort((a, b) {
             final ad = DateTime.tryParse('${a['date'] ?? ''}');
             final bd = DateTime.tryParse('${b['date'] ?? ''}');
+            // A synthetic opening row has no transaction date; keep it at the start.
+            if (a['type'] == 'opening_balance' && ad == null && b['type'] != 'opening_balance') return -1;
+            if (b['type'] == 'opening_balance' && bd == null && a['type'] != 'opening_balance') return 1;
             if (ad == null && bd == null) {
               return ((a['worker_id'] as num?) ?? 0)
                   .compareTo((b['worker_id'] as num?) ?? 0);
