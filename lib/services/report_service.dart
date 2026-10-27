@@ -1,7 +1,7 @@
 import '../core/app_clock.dart';
 import 'package:intl/intl.dart';
 import 'package:arabic_reshaper/arabic_reshaper.dart';
-import 'package:flutter/services.dart';
+import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import '../data/repositories/repositories.dart';
