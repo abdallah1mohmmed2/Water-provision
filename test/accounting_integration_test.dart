@@ -2239,4 +2239,38 @@ void main() {
     expect(rows.first['balance'], 0);
   });
 
+  test('سلفة الديزل اليدوية تخصم من المخزون وتعود عند الإلغاء دون مضاعفة أثر الأستاذ', () async {
+    final beforeStock = await svc.dieselStock();
+    if (beforeStock < 5) {
+      await svc.addDieselMovement(
+        kind: 'receipt',
+        liters: 10,
+        unitPrice: 0,
+        date: DateTime.now(),
+      );
+    }
+    final repo = StationRepository(db);
+    final beneficiary = await repo.createBeneficiary(name: 'مستفيد سلفة الديزل');
+    final stockBeforeAdvance = await svc.dieselStock();
+    final inventoryBefore = await accountNet('1300');
+    final advanceDate = DateTime.now();
+    await svc.addDieselMovement(
+      beneficiaryId: beneficiary,
+      kind: 'advance',
+      liters: 5,
+      unitPrice: 100,
+      date: advanceDate,
+    );
+    expect(await svc.dieselStock(), closeTo(stockBeforeAdvance - 5, 0.0001));
+    expect(await accountNet('1300'), inventoryBefore - 500);
+
+    final movement = (await db.query(
+      "SELECT id FROM diesel_movements WHERE beneficiary_id=? AND kind='advance' AND irrigation_id IS NULL ORDER BY id DESC LIMIT 1",
+      args: [beneficiary],
+    )).single;
+    await svc.cancelDieselMovement((movement['id'] as num).toInt(), 1, 'سلفة اختبارية');
+    expect(await svc.dieselStock(), closeTo(stockBeforeAdvance, 0.0001));
+    expect(await accountNet('1300'), inventoryBefore);
+  });
+
 }
