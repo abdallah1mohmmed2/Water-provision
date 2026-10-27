@@ -2254,6 +2254,17 @@ void main() {
     final stockBeforeAdvance = await svc.dieselStock();
     final inventoryBefore = await accountNet('1300');
     final advanceDate = DateTime.now();
+    await expectLater(
+      svc.addDieselMovement(
+        beneficiaryId: beneficiary,
+        kind: 'advance',
+        liters: stockBeforeAdvance + 1,
+        unitPrice: 100,
+        date: advanceDate,
+      ),
+      throwsStateError,
+    );
+    expect(await svc.dieselStock(), closeTo(stockBeforeAdvance, 0.0001));
     await svc.addDieselMovement(
       beneficiaryId: beneficiary,
       kind: 'advance',
