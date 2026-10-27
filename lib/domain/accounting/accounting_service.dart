@@ -1638,10 +1638,12 @@ class AccountingService {
     String? referenceNumber,
     String? notes,
     bool sendNotification = true,
+    DateTime? paymentDate,
   }) async {
     if (amount <= 0) throw ArgumentError('المبلغ يجب أن يكون أكبر من صفر');
     final now = AppClock.now().toIso8601String();
-    await _assertPeriodOpen(tx, AppClock.now());
+    final effectivePaymentDate = paymentDate ?? AppClock.now();
+    await _assertPeriodOpen(tx, effectivePaymentDate);
     // الصندوق تابع للطريقة؛ أي تعارض بينهما يُرفض هنا قبل أي كتابة.
     final src = await resolvePaymentSource(
       tx,
@@ -1659,7 +1661,7 @@ class AccountingService {
       'partner_id': partnerId,
       'worker_id': workerId,
       'amount': amount,
-      'date': now,
+      'date': effectivePaymentDate.toIso8601String(),
       'payment_method_id': paymentMethodId,
       'cashbox_id': cashboxId,
       'reference_number': referenceNumber,
@@ -3498,12 +3500,13 @@ class AccountingService {
         amount: amount, paymentMethodId: paymentMethodId, cashboxId: cashboxId,
         userId: userId, referenceNumber: referenceNumber, notes: notes,
         sendNotification: false,
+        paymentDate: DateTime.parse('${old['date']}'),
       );
       // Keep the party-specific subledgers in sync just as payWorker/payPartner do.
       if (workerId != null) {
         await tx.insert('worker_transactions', {
           'worker_id': workerId,
-          'date': AppClock.now().toIso8601String(),
+          'date': DateTime.parse('${old['date']}').toIso8601String(),
           'type': 'payment',
           'amount': amount,
           'cashbox_id': cashboxId,
@@ -3516,7 +3519,7 @@ class AccountingService {
       if (partnerId != null) {
         await tx.insert('partner_transactions', {
           'partner_id': partnerId,
-          'date': AppClock.now().toIso8601String(),
+          'date': DateTime.parse('${old['date']}').toIso8601String(),
           'type': 'payment',
           'amount': amount,
           'reference_type': 'payment',
