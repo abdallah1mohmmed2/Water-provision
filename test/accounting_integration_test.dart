@@ -2273,4 +2273,27 @@ void main() {
     expect(await accountNet('1300'), inventoryBefore);
   });
 
+  test('رفض سعر ديزل سالب أو كمية غير صالحة قبل إنشاء حركة', () async {
+    final before = (await db.query('SELECT COUNT(*) c FROM diesel_movements')).single['c'];
+    await expectLater(
+      svc.addDieselMovement(
+        kind: 'advance',
+        liters: 5,
+        unitPrice: -1,
+        date: DateTime.now(),
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+    await expectLater(
+      svc.addDieselMovement(
+        kind: 'advance',
+        liters: double.nan,
+        unitPrice: 100,
+        date: DateTime.now(),
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect((await db.query('SELECT COUNT(*) c FROM diesel_movements')).single['c'], before);
+  });
+
 }
