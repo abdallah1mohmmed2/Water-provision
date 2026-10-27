@@ -2840,6 +2840,8 @@ class AccountingService {
           reason: reason,
           userId: userId,
         );
+        final originalNotes = '${item['notes'] ?? ''}';
+        final reversesPersonalIrrigation = originalNotes.startsWith('خصم قيمة سقاية');
         await tx.insert('worker_transactions', {
           'worker_id': item['worker_id'],
           'date': AppClock.now().toIso8601String(),
@@ -2847,7 +2849,9 @@ class AccountingService {
           'amount': (item['amount'] as num).round(),
           'reference_type': 'irrigation_cancel',
           'reference_id': id,
-          'notes': 'عكس استحقاق العامل من السقاية رقم $id: $reason',
+          'notes': reversesPersonalIrrigation
+              ? 'عكس سقاية العامل من السقاية رقم $id: $reason'
+              : 'عكس استحقاق العامل من السقاية رقم $id: $reason',
           'created_by': userId,
         });
       }
