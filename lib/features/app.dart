@@ -7978,23 +7978,36 @@ class _PaymentsState extends State<PaymentsPage> {
     }
   }
 
-  Future<void> add() async {
+  Future<void> add([Map<String, Object?>? existing]) async {
+    if (existing != null) {
+      target = existing['beneficiary_id'] != null
+          ? 'beneficiary'
+          : existing['worker_id'] != null
+          ? 'worker'
+          : 'partner';
+    }
     final list = target == 'beneficiary'
         ? bs
         : target == 'worker'
         ? ws
         : ps;
-    int? party = list.isEmpty ? null : list.first['id'] as int;
-    int? method = methods.isEmpty ? null : methods.first['id'] as int;
-    int? cb = cashboxForMethod(methods, cash, method, null);
-    final amount = TextEditingController(),
-        note = TextEditingController(),
-        reference = TextEditingController();
+    final initialPartyId = existing == null
+        ? null
+        : (existing['beneficiary_id'] ?? existing['worker_id'] ?? existing['partner_id']) as int?;
+    int? party = initialPartyId != null && list.any((x) => x['id'] == initialPartyId)
+        ? initialPartyId
+        : list.isEmpty ? null : list.first['id'] as int;
+    int? method = existing?['payment_method_id'] as int? ??
+        (methods.isEmpty ? null : methods.first['id'] as int);
+    int? cb = cashboxForMethod(methods, cash, method, existing?['cashbox_id'] as int?);
+    final amount = TextEditingController(text: existing?['amount']?.toString() ?? ''),
+        note = TextEditingController(text: existing?['notes']?.toString() ?? ''),
+        reference = TextEditingController(text: existing?['reference_number']?.toString() ?? '');
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (c, s) => AlertDialog(
-          title: const Text('تسجيل دفعة'),
+          title: Text(existing == null ? 'تسجيل دفعة' : 'تعديل سند قبض/صرف'),
           content: SizedBox(
             width: 480,
             child: Column(
@@ -8091,6 +8104,15 @@ class _PaymentsState extends State<PaymentsPage> {
     );
     if (ok == true) {
       try {
+        String? editReason;
+        if (existing != null) {
+          editReason = await askReason(
+            context,
+            'تعديل سند قبض/صرف',
+            message: 'سيُعكس أثر السند السابق ويُنشأ السند المعدّل داخل معاملة واحدة. أدخل سبب التعديل.',
+          );
+          if (editReason == null || !mounted) return;
+        }
         final a = int.parse(amount.text);
         final recipientRows = target == 'beneficiary'
             ? bs
@@ -8105,7 +8127,21 @@ class _PaymentsState extends State<PaymentsPage> {
           }
         }
         int paymentId;
-        if (target == 'beneficiary') {
+        if (existing != null) {
+          paymentId = await widget.r.accounting.replacePayment(
+            id: existing['id'] as int,
+            userId: widget.userId,
+            reason: editReason!,
+            beneficiaryId: target == 'beneficiary' ? party : null,
+            workerId: target == 'worker' ? party : null,
+            partnerId: target == 'partner' ? party : null,
+            amount: a,
+            paymentMethodId: method!,
+            cashboxId: cb!,
+            referenceNumber: reference.text,
+            notes: note.text,
+          );
+        } else if (target == 'beneficiary') {
           paymentId = await widget.r.accounting.receivePayment(
             beneficiaryId: party!,
             amount: a,
@@ -8138,6 +8174,10 @@ class _PaymentsState extends State<PaymentsPage> {
         }
         await load();
         if (!mounted) return;
+        if (existing != null) {
+          msg('تم تعديل السند بنجاح. رقم السند الجديد: $paymentId');
+          return;
+        }
         final recipientName =
             recipient?['name']?.toString() ?? targetName(target);
         final action = target == 'beneficiary'
@@ -8271,6 +8311,13 @@ class _PaymentsState extends State<PaymentsPage> {
                                 : null,
                           ),
                         ),
+                        if (x['status'] == 'posted' &&
+                            !'${x['reference_number'] ?? ''}'.startsWith('IRR-'))
+                          IconButton(
+                            tooltip: 'تعديل سند القبض/الصرف',
+                            onPressed: () => add(x),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
                         if (x['status'] == 'posted')
                           IconButton(
                             tooltip: 'إلغاء الدفعة',
