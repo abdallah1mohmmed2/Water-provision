@@ -19,7 +19,7 @@ if SPEC.exists():
         for row in table.rows:
             spec += '\n' + ' | '.join(cell.text for cell in row.cells)
 
-required_tables=['stations','pumps','beneficiaries','partners','workers','irrigations','irrigation_sessions','queue_entries','booking_requests','diesel_movements','payments','payment_methods','cashboxes','cashbox_transfers','expenses','worker_transactions','partner_transactions','accounts','journal_entries','journal_lines','audit_logs','settings','notifications','backup_records','sync_queue']
+required_tables=['stations','pumps','beneficiaries','partners','workers','irrigations','irrigation_sessions','queue_entries','booking_requests','diesel_movements','payments','payment_methods','cashboxes','cashbox_transfers','expenses','worker_transactions','partner_transactions','general_accounts','general_account_transactions','accounts','journal_entries','journal_lines','audit_logs','settings','notifications','backup_records','sync_queue']
 missing_tables=[t for t in required_tables if f'CREATE TABLE {t}' not in source]
 if missing_tables: errors.append('Missing tables: '+', '.join(missing_tables))
 
