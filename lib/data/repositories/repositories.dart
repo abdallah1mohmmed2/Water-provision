@@ -5661,7 +5661,8 @@ class StationRepository {
                 'balance': openingBalance,
                 'statement_kind': 'partner',
               });
-            } else if (transactions.isEmpty) {
+            } else if (transactions.isEmpty &&
+                ((worker['opening_balance'] as num?)?.round() ?? 0) == 0) {
               final balance = (partner['balance'] as num?)?.round() ?? 0;
               rows.add({
                 'date': null,
