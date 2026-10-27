@@ -12654,23 +12654,33 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
           ])),
         ]),
         const SizedBox(height:13),
-        Row(children:[
-          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text('إجمالي الاستحقاق',style:TextStyle(color:_reportInk.withValues(alpha:.58),fontSize:10)),
-            const SizedBox(height:3),
-            Text(_money(gross),style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),
-          ])),
-          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text('مصروف خاص',style:TextStyle(color:_reportInk.withValues(alpha:.58),fontSize:10)),
-            const SizedBox(height:3),
-            Text(_money(personalExpenses),style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:15)),
-          ])),
-          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.end,children:[
-            Text('الصافي المستحق',style:TextStyle(color:_reportInk.withValues(alpha:.58),fontSize:10)),
-            const SizedBox(height:3),
-            Text(_money(net),style:TextStyle(color:net>=0?_reportGreen:_reportOrange,fontWeight:FontWeight.w900,fontSize:17)),
-          ])),
-        ]),
+        LayoutBuilder(builder:(context,constraints){
+          final metricWidth=((constraints.maxWidth-12)/2).clamp(120.0,220.0).toDouble();
+          Widget metric(String label,int amount,Color amountColor,{double fontSize=16, bool alignEnd=false})=>SizedBox(
+            width:metricWidth,
+            child:Column(
+              crossAxisAlignment:alignEnd?CrossAxisAlignment.end:CrossAxisAlignment.start,
+              children:[
+                Text(label,maxLines:2,overflow:TextOverflow.ellipsis,style:TextStyle(color:_reportInk.withValues(alpha:.58),fontSize:11,fontWeight:FontWeight.w600)),
+                const SizedBox(height:5),
+                SizedBox(width:double.infinity,child:FittedBox(
+                  fit:BoxFit.scaleDown,
+                  alignment:alignEnd?AlignmentDirectional.centerEnd:AlignmentDirectional.centerStart,
+                  child:Text(_money(amount),maxLines:1,softWrap:false,style:TextStyle(color:amountColor,fontWeight:FontWeight.w900,fontSize:fontSize)),
+                )),
+              ],
+            ),
+          );
+          return Wrap(
+            spacing:12,
+            runSpacing:12,
+            children:[
+              metric('إجمالي الاستحقاق',gross,_reportInk),
+              metric('مصروف خاص',personalExpenses,_reportOrange,fontSize:15),
+              metric('الصافي المستحق',net,net>=0?_reportGreen:_reportOrange,fontSize:17,alignEnd:true),
+            ],
+          );
+        }),
         if(direct>0||share>0)...[
           const SizedBox(height:9),
           const Divider(color:_reportLine,height:1),
