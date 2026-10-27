@@ -166,6 +166,16 @@ class StationRepository {
           'لا يمكن حذف مستفيد رصيده ${AccountingCalculations.balanceLabel(bal)}؛ سوِّ الرصيد أولًا ثم احذفه',
         );
       }
+      final dieselRows = await tx.rawQuery(
+        "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)+COALESCE((SELECT carried_diesel_liters FROM beneficiaries WHERE id=?),0)+COALESCE((SELECT SUM(CASE WHEN kind IN ('delivery','advance') THEN liters WHEN kind='consumption' THEN -liters ELSE 0 END) FROM diesel_movements WHERE beneficiary_id=?),0) stock",
+        [id, id, id],
+      );
+      final dieselBalance = (dieselRows.first['stock'] as num?)?.toDouble() ?? 0;
+      if (dieselBalance.abs() > 0.0005) {
+        throw StateError(
+          'لا يمكن حذف مستفيد لديه رصيد ديزل ${dieselBalance.toStringAsFixed(3)} لتر؛ سوِّ رصيد الديزل أولًا',
+        );
+      }
       final running = await tx.query(
         'irrigation_sessions',
         columns: ['id'],
