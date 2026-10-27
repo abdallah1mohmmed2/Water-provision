@@ -362,17 +362,15 @@ class AccountingService {
     cashboxId: cashboxId,
   );
 
+  /// يتحقق من وجود الصندوق فقط. يسمح النظام عمدًا بالرصيد السالب لأن الصندوق
+  /// حساب عهدة للصراف له وعليه، ولا يُشترط وجود نقد سابق لإثبات عملية صرف.
   Future<void> _assertCashboxCanSpend(DatabaseExecutor ex, int cashboxId, int amount) async {
     final rows = await ex.rawQuery(
-      'SELECT current_balance FROM cashboxes WHERE id=?',
+      'SELECT id FROM cashboxes WHERE id=? AND active=1',
       [cashboxId],
     );
     if (rows.isEmpty) {
-      throw StateError('الصندوق غير موجود');
-    }
-    final balance = (rows.first['current_balance'] as num?)?.round() ?? 0;
-    if (balance < amount) {
-      throw StateError('رصيد الصندوق غير كافٍ: المتاح $balance ريال والمطلوب $amount ريال');
+      throw StateError('الصندوق غير موجود أو غير مفعّل');
     }
   }
 
@@ -2266,14 +2264,12 @@ class AccountingService {
     if (!opening) {
       final r = await tx.query(
         'cashboxes',
-        columns: ['current_balance'],
-        where: 'id=?',
+        columns: ['id'],
+        where: 'id=? AND active=1',
         whereArgs: [from],
         limit: 1,
       );
-      if (r.isEmpty) throw StateError('صندوق المصدر غير موجود');
-      final balance = (r.first['current_balance'] as num?)?.round() ?? 0;
-      if (balance < amount) throw StateError('الرصيد غير كافٍ للتحويل');
+      if (r.isEmpty) throw StateError('صندوق المصدر غير موجود أو غير مفعّل');
     }
     final id = await tx.insert('cashbox_transfers', {
       'from_cashbox_id': from,
@@ -2786,7 +2782,7 @@ class AccountingService {
         where: 'id=?',
         whereArgs: [id],
       );
-      // 1) عكس الدفعات المرتبطة (إن وُجدت) مع فحص ألا يصبح الصندوق سالبًا
+      // 1) عكس الدفعات المرتبطة (إن وُجدت). يُسمح برصيد صندوق سالب
       final pays = await tx.query(
         'payments',
         where: "reference_number=? AND status='posted'",
@@ -2936,8 +2932,8 @@ class AccountingService {
     });
   }
 
-  /// يلغي دفعة واحدة داخل معاملة قائمة: يغيّر حالتها، يعدّل رصيد الصندوق (مع منع الرصيد السالب
-  /// عند عكس قبض)، يعكس قيدها المحاسبي، ويضيف حركة عكسية لحساب العامل/الشريك.
+  /// يلغي دفعة واحدة داخل معاملة قائمة: يغيّر حالتها، يعدّل رصيد الصندوق (ويُسمح بالسالب)،
+  /// يعكس قيدها المحاسبي، ويضيف حركة عكسية لحساب العامل/الشريك.
   Future<void> _cancelPaymentRowTx(
     Transaction tx,
     Map<String, Object?> pay, {
@@ -2971,20 +2967,7 @@ class AccountingService {
       whereArgs: [payId],
     );
     if (incoming) {
-      // إلغاء قبض يُخرج المبلغ من الصندوق: يجب ألا يصبح رصيده سالبًا.
-      final box = await tx.query(
-        'cashboxes',
-        columns: ['name', 'current_balance'],
-        where: 'id=?',
-        whereArgs: [cashboxId],
-        limit: 1,
-      );
-      final bal = box.isEmpty ? 0 : (box.first['current_balance'] as num).round();
-      if (bal < amount) {
-        throw StateError(
-          'لا يمكن الإلغاء: رصيد الصندوق «${box.isEmpty ? cashboxId : box.first['name']}» ($bal) أقل من مبلغ الدفعة ($amount) وسيصبح سالبًا',
-        );
-      }
+      // عكس القبض يُخرج المبلغ من الصندوق؛ يُسمح بالرصيد السالب حسب سياسة الصراف.
       await tx.rawUpdate(
         'UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',
         [amount, cashboxId],
