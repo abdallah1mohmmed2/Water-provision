@@ -248,7 +248,11 @@ class ReportService {
         StatBoxData(
           number: '6',
           title: 'صافي الربح القابل للتوزيع',
-          value: '${money(sumOf('distributable_profit'))} ريال',
+          // This is a report-level value repeated on partner rows, not a
+          // per-partner amount; use it once rather than multiplying it by row count.
+          value: '${money(rows.isEmpty ? 0 : (rows.first['distributable_profit'] is num
+              ? rows.first['distributable_profit'] as num
+              : num.tryParse('${rows.first['distributable_profit'] ?? ''}') ?? 0))} ريال',
           isLarge: true,
           isBlueTint: true,
         ),
