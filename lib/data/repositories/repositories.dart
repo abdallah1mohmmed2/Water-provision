@@ -1916,6 +1916,21 @@ class StationRepository {
          ORDER BY i.date,i.id""",
       [stationId, start, endExclusive],
     );
+    final cancelled = await db.rawQuery(
+      """SELECT COUNT(*) count,COALESCE(SUM(i.total_amount),0) total
+         FROM irrigations i
+         WHERE i.station_id=? AND i.status='cancelled'
+           AND COALESCE(date(i.date),date(i.start_datetime))>=date(?)
+           AND COALESCE(date(i.date),date(i.start_datetime))<date(?)""",
+      [stationId, start, endExclusive],
+    );
+    final auditEvents = await db.rawQuery(
+      """SELECT id,operation,record_id,created_at,reason
+         FROM audit_logs
+         WHERE table_name='irrigations'
+           AND operation IN ('cancel','delete','logical_delete')
+         ORDER BY id DESC LIMIT 50""",
+    );
     final irrigationTotal = (irrigationTotals.first['total'] as num?)?.round() ?? 0;
     final ledgerTotal = (ledgerTotals.first['total'] as num?)?.round() ?? 0;
     return {
@@ -1926,6 +1941,10 @@ class StationRepository {
       'irrigation_total': irrigationTotal,
       'ledger_revenue_total': ledgerTotal,
       'difference': irrigationTotal - ledgerTotal,
+      'cancelled_irrigation_count': (cancelled.first['count'] as num?)?.toInt() ?? 0,
+      'cancelled_irrigation_total': (cancelled.first['total'] as num?)?.round() ?? 0,
+      'irrigation_audit_event_count': auditEvents.length,
+      'irrigation_audit_events': auditEvents,
       'mismatched_irrigations': perIrrigation,
     };
   }
