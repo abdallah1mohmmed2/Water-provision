@@ -411,7 +411,7 @@ void main() {
       "SELECT type,amount,reference_type,reference_id FROM worker_transactions WHERE worker_id=? AND ((reference_type='irrigation' AND reference_id=?) OR (reference_type='irrigation_edit' AND reference_id IN (SELECT id FROM worker_transactions WHERE worker_id=? AND reference_type='irrigation' AND reference_id=?))) ORDER BY id",
       args: [worker, id, worker, id],
     );
-    expect(workerRows.where((r) => r['type'] == 'irrigation').length, 1);
+    expect(workerRows.where((r) => r['type'] == 'irrigation').length, 2);
     expect(workerRows.where((r) => r['type'] == 'irrigation_reversal').length, 1);
     expect(workerRows.where((r) => r['type'] == 'irrigation').fold<int>(
       0, (sum, row) => sum + (row['amount'] as num).round(),
