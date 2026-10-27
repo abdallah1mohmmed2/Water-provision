@@ -1252,9 +1252,10 @@ class ReportService {
         value is num ? value.round() : int.tryParse('${value ?? ''}') ?? 0;
     String time(Object? value) {
       final d = DateTime.tryParse('${value ?? ''}');
-      return d == null
-          ? '—'
-          : '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+      if (d == null) return '—';
+      final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
+      final periodLabel = d.hour < 12 ? 'ص' : 'م';
+      return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
     }
     String duration(Object? value) {
       final minutes = n(value).clamp(0, 100000000);
