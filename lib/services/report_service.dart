@@ -1618,7 +1618,9 @@ class ReportService {
       rows: reportRows,
       footerTotalRow: ['الإجمالي', '', '', '', _workerMoney(totalDue), _workerMoney(totalWithdrawals), totalNet > 0 ? 'له ${_workerMoney(totalNet)}' : totalNet < 0 ? 'عليه ${_workerMoney(totalNet.abs())}' : 'صفر', ''],
       minTableRows: 1,
-    );
+
+        preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
+      );
   }
 
   String _workerDate(Object? value) {
@@ -1703,7 +1705,9 @@ class ReportService {
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
       fileName: 'كشف-حساب-$name.pdf',
       minTableRows: 7,
-    );
+
+        preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
+      );
   }
 
   Future<void> printPdf(
