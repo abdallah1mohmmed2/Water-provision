@@ -2452,7 +2452,24 @@ class StationRepository {
               if (periodStart != null && date.isBefore(periodStart)) return false;
               if (endExclusive != null && !date.isBefore(endExclusive)) return false;
               return true;
-            }).toList();
+            }).toList()
+              // Rebuild the displayed period balance from the carried balance,
+              // rather than reusing a full-history running balance and then
+              // displaying the carried-balance row as if it were another movement.
+              ..sort((a, b) {
+                final ad = DateTime.tryParse('${a['date'] ?? ''}');
+                final bd = DateTime.tryParse('${b['date'] ?? ''}');
+                if (ad == null && bd == null) return 0;
+                if (ad == null) return 1;
+                if (bd == null) return -1;
+                final byDate = ad.compareTo(bd);
+                if (byDate != 0) return byDate;
+                final byEntry = ((a['journal_entry_id'] as num?) ?? 0)
+                    .compareTo((b['journal_entry_id'] as num?) ?? 0);
+                if (byEntry != 0) return byEntry;
+                return ((a['journal_line_id'] as num?) ?? 0)
+                    .compareTo((b['journal_line_id'] as num?) ?? 0);
+              });
 
             var openingBalance = 0;
             if (periodStart != null) {
@@ -2489,6 +2506,17 @@ class StationRepository {
                 'balance': balance,
                 'statement_kind': 'partner',
               });
+            }
+
+            // The opening row is a starting point, not an extra transaction.
+            // Recalculate each period movement from it so the displayed running
+            // balance is not mixed with the full-history balance precomputed by
+            // partnerTransactions(). Include profit accruals in the calculation
+            // even though they are summarized in the visible statement.
+            var displayedRunningBalance = openingBalance;
+            for (final row in periodTransactions) {
+              displayedRunningBalance += (row['signed_amount'] as num?)?.round() ?? 0;
+              row['balance'] = displayedRunningBalance;
             }
 
             // Keep the actual payments and the partner's own irrigation charges,
