@@ -459,6 +459,18 @@ class ReportService {
     return parts.isEmpty ? 'بدون فلاتر' : parts.join(' • ');
   }
 
+  String _partyDueLabel(int balance) => balance > 0
+      ? 'له ${NumberFormat('#,##0').format(balance)} ريال'
+      : balance < 0
+          ? 'عليه ${NumberFormat('#,##0').format(balance.abs())} ريال'
+          : 'متوازن';
+
+  String _balanceLabel(int balance) => balance > 0
+      ? 'عليه ${NumberFormat('#,##0').format(balance)} ريال'
+      : balance < 0
+          ? 'له ${NumberFormat('#,##0').format(balance.abs())} ريال'
+          : 'متوازن';
+
   String _format(Object? value) {
     if (value == null) return '-';
     if (value is num) return NumberFormat('#,##0.##').format(value);
