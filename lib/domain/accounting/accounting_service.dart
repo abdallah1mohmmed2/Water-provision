@@ -3812,6 +3812,8 @@ class AccountingService {
     'expenses',
     'worker_transactions',
     'partner_transactions',
+    'general_accounts',
+    'general_account_transactions',
     'accounts',
     'journal_entries',
     'journal_lines',
@@ -3836,6 +3838,8 @@ class AccountingService {
     'beneficiary_auth_codes',
     'beneficiary_sessions',
     'notification_templates',
+    'general_accounts',
+    'general_account_transactions',
   ];
 
   Future<String> exportStateJson() async {

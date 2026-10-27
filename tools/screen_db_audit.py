@@ -48,7 +48,7 @@ with tempfile.NamedTemporaryFile(suffix='.db') as f:
     con=sqlite3.connect(f.name)
     con.executescript(schema)
     tables={r[0] for r in con.execute("select name from sqlite_master where type='table'")}
-    required=['stations','pumps','beneficiaries','partners','workers','irrigations','irrigation_sessions','queue_entries','booking_requests','diesel_movements','payments','payment_methods','cashboxes','cashbox_transfers','expenses','worker_transactions','partner_transactions','accounts','journal_entries','journal_lines','audit_logs','settings','notifications','backup_records','sync_queue']
+    required=['stations','pumps','beneficiaries','partners','workers','irrigations','irrigation_sessions','queue_entries','booking_requests','diesel_movements','payments','payment_methods','cashboxes','cashbox_transfers','expenses','worker_transactions','partner_transactions','general_accounts','general_account_transactions','accounts','journal_entries','journal_lines','audit_logs','settings','notifications','backup_records','sync_queue']
     missing=[x for x in required if x not in tables]
     if missing: errors.append('schema missing: '+','.join(missing))
     for table in ['beneficiaries','partners','workers','cashboxes','payment_methods']:

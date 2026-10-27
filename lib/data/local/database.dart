@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 18,
+      version: 19,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -216,6 +216,16 @@ class AppDatabase {
       await d.execute(
         'CREATE INDEX IF NOT EXISTS idx_cash_rec_period ON cash_reconciliations(station_id,period_start,period_end_exclusive,account_code,id)',
       );
+    }
+    if (oldV < 19) {
+      await d.execute(
+        "CREATE TABLE IF NOT EXISTS general_accounts (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL DEFAULT 1 REFERENCES stations(id), name TEXT NOT NULL, phone TEXT, address TEXT, opening_balance INTEGER NOT NULL DEFAULT 0, notes TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+      );
+      await d.execute(
+        "CREATE TABLE IF NOT EXISTS general_account_transactions (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL DEFAULT 1 REFERENCES stations(id), account_id INTEGER NOT NULL REFERENCES general_accounts(id), date TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('receipt','payment')), amount INTEGER NOT NULL CHECK(amount > 0), reference_number TEXT, notes TEXT, created_by INTEGER REFERENCES app_users(id), created_at TEXT NOT NULL)",
+      );
+      await d.execute('CREATE INDEX IF NOT EXISTS idx_general_accounts_station_name ON general_accounts(station_id,name)');
+      await d.execute('CREATE INDEX IF NOT EXISTS idx_general_account_transactions_account_date ON general_account_transactions(account_id,date,id)');
     }
   }
 
