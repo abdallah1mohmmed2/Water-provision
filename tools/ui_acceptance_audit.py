@@ -11,7 +11,7 @@ checks={
  'RTL root': 'TextDirection.rtl' in app,
  'Arabic locale': "locale: const Locale('ar')" in app,
  'Arabic localization delegates': 'GlobalMaterialLocalizations.delegates' in app,
- 'Arabic embedded font': 'NotoNaskhArabic-Regular.ttf' in report and 'NotoNaskhArabic-Bold.ttf' in report,
+ 'Arabic embedded font': 'NotoNaskhArabic-Regular.ttf' in template and 'NotoNaskhArabic-Bold.ttf' in template,
  'central Arabic font': "fontFamily: 'NotoNaskhArabic'" in theme,
  'electric blue': '287bff' in theme,
  'purple': '7c4dff' in theme,
@@ -33,7 +33,7 @@ checks={
  'diesel snooze': 'تأجيل التنبيه 10 دقائق' in app,
  'performance screen': 'class PerformancePage' in app,
  '24 required reports': len(re.findall(r"'[^']+':", report.split('titles = {',1)[1].split('};',1)[0])) >= 24,
- '30 default PDF rows': "pdf_rows" in report and "configuredRows" in report and "30" in report,
+ 'PDF row density setting preserved': "pdf_rows" in report and 'preferredRowsPerPage' in report and 'preferredRowsPerPage = 30' in template,
  'official template handles empty reports': (
      'OfficialReportTemplate.preview(' in report
      and 'لا توجد بيانات مطابقة' in report
