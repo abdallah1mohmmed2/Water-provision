@@ -2356,6 +2356,10 @@ void main() {
       )).single['c'],
       movementCountBefore,
     );
+    await expectLater(
+      repo.deleteBeneficiary(beneficiary, 1, 'اختبار رصيد الديزل'),
+      throwsStateError,
+    );
   });
 
 }
