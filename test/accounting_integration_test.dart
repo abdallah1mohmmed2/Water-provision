@@ -2449,6 +2449,9 @@ void main() {
     await movement('payment_reversal', 50, 'عكس دفعة قديمة');
     expect((await svc.workerBalance(worker))['balance'], 850);
     final repo = StationRepository(db);
+    final statement = await repo.workerTransactions(worker);
+    expect(statement, hasLength(7));
+    expect((statement.first['balance'] as num).round(), 850);
     await expectLater(
       repo.deleteWorker(worker, 1, 'له رصيد قديم'),
       throwsStateError,
