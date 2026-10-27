@@ -2899,11 +2899,12 @@ class AccountingService {
         final transactionId = (item['id'] as num).toInt();
         await _reverseEntriesTx(tx, referenceType: 'worker', referenceId: transactionId,
           reason: 'إعادة احتساب السقاية رقم $id', userId: userId);
+        final reversesPersonalIrrigation = '${item['notes'] ?? ''}'.startsWith('خصم قيمة سقاية');
         await tx.insert('worker_transactions', {
           'worker_id': item['worker_id'], 'date': AppClock.now().toIso8601String(),
           'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
           'reference_type': 'irrigation_edit', 'reference_id': transactionId,
-          'notes': '${('${item['notes'] ?? ''}').startsWith('خصم قيمة سقاية') ? 'عكس سقاية العامل' : 'عكس استحقاق العامل'} لإعادة احتساب السقاية رقم $id',
+          'notes': '${reversesPersonalIrrigation ? 'عكس سقاية العامل' : 'عكس استحقاق العامل'} لإعادة احتساب السقاية رقم $id',
           'created_by': userId,
         });
       }
