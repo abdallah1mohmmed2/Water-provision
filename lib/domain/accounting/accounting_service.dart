@@ -3499,6 +3499,32 @@ class AccountingService {
         userId: userId, referenceNumber: referenceNumber, notes: notes,
         sendNotification: false,
       );
+      // Keep the party-specific subledgers in sync just as payWorker/payPartner do.
+      if (workerId != null) {
+        await tx.insert('worker_transactions', {
+          'worker_id': workerId,
+          'date': AppClock.now().toIso8601String(),
+          'type': 'payment',
+          'amount': amount,
+          'cashbox_id': cashboxId,
+          'reference_type': 'payment',
+          'reference_id': replacementId,
+          'notes': notes,
+          'created_by': userId,
+        });
+      }
+      if (partnerId != null) {
+        await tx.insert('partner_transactions', {
+          'partner_id': partnerId,
+          'date': AppClock.now().toIso8601String(),
+          'type': 'payment',
+          'amount': amount,
+          'reference_type': 'payment',
+          'reference_id': replacementId,
+          'notes': notes,
+          'created_by': userId,
+        });
+      }
       final replacementRows = await tx.query('payments',
         where: 'id=?', whereArgs: [replacementId], limit: 1);
       await database.auditTx(tx, userId: userId, operation: 'replace',
