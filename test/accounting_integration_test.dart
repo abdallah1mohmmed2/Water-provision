@@ -2183,4 +2183,60 @@ void main() {
     expect(allocations.values.fold<int>(0, (sum, value) => sum + value), lessThanOrEqualTo(2));
   });
 
+  test('كشف الشريك القديم يميز عكس السقاية عن عكس استحقاق الربح ولو تساوى المبلغ', () async {
+    final repo = StationRepository(db);
+    final partner = await db.insert('partners', {
+      'name': 'شريك عكس قديم',
+      'ownership_mode': 'shares',
+      'shares_count': 1,
+    });
+    await db.insert('partner_transactions', {
+      'partner_id': partner,
+      'date': DateTime(2044, 1, 1).toIso8601String(),
+      'type': 'irrigation',
+      'amount': 6000,
+      'reference_type': 'irrigation',
+      'reference_id': 77,
+      'notes': 'سقاية على حساب الشريك',
+    });
+    await db.insert('partner_transactions', {
+      'partner_id': partner,
+      'date': DateTime(2044, 1, 1).toIso8601String(),
+      'type': 'share_accrual',
+      'amount': 6000,
+      'reference_type': 'irrigation_profit',
+      'reference_id': 77,
+      'notes': 'حصة أرباح السقاية',
+    });
+    await db.insert('partner_transactions', {
+      'partner_id': partner,
+      'date': DateTime(2044, 1, 2).toIso8601String(),
+      'type': 'irrigation_reversal',
+      'amount': 6000,
+      'reference_type': 'irrigation_cancel',
+      'reference_id': 77,
+      'notes': 'عكس سقاية الشريك رقم 77: اختبار',
+    });
+    await db.insert('partner_transactions', {
+      'partner_id': partner,
+      'date': DateTime(2044, 1, 2).toIso8601String(),
+      'type': 'irrigation_reversal',
+      'amount': 6000,
+      'reference_type': 'irrigation_cancel',
+      'reference_id': 77,
+      'notes': 'عكس نصيب الشريك من السقاية رقم 77: اختبار',
+    });
+
+    final rows = await repo.partnerTransactions(partner);
+    final directReversal = rows.singleWhere(
+      (row) => '${row['notes']}'.startsWith('عكس سقاية الشريك'),
+    );
+    final profitReversal = rows.singleWhere(
+      (row) => '${row['notes']}'.startsWith('عكس نصيب الشريك'),
+    );
+    expect((directReversal['signed_amount'] as num).round(), 6000);
+    expect((profitReversal['signed_amount'] as num).round(), -6000);
+    expect(rows.first['balance'], 0);
+  });
+
 }
