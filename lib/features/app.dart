@@ -12019,8 +12019,13 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       );
       if (!mounted) return;
       final paid = _n(row['paid_amount']);
+      final partyLabel = row['worker_id'] != null
+          ? 'العامل'
+          : row['partner_id'] != null
+              ? 'الشريك'
+              : 'المستفيد';
       final message = paid > newTotal
-          ? 'تم تعديل السقاية. المبلغ المدفوع يزيد عن القيمة الجديدة بمقدار ${(paid - newTotal).toString()}؛ بقي الفرق رصيدًا دائنًا للمستفيد.'
+          ? 'تم تعديل السقاية. المدفوعات المسجلة تتجاوز القيمة الجديدة بمقدار ${_money(paid - newTotal)}. لم يُسوَّ الفرق تلقائيًا؛ راجع كشف حساب $partyLabel للتحقق من أثره على الرصيد.'
           : 'تم تعديل السقاية وتحديث القيود والحركات التابعة.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message)),
