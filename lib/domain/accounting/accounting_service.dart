@@ -2775,10 +2775,6 @@ class AccountingService {
       }
       final old = rows.first;
       final type = '${old['system_type']}';
-      final partnerAdjustments = await tx.rawQuery(
-        "SELECT COUNT(*) n FROM partner_transactions WHERE reference_type='partner_profit_adjustment' AND type='share_adjustment' AND reference_id IN (SELECT id FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?)",
-        [id],
-      );
       final oldStart = DateTime.parse('${old['start_datetime']}');
       final oldEnd = DateTime.parse('${old['end_datetime']}');
       await _assertPeriodOpen(tx, oldStart, stationId: (old['station_id'] as num).toInt());
@@ -2901,7 +2897,7 @@ class AccountingService {
           'worker_id': item['worker_id'], 'date': AppClock.now().toIso8601String(),
           'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
           'reference_type': 'irrigation_edit', 'reference_id': transactionId,
-          'notes': 'عكس استحقاق/خصم سابق لإعادة احتساب السقاية رقم $id',
+          'notes': (('${item['notes'] ?? ''}').startsWith('خصم قيمة سقاية') ? 'عكس سقاية العامل' : 'عكس استحقاق العامل') + ' لإعادة احتساب السقاية رقم $id',
           'created_by': userId,
         });
       }
@@ -2915,7 +2911,7 @@ class AccountingService {
           'partner_id': item['partner_id'], 'date': AppClock.now().toIso8601String(),
           'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
           'reference_type': 'irrigation_edit', 'reference_id': (item['id'] as num).toInt(),
-          'notes': 'عكس خصم السقاية السابقة رقم $id لإعادة احتسابها',
+          'notes': 'عكس سقاية الشريك: خصم سابق من السقاية رقم $id لإعادة احتسابها',
           'created_by': userId,
         });
       }
@@ -2926,6 +2922,22 @@ class AccountingService {
       );
       for (final item in partnerRows) {
         final transactionId = (item['id'] as num).toInt();
+        final priorAdjustments = await tx.query(
+          'partner_transactions',
+          where: "reference_type='partner_profit_adjustment' AND reference_id=? AND type='share_adjustment' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='partner_profit_adjustment_cancel' AND rev.reference_id=partner_transactions.id AND rev.type='share_adjustment_reversal')",
+          whereArgs: [transactionId],
+        );
+        for (final adjustment in priorAdjustments) {
+          final adjustmentId = (adjustment['id'] as num).toInt();
+          await _reverseEntriesTx(tx, referenceType: 'partner_profit_adjustment', referenceId: adjustmentId,
+            reason: 'إعادة احتساب السقاية رقم $id', userId: userId);
+          await tx.insert('partner_transactions', {
+            'partner_id': adjustment['partner_id'], 'date': AppClock.now().toIso8601String(),
+            'type': 'share_adjustment_reversal', 'amount': (adjustment['amount'] as num).round(),
+            'reference_type': 'partner_profit_adjustment_cancel', 'reference_id': adjustmentId,
+            'notes': 'عكس تسوية حصة الشريك بسبب تعديل السقاية رقم $id', 'created_by': userId,
+          });
+        }
         await _reverseEntriesTx(tx, referenceType: 'partner', referenceId: transactionId,
           reason: 'إعادة احتساب السقاية رقم $id', userId: userId);
         await tx.insert('partner_transactions', {
