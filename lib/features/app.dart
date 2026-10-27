@@ -9800,7 +9800,7 @@ class _WorkersState extends State<WorkersPage> {
           OutlinedButton.icon(
             onPressed: accrueMonthlySalary,
             icon: const Icon(Icons.event_available_rounded),
-            label: const Text('ترحيل راتب الشهر'),
+            label: const Text('ترحيل استحقاقات العمال'),
           ),
         FilledButton.icon(
           onPressed: add,
