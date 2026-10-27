@@ -45,6 +45,8 @@ checks={
      and 'printAfterGenerate: false' in report
      and 'Future<Uint8List> paymentReceiptPdf' in report
      and 'Future<Uint8List> invoicesPdf' in report
+     and 'pw.Document(' not in report
+     and 'doc.addPage(' not in report
  ),
  'official template controls PDF layout and optional printing': (
      'pw.MultiPage(' in template
