@@ -12489,6 +12489,13 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
 
       // نفحص كل العاملين قبل أي كتابة حتى لا يبدأ ترحيل جزئي إذا كانت الفترة مسجلة سابقًا.
       final stationId = await widget.r.accounting.currentStationId();
+      final distributionAlready = await widget.r.db.rawQuery(
+        "SELECT 1 FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id WHERE p.station_id=? AND pt.reference_type='profit_distribution' AND pt.reference_id=? LIMIT 1",
+        [stationId, startDate.millisecondsSinceEpoch],
+      );
+      if (distributionAlready.isNotEmpty) {
+        throw StateError('سبق ترحيل توزيع أرباح الشركاء للفترة نفسها؛ لم تُسجّل أي استحقاقات جديدة.');
+      }
       for (final entry in amounts.entries) {
         final duplicate = await widget.r.db.rawQuery(
           "SELECT 1 FROM worker_transactions wt JOIN workers w ON w.id=wt.worker_id WHERE w.station_id=? AND wt.worker_id=? AND wt.notes LIKE ? LIMIT 1",
