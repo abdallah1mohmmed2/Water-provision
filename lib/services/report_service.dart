@@ -310,6 +310,7 @@ class ReportService {
       fileName: '${titles[key] ?? key}.pdf',
       minTableRows: 7,
       pageFormat: sourceHeaders.length >= 6 ? PdfPageFormat.a4.landscape : PdfPageFormat.a4,
+      preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
       printAfterGenerate: false,
     );
 
@@ -1080,6 +1081,7 @@ class ReportService {
       fileName: '${isReceipt ? 'سند-قبض' : 'سند-صرف'}-$paymentId.pdf',
       minTableRows: 1,
       pageFormat: PdfPageFormat.a4,
+      preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
       printAfterGenerate: false,
     );
   }
@@ -1285,6 +1287,7 @@ class ReportService {
       fileName: 'تقرير-الفواتير.pdf',
       minTableRows: 7,
       pageFormat: PdfPageFormat.a4.landscape,
+      preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
       printAfterGenerate: false,
     );
   }
