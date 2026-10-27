@@ -2894,13 +2894,24 @@ class AccountingService {
           whereArgs: [accrualId],
         );
         for (final adjustment in adjustments) {
+          final adjustmentId = (adjustment['id'] as num).toInt();
           await _reverseEntriesTx(
             tx,
             referenceType: 'partner_profit_adjustment',
-            referenceId: (adjustment['id'] as num).toInt(),
+            referenceId: adjustmentId,
             reason: 'إلغاء السقاية الأصلية: $reason',
             userId: userId,
           );
+          await tx.insert('partner_transactions', {
+            'partner_id': item['partner_id'],
+            'date': AppClock.now().toIso8601String(),
+            'type': 'share_adjustment_reversal',
+            'amount': (adjustment['amount'] as num).round(),
+            'reference_type': 'partner_profit_adjustment_cancel',
+            'reference_id': adjustmentId,
+            'notes': 'عكس تسوية حصة الشريك بسبب إلغاء السقاية رقم $id',
+            'created_by': userId,
+          });
         }
         await tx.insert('partner_transactions', {
           'partner_id': item['partner_id'],
