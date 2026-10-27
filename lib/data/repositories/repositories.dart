@@ -2523,9 +2523,15 @@ class StationRepository {
 
             // Keep the actual payments and the partner's own irrigation charges,
             // but do not expose a separate profit amount for every irrigation.
+            // إجمالي أرباح الشريك هو صافي جميع حركات الأرباح:
+            // الاستحقاقات المباشرة والتوزيعات، مطروحًا منها تسويات فائض الحصة.
+            // في الأستاذ تظهر التسوية باسم reference_type، وفي مسار السجلات
+            // القديمة قد تظهر باسم share_adjustment؛ يجب احتساب الحالتين مرة واحدة.
             final profitRows = periodTransactions.where((row) =>
               row['type'] == 'share_accrual' ||
-              row['type'] == 'irrigation_profit'
+              row['type'] == 'irrigation_profit' ||
+              row['type'] == 'partner_profit_adjustment' ||
+              row['type'] == 'share_adjustment'
             ).toList();
             final totalProfit = profitRows.fold<int>(0, (sum, row) =>
               sum + ((row['signed_amount'] as num?)?.round() ?? 0));
