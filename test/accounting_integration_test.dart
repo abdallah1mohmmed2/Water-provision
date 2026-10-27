@@ -641,6 +641,7 @@ void main() {
     expect((rows.first['signed_amount'] as num).round(), -2000);
     expect((rows.last['signed_amount'] as num).round(), 8000);
     expect((rows.first['balance'] as num).round(), 6000);
+    expect((await svc.partnerBalance(partner))['balance'], 6000);
   });
 
   test('الدفعة المرافقة للسقاية مرفوضة لغير المستفيد', () async {
@@ -2417,6 +2418,32 @@ void main() {
     );
     expect((accruals.single['total'] as num).round(), lessThanOrEqualTo(2));
     expect((accruals.single['total'] as num).round(), 2);
+  });
+
+  test('رصيد العامل يستعيد حركاته القديمة عند غياب قيود الأستاذ مع اتجاه عكس صحيح', () async {
+    final worker = await db.insert('workers', {
+      'name': 'عامل حركات قديمة',
+      'pay_type': 'fixed',
+    });
+    Future<void> movement(String type, int amount, String notes, {String? referenceType, int? referenceId}) async {
+      await db.insert('worker_transactions', {
+        'worker_id': worker,
+        'date': DateTime(2047, 1, 1).toIso8601String(),
+        'type': type,
+        'amount': amount,
+        'notes': notes,
+        'reference_type': referenceType,
+        'reference_id': referenceId,
+      });
+    }
+    await movement('accrual', 1000, 'استحقاق قديم');
+    await movement('irrigation', 300, 'خصم قيمة سقاية من حساب العامل', referenceType: 'irrigation', referenceId: 801);
+    await movement('irrigation_reversal', 300, 'عكس سقاية العامل من السقاية رقم 801');
+    await movement('irrigation', 100, 'استحقاق بالساعة من السقاية', referenceType: 'irrigation', referenceId: 802);
+    await movement('irrigation_reversal', 100, 'عكس استحقاق العامل من السقاية رقم 802');
+    await movement('payment', 200, 'دفعة قديمة');
+    await movement('payment_reversal', 50, 'عكس دفعة قديمة');
+    expect((await svc.workerBalance(worker))['balance'], 850);
   });
 
 }
