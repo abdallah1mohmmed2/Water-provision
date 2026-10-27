@@ -2458,4 +2458,65 @@ void main() {
     );
   });
 
+  test('ملخص الشريك يستبعد الدفعات الملغاة من إجمالي المدفوع', () async {
+    final repo = StationRepository(db);
+    final partner = await repo.createPartner(
+      name: 'شريك ملخص الدفعات الملغاة',
+      mode: 'shares',
+      shares: 1,
+    );
+    await svc.createPartnerShare(partnerId: partner, amount: 1000, date: DateTime.now());
+    await db.update('cashboxes', {'current_balance': 100000}, 'id=?', [1]);
+    final payment = await svc.payPartner(
+      partnerId: partner,
+      amount: 200,
+      paymentMethodId: 1,
+      cashboxId: 1,
+    );
+    final before = await repo.partyFinancialSummary('partner', partner);
+    expect(before['paid'], 200);
+    expect(before['earnings'], 1000);
+    await svc.cancelPayment(payment, 1, 'اختبار إلغاء الدفعة');
+    final after = await repo.partyFinancialSummary('partner', partner);
+    expect(after['paid'], 0);
+    expect(after['earnings'], 1000);
+    expect(after['balance'], 1000);
+  });
+
+  test('ملخص دخل العامل يعكس استحقاق السقاية الملغاة ولا يتركه ضمن الأرباح', () async {
+    await useSolar6000();
+    await db.update('workers', {'active': 0}, 'id>? ', [0]);
+    await db.update('partners', {'active': 0}, 'id>? ', [0]);
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(
+      name: 'عامل استحقاق ملغى',
+      payType: 'hourly',
+      hourlyRate: 500,
+    );
+    final beneficiary = await repo.createBeneficiary(name: 'مستفيد سقاية ملغاة');
+    final start = DateTime(2048, 2, 1, 8);
+    final irrigation = await svc.recordIrrigation(
+      stationId: 1,
+      pumpId: 1,
+      beneficiaryId: beneficiary,
+      operatorWorkerId: worker,
+      start: start,
+      end: start.add(const Duration(hours: 1)),
+      systemType: 'solar',
+      waterRate: 0,
+      litersPerHour: 0,
+      dieselPrice: 0,
+      solarRate: 0,
+      thirdRate: 0,
+      cloudMinutes: 0,
+      paidAmount: 0,
+    );
+    final before = await repo.partyFinancialSummary('worker', worker);
+    expect(before['earnings'], 500);
+    await svc.cancelIrrigation(irrigation, 1, 'اختبار إلغاء استحقاق العامل');
+    final after = await repo.partyFinancialSummary('worker', worker);
+    expect(after['earnings'], 0);
+    expect(after['balance'], 0);
+  });
+
 }
