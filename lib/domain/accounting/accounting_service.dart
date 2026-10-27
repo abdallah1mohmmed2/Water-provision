@@ -2774,9 +2774,6 @@ class AccountingService {
         throw StateError('السقاية غير موجودة أو ملغاة/غير مرحّلة');
       }
       final old = rows.first;
-      if ('${old['party_type']}' != 'beneficiary') {
-        throw StateError('تعديل سقايات الشركاء أو العمال يحتاج معالجة استحقاقاتهم؛ لم تُغيّر أي بيانات');
-      }
       final type = '${old['system_type']}';
       if (type == 'diesel') {
         throw StateError('هذه السقاية مرتبطة بحساب استهلاك الديزل؛ لم تُغيّر أي بيانات');
@@ -2785,14 +2782,19 @@ class AccountingService {
         """SELECT
           (SELECT COUNT(*) FROM payments WHERE reference_number=? AND status='posted') payments_count,
           (SELECT COUNT(*) FROM diesel_movements WHERE irrigation_id=?) diesel_count,
-          (SELECT COUNT(*) FROM cloud_periods WHERE irrigation_id=?) cloud_count,
-          (SELECT COUNT(*) FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=?) worker_count,
-          (SELECT COUNT(*) FROM partner_transactions WHERE reference_type='irrigation' AND reference_id=?) partner_count""",
-        ['IRR-$id', id, id, id, id],
+          (SELECT COUNT(*) FROM cloud_periods WHERE irrigation_id=?) cloud_count""",
+        ['IRR-$id', id, id],
       );
       final rel = linked.first;
       if (rel.values.any((v) => (v as num? ?? 0) != 0)) {
-        throw StateError('للسقاية دفعات أو غيم أو ديزل أو استحقاقات مرتبطة؛ لم تُغيّر أي بيانات حفاظًا على تطابق الحسابات');
+        throw StateError('هذه السقاية مرتبطة بدفعات أو حركات ديزل أو فترات غيم مفصلة؛ لم تُغيّر أي بيانات حفاظًا على تطابق الحسابات');
+      }
+      final partnerAdjustments = await tx.rawQuery(
+        "SELECT COUNT(*) n FROM partner_transactions WHERE reference_type='partner_profit_adjustment' AND type='share_adjustment' AND reference_id IN (SELECT id FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?)",
+        [id],
+      );
+      if (((partnerAdjustments.first['n'] as num?)?.toInt() ?? 0) > 0) {
+        throw StateError('تمت تسوية حصة شريك مرتبطة بهذه السقاية؛ يلزم عكس التسوية أولًا، ولم تُغيّر أي بيانات');
       }
       final oldStart = DateTime.parse('${old['start_datetime']}');
       await _assertPeriodOpen(tx, oldStart, stationId: (old['station_id'] as num).toInt());
@@ -2824,15 +2826,83 @@ class AccountingService {
       if (((old['paid_amount'] as num?)?.toInt() ?? 0) > result.totalAmount) {
         throw StateError('القيمة الجديدة أقل من المبلغ المدفوع سابقًا؛ لم تُغيّر أي بيانات');
       }
+      final partyType = '${old['party_type'] ?? 'beneficiary'}';
+      final beneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
+      final workerId = (old['worker_id'] as num?)?.toInt();
+      final partnerId = (old['partner_id'] as num?)?.toInt();
+      if (partyType == 'beneficiary' && beneficiaryId == null ||
+          partyType == 'worker' && workerId == null ||
+          partyType == 'partner' && partnerId == null) {
+        throw StateError('بيانات صاحب حساب السقاية غير مكتملة؛ لم تُغيّر أي بيانات');
+      }
+      if (!{'beneficiary', 'worker', 'partner'}.contains(partyType)) {
+        throw StateError('نوع صاحب حساب السقاية غير مدعوم؛ لم تُغيّر أي بيانات');
+      }
+
+      // Reverse linked wage and partner accrual rows without deleting history.
+      final workerRows = await tx.query(
+        'worker_transactions',
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation'",
+        whereArgs: [id],
+      );
+      for (final item in workerRows) {
+        final transactionId = (item['id'] as num).toInt();
+        await _reverseEntriesTx(tx, referenceType: 'worker', referenceId: transactionId,
+          reason: 'إعادة احتساب السقاية رقم $id', userId: userId);
+        await tx.insert('worker_transactions', {
+          'worker_id': item['worker_id'], 'date': AppClock.now().toIso8601String(),
+          'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
+          'reference_type': 'irrigation_edit', 'reference_id': id,
+          'notes': 'عكس استحقاق/خصم سابق لإعادة احتساب السقاية رقم $id',
+          'created_by': userId,
+        });
+      }
+      final directPartnerRows = await tx.query(
+        'partner_transactions',
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation'",
+        whereArgs: [id],
+      );
+      for (final item in directPartnerRows) {
+        await tx.insert('partner_transactions', {
+          'partner_id': item['partner_id'], 'date': AppClock.now().toIso8601String(),
+          'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
+          'reference_type': 'irrigation_edit', 'reference_id': id,
+          'notes': 'عكس خصم السقاية السابقة رقم $id لإعادة احتسابها',
+          'created_by': userId,
+        });
+      }
+      final partnerRows = await tx.query(
+        'partner_transactions',
+        where: "reference_type='irrigation_profit' AND reference_id=? AND type='share_accrual'",
+        whereArgs: [id],
+      );
+      for (final item in partnerRows) {
+        final transactionId = (item['id'] as num).toInt();
+        await _reverseEntriesTx(tx, referenceType: 'partner', referenceId: transactionId,
+          reason: 'إعادة احتساب السقاية رقم $id', userId: userId);
+        await tx.insert('partner_transactions', {
+          'partner_id': item['partner_id'], 'date': AppClock.now().toIso8601String(),
+          'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
+          'reference_type': 'irrigation_edit', 'reference_id': id,
+          'notes': 'عكس حصة الشريك السابقة من السقاية رقم $id لإعادة احتسابها',
+          'created_by': userId,
+        });
+      }
       await _reverseEntriesTx(
         tx, referenceType: 'irrigation', referenceId: id,
         reason: 'تصحيح بيانات السقاية رقم $id', userId: userId,
       );
       final waterRevenue = await _accountIdTx(tx, '4000');
-      final receivable = await _accountIdTx(tx, '1200');
+      final receivable = partyType == 'worker'
+          ? await _workerAccountIdTx(tx, workerId!)
+          : partyType == 'partner'
+              ? await _partnerAccountIdTx(tx, partnerId!)
+              : await _accountIdTx(tx, '1200');
       final lines = <Map<String, Object?>>[
-        {'account_id': receivable, 'beneficiary_id': old['beneficiary_id'],
-         'debit': result.totalAmount, 'credit': 0, 'memo': 'استحقاق سقاية بعد التعديل'},
+        {'account_id': receivable, 'beneficiary_id': beneficiaryId,
+         'worker_id': workerId, 'partner_id': partnerId,
+         'debit': result.totalAmount, 'credit': 0,
+         'memo': partyType == 'beneficiary' ? 'استحقاق سقاية بعد التعديل' : 'خصم سقاية من مستحقات الطرف بعد التعديل'},
       ];
       if (result.waterAmount > 0) {
         lines.add({'account_id': waterRevenue, 'debit': 0,
@@ -2859,6 +2929,39 @@ class AccountingService {
         'updated_at': now,
       };
       await tx.update('irrigations', values, where: 'id=?', whereArgs: [id]);
+
+      // Recreate wage accruals and partner allocations from the edited amount.
+      var totalWorkerEntitlement = 0;
+      final wageWorkers = await tx.query('workers',
+        columns: ['id'],
+        where: "station_id=? AND active=1 AND pay_type IN ('hourly', 'percentage')",
+        whereArgs: [(old['station_id'] as num).toInt()], orderBy: 'id');
+      for (final wageWorker in wageWorkers) {
+        totalWorkerEntitlement += await _accrueWorkerIrrigationTx(
+          tx, workerId: (wageWorker['id'] as num).toInt(), irrigationId: id,
+          amount: result.totalAmount, hours: result.chargeableMinutes / 60.0,
+          date: start, userId: userId);
+      }
+      if (partyType == 'worker') {
+        await tx.insert('worker_transactions', {
+          'worker_id': workerId, 'date': start.toIso8601String(), 'type': 'irrigation',
+          'amount': result.totalAmount, 'reference_type': 'irrigation', 'reference_id': id,
+          'notes': 'خصم قيمة سقاية من حساب العامل', 'created_by': userId,
+        });
+      } else if (partyType == 'partner') {
+        await tx.insert('partner_transactions', {
+          'partner_id': partnerId, 'date': start.toIso8601String(), 'type': 'irrigation',
+          'amount': result.totalAmount, 'ownership_snapshot': null,
+          'reference_type': 'irrigation', 'reference_id': id,
+          'notes': 'خصم قيمة سقاية من حساب الشريك', 'created_by': userId,
+        });
+      }
+      final partnerPool = (result.totalAmount - totalWorkerEntitlement).clamp(0, result.totalAmount).toInt();
+      if (partnerPool > 0) {
+        await _accruePartnersFromIrrigationTx(tx,
+          irrigationId: id, stationId: (old['station_id'] as num).toInt(),
+          amount: partnerPool, date: start, userId: userId);
+      }
       await database.auditTx(tx, userId: userId, operation: 'update',
         table: 'irrigations', recordId: id, oldValues: old,
         newValues: values, reason: 'تعديل وقت السقاية وإعادة ترحيل قيدها');
