@@ -1175,6 +1175,16 @@ class StationRepository {
     if (mode == 'percentage' && (percentage < 0 || percentage > 100 || shares != 0)) throw ArgumentError('اختر النسبة فقط بين صفر و100');
     final stationId = await accounting.currentStationId();
     final id = await db.transaction((tx) async {
+      if (mode == 'percentage') {
+        final rows = await tx.rawQuery(
+          "SELECT COALESCE(SUM(ownership_percentage),0) total FROM partners WHERE station_id=? AND active=1 AND ownership_mode='percentage'",
+          [stationId],
+        );
+        final existing = (rows.first['total'] as num?)?.toDouble() ?? 0;
+        if (existing + percentage > 100.0000001) {
+          throw ArgumentError('مجموع نسب ملكية الشركاء النشطين لا يمكن أن يتجاوز 100%');
+        }
+      }
       final newId = await tx.insert('partners', {
         'station_id': stationId,
         'name': name.trim(),
@@ -1219,6 +1229,17 @@ class StationRepository {
     if (mode == 'shares' && (shares <= 0 || percentage != 0)) throw ArgumentError('طريقة الحصص لا تقبل نسبة ملكية');
     if (mode == 'percentage' && (percentage < 0 || percentage > 100 || shares != 0)) throw ArgumentError('طريقة النسبة لا تقبل حصصًا');
     final old = found.first;
+    if ('${values['active'] ?? old['active']}' == '1' &&
+        mode == 'percentage') {
+      final rows = await db.rawQuery(
+        "SELECT COALESCE(SUM(ownership_percentage),0) total FROM partners WHERE station_id=? AND active=1 AND ownership_mode='percentage' AND id<>?",
+        [old['station_id'], id],
+      );
+      final existing = (rows.first['total'] as num?)?.toDouble() ?? 0;
+      if (existing + percentage > 100.0000001) {
+        throw ArgumentError('مجموع نسب ملكية الشركاء النشطين لا يمكن أن يتجاوز 100%');
+      }
+    }
     await db.update('partners', values, 'id=?', [id]);
     await db.audit(userId:userId, operation:'update', table:'partners', recordId:id, oldValues:old, newValues:values);
   }
