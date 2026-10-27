@@ -8109,6 +8109,7 @@ class _PaymentsState extends State<PaymentsPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       try {
         String? editReason;
         if (existing != null) {
