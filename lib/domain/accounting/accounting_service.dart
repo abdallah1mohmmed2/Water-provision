@@ -2795,7 +2795,6 @@ class AccountingService {
         throw StateError('للسقاية دفعات أو غيم أو ديزل أو استحقاقات مرتبطة؛ لم تُغيّر أي بيانات حفاظًا على تطابق الحسابات');
       }
       final oldStart = DateTime.parse('${old['start_datetime']}');
-      final oldEnd = DateTime.parse('${old['end_datetime']}');
       await _assertPeriodOpen(tx, oldStart, stationId: (old['station_id'] as num).toInt());
       await _assertPeriodOpen(tx, start, stationId: (old['station_id'] as num).toInt());
       final overlap = await tx.rawQuery(
