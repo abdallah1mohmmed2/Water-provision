@@ -2557,6 +2557,89 @@ class AccountingService {
     });
   }
 
+  /// يسجل استحقاقات العمال الثابتة دفعة واحدة داخل معاملة واحدة لمنع الترحيل الجزئي.
+  Future<int> createWorkerAccrualBatch({
+    required Map<int, int> amounts,
+    required DateTime from,
+    required DateTime to,
+    required DateTime date,
+    required String periodKey,
+    required String periodLabel,
+    int? userId,
+  }) async {
+    final start = DateTime(from.year, from.month, from.day);
+    final endExclusive = DateTime(to.year, to.month, to.day + 1);
+    final accrualDate = DateTime(date.year, date.month, date.day, 23, 59, 59);
+    if (endExclusive.isBefore(start) || !endExclusive.isAfter(start)) {
+      throw ArgumentError('تاريخ بداية الفترة يجب ألا يتجاوز تاريخ نهايتها');
+    }
+    final positiveAmounts = Map<int, int>.fromEntries(
+      amounts.entries.where((entry) => entry.value > 0),
+    );
+    if (positiveAmounts.isEmpty) return 0;
+    if (positiveAmounts.values.any((amount) => amount < 0)) {
+      throw ArgumentError('مبالغ الاستحقاق يجب ألا تكون سالبة');
+    }
+    return database.transaction((tx) async {
+      final stationId = await _selectedStationIdTx(tx);
+      await _assertPeriodRangeOpen(tx, start, endExclusive, stationId: stationId);
+      final workerRows = await tx.query(
+        'workers',
+        where: "station_id=? AND active=1 AND pay_type='fixed'",
+        whereArgs: [stationId],
+      );
+      final workersById = <int, Map<String, Object?>>{
+        for (final worker in workerRows) (worker['id'] as num).toInt(): worker,
+      };
+      for (final entry in positiveAmounts.entries) {
+        if (!workersById.containsKey(entry.key)) {
+          throw StateError('أحد العمال المحددين غير نشط أو ليس من فئة الراتب الثابت؛ لم يتم ترحيل أي مبلغ.');
+        }
+        final duplicate = await tx.rawQuery(
+          "SELECT 1 FROM worker_transactions WHERE worker_id=? AND (notes LIKE ? OR (reference_type='monthly_salary' AND date>=? AND date<?)) LIMIT 1",
+          [entry.key, '%$periodKey%', start.toIso8601String(), endExclusive.toIso8601String()],
+        );
+        if (duplicate.isNotEmpty) {
+          final name = workersById[entry.key]?['name'] ?? 'العامل';
+          throw StateError('يوجد استحقاق مرحّل مسبقًا للعامل $name ضمن الفترة المحددة؛ لم يتم ترحيل أي مبالغ جديدة.');
+        }
+      }
+      final expenseAccount = await _accountIdTx(tx, '5000');
+      var count = 0;
+      for (final entry in positiveAmounts.entries) {
+        final workerId = entry.key;
+        final amount = entry.value;
+        final id = await tx.insert('worker_transactions', {
+          'worker_id': workerId,
+          'date': accrualDate.toIso8601String(),
+          'type': 'accrual',
+          'hours': 0,
+          'rate_snapshot': amount,
+          'percentage_snapshot': 0,
+          'amount': amount,
+          'notes': '$periodKey | استحقاق راتب ثابت للفترة $periodLabel | العامل: ${workersById[workerId]?['name'] ?? ''}',
+          'created_by': userId,
+        });
+        final payableAccount = await _workerAccountIdTx(tx, workerId);
+        await _entry(
+          tx,
+          description: 'استحقاق راتب ثابت للعامل',
+          referenceType: 'worker',
+          referenceId: id,
+          userId: userId,
+          date: accrualDate,
+          stationId: stationId,
+          lines: [
+            {'account_id': expenseAccount, 'worker_id': workerId, 'debit': amount, 'credit': 0},
+            {'account_id': payableAccount, 'worker_id': workerId, 'debit': 0, 'credit': amount},
+          ],
+        );
+        count++;
+      }
+      return count;
+    });
+  }
+
   Future<void> createWorkerAccrual({
     required int workerId,
     required int amount,
