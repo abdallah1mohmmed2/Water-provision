@@ -9710,7 +9710,7 @@ class _WorkersState extends State<WorkersPage> {
       final details = <String>[];
       for (final entry in amounts.entries) {
         final worker = fixedWorkers.firstWhere((w) => (w['id'] as num).toInt() == entry.key);
-        details.add('${worker['name'] ?? 'عامل'}: ${_money(entry.value)} ريال');
+        details.add('${worker['name'] ?? 'عامل'}: ${money(entry.value)}');
       }
       final finalConfirm = await showDialog<bool>(
         context: context,
@@ -9719,7 +9719,7 @@ class _WorkersState extends State<WorkersPage> {
           content: Text(
             'الفترة: $periodLabel\n'
             'عدد العمال ذوي المبالغ المدخلة: ${amounts.length}\n'
-            'إجمالي الاستحقاقات: ${_money(total)} ريال\n\n'
+            'إجمالي الاستحقاقات: ${money(total)}\n\n'
             '${details.isEmpty ? 'لم تُدخل أي مبالغ موجبة.' : details.join('\n')}\n\n'
             'لن تُرحّل استحقاقات عمال الساعة أو النسبة يدويًا، ولن يتم توزيع أرباح الشركاء من هذه الشاشة.',
           ),
