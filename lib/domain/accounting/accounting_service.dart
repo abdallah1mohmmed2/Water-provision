@@ -2343,9 +2343,15 @@ class AccountingService {
 
   Future<int> accrueMonthlySalaries({required DateTime month, int? userId}) async {
     final start = DateTime(month.year, month.month, 1), end = DateTime(month.year, month.month + 1, 1);
+    // راتب الشهر الجاري يُثبت بتاريخ الترحيل ليظهر ضمن فترة الشهر حتى لو لم
+    // ينتهِ الشهر بعد؛ أما الأشهر السابقة فتُثبت في آخر يوم من الشهر.
+    final now = AppClock.now();
+    final accrualDate = month.year == now.year && month.month == now.month
+        ? now
+        : end.subtract(const Duration(seconds: 1));
     return database.transaction((tx) async {
       final stationId = await _selectedStationIdTx(tx);
-      await _assertPeriodOpen(tx, end.subtract(const Duration(microseconds: 1)), stationId: stationId);
+      await _assertPeriodOpen(tx, accrualDate, stationId: stationId);
       var count = 0;
       final workers = await tx.query(
         'workers',
@@ -2368,7 +2374,7 @@ class AccountingService {
         final amount = (w['fixed_salary'] as num).round();
         final id = await tx.insert('worker_transactions', {
           'worker_id': wid,
-          'date': end.subtract(const Duration(seconds: 1)).toIso8601String(),
+          'date': accrualDate.toIso8601String(),
           'type': 'worker_entitlement',
           'amount': amount,
           'rate_snapshot': amount,
@@ -2378,7 +2384,7 @@ class AccountingService {
           'created_by': userId,
         });
         final exp = await _accountIdTx(tx, '5000'), payable = await _workerAccountIdTx(tx, wid);
-        await _entry(tx, description: 'راتب العامل الشهري', referenceType: 'worker', referenceId: id, userId: userId, date: end.subtract(const Duration(seconds: 1)), stationId: stationId, lines: [{'account_id': exp, 'worker_id': wid, 'debit': amount, 'credit': 0}, {'account_id': payable, 'worker_id': wid, 'debit': 0, 'credit': amount}]);
+        await _entry(tx, description: 'راتب العامل الشهري', referenceType: 'worker', referenceId: id, userId: userId, date: accrualDate, stationId: stationId, lines: [{'account_id': exp, 'worker_id': wid, 'debit': amount, 'credit': 0}, {'account_id': payable, 'worker_id': wid, 'debit': 0, 'credit': amount}]);
         count++;
       }
       return count;
