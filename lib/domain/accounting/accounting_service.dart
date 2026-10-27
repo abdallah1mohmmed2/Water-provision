@@ -1981,6 +1981,9 @@ class AccountingService {
     await database.transaction((tx) async {
       await _assertPeriodOpen(tx, date);
       final amount = (liters * unitPrice).round();
+      if ((kind == 'correction' || kind == 'opening_balance') && amount <= 0) {
+        throw ArgumentError('تصحيح المخزون والرصيد الافتتاحي يتطلبان قيمة مالية موجبة');
+      }
       final stock = await tx.rawQuery(
         "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
       );
@@ -2043,6 +2046,38 @@ class AccountingService {
           lines: [
             {'account_id': fuelExpense, 'debit': amount, 'credit': 0},
             {'account_id': inventory, 'debit': 0, 'credit': amount},
+          ],
+          userId: userId,
+          date: date,
+        );
+      }
+      if (kind == 'correction') {
+        final inventory = await _accountIdTx(tx, '1300');
+        final fuelExpense = await _accountIdTx(tx, '5010');
+        await _entry(
+          tx,
+          description: 'تصحيح زيادة مخزون الديزل',
+          referenceType: 'diesel_correction',
+          referenceId: id,
+          lines: [
+            {'account_id': inventory, 'debit': amount, 'credit': 0},
+            {'account_id': fuelExpense, 'debit': 0, 'credit': amount},
+          ],
+          userId: userId,
+          date: date,
+        );
+      }
+      if (kind == 'opening_balance') {
+        final inventory = await _accountIdTx(tx, '1300');
+        final equity = await _accountIdTx(tx, '3000');
+        await _entry(
+          tx,
+          description: 'رصيد افتتاحي لمخزون الديزل',
+          referenceType: 'diesel_opening_balance',
+          referenceId: id,
+          lines: [
+            {'account_id': inventory, 'debit': amount, 'credit': 0},
+            {'account_id': equity, 'debit': 0, 'credit': amount},
           ],
           userId: userId,
           date: date,
@@ -3009,6 +3044,8 @@ class AccountingService {
         'consumption' => 'diesel_consumption',
         'delivery' => 'diesel',
         'advance' => 'diesel_advance',
+        'correction' => 'diesel_correction',
+        'opening_balance' => 'diesel_opening_balance',
         _ => null,
       };
       if (refType != null) {
