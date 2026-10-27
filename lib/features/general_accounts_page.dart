@@ -56,10 +56,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
     if (mounted) setState(() { _loading = true; _error = null; });
     try {
       final db = await _db;
-      final stationRows = await db.rawQuery(
-        "SELECT CAST(value AS INTEGER) station_id FROM settings WHERE key='current_station_id' LIMIT 1",
-      );
-      final stationId = stationRows.isEmpty ? 1 : ((stationRows.first['station_id'] as num?)?.toInt() ?? 1);
+      final stationId = await widget.repository.accounting.currentStationId();
       final accounts = await db.query(
         'general_accounts',
         where: 'station_id=? AND active=1 AND (name LIKE ? OR COALESCE(phone, \'\') LIKE ?)',
@@ -158,10 +155,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
     name.dispose(); phone.dispose(); address.dispose(); notes.dispose(); opening.dispose();
   }
 
-  Future<int> _stationId(Database db) async {
-    final rows = await db.rawQuery("SELECT value FROM settings WHERE key='station_id' LIMIT 1");
-    return rows.isEmpty ? 1 : (int.tryParse('${rows.first['value']}') ?? 1);
-  }
+  Future<int> _stationId(Database db) => widget.repository.accounting.currentStationId();
 
   Future<void> _addTransaction(Map<String, Object?> account, String type) async {
     final amount = TextEditingController();
