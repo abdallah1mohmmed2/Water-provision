@@ -344,7 +344,7 @@ class OfficialReportTemplate {
             ),
             child: pw.Text(
               data.number,
-              style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: cellFontSize),
+              style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 9),
             ),
           ),
         ),
