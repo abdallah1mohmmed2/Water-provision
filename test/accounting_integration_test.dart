@@ -421,8 +421,8 @@ void main() {
 
     for (final partnerId in [p1, p2]) {
       final partnerRows = await db.query(
-        "SELECT type,amount,reference_type,reference_id FROM partner_transactions WHERE partner_id=? AND reference_type IN ('irrigation_profit','irrigation_edit') AND reference_id IN (?, (SELECT id FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=? LIMIT 1)) ORDER BY id",
-        args: [partnerId, id, id],
+        "SELECT type,amount,reference_type,reference_id FROM partner_transactions WHERE partner_id=? AND reference_type IN ('irrigation_profit','irrigation_edit') AND reference_id IN (?, (SELECT id FROM partner_transactions WHERE partner_id=? AND reference_type='irrigation_profit' AND reference_id=? LIMIT 1)) ORDER BY id",
+        args: [partnerId, id, partnerId, id],
       );
       expect(partnerRows.where((r) => r['type'] == 'share_accrual').length, 2);
       expect(partnerRows.where((r) => r['type'] == 'irrigation_reversal').length, 1);
