@@ -366,7 +366,7 @@ void main() {
   test('تقرير السقايات يشمل كامل اليوم المحدد ولا يخلط اليوم التالي', () async {
     final day = DateTime(2043, 6, 12);
     final beneficiaryId = await db.insert('beneficiaries', {
-      'name': 'مستفيد اختبار فلتر اليوم',
+      'name': 'فلتر',
       'created_at': day.toIso8601String(),
       'updated_at': day.toIso8601String(),
     });
