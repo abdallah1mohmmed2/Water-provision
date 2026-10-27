@@ -345,7 +345,7 @@ void main() {
     expect(before['ledger_revenue_total'], 6000);
     expect((before['mismatched_irrigations'] as List).isEmpty, isTrue);
 
-    await db.rawUpdate(
+    await (await db.db).rawUpdate(
       """UPDATE journal_lines SET credit=5000
          WHERE journal_entry_id=(
            SELECT id FROM journal_entries
