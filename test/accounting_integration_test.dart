@@ -413,9 +413,11 @@ void main() {
     );
     expect(workerRows.where((r) => r['type'] == 'irrigation').length, 2);
     expect(workerRows.where((r) => r['type'] == 'irrigation_reversal').length, 1);
+    // يحتفظ السجل التاريخي بالاستحقاق القديم (700) والجديد (1,400).
+    // لا تُجمع هذه الصفوف وحدها كرصيد؛ صف العكس المنفصل يلغي القديم محاسبيًا.
     expect(workerRows.where((r) => r['type'] == 'irrigation').fold<int>(
       0, (sum, row) => sum + (row['amount'] as num).round(),
-    ), 1400);
+    ), 2100);
 
     for (final partnerId in [p1, p2]) {
       final partnerRows = await db.query(
