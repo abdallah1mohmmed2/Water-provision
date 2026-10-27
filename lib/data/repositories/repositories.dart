@@ -1052,7 +1052,33 @@ class StationRepository {
       id: id,
       legacyAccountCode: '2100',
     );
-    if (ledgerRows.isNotEmpty) return ledgerRows;
+    if (ledgerRows.isNotEmpty) {
+      // Recover payment notes from their source transaction while preserving
+      // the journal's signed amount and running balance.
+      final paymentNotes = await db.rawQuery(
+        "SELECT id,notes FROM worker_transactions WHERE worker_id=? AND type='payment' AND TRIM(COALESCE(notes,''))<>''",
+        [id],
+      );
+      final notesById = <int, String>{
+        for (final payment in paymentNotes)
+          (payment['id'] as num).toInt(): '${payment['notes']}',
+      };
+      return ledgerRows.map((row) {
+        final referenceType = '${row['reference_type'] ?? ''}';
+        final referenceId = (row['reference_id'] as num?)?.toInt();
+        final note = (referenceType == 'worker_payment' ||
+                referenceType == 'payment')
+            ? notesById[referenceId]
+            : null;
+        if (note == null || note.trim().isEmpty) return row;
+        return {
+          ...row,
+          'type': 'payment_note',
+          'notes': note,
+          'description': note.trim(),
+        };
+      }).toList();
+    }
 
     final sourceRows = await db.rawQuery(
       "SELECT wt.*,i.party_type irrigation_party_type FROM worker_transactions wt "
@@ -1085,8 +1111,11 @@ class StationRepository {
         ...row,
         'journal_entry_id': null,
         'journal_line_id': null,
-        'description': notes.isNotEmpty
-            ? notes
+        'type': type == 'payment' && notes.trim().isNotEmpty
+            ? 'payment_note'
+            : type,
+        'description': notes.trim().isNotEmpty
+            ? notes.trim()
             : switch (type) {
                 'accrual' || 'salary' || 'worker_entitlement' => 'استحقاق عامل',
                 'payment' => 'دفعة للعامل',
@@ -1182,7 +1211,7 @@ class StationRepository {
     for (final row in rows) {
       final debit=(row['debit'] as num?)?.round() ?? 0, credit=(row['credit'] as num?)?.round() ?? 0, signed=credit-debit;
       running += signed; final ref='${row['reference_type']}';
-      final type=switch(ref){'payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=>'opening_balance',_=>ref};
+      final type=switch(ref){'payment'=>'payment','worker_payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=>'opening_balance',_=>ref};
       final notes='${row['transaction_notes'] ?? ''}'.trim();
       out.add({...row,'type':type == 'worker_payment' ? 'payment' : type,'amount':signed.abs(),'signed_amount':signed,'description':notes.isNotEmpty ? notes : row['memo'] ?? row['description'],'balance':running,'lah':signed>0?signed:0,'alayh':signed<0?-signed:0});
     }
@@ -2630,7 +2659,7 @@ class StationRepository {
           final selectedWorkers = <Map<String, Object?>>[];
           if (workerId != null && workerId > 0) {
             selectedWorkers.addAll(await db.rawQuery(
-              "SELECT w.id,w.name,w.opening_balance,${BalanceSql.workerPersonal('w')} balance FROM workers w WHERE w.id=? LIMIT 1",
+              "SELECT w.id,w.name,w.opening_balance,w.opening_balance,${BalanceSql.workerPersonal('w')} balance FROM workers w WHERE w.id=? LIMIT 1",
               [workerId],
             ));
           } else {
@@ -2695,6 +2724,28 @@ class StationRepository {
                 'amount': opening.abs(),
                 'signed_amount': opening,
                 'balance': opening,
+                'statement_kind': 'worker',
+              });
+            }
+
+            // Older databases may have a configured opening balance without a
+            // matching ledger opening entry. Show it once without treating it
+            // as a movement in the selected period.
+            if (periodStart == null &&
+                !transactions.any((row) => row['type'] == 'opening_balance')) {
+              final configuredOpening =
+                  (worker['opening_balance'] as num?)?.round() ?? 0;
+              rows.add({
+                'date': transactions.isEmpty ? null : transactions.last['date'],
+                'worker_id': id,
+                'worker_name': name,
+                'description': 'الرصيد الافتتاحي',
+                'type': 'opening_balance',
+                'lah': configuredOpening > 0 ? configuredOpening : 0,
+                'alayh': configuredOpening < 0 ? -configuredOpening : 0,
+                'amount': configuredOpening.abs(),
+                'signed_amount': configuredOpening,
+                'balance': configuredOpening,
                 'statement_kind': 'worker',
               });
             }
@@ -5601,7 +5652,7 @@ class StationRepository {
                 'date': periodStart.toIso8601String(),
                 'partner_id': id,
                 'partner_name': name,
-                'description': 'الرصيد المرحل قبل الفترة - $name',
+                'description': 'الرصيد المرحل قبل الفترة',
                 'type': 'opening_balance',
                 'lah': openingBalance > 0 ? openingBalance : 0,
                 'alayh': openingBalance < 0 ? -openingBalance : 0,
@@ -5660,7 +5711,7 @@ class StationRepository {
               ...row,
               'partner_id': id,
               'partner_name': name,
-              'description': '$name - ${row['description'] ?? ''}',
+              'description': '${row['description'] ?? ''}',
               'statement_kind': 'partner',
             }));
 
