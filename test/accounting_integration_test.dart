@@ -263,6 +263,7 @@ void main() {
     final repo = StationRepository(db);
     final worker = await repo.createWorker(name: 'عامل اختبار الصندوق السالب', payType: 'fixed');
     final partner = await repo.createPartner(name: 'شريك اختبار الصندوق السالب', mode: 'shares', shares: 1);
+    final ledgerBefore = await accountNet('1000');
     await db.update('cashboxes', {'current_balance': 0}, 'id=?', [1]);
     try {
       await svc.payWorker(workerId: worker, amount: 1, paymentMethodId: 1, cashboxId: 1);
@@ -286,8 +287,7 @@ void main() {
         cashboxId: 1,
       );
       expect(await cashboxBalance(1), -4);
-      final audit = await svc.reconcileControlAccount();
-      expect(audit['ok'], isNot(false));
+      expect(await accountNet('1000'), ledgerBefore - 4);
     } finally {
       await db.update('cashboxes', {'current_balance': originalBalance}, 'id=?', [1]);
     }
