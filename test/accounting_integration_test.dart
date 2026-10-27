@@ -364,32 +364,31 @@ void main() {
   });
 
   test('تقرير السقايات يشمل كامل اليوم المحدد ولا يخلط اليوم التالي', () async {
-    await useSolar6000();
-    await db.update('workers', {'active': 0}, 'id>?', [0]);
-    await db.update('partners', {'active': 0}, 'id>?', [0]);
     final day = DateTime(2043, 6, 12);
     final beneficiaryId = await db.insert('beneficiaries', {
       'name': 'مستفيد اختبار فلتر اليوم',
       'created_at': day.toIso8601String(),
       'updated_at': day.toIso8601String(),
     });
-    Future<int> addBeneficiaryIrrigation(DateTime start) => svc.recordIrrigation(
-      stationId: 1,
-      pumpId: 1,
-      beneficiaryId: beneficiaryId,
-      start: start,
-      end: start.add(const Duration(hours: 1)),
-      systemType: 'solar',
-      waterRate: 0,
-      litersPerHour: 0,
-      dieselPrice: 0,
-      solarRate: 6000,
-      thirdRate: 0,
-      cloudMinutes: 0,
-      paidAmount: 0,
-    );
-    final sameDayId = await addBeneficiaryIrrigation(day.add(const Duration(hours: 8)));
-    final nextDayId = await addBeneficiaryIrrigation(day.add(const Duration(days: 1, hours: 8)));
+    Future<int> insertReportFixture(DateTime start) => db.insert('irrigations', {
+      'station_id': 1,
+      'pump_id': 1,
+      'beneficiary_id': beneficiaryId,
+      'party_type': 'beneficiary',
+      'date': '${start.year.toString().padLeft(4, '0')}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}',
+      'start_datetime': start.toIso8601String(),
+      'end_datetime': start.add(const Duration(hours: 1)).toIso8601String(),
+      'minutes': 60,
+      'system_type': 'solar',
+      'chargeable_minutes': 60,
+      'total_amount': 6000,
+      'paid_amount': 0,
+      'status': 'posted',
+      'created_at': day.toIso8601String(),
+      'updated_at': day.toIso8601String(),
+    });
+    final sameDayId = await insertReportFixture(day.add(const Duration(hours: 8)));
+    final nextDayId = await insertReportFixture(day.add(const Duration(days: 1, hours: 8)));
     final rows = await StationRepository(db).report(
       'irrigations',
       from: day,
@@ -399,6 +398,8 @@ void main() {
     final ids = rows.map((r) => (r['irrigation_id'] as num).toInt()).toSet();
     expect(ids, contains(sameDayId));
     expect(ids, isNot(contains(nextDayId)));
+    await db.delete('irrigations', 'id IN (?,?)', [sameDayId, nextDayId]);
+    await db.delete('beneficiaries', 'id=?', [beneficiaryId]);
   });
 
   test('السقاية تخصم أجر العامل أولاً ثم توزع الصافي على الشركاء', () async {
