@@ -1053,30 +1053,21 @@ class StationRepository {
       legacyAccountCode: '2100',
     );
     if (ledgerRows.isNotEmpty) {
-      // Recover payment notes from their source transaction while preserving
-      // the journal's signed amount and running balance.
-      final paymentNotes = await db.rawQuery(
-        "SELECT id,notes FROM worker_transactions WHERE worker_id=? AND type='payment' AND TRIM(COALESCE(notes,''))<>''",
-        [id],
-      );
-      final notesById = <int, String>{
-        for (final payment in paymentNotes)
-          (payment['id'] as num).toInt(): '${payment['notes']}',
-      };
+      // Preserve the journal values, but display a worker payment's note in
+      // place of the generic payment label when the user supplied a note.
       return ledgerRows.map((row) {
-        final referenceType = '${row['reference_type'] ?? ''}';
-        final referenceId = (row['reference_id'] as num?)?.toInt();
-        final note = (referenceType == 'worker_payment' ||
-                referenceType == 'payment')
-            ? notesById[referenceId]
-            : null;
-        if (note == null || note.trim().isEmpty) return row;
-        return {
-          ...row,
-          'type': 'payment_note',
-          'notes': note,
-          'description': note.trim(),
-        };
+        final note = '${row['transaction_notes'] ?? row['notes'] ?? ''}'.trim();
+        final isPayment = row['type'] == 'payment' || row['type'] == 'worker_payment';
+        if (!isPayment) return row;
+        if (note.isNotEmpty) {
+          return {
+            ...row,
+            'type': 'payment_note',
+            'notes': note,
+            'description': note,
+          };
+        }
+        return {...row, 'type': 'payment'};
       }).toList();
     }
 
@@ -5639,8 +5630,7 @@ class StationRepository {
                 'balance': openingBalance,
                 'statement_kind': 'partner',
               });
-            } else if (transactions.isEmpty &&
-                ((worker['opening_balance'] as num?)?.round() ?? 0) == 0) {
+            } else if (transactions.isEmpty) {
               final balance = (partner['balance'] as num?)?.round() ?? 0;
               rows.add({
                 'date': null,
