@@ -344,7 +344,12 @@ class OfficialReportTemplate {
         pw.TableRow(
           repeat: true,
           decoration: const pw.BoxDecoration(color: tableHeaderBg),
+          // PDF Table lays out its children from left to right even when
+          // the surrounding document text direction is RTL. Reverse the
+          // display order here so the first logical column appears at the
+          // right edge of the printed table.
           children: columns
+              .reversed
               .map(
                 (col) => pw.Container(
                   constraints: const pw.BoxConstraints(minHeight: 32),
@@ -368,7 +373,10 @@ class OfficialReportTemplate {
         ),
         ...rows.map(
           (row) => pw.TableRow(
+            // Keep each cell attached to its original heading while rendering
+            // the table visually from right to left.
             children: row
+                .reversed
                 .map(
                   (cell) => pw.Container(
                     constraints: const pw.BoxConstraints(minHeight: 24),
@@ -400,7 +408,7 @@ class OfficialReportTemplate {
               alignment: pw.Alignment.center,
               child: pw.Text(
                 footerRow != null && index < footerRow.length
-                    ? footerRow[index]
+                    ? footerRow[footerRow.length - 1 - index]
                     : '',
                 textAlign: pw.TextAlign.center,
                 style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 9),
