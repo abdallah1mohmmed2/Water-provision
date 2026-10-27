@@ -1418,8 +1418,8 @@ class StationRepository {
     if (name.trim().isEmpty) throw ArgumentError('اسم الشريك مطلوب');
     if (!{'shares','percentage'}.contains(mode)) throw ArgumentError('طريقة توزيع الشريك غير صالحة');
     if (mode == 'shares' &&
-        (shares <= 0 || shares != shares.roundToDouble() || percentage != 0)) {
-      throw ArgumentError('عدد حصص الشريك يجب أن يكون عددًا صحيحًا موجبًا، دون نسبة ملكية');
+        (!shares.isFinite || shares <= 0 || percentage != 0)) {
+      throw ArgumentError('عدد حصص الشريك يجب أن يكون رقمًا موجبًا، ويمكن أن يكون كسريًا، دون نسبة ملكية');
     }
     if (mode == 'percentage' && (percentage < 0 || percentage > 100 || shares != 0)) throw ArgumentError('اختر النسبة فقط بين صفر و100');
     final stationId = await accounting.currentStationId();
@@ -1481,8 +1481,8 @@ class StationRepository {
         throw ArgumentError('طريقة توزيع الشريك غير صالحة');
       }
       if (mode == 'shares' &&
-          (shares <= 0 || shares != shares.roundToDouble() || percentage != 0)) {
-        throw ArgumentError('عدد حصص الشريك يجب أن يكون عددًا صحيحًا موجبًا، دون نسبة ملكية');
+          (!shares.isFinite || shares <= 0 || percentage != 0)) {
+        throw ArgumentError('عدد حصص الشريك يجب أن يكون رقمًا موجبًا، ويمكن أن يكون كسريًا، دون نسبة ملكية');
       }
       if (mode == 'percentage' &&
           (percentage < 0 || percentage > 100 || shares != 0)) {
