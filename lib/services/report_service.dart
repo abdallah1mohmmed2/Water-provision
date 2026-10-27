@@ -1,6 +1,5 @@
 import '../core/app_clock.dart';
 import 'package:intl/intl.dart';
-import 'package:arabic_reshaper/arabic_reshaper.dart';
 import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
@@ -330,13 +329,14 @@ class ReportService {
     return bytes;
   }
 
+  // Keep logical Unicode Arabic text intact. The PDF package performs RTL
+  // shaping itself; pre-shaping into presentation-form code points can crash
+  // its bidi normalization (RangeError) on otherwise valid report data.
+  // Replace the unsupported bullet glyph so the configured PDF fonts can
+  // render notes without Helvetica Unicode warnings.
   String _shapeArabic(String value) {
     if (value.trim().isEmpty) return '-';
-    try {
-      return ArabicReshaper.instance.reshape(value);
-    } catch (_) {
-      return value;
-    }
+    return value.replaceAll('•', '-');
   }
 
   List<Map<String, Object?>> _normalizeRows(
