@@ -844,7 +844,7 @@ class StationRepository {
     final warning =
         double.tryParse(set['diesel_warning_percent'] ?? '20') ?? 20;
     final r = await db.rawQuery(
-      "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
+      "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
     );
     final stock = (r.first['stock'] as num?)?.toDouble() ?? 0;
     final capacity =
