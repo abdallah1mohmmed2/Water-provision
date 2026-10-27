@@ -2407,7 +2407,9 @@ class StationRepository {
             if (byDate != 0) return byDate;
             final aOpening = a['type'] == 'opening_balance';
             final bOpening = b['type'] == 'opening_balance';
-            if (aOpening != bOpening) return aOpening ? -1 : 1;
+            // In a newest-first table, show the opening row after movements
+            // on the first day of the period, since it is their starting balance.
+            if (aOpening != bOpening) return aOpening ? 1 : -1;
             final byWorker = ((a['worker_id'] as num?) ?? 0)
                 .compareTo((b['worker_id'] as num?) ?? 0);
             if (byWorker != 0) return byWorker;
