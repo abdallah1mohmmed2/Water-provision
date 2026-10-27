@@ -1985,7 +1985,10 @@ class AccountingService {
         "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
       );
       final current = (stock.first['stock'] as num?)?.toDouble() ?? 0;
-      if ((kind == 'delivery' || kind == 'consumption') && liters > current) {
+      if ((kind == 'delivery' ||
+              kind == 'consumption' ||
+              (kind == 'advance' && irrigationId == null)) &&
+          liters > current) {
         throw StateError('كمية الديزل المطلوبة أكبر من المخزون المتاح');
       }
       if (kind == 'receipt' && cashboxId != null) {
