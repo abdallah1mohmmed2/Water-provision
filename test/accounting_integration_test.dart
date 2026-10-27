@@ -851,7 +851,7 @@ void main() {
     );
   });
 
-  test('إلغاء دفعة مستفيد يعكس القيد، ويُرفض إن جعل الصندوق سالبًا', () async {
+  test('إلغاء قبض مستفيد مسموح حتى لو جعل رصيد الصندوق سالبًا', () async {
     final repo = StationRepository(db);
     final b = await repo.createBeneficiary(name: 'مستفيد إلغاء');
     await svc.receivePayment(beneficiaryId: b, amount: 300, paymentMethodId: 1, cashboxId: 1);
@@ -862,7 +862,12 @@ void main() {
     await svc.receivePayment(beneficiaryId: b, amount: 300, paymentMethodId: 1, cashboxId: 1);
     final pay2 = (await db.query("SELECT id FROM payments WHERE beneficiary_id=? AND status='posted'", args: [b])).first['id'] as int;
     await db.transaction((tx) => tx.rawUpdate('UPDATE cashboxes SET current_balance=0 WHERE id=1'));
-    await expectLater(svc.cancelPayment(pay2, 1, 'خطأ'), throwsStateError);
+    await svc.cancelPayment(pay2, 1, 'خطأ');
+    expect(await cashboxBalance(1), -300);
+    expect(
+      (await db.query("SELECT status FROM payments WHERE id=?", args: [pay2])).single['status'],
+      'cancelled',
+    );
   });
 
   test('حذف مستفيد برصيد غير صفر مرفوض، وتعديل الافتتاحي يقيّد فرقًا', () async {
