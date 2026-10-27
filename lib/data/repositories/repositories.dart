@@ -1290,33 +1290,48 @@ class StationRepository {
   Future<void> updatePartner(int id, Map<String,Object?> values, int? userId) async {
     final unknown = values.keys.where((k) => !_partnerEditable.contains(k));
     if (unknown.isNotEmpty) throw ArgumentError('حقول غير قابلة للتعديل: ${unknown.join('، ')}');
-    final found = await db.query('partners', where:'id=?', whereArgs:[id], limit:1);
-    if (found.isEmpty) throw StateError('الشريك غير موجود');
     if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
       throw ArgumentError('اسم الشريك مطلوب');
     }
-    final mode = '${values['ownership_mode'] ?? found.first['ownership_mode']}';
-    final shares = (values['shares_count'] ?? found.first['shares_count'] ?? 0) as num;
-    final percentage = (values['ownership_percentage'] ?? found.first['ownership_percentage'] ?? 0) as num;
-    if (mode == 'shares' &&
-        (shares <= 0 || shares != shares.roundToDouble() || percentage != 0)) {
-      throw ArgumentError('عدد حصص الشريك يجب أن يكون عددًا صحيحًا موجبًا، دون نسبة ملكية');
-    }
-    if (mode == 'percentage' && (percentage < 0 || percentage > 100 || shares != 0)) throw ArgumentError('طريقة النسبة لا تقبل حصصًا');
-    final old = found.first;
-    if ('${values['active'] ?? old['active']}' == '1' &&
-        mode == 'percentage') {
-      final rows = await db.rawQuery(
-        "SELECT COALESCE(SUM(ownership_percentage),0) total FROM partners WHERE station_id=? AND active=1 AND ownership_mode='percentage' AND id<>?",
-        [old['station_id'], id],
-      );
-      final existing = (rows.first['total'] as num?)?.toDouble() ?? 0;
-      if (existing + percentage > 100.0000001) {
-        throw ArgumentError('مجموع نسب ملكية الشركاء النشطين لا يمكن أن يتجاوز 100%');
+    await db.transaction((tx) async {
+      final found = await tx.query('partners', where: 'id=?', whereArgs: [id], limit: 1);
+      if (found.isEmpty) throw StateError('الشريك غير موجود');
+      final old = found.first;
+      final mode = '${values['ownership_mode'] ?? old['ownership_mode']}';
+      final shares = (values['shares_count'] ?? old['shares_count'] ?? 0) as num;
+      final percentage = (values['ownership_percentage'] ?? old['ownership_percentage'] ?? 0) as num;
+      if (!{'shares', 'percentage'}.contains(mode)) {
+        throw ArgumentError('طريقة توزيع الشريك غير صالحة');
       }
-    }
-    await db.update('partners', values, 'id=?', [id]);
-    await db.audit(userId:userId, operation:'update', table:'partners', recordId:id, oldValues:old, newValues:values);
+      if (mode == 'shares' &&
+          (shares <= 0 || shares != shares.roundToDouble() || percentage != 0)) {
+        throw ArgumentError('عدد حصص الشريك يجب أن يكون عددًا صحيحًا موجبًا، دون نسبة ملكية');
+      }
+      if (mode == 'percentage' &&
+          (percentage < 0 || percentage > 100 || shares != 0)) {
+        throw ArgumentError('طريقة النسبة لا تقبل حصصًا، ويجب أن تكون النسبة بين صفر و100');
+      }
+      if (old['active'] == 1 && mode == 'percentage') {
+        final rows = await tx.rawQuery(
+          "SELECT COALESCE(SUM(ownership_percentage),0) total FROM partners WHERE station_id=? AND active=1 AND ownership_mode='percentage' AND id<>?",
+          [old['station_id'], id],
+        );
+        final existing = (rows.first['total'] as num?)?.toDouble() ?? 0;
+        if (existing + percentage > 100.0000001) {
+          throw ArgumentError('مجموع نسب ملكية الشركاء النشطين لا يمكن أن يتجاوز 100%');
+        }
+      }
+      await tx.update('partners', values, where: 'id=?', whereArgs: [id]);
+      await db.auditTx(
+        tx,
+        userId: userId,
+        operation: 'update',
+        table: 'partners',
+        recordId: id,
+        oldValues: old,
+        newValues: values,
+      );
+    });
   }
 
   Future<void> deletePartner(int id, int? userId, String reason) async {
