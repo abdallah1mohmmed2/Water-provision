@@ -2780,18 +2780,46 @@ class AccountingService {
         [id],
       );
       final oldStart = DateTime.parse('${old['start_datetime']}');
+      final oldEnd = DateTime.parse('${old['end_datetime']}');
       await _assertPeriodOpen(tx, oldStart, stationId: (old['station_id'] as num).toInt());
       await _assertPeriodOpen(tx, start, stationId: (old['station_id'] as num).toInt());
       final overlap = await tx.rawQuery(
-        "SELECT id FROM irrigations WHERE id<>? AND pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",
+        "SELECT id,start_datetime,end_datetime FROM irrigations WHERE id<>? AND pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",
         [id, old['pump_id'], end.toIso8601String(), start.toIso8601String()],
       );
-      if (overlap.isNotEmpty) throw StateError('يوجد تعارض زمني مع سقاية أخرى على المضخة');
+      if (overlap.isNotEmpty) {
+        final conflict = overlap.first;
+        throw StateError('يتعارض الوقت المحدد مع السقاية رقم ${conflict['id']} من ${conflict['start_datetime']} إلى ${conflict['end_datetime']}. اختر وقتًا لا يتداخل معها.');
+      }
       final cfgRows = await tx.query('settings', columns: ['key','value']);
       final cfg = {for (final row in cfgRows) row['key'] as String: row['value'] as String};
       final rounding = cfg['rounding'] ?? 'nearest';
       final partialHour = cfg['partial_hour'] != 'false';
-      final cloud = ((old['cloud_minutes'] as num?)?.toInt() ?? 0);
+      final oldCloudPeriods = await tx.query('cloud_periods',
+        where: 'irrigation_id=?', whereArgs: [id], orderBy: 'start_datetime,id');
+      var cloud = ((old['cloud_minutes'] as num?)?.toInt() ?? 0);
+      final shiftedCloudPeriods = <Map<String, Object?>>[];
+      if (oldCloudPeriods.isNotEmpty) {
+        final shift = start.difference(oldStart);
+        var cloudSum = 0;
+        for (final period in oldCloudPeriods) {
+          final originalStart = DateTime.parse('${period['start_datetime']}');
+          final originalEnd = DateTime.parse('${period['end_datetime']}');
+          var shiftedStart = originalStart.add(shift);
+          var shiftedEnd = originalEnd.add(shift);
+          if (shiftedStart.isBefore(start)) shiftedStart = start;
+          if (shiftedEnd.isAfter(end)) shiftedEnd = end;
+          if (!shiftedEnd.isAfter(shiftedStart)) {
+            shiftedCloudPeriods.add({'id': period['id'], 'delete': true, 'old': period});
+            continue;
+          }
+          final mins = shiftedEnd.difference(shiftedStart).inMinutes;
+          cloudSum += mins;
+          shiftedCloudPeriods.add({'id': period['id'], 'start_datetime': shiftedStart.toIso8601String(),
+            'end_datetime': shiftedEnd.toIso8601String(), 'minutes': mins, 'old': period});
+        }
+        cloud = cloudSum.clamp(0, end.difference(start).inMinutes);
+      }
       final allowMidnight = cfg['allow_midnight_crossing'] == 'true';
       var result = type == 'diesel'
           ? AccountingCalculations.diesel(
@@ -2913,6 +2941,7 @@ class AccountingService {
         reason: 'تصحيح بيانات السقاية رقم $id', userId: userId,
       );
       final waterRevenue = await _accountIdTx(tx, '4000');
+      final fuelRevenue = await _accountIdTx(tx, '4010');
       final receivable = partyType == 'worker'
           ? await _workerAccountIdTx(tx, workerId!)
           : partyType == 'partner'
@@ -2927,6 +2956,10 @@ class AccountingService {
       if (result.waterAmount > 0) {
         lines.add({'account_id': waterRevenue, 'debit': 0,
           'credit': result.waterAmount, 'memo': 'إيراد السقي بعد التعديل'});
+      }
+      if (result.dieselAmount > 0) {
+        lines.add({'account_id': fuelRevenue, 'debit': 0,
+          'credit': result.dieselAmount, 'memo': 'قيمة ديزل السقي بعد التعديل'});
       }
       if (result.totalAmount > 0) {
         await _entry(tx,
@@ -2944,11 +2977,83 @@ class AccountingService {
         'cloud_minutes': result.cloudMinutes,
         'chargeable_minutes': result.chargeableMinutes,
         'water_amount': result.waterAmount,
-        'diesel_amount': 0,
+        'diesel_amount': result.dieselAmount,
         'total_amount': result.totalAmount,
         'updated_at': now,
       };
       await tx.update('irrigations', values, where: 'id=?', whereArgs: [id]);
+
+      // Keep detailed cloud intervals aligned with the edited irrigation window.
+      for (final period in shiftedCloudPeriods) {
+        final periodId = (period['id'] as num).toInt();
+        if (period['delete'] == true) {
+          await tx.delete('cloud_periods', where: 'id=?', whereArgs: [periodId]);
+        } else {
+          await tx.update('cloud_periods', {
+            'start_datetime': period['start_datetime'],
+            'end_datetime': period['end_datetime'],
+            'minutes': period['minutes'],
+          }, where: 'id=?', whereArgs: [periodId]);
+        }
+      }
+
+      // Reconcile diesel movements with the newly calculated litres and shortage.
+      final oldDieselMoves = await tx.query('diesel_movements',
+        where: 'irrigation_id=?', whereArgs: [id], orderBy: 'id');
+      if (type == 'diesel' && partyType == 'beneficiary' && result.dieselLiters > 0) {
+        final price = (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0;
+        final advances = oldDieselMoves.where((m) => '${m['kind']}' == 'advance').toList();
+        final consumptions = oldDieselMoves.where((m) => '${m['kind']}' == 'consumption').toList();
+        if (shortageLiters > 0) {
+          final advanceValues = <String, Object?>{
+            'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'advance',
+            'liters': shortageLiters, 'unit_price': price,
+            'amount': AccountingCalculations.roundAmount(shortageLiters * price, rounding),
+            'date': start.toIso8601String(), 'created_by': userId,
+            'notes': 'سلفة ديزل تلقائية (بعد تعديل السقاية)',
+          };
+          if (advances.isEmpty) {
+            await tx.insert('diesel_movements', advanceValues);
+          } else {
+            await tx.update('diesel_movements', advanceValues,
+              where: 'id=?', whereArgs: [advances.first['id']]);
+            for (final extra in advances.skip(1)) {
+              await tx.delete('diesel_movements', where: 'id=?', whereArgs: [extra['id']]);
+            }
+          }
+        } else {
+          for (final advance in advances) {
+            await tx.delete('diesel_movements', where: 'id=?', whereArgs: [advance['id']]);
+          }
+        }
+        final consumptionValues = <String, Object?>{
+          'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'consumption',
+          'liters': result.dieselLiters, 'unit_price': price, 'amount': result.dieselAmount,
+          'date': start.toIso8601String(), 'created_by': userId,
+          'notes': 'استهلاك السقاية (بعد التعديل)',
+        };
+        if (consumptions.isEmpty) {
+          await tx.insert('diesel_movements', consumptionValues);
+        } else {
+          await tx.update('diesel_movements', consumptionValues,
+            where: 'id=?', whereArgs: [consumptions.first['id']]);
+          for (final extra in consumptions.skip(1)) {
+            await tx.delete('diesel_movements', where: 'id=?', whereArgs: [extra['id']]);
+          }
+        }
+      } else {
+        for (final move in oldDieselMoves) {
+          await tx.delete('diesel_movements', where: 'id=?', whereArgs: [move['id']]);
+        }
+      }
+      if (oldCloudPeriods.isNotEmpty || oldDieselMoves.isNotEmpty) {
+        await database.auditTx(tx, userId: userId, operation: 'update',
+          table: 'irrigation_related_movements', recordId: id,
+          oldValues: {'cloud_periods': oldCloudPeriods, 'diesel_movements': oldDieselMoves},
+          newValues: {'cloud_periods': shiftedCloudPeriods, 'diesel_liters': result.dieselLiters,
+            'diesel_shortage_liters': shortageLiters, 'diesel_amount': result.dieselAmount},
+          reason: 'إعادة احتساب الحركات التابعة لتعديل السقاية');
+      }
 
       // Recreate wage accruals and partner allocations from the edited amount.
       var totalWorkerEntitlement = 0;
