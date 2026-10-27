@@ -1868,7 +1868,7 @@ void main() {
       "SELECT id FROM accounts WHERE code=? LIMIT 1",
       args: ['2200.P$p1'],
     )).single;
-    final equityAccount = (await db.query(
+    final equityAccountRow = (await db.query(
       "SELECT id FROM accounts WHERE code='3200' LIMIT 1",
     )).single;
     final adjustmentEntry = await db.insert('journal_entries', {
@@ -1891,7 +1891,7 @@ void main() {
     });
     await db.insert('journal_lines', {
       'journal_entry_id': adjustmentEntry,
-      'account_id': equityAccount['id'],
+      'account_id': equityAccountRow['id'],
       'partner_id': p1,
       'debit': 0,
       'credit': 5000,
