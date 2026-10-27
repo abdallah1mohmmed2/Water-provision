@@ -2684,27 +2684,83 @@ class AccountingService {
 
   Future<Map<String, int>> workerBalance(int id) async {
     final r = await database.query(
-      "SELECT COALESCE(SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE -jl.debit END),0) balance "
+      "SELECT COUNT(jl.id) entry_count,COALESCE(SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE -jl.debit END),0) balance "
       "FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id "
       "JOIN accounts a ON a.id=jl.account_id "
       "WHERE je.status='posted' AND (a.code=? OR (a.code='2100' AND jl.worker_id=?))",
       args: ['2100.W$id', id],
     );
-    final v = (r.first['balance'] as num?)?.round() ?? 0;
+    var v = (r.first['balance'] as num?)?.round() ?? 0;
+    if (((r.first['entry_count'] as num?)?.toInt() ?? 0) == 0) {
+      // Legacy worker transactions may predate general-ledger posting. Use them
+      // only when there are no personal-account journal lines, never alongside GL.
+      final rows = await database.query(
+        "SELECT wt.*,i.party_type irrigation_party_type FROM worker_transactions wt "
+        "LEFT JOIN irrigations i ON wt.reference_type='irrigation' AND i.id=wt.reference_id "
+        "WHERE wt.worker_id=? ORDER BY wt.date,wt.id",
+        args: [id],
+      );
+      v = 0;
+      for (final row in rows) {
+        final type = '${row['type'] ?? ''}';
+        final amount = (row['amount'] as num?)?.round() ?? 0;
+        final notes = '${row['notes'] ?? ''}';
+        final signed = switch (type) {
+          'accrual' || 'salary' || 'worker_entitlement' || 'opening_balance' => amount,
+          'payment' => -amount,
+          'payment_reversal' => amount,
+          'irrigation' => notes.startsWith('خصم قيمة سقاية')
+              ? -amount
+              : notes.startsWith('استحقاق') || row['irrigation_party_type'] != 'worker'
+                  ? amount
+                  : -amount,
+          'irrigation_reversal' => notes.startsWith('عكس استحقاق العامل')
+              ? -amount
+              : amount,
+          _ => 0,
+        };
+        v += signed;
+      }
+    }
     return {'balance': v, 'due': v > 0 ? v : 0, 'credit': v < 0 ? -v : 0};
   }
 
   Future<Map<String, int>> partnerBalance(int id) async {
     final r = await database.query(
-      "SELECT COALESCE(SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE -jl.debit END),0) balance "
+      "SELECT COUNT(jl.id) entry_count,COALESCE(SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE -jl.debit END),0) balance "
       "FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id "
       "JOIN accounts a ON a.id=jl.account_id "
       "WHERE je.status='posted' AND (a.code=? OR (a.code='2200' AND jl.partner_id=?))",
       args: ['2200.P$id', id],
     );
-    final v = (r.first['balance'] as num?)?.round() ?? 0;
+    var v = (r.first['balance'] as num?)?.round() ?? 0;
+    if (((r.first['entry_count'] as num?)?.toInt() ?? 0) == 0) {
+      // Same legacy-only fallback as the partner statement. The note distinguishes
+      // a reversed personal irrigation debit from a reversed profit accrual.
+      final rows = await database.query(
+        'SELECT type,amount,notes FROM partner_transactions WHERE partner_id=? ORDER BY date,id',
+        args: [id],
+      );
+      v = 0;
+      for (final row in rows) {
+        final type = '${row['type'] ?? ''}';
+        final amount = (row['amount'] as num?)?.round() ?? 0;
+        final notes = '${row['notes'] ?? ''}';
+        final signed = switch (type) {
+          'share_accrual' || 'opening_balance' || 'contribution' => amount,
+          'payment' || 'irrigation' || 'share_adjustment' => -amount,
+          'payment_reversal' => amount,
+          'irrigation_reversal' => notes.startsWith('عكس سقاية الشريك')
+              ? amount
+              : -amount,
+          _ => 0,
+        };
+        v += signed;
+      }
+    }
     return {'balance': v, 'due': v > 0 ? v : 0, 'credit': v < 0 ? -v : 0};
   }
+
 
   Future<void> cancelIrrigation(int id, int userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب إلغاء السقاية مطلوب');
