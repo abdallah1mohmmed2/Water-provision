@@ -258,24 +258,36 @@ void main() {
     );
   });
 
-  test('الصرف والمصروف وشراء الديزل لا تجعل الصندوق سالبًا', () async {
+  test('يسمح بالصرف والمصروف وشراء الديزل عندما يصبح الصندوق سالبًا', () async {
     final originalBalance = await cashboxBalance(1);
     final repo = StationRepository(db);
-    final worker = await repo.createWorker(name: 'عامل اختبار الصندوق', payType: 'fixed');
-    final partner = await repo.createPartner(name: 'شريك اختبار الصندوق', mode: 'shares', shares: 1);
-    final paymentsBefore = (await db.query('SELECT COUNT(*) c FROM payments')).first['c'] as num;
-    final expensesBefore = (await db.query('SELECT COUNT(*) c FROM expenses')).first['c'] as num;
-    final dieselBefore = (await db.query('SELECT COUNT(*) c FROM diesel_movements')).first['c'] as num;
+    final worker = await repo.createWorker(name: 'عامل اختبار الصندوق السالب', payType: 'fixed');
+    final partner = await repo.createPartner(name: 'شريك اختبار الصندوق السالب', mode: 'shares', shares: 1);
     await db.update('cashboxes', {'current_balance': 0}, 'id=?', [1]);
     try {
-      await expectLater(svc.payWorker(workerId: worker, amount: 1, paymentMethodId: 1, cashboxId: 1), throwsStateError);
-      await expectLater(svc.payPartner(partnerId: partner, amount: 1, paymentMethodId: 1, cashboxId: 1), throwsStateError);
-      await expectLater(svc.addExpense(category: 'maintenance', title: 'اختبار', amount: 1, date: DateTime.now(), paymentMethodId: 1, cashboxId: 1), throwsStateError);
-      await expectLater(svc.addDieselMovement(kind: 'receipt', liters: 1, unitPrice: 1, date: DateTime.now(), cashboxId: 1), throwsStateError);
-      expect(await cashboxBalance(1), 0);
-      expect((await db.query('SELECT COUNT(*) c FROM payments')).first['c'], paymentsBefore);
-      expect((await db.query('SELECT COUNT(*) c FROM expenses')).first['c'], expensesBefore);
-      expect((await db.query('SELECT COUNT(*) c FROM diesel_movements')).first['c'], dieselBefore);
+      await svc.payWorker(workerId: worker, amount: 1, paymentMethodId: 1, cashboxId: 1);
+      expect(await cashboxBalance(1), -1);
+      await svc.payPartner(partnerId: partner, amount: 1, paymentMethodId: 1, cashboxId: 1);
+      expect(await cashboxBalance(1), -2);
+      await svc.addExpense(
+        category: 'maintenance',
+        title: 'مصروف مع صندوق سالب',
+        amount: 1,
+        date: DateTime.now(),
+        paymentMethodId: 1,
+        cashboxId: 1,
+      );
+      expect(await cashboxBalance(1), -3);
+      await svc.addDieselMovement(
+        kind: 'receipt',
+        liters: 1,
+        unitPrice: 1,
+        date: DateTime.now(),
+        cashboxId: 1,
+      );
+      expect(await cashboxBalance(1), -4);
+      final audit = await svc.reconcileControlAccount();
+      expect(audit['ok'], isNot(false));
     } finally {
       await db.update('cashboxes', {'current_balance': originalBalance}, 'id=?', [1]);
     }
