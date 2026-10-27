@@ -3065,13 +3065,70 @@ class AccountingService {
           await tx.delete('diesel_movements', where: 'id=?', whereArgs: [move['id']]);
         }
       }
-      if (oldCloudPeriods.isNotEmpty || oldDieselMoves.isNotEmpty) {
+      // Capture the persisted post-recalculation state, not the planning list:
+      // this makes deleted/updated/inserted records reviewable from the audit log.
+      final newCloudPeriods = await tx.query('cloud_periods',
+        where: 'irrigation_id=?', whereArgs: [id], orderBy: 'start_datetime,id');
+      final newDieselMoves = await tx.query('diesel_movements',
+        where: 'irrigation_id=?', whereArgs: [id], orderBy: 'id');
+      Map<int, Map<String, Object?>> indexById(List<Map<String, Object?>> rows) => {
+        for (final row in rows)
+          if (row['id'] is num) (row['id'] as num).toInt(): row,
+      };
+      final oldCloudById = indexById(oldCloudPeriods);
+      final newCloudById = indexById(newCloudPeriods);
+      final oldDieselById = indexById(oldDieselMoves);
+      final newDieselById = indexById(newDieselMoves);
+      final cloudChanges = <Map<String, Object?>>[
+        for (final before in oldCloudPeriods)
+          {
+            'action': newCloudById.containsKey((before['id'] as num).toInt())
+                ? (newCloudById[(before['id'] as num).toInt()].toString() == before.toString()
+                    ? 'retained' : 'updated')
+                : 'deleted',
+            'id': before['id'],
+            'old': before,
+            if (newCloudById.containsKey((before['id'] as num).toInt()))
+              'new': newCloudById[(before['id'] as num).toInt()],
+          },
+        for (final after in newCloudPeriods)
+          if (!oldCloudById.containsKey((after['id'] as num).toInt()))
+            {'action': 'inserted', 'id': after['id'], 'new': after},
+      ];
+      final dieselChanges = <Map<String, Object?>>[
+        for (final before in oldDieselMoves)
+          {
+            'action': newDieselById.containsKey((before['id'] as num).toInt())
+                ? (newDieselById[(before['id'] as num).toInt()].toString() == before.toString()
+                    ? 'retained' : 'updated')
+                : 'deleted',
+            'id': before['id'],
+            'old': before,
+            if (newDieselById.containsKey((before['id'] as num).toInt()))
+              'new': newDieselById[(before['id'] as num).toInt()],
+          },
+        for (final after in newDieselMoves)
+          if (!oldDieselById.containsKey((after['id'] as num).toInt()))
+            {'action': 'inserted', 'id': after['id'], 'new': after},
+      ];
+      if (oldCloudPeriods.isNotEmpty || oldDieselMoves.isNotEmpty ||
+          newCloudPeriods.isNotEmpty || newDieselMoves.isNotEmpty) {
         await database.auditTx(tx, userId: userId, operation: 'update',
           table: 'irrigation_related_movements', recordId: id,
-          oldValues: {'cloud_periods': oldCloudPeriods, 'diesel_movements': oldDieselMoves},
-          newValues: {'cloud_periods': shiftedCloudPeriods, 'diesel_liters': result.dieselLiters,
-            'diesel_shortage_liters': shortageLiters, 'diesel_amount': result.dieselAmount},
-          reason: 'إعادة احتساب الحركات التابعة لتعديل السقاية');
+          oldValues: {
+            'cloud_periods': oldCloudPeriods,
+            'diesel_movements': oldDieselMoves,
+          },
+          newValues: {
+            'cloud_periods': newCloudPeriods,
+            'diesel_movements': newDieselMoves,
+            'cloud_period_changes': cloudChanges,
+            'diesel_movement_changes': dieselChanges,
+            'diesel_liters': result.dieselLiters,
+            'diesel_shortage_liters': shortageLiters,
+            'diesel_amount': result.dieselAmount,
+          },
+          reason: 'إعادة احتساب الحركات التابعة للسقاية؛ يتضمن السجل حالة كل حركة (محتفظ بها/معدلة/محذوفة/مضافة) والقيم قبل وبعد');
       }
 
       // Recreate wage accruals and partner allocations from the edited amount.
