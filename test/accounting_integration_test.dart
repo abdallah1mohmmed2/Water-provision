@@ -336,6 +336,43 @@ void main() {
         paidAmount: 0,
       );
 
+  test('تعديل وقت السقاية يعيد احتساب المدة والقيمة وقيد الإيراد', () async {
+    await useSolar6000();
+    await db.update('workers', {'active': 0}, 'id>?', [0]);
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
+    final partner = await StationRepository(db).createPartner(
+      name: 'شريك اختبار تعديل السقاية',
+      mode: 'shares',
+      shares: 1,
+    );
+    await db.update('partners', {'active': 0}, 'id=?', [partner]);
+
+    final start = DateTime(2044, 3, 2, 8);
+    final irrigationId = await irrigationFor(partnerId: partner, start: start);
+    final updatedTotal = await svc.updateIrrigationBasic(
+      id: irrigationId,
+      start: start,
+      end: start.add(const Duration(hours: 2)),
+      userId: 1,
+    );
+
+    final updated = (await db.query(
+      'SELECT minutes,total_amount,start_datetime,end_datetime,status FROM irrigations WHERE id=?',
+      args: [irrigationId],
+    )).single;
+    expect(updated['status'], 'posted');
+    expect(updated['minutes'], 120);
+    expect(updated['total_amount'], 12000);
+    expect(updatedTotal, 12000);
+    final audit = await StationRepository(db).auditIrrigationRevenue(
+      from: DateTime(2044, 3, 2),
+      to: DateTime(2044, 3, 2),
+    );
+    expect(audit['irrigation_total'], 12000);
+    expect(audit['ledger_revenue_total'], 12000);
+    expect(audit['difference'], 0);
+  });
+
   test('تدقيق الإيرادات يكشف اختلاف قيمة السقاية عن قيد الأستاذ', () async {
     await useSolar6000();
     await db.update('workers', {'active': 0}, 'id>?', [0]);
