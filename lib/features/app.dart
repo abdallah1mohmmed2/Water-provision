@@ -13009,10 +13009,8 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
           StatBoxData(number: '7', title: 'استحقاق الشريك بعد المصروفات', value: amountText(netAfterCosts), isBlueTint: true),
           StatBoxData(number: '8', title: 'مسحوبات الشريك', value: amountText(ownWithdrawals)),
         ],
-        // اعكس ترتيب أعمدة هذا الكشف فقط، مع عكس كل صف وصف الإجمالي معه
-        // حتى تبقى كل قيمة مرتبطة بعمودها دون تغيير الحسابات.
-        columns: const ['الرصيد المتراكم', 'عليه', 'له', 'البيان', 'التاريخ'],
-        rows: movementRows.map((row) => row.reversed.toList()).toList(),
+        columns: const ['التاريخ', 'البيان', 'له', 'عليه', 'الرصيد المتراكم'],
+        rows: movementRows,
         footerTotalRow: [
           'إجمالي الحركات / الرصيد النهائي',
           '',
@@ -13023,7 +13021,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
               : (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) < 0
                   ? 'عليه ${amountText((orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])).abs())}'
                   : 'صفر',
-        ].reversed.toList(),
+        ],
         minTableRows: 8,
       );
     } catch (e) {
