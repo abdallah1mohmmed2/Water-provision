@@ -323,6 +323,46 @@ void main() {
         paidAmount: 0,
       );
 
+  test('تدقيق الإيرادات يكشف اختلاف قيمة السقاية عن قيد الأستاذ', () async {
+    await useSolar6000();
+    await db.update('workers', {'active': 0}, 'id>?', [0]);
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
+    final date = DateTime(2042, 2, 3, 8);
+    final irrigationId = await irrigationFor(
+      partnerId: await db.insert('partners', {
+        'name': 'شريك تدقيق الإيراد',
+        'ownership_mode': 'shares',
+        'shares_count': 1,
+        'active': 1,
+      }),
+      start: date,
+    );
+    final before = await StationRepository(db).auditIrrigationRevenue(
+      from: DateTime(2042, 2, 3),
+      to: DateTime(2042, 2, 3),
+    );
+    expect(before['irrigation_total'], 6000);
+    expect(before['ledger_revenue_total'], 6000);
+    expect((before['mismatched_irrigations'] as List).isEmpty, isTrue);
+
+    await db.rawUpdate(
+      """UPDATE journal_lines SET credit=5000
+         WHERE journal_entry_id=(
+           SELECT id FROM journal_entries
+           WHERE reference_type='irrigation' AND reference_id=? AND status='posted'
+           ORDER BY id DESC LIMIT 1
+         ) AND account_id=(SELECT id FROM accounts WHERE code='4000')""",
+      [irrigationId],
+    );
+    final after = await StationRepository(db).auditIrrigationRevenue(
+      from: DateTime(2042, 2, 3),
+      to: DateTime(2042, 2, 3),
+    );
+    expect(after['difference'], 1000);
+    expect((after['mismatched_irrigations'] as List).length, 1);
+    expect((after['mismatched_irrigations'] as List).single['irrigation_id'], irrigationId);
+  });
+
   test('السقاية تخصم أجر العامل أولاً ثم توزع الصافي على الشركاء', () async {
     await db.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
     await db.update('settings', {'value': '5000'}, 'key=?', ['solar_hourly_rate']);
