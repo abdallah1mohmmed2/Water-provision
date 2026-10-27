@@ -200,6 +200,7 @@ class AccountingService {
     required String reason,
     int? userId,
     String? descriptionEquals,
+    DateTime? date,
   }) async {
     final entries = await tx.rawQuery(
       "SELECT je.id,je.description FROM journal_entries je WHERE je.reference_type=? AND je.reference_id=? AND je.status='posted' "
@@ -233,6 +234,7 @@ class AccountingService {
             },
         ],
         userId: userId,
+        date: date,
       );
       n++;
     }
@@ -2908,10 +2910,10 @@ class AccountingService {
       for (final item in workerRows) {
         final transactionId = (item['id'] as num).toInt();
         await _reverseEntriesTx(tx, referenceType: 'worker', referenceId: transactionId,
-          reason: 'إعادة احتساب السقاية رقم $id', userId: userId);
+          reason: 'إعادة احتساب السقاية رقم $id', userId: userId, date: oldStart);
         final reversesPersonalIrrigation = '${item['notes'] ?? ''}'.startsWith('خصم قيمة سقاية');
         await tx.insert('worker_transactions', {
-          'worker_id': item['worker_id'], 'date': AppClock.now().toIso8601String(),
+          'worker_id': item['worker_id'], 'date': oldStart.toIso8601String(),
           'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
           'reference_type': 'irrigation_edit', 'reference_id': transactionId,
           'notes': '${reversesPersonalIrrigation ? 'عكس سقاية العامل' : 'عكس استحقاق العامل'} لإعادة احتساب السقاية رقم $id',
@@ -2925,7 +2927,7 @@ class AccountingService {
       );
       for (final item in directPartnerRows) {
         await tx.insert('partner_transactions', {
-          'partner_id': item['partner_id'], 'date': AppClock.now().toIso8601String(),
+          'partner_id': item['partner_id'], 'date': oldStart.toIso8601String(),
           'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
           'reference_type': 'irrigation_edit', 'reference_id': (item['id'] as num).toInt(),
           'notes': 'عكس سقاية الشريك: خصم سابق من السقاية رقم $id لإعادة احتسابها',
@@ -2949,7 +2951,7 @@ class AccountingService {
           await _reverseEntriesTx(tx, referenceType: 'partner_profit_adjustment', referenceId: adjustmentId,
             reason: 'إعادة احتساب السقاية رقم $id', userId: userId);
           await tx.insert('partner_transactions', {
-            'partner_id': adjustment['partner_id'], 'date': AppClock.now().toIso8601String(),
+            'partner_id': adjustment['partner_id'], 'date': oldStart.toIso8601String(),
             'type': 'share_adjustment_reversal', 'amount': (adjustment['amount'] as num).round(),
             'reference_type': 'partner_profit_adjustment_cancel', 'reference_id': adjustmentId,
             'notes': 'عكس تسوية حصة الشريك بسبب تعديل السقاية رقم $id', 'created_by': userId,
