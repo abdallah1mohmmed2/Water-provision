@@ -12885,7 +12885,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
     final bal = _n(summary['balance']);
     final periodSummary = rows.where((x) => x['type'] == 'partner_profit_total').firstOrNull;
     final periodBal = _n(periodSummary?['balance']);
-    final financialRows = rows.where((x) => x['type'] != 'partner_profit_total' && x['type'] != 'partner_irrigation_info' && x['type'] != 'current_balance');
+    final financialRows = rows.where((x) => !const {'partner_profit_total', 'partner_irrigation_info', 'current_balance', 'opening_balance', 'carried_balance'}.contains(x['type']));
     final lah = financialRows.fold<int>(0, (sum, x) => sum + _n(x['lah']));
     final alayh = financialRows.fold<int>(0, (sum, x) => sum + _n(x['alayh']));
 
