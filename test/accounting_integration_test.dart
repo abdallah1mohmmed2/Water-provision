@@ -2381,4 +2381,42 @@ void main() {
     expect(await glPayable('1200', 'beneficiary_id', beneficiary), ledgerBefore);
   });
 
+  test('استحقاقات السقاية للشركاء لا تتجاوز المبلغ بسبب تقريب النسب', () async {
+    await useSolar6000();
+    await db.update('settings', {'value': '2'}, 'key=?', ['solar_hourly_rate']);
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
+    await db.update('workers', {'active': 0}, 'id>?', [0]);
+    final repo = StationRepository(db);
+    for (var i = 0; i < 3; i++) {
+      await repo.createPartner(
+        name: 'شريك تقريب $i',
+        mode: 'percentage',
+        percentage: 33.33,
+      );
+    }
+    final beneficiary = await repo.createBeneficiary(name: 'مستفيد تقريب النسب');
+    final start = DateTime(2046, 1, 1, 8);
+    final irrigationId = await svc.recordIrrigation(
+      stationId: 1,
+      pumpId: 1,
+      beneficiaryId: beneficiary,
+      start: start,
+      end: start.add(const Duration(hours: 1)),
+      systemType: 'solar',
+      waterRate: 0,
+      litersPerHour: 0,
+      dieselPrice: 0,
+      solarRate: 0,
+      thirdRate: 0,
+      cloudMinutes: 0,
+      paidAmount: 0,
+    );
+    final accruals = await db.query(
+      "SELECT COALESCE(SUM(amount),0) total FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?",
+      args: [irrigationId],
+    );
+    expect((accruals.single['total'] as num).round(), lessThanOrEqualTo(2));
+    expect((accruals.single['total'] as num).round(), 2);
+  });
+
 }
