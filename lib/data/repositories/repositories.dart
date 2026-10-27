@@ -930,20 +930,27 @@ class StationRepository {
     if (!isWorker && kind != 'partner') throw ArgumentError('نوع الطرف غير مدعوم: $kind');
     final table = isWorker ? 'workers' : 'partners';
     final idColumn = isWorker ? 'i.worker_id' : 'i.partner_id';
-    final earningTypes = isWorker ? "('worker','worker_entitlement')" : "('partner','share_accrual')";
+    final earningTypes = isWorker
+        ? "('worker','worker_entitlement')"
+        : "('partner','share_accrual','partner_profit_adjustment')";
     final personalAccountWhere = isWorker
         ? "(a.code='2100.W'||x.id OR (a.code='2100' AND jl.worker_id=x.id))"
         : "(a.code='2200.P'||x.id OR (a.code='2200' AND jl.partner_id=x.id))";
+    final paymentPartyColumn = isWorker ? 'p.worker_id' : 'p.partner_id';
     final rows = await db.rawQuery('''
       SELECT
         COALESCE((SELECT SUM(i.minutes) FROM irrigations i WHERE $idColumn=? AND i.status!='cancelled'),0) irrigation_minutes,
         COALESCE((SELECT SUM(i.total_amount) FROM irrigations i WHERE $idColumn=? AND i.status!='cancelled'),0) irrigation_total,
-        COALESCE((SELECT SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE 0 END)
-          FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
-          WHERE $personalAccountWhere AND je.status='posted' AND je.reference_type IN $earningTypes),0) earnings,
-        COALESCE((SELECT SUM(CASE WHEN jl.debit>0 THEN jl.debit ELSE 0 END)
-          FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
-          WHERE $personalAccountWhere AND je.status='posted' AND je.reference_type='payment'),0) paid,
+        COALESCE((SELECT SUM(jl.credit-jl.debit)
+          FROM journal_lines jl
+          JOIN journal_entries je ON je.id=jl.journal_entry_id
+          JOIN accounts a ON a.id=jl.account_id
+          LEFT JOIN journal_entries original ON je.reference_type='reversal' AND je.reference_id=original.id
+          WHERE $personalAccountWhere AND je.status='posted'
+            AND (je.reference_type IN $earningTypes
+              OR (je.reference_type='reversal' AND original.reference_type IN $earningTypes))),0) earnings,
+        COALESCE((SELECT SUM(p.amount) FROM payments p
+          WHERE p.status='posted' AND $paymentPartyColumn=x.id),0) paid,
         COALESCE((SELECT SUM(jl.credit-jl.debit)
           FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
           WHERE $personalAccountWhere AND je.status='posted'),0) balance
