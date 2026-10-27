@@ -642,6 +642,10 @@ void main() {
     expect((rows.last['signed_amount'] as num).round(), 8000);
     expect((rows.first['balance'] as num).round(), 6000);
     expect((await svc.partnerBalance(partner))['balance'], 6000);
+    await expectLater(
+      repo.deletePartner(partner, 1, 'له رصيد قديم'),
+      throwsStateError,
+    );
   });
 
   test('الدفعة المرافقة للسقاية مرفوضة لغير المستفيد', () async {
@@ -2444,6 +2448,11 @@ void main() {
     await movement('payment', 200, 'دفعة قديمة');
     await movement('payment_reversal', 50, 'عكس دفعة قديمة');
     expect((await svc.workerBalance(worker))['balance'], 850);
+    final repo = StationRepository(db);
+    await expectLater(
+      repo.deleteWorker(worker, 1, 'له رصيد قديم'),
+      throwsStateError,
+    );
   });
 
 }
