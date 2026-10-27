@@ -12391,26 +12391,136 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
     }
   }
   Future<void> _postDistribution() async {
-    final ok = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
-      title: const Text('ترحيل أرباح الشركاء'),
-      content: const Text('سيُحسب صافي الربح بعد المصروفات ومستحقات العمال، ثم يُرحّل نصيب كل شريك مرة واحدة لهذه الفترة.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('ترحيل الآن'))],
-    )) ?? false;
-    if (!ok) return;
+    if (from.isAfter(to)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تاريخ البداية يجب ألا يتجاوز تاريخ النهاية')));
+      return;
+    }
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('تأكيد فترة الترحيل'),
+        content: Text('الفترة من ${DateFormat('yyyy/MM/dd').format(from)} إلى ${DateFormat('yyyy/MM/dd').format(to)}.\n\nسيُطلب إدخال مبالغ العمال ذوي الراتب الثابت فقط. عمال النسبة والساعة مستبعدون لأن استحقاقاتهم تُسجّل تلقائيًا.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('متابعة')),
+        ],
+      ),
+    ) ?? false;
+    if (!confirm || !mounted) return;
+
+    final controllers = <int, TextEditingController>{};
     try {
-      // رحّل رواتب العمال الثابتة لكل شهر داخل فترة التوزيع أولاً، حتى تدخل
-      // مصروفات الرواتب في صافي الربح قبل احتساب حصص الشركاء.
-      var salaryCount = 0;
-      var salaryMonth = DateTime(from.year, from.month, 1);
-      final lastSalaryMonth = DateTime(to.year, to.month, 1);
-      while (!salaryMonth.isAfter(lastSalaryMonth)) {
-        salaryCount += await widget.r.accounting.accrueMonthlySalaries(month: salaryMonth);
-        salaryMonth = DateTime(salaryMonth.year, salaryMonth.month + 1, 1);
+      final allWorkers = await widget.r.workers();
+      final fixedWorkers = allWorkers.where((w) => '${w['pay_type'] ?? ''}' == 'fixed' && (w['active'] as num?)?.toInt() != 0).toList();
+      for (final w in fixedWorkers) {
+        controllers[(w['id'] as num).toInt()] = TextEditingController();
+      }
+      if (!mounted) return;
+      final amounts = await showDialog<Map<int, int>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (d) => AlertDialog(
+          title: const Text('مبالغ العمال ذوي الراتب الثابت'),
+          content: SizedBox(
+            width: 420,
+            child: fixedWorkers.isEmpty
+              ? const Text('لا يوجد عمال نشطون بنظام الراتب الثابت.')
+              : SingleChildScrollView(child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('أدخل مبلغ الاستحقاق لكل عامل في الفترة المختارة. اترك الحقل فارغًا أو صفرًا إذا لم يوجد استحقاق.'),
+                    const SizedBox(height: 12),
+                    for (final w in fixedWorkers)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: TextField(
+                          controller: controllers[(w['id'] as num).toInt()],
+                          keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                          decoration: InputDecoration(labelText: '${w['name'] ?? 'عامل'} — المبلغ', suffixText: 'ريال', border: const OutlineInputBorder()),
+                        ),
+                      ),
+                  ],
+                )),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d), child: const Text('إلغاء')),
+            FilledButton(
+              onPressed: () {
+                final result = <int, int>{};
+                for (final entry in controllers.entries) {
+                  final raw = entry.value.text.trim();
+                  final value = raw.isEmpty ? 0 : int.tryParse(raw);
+                  if (value == null || value < 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('أدخل مبالغ صحيحة غير سالبة')));
+                    return;
+                  }
+                  if (value > 0) result[entry.key] = value;
+                }
+                Navigator.pop(d, result);
+              },
+              child: const Text('مراجعة المبالغ'),
+            ),
+          ],
+        ),
+      );
+      if (amounts == null || !mounted) return;
+
+      final startDate = DateTime(from.year, from.month, from.day);
+      final endDate = DateTime(to.year, to.month, to.day, 23, 59, 59);
+      final periodKey = 'manual_fixed_salary_period:${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}_${to.year}-${to.month.toString().padLeft(2, '0')}-${to.day.toString().padLeft(2, '0')}';
+      final sum = amounts.values.fold<int>(0, (total, value) => total + value);
+      final lines = <String>[];
+      for (final entry in amounts.entries) {
+        final worker = fixedWorkers.firstWhere((w) => (w['id'] as num).toInt() == entry.key);
+        lines.add('${worker['name'] ?? 'عامل'}: ${_money(entry.value)}');
+      }
+      final finalConfirm = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: const Text('تأكيد الترحيل النهائي'),
+          content: Text('الفترة: ${DateFormat('yyyy/MM/dd').format(startDate)} إلى ${DateFormat('yyyy/MM/dd').format(to)}\nإجمالي استحقاقات الرواتب الثابتة: ${_money(sum)}\n\n${lines.isEmpty ? 'لا توجد مبالغ يدوية للعمال.' : lines.join('\n')}\n\nسيُرحّل توزيع أرباح الشركاء بعد تسجيل هذه الاستحقاقات.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('تأكيد الترحيل')),
+          ],
+        ),
+      ) ?? false;
+      if (!finalConfirm || !mounted) return;
+
+      // نفحص كل العاملين قبل أي كتابة حتى لا يبدأ ترحيل جزئي إذا كانت الفترة مسجلة سابقًا.
+      final stationId = await widget.r.accounting.currentStationId();
+      for (final entry in amounts.entries) {
+        final duplicate = await widget.r.db.rawQuery(
+          "SELECT 1 FROM worker_transactions wt JOIN workers w ON w.id=wt.worker_id WHERE w.station_id=? AND wt.worker_id=? AND wt.notes LIKE ? LIMIT 1",
+          [stationId, entry.key, '%$periodKey%'],
+        );
+        if (duplicate.isNotEmpty) {
+          final worker = fixedWorkers.firstWhere((w) => (w['id'] as num).toInt() == entry.key);
+          throw StateError('سبق ترحيل استحقاق العامل ${worker['name'] ?? ''} للفترة نفسها؛ أُلغي الترحيل لمنع التكرار.');
+        }
+      }
+
+      var workerCount = 0;
+      for (final entry in amounts.entries) {
+        final worker = fixedWorkers.firstWhere((w) => (w['id'] as num).toInt() == entry.key);
+        await widget.r.accounting.createWorkerAccrual(
+          workerId: entry.key,
+          amount: entry.value,
+          date: endDate,
+          memo: '$periodKey | استحقاق راتب ثابت للفترة ${DateFormat('yyyy/MM/dd').format(startDate)} إلى ${DateFormat('yyyy/MM/dd').format(to)} | العامل: ${worker['name'] ?? ''}',
+        );
+        workerCount++;
       }
       final count = await widget.r.accounting.distributePartnerProfits(from: from, to: to);
       await _load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم ترحيل استحقاق $count شريك، ورواتب جديدة لـ $salaryCount عامل')));
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم ترحيل استحقاق $count شريك وتسجيل $workerCount استحقاق راتب ثابت')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    } finally {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+    }
   }
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:start?from:to,locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
