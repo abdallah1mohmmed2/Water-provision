@@ -957,12 +957,71 @@ class StationRepository {
       FROM $table x WHERE x.id=?
     ''', [id, id, id]);
     if (rows.isEmpty) return {'irrigation_minutes': 0, 'irrigation_total': 0, 'earnings': 0, 'paid': 0, 'balance': 0};
-    // Keep the summary balance aligned with the party balance service, including
-    // the legacy subledger fallback when no personal GL entries exist.
+    // Keep the summary aligned with the party balance service, including legacy
+    // subledger-only databases. Cancelled payments/accruals must not remain in totals.
+    final personalCode = isWorker ? '2100.W$id' : '2200.P$id';
+    final legacyCode = isWorker ? '2100' : '2200';
+    final partyColumn = isWorker ? 'worker_id' : 'partner_id';
+    final glCountRows = await db.rawQuery(
+      "SELECT COUNT(jl.id) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND (a.code=? OR (a.code=? AND jl.$partyColumn=?))",
+      [personalCode, legacyCode, id],
+    );
+    final hasLedger = ((glCountRows.first['n'] as num?)?.toInt() ?? 0) > 0;
+    var earnings = (rows.first['earnings'] as num?)?.round() ?? 0;
+    var paid = (rows.first['paid'] as num?)?.round() ?? 0;
+    if (!hasLedger && isWorker) {
+      final legacy = await db.rawQuery(
+        "SELECT wt.*,i.party_type irrigation_party_type FROM worker_transactions wt LEFT JOIN irrigations i ON wt.reference_type='irrigation' AND i.id=wt.reference_id WHERE wt.worker_id=?",
+        [id],
+      );
+      earnings = 0;
+      paid = 0;
+      for (final row in legacy) {
+        final type = '${row['type'] ?? ''}';
+        final amount = (row['amount'] as num?)?.round() ?? 0;
+        final notes = '${row['notes'] ?? ''}';
+        if (['accrual', 'salary', 'worker_entitlement'].contains(type)) {
+          earnings += amount;
+        } else if (type == 'irrigation' &&
+            !notes.startsWith('خصم قيمة سقاية') &&
+            (notes.startsWith('استحقاق') || row['irrigation_party_type'] != 'worker')) {
+          earnings += amount;
+        } else if (type == 'irrigation_reversal' && notes.startsWith('عكس استحقاق العامل')) {
+          earnings -= amount;
+        }
+        if (type == 'payment') paid += amount;
+        if (type == 'payment_reversal') paid -= amount;
+      }
+    } else if (!hasLedger && !isWorker) {
+      final legacy = await db.query(
+        'partner_transactions',
+        where: 'partner_id=?',
+        whereArgs: [id],
+      );
+      earnings = 0;
+      paid = 0;
+      for (final row in legacy) {
+        final type = '${row['type'] ?? ''}';
+        final amount = (row['amount'] as num?)?.round() ?? 0;
+        final notes = '${row['notes'] ?? ''}';
+        if (type == 'share_accrual' || type == 'contribution') earnings += amount;
+        if (type == 'share_adjustment') earnings -= amount;
+        if (type == 'irrigation_reversal' && notes.startsWith('عكس نصيب الشريك')) {
+          earnings -= amount;
+        }
+        if (type == 'payment') paid += amount;
+        if (type == 'payment_reversal') paid -= amount;
+      }
+    }
     final currentBalance = isWorker
         ? (await accounting.workerBalance(id))['balance'] ?? 0
         : (await accounting.partnerBalance(id))['balance'] ?? 0;
-    return {...rows.first, 'balance': currentBalance};
+    return {
+      ...rows.first,
+      'earnings': earnings,
+      'paid': paid,
+      'balance': currentBalance,
+    };
   }
 
   // تم التصحيح: استخدام rawQuery وحذف args:
