@@ -336,6 +336,105 @@ void main() {
         paidAmount: 0,
       );
 
+  test('تعديل السقاية يعيد احتساب أجور العمال وحصص الشركاء دون مضاعفة الرصيد التراكمي', () async {
+    await useSolar6000();
+    await db.update('workers', {'active': 0}, 'id>?', [0]);
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
+
+    final start = DateTime(2044, 3, 4, 8);
+    final beneficiary = await db.insert('beneficiaries', {
+      'name': 'مستفيد اختبار إعادة توزيع السقاية',
+      'created_at': start.toIso8601String(),
+      'updated_at': start.toIso8601String(),
+    });
+    final worker = await db.insert('workers', {
+      'name': 'عامل اختبار إعادة الاحتساب',
+      'pay_type': 'hourly',
+      'hourly_rate': 700,
+      'active': 1,
+    });
+    final p1 = await db.insert('partners', {
+      'name': 'شريك اختبار إعادة الاحتساب أ',
+      'ownership_mode': 'shares',
+      'shares_count': 1,
+      'active': 1,
+    });
+    final p2 = await db.insert('partners', {
+      'name': 'شريك اختبار إعادة الاحتساب ب',
+      'ownership_mode': 'shares',
+      'shares_count': 1,
+      'active': 1,
+    });
+
+    final id = await svc.recordIrrigation(
+      stationId: 1,
+      pumpId: 1,
+      beneficiaryId: beneficiary,
+      operatorWorkerId: worker,
+      start: start,
+      end: start.add(const Duration(hours: 1)),
+      systemType: 'solar',
+      waterRate: 0,
+      litersPerHour: 0,
+      dieselPrice: 0,
+      solarRate: 0,
+      thirdRate: 0,
+      cloudMinutes: 0,
+      paidAmount: 0,
+    );
+
+    // قبل التعديل: 6,000 إيراد، 700 للعامل، و2,650 لكل شريك.
+    expect(await glPayable('2100', 'worker_id', worker), 700);
+    expect(await glPayable('2200', 'partner_id', p1), 2650);
+    expect(await glPayable('2200', 'partner_id', p2), 2650);
+    expect((await svc.workerBalance(worker))['balance'], 700);
+    expect((await svc.partnerBalance(p1))['balance'], 2650);
+    expect((await svc.partnerBalance(p2))['balance'], 2650);
+
+    await svc.updateIrrigationBasic(
+      id: id,
+      start: start,
+      end: start.add(const Duration(hours: 2)),
+      userId: 1,
+    );
+
+    // بعد التعديل: 12,000 إيراد، 1,400 للعامل، و5,300 لكل شريك.
+    // يجب أن يكون الرصيد النهائي مساويًا للاستحقاق الجديد، لا القديم + الجديد.
+    expect(await glPayable('2100', 'worker_id', worker), 1400);
+    expect(await glPayable('2200', 'partner_id', p1), 5300);
+    expect(await glPayable('2200', 'partner_id', p2), 5300);
+    expect((await svc.workerBalance(worker))['balance'], 1400);
+    expect((await svc.partnerBalance(p1))['balance'], 5300);
+    expect((await svc.partnerBalance(p2))['balance'], 5300);
+
+    final workerRows = await db.query(
+      "SELECT type,amount,reference_type,reference_id FROM worker_transactions WHERE worker_id=? AND reference_id=? ORDER BY id",
+      args: [worker, id],
+    );
+    expect(workerRows.where((r) => r['type'] == 'irrigation').length, 1);
+    expect(workerRows.where((r) => r['type'] == 'irrigation_reversal').length, 1);
+    expect(workerRows.where((r) => r['type'] == 'irrigation').fold<int>(
+      0, (sum, row) => sum + (row['amount'] as num).round(),
+    ), 1400);
+
+    for (final partnerId in [p1, p2]) {
+      final partnerRows = await db.query(
+        "SELECT type,amount,reference_type,reference_id FROM partner_transactions WHERE partner_id=? AND reference_type IN ('irrigation_profit','irrigation_edit') AND reference_id IN (?, (SELECT id FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=? LIMIT 1)) ORDER BY id",
+        args: [partnerId, id, id],
+      );
+      expect(partnerRows.where((r) => r['type'] == 'share_accrual').length, 2);
+      expect(partnerRows.where((r) => r['type'] == 'irrigation_reversal').length, 1);
+    }
+
+    final audit = await StationRepository(db).auditIrrigationRevenue(
+      from: DateTime(2044, 3, 4),
+      to: DateTime(2044, 3, 4),
+    );
+    expect(audit['irrigation_total'], 12000);
+    expect(audit['ledger_revenue_total'], 12000);
+    expect(audit['difference'], 0);
+  });
+
   test('تعديل وقت السقاية يعيد احتساب المدة والقيمة وقيد الإيراد', () async {
     await useSolar6000();
     await db.update('workers', {'active': 0}, 'id>?', [0]);
