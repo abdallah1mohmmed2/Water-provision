@@ -870,6 +870,67 @@ void main() {
     );
   });
 
+  test('تعديل سند القبض يحافظ على التاريخ ويحدّث الصندوق مرة واحدة', () async {
+    final repo = StationRepository(db);
+    final beneficiary = await repo.createBeneficiary(name: 'اختبار تعديل سند القبض');
+    await db.transaction((tx) => tx.rawUpdate(
+      'UPDATE cashboxes SET current_balance=100000 WHERE id=1',
+    ));
+    await svc.receivePayment(
+      beneficiaryId: beneficiary,
+      amount: 300,
+      paymentMethodId: 1,
+      cashboxId: 1,
+    );
+    final original = (await db.query(
+      "SELECT id FROM payments WHERE beneficiary_id=? AND status='posted' ORDER BY id DESC LIMIT 1",
+      args: [beneficiary],
+    )).single;
+    final paymentId = original['id'] as int;
+    final originalDate = DateTime.now()
+        .subtract(const Duration(days: 1))
+        .toIso8601String();
+    await db.update('payments', {'date': originalDate}, 'id=?', [paymentId]);
+    final cashBeforeEdit = await cashboxBalance(1);
+
+    final replacementId = await svc.replacePayment(
+      id: paymentId,
+      userId: 1,
+      reason: 'تصحيح مبلغ السند',
+      beneficiaryId: beneficiary,
+      amount: 500,
+      paymentMethodId: 1,
+      cashboxId: 1,
+      referenceNumber: 'TEST-REPLACEMENT',
+    );
+
+    final replacement = (await db.query(
+      'SELECT date, status, amount FROM payments WHERE id=?',
+      args: [replacementId],
+    )).single;
+    expect(replacement['status'], 'posted');
+    expect(replacement['amount'], 500);
+    expect(
+      DateTime.parse('${replacement['date'] as String}').isAtSameMomentAs(
+        DateTime.parse(originalDate),
+      ),
+      isTrue,
+    );
+    expect(await cashboxBalance(1), cashBeforeEdit + 200);
+    expect(
+      (await db.query('SELECT status FROM payments WHERE id=?', args: [paymentId]))
+          .single['status'],
+      'cancelled',
+    );
+    expect(
+      (await db.query(
+        "SELECT COUNT(*) n FROM journal_entries WHERE reference_type='payment' AND reference_id=? AND status='posted'",
+        args: [replacementId],
+      )).single['n'],
+      1,
+    );
+  });
+
   test('حذف مستفيد برصيد غير صفر مرفوض، وتعديل الافتتاحي يقيّد فرقًا', () async {
     final repo = StationRepository(db);
     final b = await repo.createBeneficiary(name: 'برصيد', opening: 500);
