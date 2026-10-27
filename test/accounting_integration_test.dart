@@ -2170,4 +2170,16 @@ void main() {
     expect((saved['shares_count'] as num).round(), 2);
   });
 
+  test('تقريب نسب الشركاء لا يوزع أكثر من مبلغ السقاية', () {
+    final allocations = AccountingCalculations.partnerDistributionAmounts(
+      distributable: 2,
+      partners: [
+        {'id': 1, 'ownership_mode': 'percentage', 'ownership_percentage': 33.33},
+        {'id': 2, 'ownership_mode': 'percentage', 'ownership_percentage': 33.33},
+        {'id': 3, 'ownership_mode': 'percentage', 'ownership_percentage': 33.33},
+      ],
+    );
+    expect(allocations.values.fold<int>(0, (sum, value) => sum + value), lessThanOrEqualTo(2));
+  });
+
 }
