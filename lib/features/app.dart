@@ -12223,9 +12223,18 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
     )) ?? false;
     if (!ok) return;
     try {
+      // رحّل رواتب العمال الثابتة لكل شهر داخل فترة التوزيع أولاً، حتى تدخل
+      // مصروفات الرواتب في صافي الربح قبل احتساب حصص الشركاء.
+      var salaryCount = 0;
+      var salaryMonth = DateTime(from.year, from.month, 1);
+      final lastSalaryMonth = DateTime(to.year, to.month, 1);
+      while (!salaryMonth.isAfter(lastSalaryMonth)) {
+        salaryCount += await widget.r.accounting.accrueMonthlySalaries(month: salaryMonth);
+        salaryMonth = DateTime(salaryMonth.year, salaryMonth.month + 1, 1);
+      }
       final count = await widget.r.accounting.distributePartnerProfits(from: from, to: to);
       await _load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم ترحيل استحقاق $count شريك')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم ترحيل استحقاق $count شريك، ورواتب جديدة لـ $salaryCount عامل')));
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e)))); }
   }
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:start?from:to,locale:const Locale('ar'));if(d!=null){setState((){if(start) {
