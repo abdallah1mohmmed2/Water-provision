@@ -982,7 +982,66 @@ class StationRepository {
       ORDER BY i.start_datetime DESC''', [id]);
   }
 
-  Future<List<Map<String, Object?>>> workerTransactions(int id) => _ledgerPartyTransactions(accountCode: '2100.W$id', partyColumn: null, id: id, legacyAccountCode: '2100');
+  Future<List<Map<String, Object?>>> workerTransactions(int id) async {
+    final ledgerRows = await _ledgerPartyTransactions(
+      accountCode: '2100.W$id',
+      partyColumn: null,
+      id: id,
+      legacyAccountCode: '2100',
+    );
+    if (ledgerRows.isNotEmpty) return ledgerRows;
+
+    final sourceRows = await db.rawQuery(
+      "SELECT wt.*,i.party_type irrigation_party_type FROM worker_transactions wt "
+      "LEFT JOIN irrigations i ON wt.reference_type='irrigation' AND i.id=wt.reference_id "
+      "WHERE wt.worker_id=? ORDER BY wt.date ASC,wt.id ASC",
+      [id],
+    );
+    final rows = <Map<String, Object?>>[];
+    var running = 0;
+    for (final row in sourceRows) {
+      final type = '${row['type'] ?? ''}';
+      final amount = (row['amount'] as num?)?.round() ?? 0;
+      final notes = '${row['notes'] ?? ''}';
+      final signed = switch (type) {
+        'accrual' || 'salary' || 'worker_entitlement' || 'opening_balance' => amount,
+        'payment' => -amount,
+        'payment_reversal' => amount,
+        'irrigation' => notes.startsWith('خصم قيمة سقاية')
+            ? -amount
+            : notes.startsWith('استحقاق') || row['irrigation_party_type'] != 'worker'
+                ? amount
+                : -amount,
+        'irrigation_reversal' => notes.startsWith('عكس استحقاق العامل')
+            ? -amount
+            : amount,
+        _ => 0,
+      };
+      running += signed;
+      rows.add({
+        ...row,
+        'journal_entry_id': null,
+        'journal_line_id': null,
+        'description': notes.isNotEmpty
+            ? notes
+            : switch (type) {
+                'accrual' || 'salary' || 'worker_entitlement' => 'استحقاق عامل',
+                'payment' => 'دفعة للعامل',
+                'payment_reversal' => 'عكس دفعة عامل',
+                'irrigation' => 'حركة سقاية للعامل',
+                'irrigation_reversal' => 'عكس حركة سقاية',
+                'opening_balance' => 'رصيد افتتاحي للعامل',
+                _ => 'حركة عامل',
+              },
+        'amount': signed.abs(),
+        'signed_amount': signed,
+        'balance': running,
+        'lah': signed > 0 ? signed : 0,
+        'alayh': signed < 0 ? -signed : 0,
+      });
+    }
+    return rows.reversed.toList();
+  }
 
   Future<List<Map<String, Object?>>> partnerTransactions(int id) async {
     final ledgerRows = await _ledgerPartyTransactions(
