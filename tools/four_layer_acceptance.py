@@ -47,8 +47,8 @@ check('diesel stock is not read by solar session start', "set['system_type'] == 
 
 # 3) PDF: explicit Arabic font usage, report columns, Arabic-safe enum display.
 check('PDF embeds both Arabic fonts',
-      "assets/fonts/NotoNaskhArabic-Regular.ttf" in pdf and
-      "assets/fonts/NotoNaskhArabic-Bold.ttf" in pdf)
+      "assets/fonts/NotoNaskhArabic-Regular.ttf" in pdf_template and
+      "assets/fonts/NotoNaskhArabic-Bold.ttf" in pdf_template)
 check('PDF table cells explicitly use Arabic font',
       'pw.Text(' in pdf_template and 'font: font' in pdf_template and
       '_buildOfficialTable(' in pdf_template)
