@@ -2682,8 +2682,16 @@ class StationRepository {
                   openingBalance = (row['balance'] as num?)?.round() ?? 0;
                 }
               }
-              if (latestPriorDate == null) {
-                openingBalance = (worker['opening_balance'] as num?)?.round() ?? 0;
+              final configuredOpening =
+                  (worker['opening_balance'] as num?)?.round() ?? 0;
+              final hasOpeningEntry =
+                  transactions.any((row) => row['type'] == 'opening_balance');
+              if (!hasOpeningEntry) {
+                // Older records may have transactions but no posted opening
+                // journal entry; carry the configured opening into the period.
+                openingBalance += configuredOpening;
+              } else if (latestPriorDate == null) {
+                openingBalance = configuredOpening;
               }
               rows.add({
                 'date': periodStart.toIso8601String(),
