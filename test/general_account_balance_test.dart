@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/features/general_accounts_page.dart';
+import 'package:saqia_station/features/general_accounts_page.dart';
 
 void main() {
   group('calculateGeneralAccountBalance', () {
