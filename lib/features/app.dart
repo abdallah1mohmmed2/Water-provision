@@ -417,6 +417,13 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
         loading = false;
         if (activeUsers.isEmpty) error = 'لا يوجد مستخدم نشط. فعّل حسابًا من قاعدة بيانات المحطة أولاً.';
       });
+
+      // اعرض مطالبة البصمة تلقائيًا عند فتح التطبيق إذا كانت مفعّلة ومهيأة.
+      // لا تبدأ المصادقة أثناء الإعداد الأولي أو عند عدم توفر البصمة.
+      if (configured && bio && bioAvailable && activeUsers.isNotEmpty && mounted) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        if (mounted) await _verifyBiometric();
+      }
     } catch (e) {
       if (mounted) setState(() { loading = false; error = friendlyError(e); });
     }
