@@ -17,15 +17,15 @@ void main() {
     test('supports payable opening balance and movement across zero', () {
       expect(
         calculateGeneralAccountBalance(-2000, [
-          {'type': 'payment', 'amount': 500},
-          {'type': 'receipt', 'amount': 3000},
+          {'type': 'payment', 'amount': 5000},
+          {'type': 'receipt', 'amount': 1000},
         ]),
-        -4500,
+        2000,
       );
     });
 
     test('empty transactions preserve opening balance', () {
-      expect(calculateGeneralAccountBalance(-1250, const []), -1250);
+      expect(calculateGeneralAccountBalance(-1250, const <Map<String, Object?>>[]), -1250);
     });
   });
 }
