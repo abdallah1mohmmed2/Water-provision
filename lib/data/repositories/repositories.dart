@@ -1221,7 +1221,10 @@ class StationRepository {
   }) async {
     if (name.trim().isEmpty) throw ArgumentError('اسم الشريك مطلوب');
     if (!{'shares','percentage'}.contains(mode)) throw ArgumentError('طريقة توزيع الشريك غير صالحة');
-    if (mode == 'shares' && (shares <= 0 || percentage != 0)) throw ArgumentError('اختر الحصص فقط وأدخل حصصًا موجبة');
+    if (mode == 'shares' &&
+        (shares <= 0 || shares != shares.roundToDouble() || percentage != 0)) {
+      throw ArgumentError('عدد حصص الشريك يجب أن يكون عددًا صحيحًا موجبًا، دون نسبة ملكية');
+    }
     if (mode == 'percentage' && (percentage < 0 || percentage > 100 || shares != 0)) throw ArgumentError('اختر النسبة فقط بين صفر و100');
     final stationId = await accounting.currentStationId();
     final id = await db.transaction((tx) async {
@@ -1276,7 +1279,10 @@ class StationRepository {
     final mode = '${values['ownership_mode'] ?? found.first['ownership_mode']}';
     final shares = (values['shares_count'] ?? found.first['shares_count'] ?? 0) as num;
     final percentage = (values['ownership_percentage'] ?? found.first['ownership_percentage'] ?? 0) as num;
-    if (mode == 'shares' && (shares <= 0 || percentage != 0)) throw ArgumentError('طريقة الحصص لا تقبل نسبة ملكية');
+    if (mode == 'shares' &&
+        (shares <= 0 || shares != shares.roundToDouble() || percentage != 0)) {
+      throw ArgumentError('عدد حصص الشريك يجب أن يكون عددًا صحيحًا موجبًا، دون نسبة ملكية');
+    }
     if (mode == 'percentage' && (percentage < 0 || percentage > 100 || shares != 0)) throw ArgumentError('طريقة النسبة لا تقبل حصصًا');
     final old = found.first;
     if ('${values['active'] ?? old['active']}' == '1' &&
