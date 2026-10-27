@@ -1559,6 +1559,7 @@ class ReportService {
         rows: movements,
         footerTotalRow: ['الإجمالي', '', _workerMoney(due), _workerMoney(withdrawals), net > 0 ? 'له ${_workerMoney(net)}' : net < 0 ? 'عليه ${_workerMoney(net.abs())}' : 'صفر'],
         minTableRows: 1,
+        preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
       );
       return;
     }
