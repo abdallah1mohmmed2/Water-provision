@@ -200,6 +200,7 @@ class AccountingService {
     required String reason,
     int? userId,
     String? descriptionEquals,
+    DateTime? date,
   }) async {
     final entries = await tx.rawQuery(
       "SELECT je.id,je.description FROM journal_entries je WHERE je.reference_type=? AND je.reference_id=? AND je.status='posted' "
@@ -233,6 +234,7 @@ class AccountingService {
             },
         ],
         userId: userId,
+        date: date,
       );
       n++;
     }
@@ -1637,10 +1639,13 @@ class AccountingService {
     int? userId,
     String? referenceNumber,
     String? notes,
+    bool sendNotification = true,
+    DateTime? paymentDate,
   }) async {
     if (amount <= 0) throw ArgumentError('المبلغ يجب أن يكون أكبر من صفر');
     final now = AppClock.now().toIso8601String();
-    await _assertPeriodOpen(tx, AppClock.now());
+    final effectivePaymentDate = paymentDate ?? AppClock.now();
+    await _assertPeriodOpen(tx, effectivePaymentDate);
     // الصندوق تابع للطريقة؛ أي تعارض بينهما يُرفض هنا قبل أي كتابة.
     final src = await resolvePaymentSource(
       tx,
@@ -1658,7 +1663,7 @@ class AccountingService {
       'partner_id': partnerId,
       'worker_id': workerId,
       'amount': amount,
-      'date': now,
+      'date': effectivePaymentDate.toIso8601String(),
       'payment_method_id': paymentMethodId,
       'cashbox_id': cashboxId,
       'reference_number': referenceNumber,
@@ -1702,7 +1707,7 @@ class AccountingService {
       ],
       userId: userId,
     );
-    if (beneficiaryId != null) {
+    if (beneficiaryId != null && sendNotification) {
       final templates = await tx.query(
         'settings',
         columns: ['key', 'value'],
@@ -2758,6 +2763,425 @@ class AccountingService {
   }
 
 
+
+  /// يعدّل السقاية ويعيد احتساب القيود والحركات التابعة داخل معاملة واحدة.
+  /// الفترات المقفلة والتعارضات الزمنية تُرفض صراحةً لحماية الإقفال وسجل تشغيل المضخة.
+  Future<int> updateIrrigationBasic({
+    required int id,
+    required DateTime start,
+    required DateTime end,
+    int? userId,
+  }) async {
+    if (!end.isAfter(start)) throw ArgumentError('وقت النهاية يجب أن يكون بعد البداية');
+    return database.transaction((tx) async {
+      final rows = await tx.query('irrigations', where: 'id=?', whereArgs: [id], limit: 1);
+      if (rows.isEmpty || rows.first['status'] != 'posted') {
+        throw StateError('السقاية غير موجودة أو ملغاة/غير مرحّلة');
+      }
+      final old = rows.first;
+      final type = '${old['system_type']}';
+      final oldStart = DateTime.parse('${old['start_datetime']}');
+      final oldEnd = DateTime.parse('${old['end_datetime']}');
+      try {
+        await _assertPeriodRangeOpen(tx, oldStart, oldEnd,
+          stationId: (old['station_id'] as num).toInt());
+        await _assertPeriodRangeOpen(tx, start, end,
+          stationId: (old['station_id'] as num).toInt());
+      } on StateError {
+        throw StateError('لا يمكن تعديل السقاية داخل فترة محاسبية مقفلة. أعد فتح الفترة من شاشة الإقفال مع تسجيل السبب، ثم أعد التعديل؛ لم تُغيّر أي بيانات.');
+      }
+      final overlap = await tx.rawQuery(
+        "SELECT id,start_datetime,end_datetime FROM irrigations WHERE id<>? AND pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",
+        [id, old['pump_id'], end.toIso8601String(), start.toIso8601String()],
+      );
+      if (overlap.isNotEmpty) {
+        final conflict = overlap.first;
+        throw StateError('يتعارض الوقت المحدد مع السقاية رقم ${conflict['id']} من ${conflict['start_datetime']} إلى ${conflict['end_datetime']}. اختر وقتًا لا يتداخل معها.');
+      }
+      final cfgRows = await tx.query('settings', columns: ['key','value']);
+      final cfg = {for (final row in cfgRows) row['key'] as String: row['value'] as String};
+      final rounding = cfg['rounding'] ?? 'nearest';
+      final partialHour = cfg['partial_hour'] != 'false';
+      final oldCloudPeriods = await tx.query('cloud_periods',
+        where: 'irrigation_id=?', whereArgs: [id], orderBy: 'start_datetime,id');
+      var cloud = ((old['cloud_minutes'] as num?)?.toInt() ?? 0);
+      final shiftedCloudPeriods = <Map<String, Object?>>[];
+      if (oldCloudPeriods.isNotEmpty) {
+        final shift = start.difference(oldStart);
+        var cloudSum = 0;
+        for (final period in oldCloudPeriods) {
+          final originalStart = DateTime.parse('${period['start_datetime']}');
+          final originalEnd = DateTime.parse('${period['end_datetime']}');
+          var shiftedStart = originalStart.add(shift);
+          var shiftedEnd = originalEnd.add(shift);
+          if (shiftedStart.isBefore(start)) shiftedStart = start;
+          if (shiftedEnd.isAfter(end)) shiftedEnd = end;
+          if (!shiftedEnd.isAfter(shiftedStart)) {
+            shiftedCloudPeriods.add({'id': period['id'], 'delete': true, 'old': period});
+            continue;
+          }
+          final mins = shiftedEnd.difference(shiftedStart).inMinutes;
+          cloudSum += mins;
+          shiftedCloudPeriods.add({'id': period['id'], 'start_datetime': shiftedStart.toIso8601String(),
+            'end_datetime': shiftedEnd.toIso8601String(), 'minutes': mins, 'old': period});
+        }
+        cloud = cloudSum.clamp(0, end.difference(start).inMinutes).toInt();
+      } else {
+        // Older irrigation rows may store only a total cloud-minute value.
+        // Clamp it to the edited duration just as recordIrrigation does.
+        cloud = cloud.clamp(0, end.difference(start).inMinutes).toInt();
+      }
+      // Cloud stoppage is only billable for solar systems. Keep diesel and
+      // equivalent-system recalculation consistent with recordIrrigation.
+      final effectiveCloud = type == 'solar' ? cloud : 0;
+      final allowMidnight = cfg['allow_midnight_crossing'] == 'true';
+      var result = type == 'diesel'
+          ? AccountingCalculations.diesel(
+              start: start, end: end,
+              hourlyWaterRate: (old['water_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+              litersPerHour: (old['diesel_liters_per_hour_snapshot'] as num?)?.toDouble() ?? 0,
+              dieselPrice: (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0,
+              cloudMinutes: effectiveCloud,
+              allowMidnightCrossing: allowMidnight,
+              rounding: rounding, partialHour: partialHour,
+            )
+          : type == 'solar'
+              ? AccountingCalculations.solar(
+                  start: start, end: end,
+                  hourlyRate: (old['solar_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  cloudMinutes: cloud,
+                  allowMidnightCrossing: allowMidnight,
+                  rounding: rounding, partialHour: partialHour,
+                )
+              : AccountingCalculations.equivalent(
+                  start: start, end: end,
+                  hourlyRate: (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  allowMidnightCrossing: allowMidnight,
+                  rounding: rounding, partialHour: partialHour,
+                );
+      var chargedDiesel = result.dieselAmount;
+      var shortageLiters = 0.0;
+      final partyTypeForDiesel = '${old['party_type'] ?? 'beneficiary'}';
+      final dieselBeneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
+      if (type == 'diesel' && partyTypeForDiesel == 'beneficiary' && result.dieselLiters > 0) {
+        final stockRows = await tx.rawQuery(_beneficiaryDieselStockSql, [
+          dieselBeneficiaryId, dieselBeneficiaryId, dieselBeneficiaryId,
+        ]);
+        var stockWithoutThisIrrigation = (stockRows.first['stock'] as num?)?.toDouble() ?? 0;
+        final oldMoves = await tx.query('diesel_movements',
+          where: 'irrigation_id=?', whereArgs: [id]);
+        for (final move in oldMoves) {
+          final liters = (move['liters'] as num?)?.toDouble() ?? 0;
+          if ('${move['kind']}' == 'advance') stockWithoutThisIrrigation -= liters;
+          if ('${move['kind']}' == 'consumption') stockWithoutThisIrrigation += liters;
+        }
+        shortageLiters = (result.dieselLiters - stockWithoutThisIrrigation).clamp(0, result.dieselLiters).toDouble();
+        final financialCredit = (cfg['diesel_delivery_financial_credit'] ?? '').toLowerCase() == 'true';
+        if (!financialCredit) {
+          chargedDiesel = AccountingCalculations.roundAmount(shortageLiters *
+            ((old['diesel_price_snapshot'] as num?)?.toDouble() ?? 0), rounding);
+        }
+        result = IrrigationResult(
+          minutes: result.minutes, cloudMinutes: result.cloudMinutes,
+          chargeableMinutes: result.chargeableMinutes, waterAmount: result.waterAmount,
+          dieselAmount: chargedDiesel, totalAmount: result.waterAmount + chargedDiesel,
+          dieselLiters: result.dieselLiters,
+        );
+      }
+      final partyType = '${old['party_type'] ?? 'beneficiary'}';
+      final beneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
+      final workerId = (old['worker_id'] as num?)?.toInt();
+      final partnerId = (old['partner_id'] as num?)?.toInt();
+      if (partyType == 'beneficiary' && beneficiaryId == null ||
+          partyType == 'worker' && workerId == null ||
+          partyType == 'partner' && partnerId == null) {
+        throw StateError('بيانات صاحب حساب السقاية غير مكتملة؛ لم تُغيّر أي بيانات');
+      }
+      if (!{'beneficiary', 'worker', 'partner'}.contains(partyType)) {
+        throw StateError('نوع صاحب حساب السقاية غير مدعوم؛ لم تُغيّر أي بيانات');
+      }
+
+      // Reverse linked wage and partner accrual rows without deleting history.
+      final workerRows = await tx.query(
+        'worker_transactions',
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation' AND NOT EXISTS (SELECT 1 FROM worker_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=worker_transactions.id AND rev.type='irrigation_reversal')",
+        whereArgs: [id],
+      );
+      for (final item in workerRows) {
+        final transactionId = (item['id'] as num).toInt();
+        await _reverseEntriesTx(tx, referenceType: 'worker', referenceId: transactionId,
+          reason: 'إعادة احتساب السقاية رقم $id', userId: userId, date: oldStart);
+        final reversesPersonalIrrigation = '${item['notes'] ?? ''}'.startsWith('خصم قيمة سقاية');
+        await tx.insert('worker_transactions', {
+          'worker_id': item['worker_id'], 'date': oldStart.toIso8601String(),
+          'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
+          'reference_type': 'irrigation_edit', 'reference_id': transactionId,
+          'notes': '${reversesPersonalIrrigation ? 'عكس سقاية العامل' : 'عكس استحقاق العامل'} لإعادة احتساب السقاية رقم $id',
+          'created_by': userId,
+        });
+      }
+      final directPartnerRows = await tx.query(
+        'partner_transactions',
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=partner_transactions.id AND rev.type='irrigation_reversal')",
+        whereArgs: [id],
+      );
+      for (final item in directPartnerRows) {
+        await tx.insert('partner_transactions', {
+          'partner_id': item['partner_id'], 'date': oldStart.toIso8601String(),
+          'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
+          'reference_type': 'irrigation_edit', 'reference_id': (item['id'] as num).toInt(),
+          'notes': 'عكس سقاية الشريك: خصم سابق من السقاية رقم $id لإعادة احتسابها',
+          'created_by': userId,
+        });
+      }
+      final partnerRows = await tx.query(
+        'partner_transactions',
+        where: "reference_type='irrigation_profit' AND reference_id=? AND type='share_accrual' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=partner_transactions.id AND rev.type='irrigation_reversal')",
+        whereArgs: [id],
+      );
+      for (final item in partnerRows) {
+        final transactionId = (item['id'] as num).toInt();
+        final priorAdjustments = await tx.query(
+          'partner_transactions',
+          where: "reference_type='partner_profit_adjustment' AND reference_id=? AND type='share_adjustment' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='partner_profit_adjustment_cancel' AND rev.reference_id=partner_transactions.id AND rev.type='share_adjustment_reversal')",
+          whereArgs: [transactionId],
+        );
+        for (final adjustment in priorAdjustments) {
+          final adjustmentId = (adjustment['id'] as num).toInt();
+          await _reverseEntriesTx(tx, referenceType: 'partner_profit_adjustment', referenceId: adjustmentId,
+            reason: 'إعادة احتساب السقاية رقم $id', userId: userId, date: oldStart);
+          await tx.insert('partner_transactions', {
+            'partner_id': adjustment['partner_id'], 'date': oldStart.toIso8601String(),
+            'type': 'share_adjustment_reversal', 'amount': (adjustment['amount'] as num).round(),
+            'reference_type': 'partner_profit_adjustment_cancel', 'reference_id': adjustmentId,
+            'notes': 'عكس تسوية حصة الشريك بسبب تعديل السقاية رقم $id', 'created_by': userId,
+          });
+        }
+        await _reverseEntriesTx(tx, referenceType: 'partner', referenceId: transactionId,
+          reason: 'إعادة احتساب السقاية رقم $id', userId: userId, date: oldStart);
+        await tx.insert('partner_transactions', {
+          'partner_id': item['partner_id'], 'date': oldStart.toIso8601String(),
+          'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
+          'reference_type': 'irrigation_edit', 'reference_id': transactionId,
+          'notes': 'عكس حصة الشريك السابقة من السقاية رقم $id لإعادة احتسابها',
+          'created_by': userId,
+        });
+      }
+      await _reverseEntriesTx(
+        tx, referenceType: 'irrigation', referenceId: id,
+        reason: 'تصحيح بيانات السقاية رقم $id', userId: userId, date: oldStart,
+      );
+      final waterRevenue = await _accountIdTx(tx, '4000');
+      final fuelRevenue = await _accountIdTx(tx, '4010');
+      final receivable = partyType == 'worker'
+          ? await _workerAccountIdTx(tx, workerId!)
+          : partyType == 'partner'
+              ? await _partnerAccountIdTx(tx, partnerId!)
+              : await _accountIdTx(tx, '1200');
+      final lines = <Map<String, Object?>>[
+        {'account_id': receivable, 'beneficiary_id': beneficiaryId,
+         'worker_id': workerId, 'partner_id': partnerId,
+         'debit': result.totalAmount, 'credit': 0,
+         'memo': partyType == 'beneficiary' ? 'استحقاق سقاية بعد التعديل' : 'خصم سقاية من مستحقات الطرف بعد التعديل'},
+      ];
+      if (result.waterAmount > 0) {
+        lines.add({'account_id': waterRevenue, 'debit': 0,
+          'credit': result.waterAmount, 'memo': 'إيراد السقي بعد التعديل'});
+      }
+      if (result.dieselAmount > 0) {
+        lines.add({'account_id': fuelRevenue, 'debit': 0,
+          'credit': result.dieselAmount, 'memo': 'قيمة ديزل السقي بعد التعديل'});
+      }
+      if (result.totalAmount > 0) {
+        await _entry(tx,
+          description: 'تعديل سقاية رقم $id',
+          referenceType: 'irrigation', referenceId: id,
+          lines: lines, userId: userId, date: start,
+          stationId: (old['station_id'] as num).toInt());
+      }
+      final now = AppClock.now().toIso8601String();
+      final values = <String, Object?>{
+        'date': start.toIso8601String().substring(0, 10),
+        'start_datetime': start.toIso8601String(),
+        'end_datetime': end.toIso8601String(),
+        'minutes': result.minutes,
+        'cloud_minutes': result.cloudMinutes,
+        'chargeable_minutes': result.chargeableMinutes,
+        'water_amount': result.waterAmount,
+        'diesel_amount': result.dieselAmount,
+        'total_amount': result.totalAmount,
+        'updated_at': now,
+      };
+      await tx.update('irrigations', values, where: 'id=?', whereArgs: [id]);
+
+      // Keep detailed cloud intervals aligned with the edited irrigation window.
+      for (final period in shiftedCloudPeriods) {
+        final periodId = (period['id'] as num).toInt();
+        if (period['delete'] == true) {
+          await tx.delete('cloud_periods', where: 'id=?', whereArgs: [periodId]);
+        } else {
+          await tx.update('cloud_periods', {
+            'start_datetime': period['start_datetime'],
+            'end_datetime': period['end_datetime'],
+            'minutes': period['minutes'],
+          }, where: 'id=?', whereArgs: [periodId]);
+        }
+      }
+
+      // Reconcile diesel movements with the newly calculated litres and shortage.
+      final oldDieselMoves = await tx.query('diesel_movements',
+        where: 'irrigation_id=?', whereArgs: [id], orderBy: 'id');
+      if (type == 'diesel' && partyType == 'beneficiary' && result.dieselLiters > 0) {
+        final price = (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0;
+        final advances = oldDieselMoves.where((m) => '${m['kind']}' == 'advance').toList();
+        final consumptions = oldDieselMoves.where((m) => '${m['kind']}' == 'consumption').toList();
+        if (shortageLiters > 0) {
+          final advanceValues = <String, Object?>{
+            'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'advance',
+            'liters': shortageLiters, 'unit_price': price,
+            'amount': AccountingCalculations.roundAmount(shortageLiters * price, rounding),
+            'date': start.toIso8601String(), 'created_by': userId,
+            'notes': 'سلفة ديزل تلقائية (بعد تعديل السقاية)',
+          };
+          if (advances.isEmpty) {
+            await tx.insert('diesel_movements', advanceValues);
+          } else {
+            await tx.update('diesel_movements', advanceValues,
+              where: 'id=?', whereArgs: [advances.first['id']]);
+            for (final extra in advances.skip(1)) {
+              await tx.delete('diesel_movements', where: 'id=?', whereArgs: [extra['id']]);
+            }
+          }
+        } else {
+          for (final advance in advances) {
+            await tx.delete('diesel_movements', where: 'id=?', whereArgs: [advance['id']]);
+          }
+        }
+        final consumptionValues = <String, Object?>{
+          'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'consumption',
+          'liters': result.dieselLiters, 'unit_price': price, 'amount': result.dieselAmount,
+          'date': start.toIso8601String(), 'created_by': userId,
+          'notes': 'استهلاك السقاية (بعد التعديل)',
+        };
+        if (consumptions.isEmpty) {
+          await tx.insert('diesel_movements', consumptionValues);
+        } else {
+          await tx.update('diesel_movements', consumptionValues,
+            where: 'id=?', whereArgs: [consumptions.first['id']]);
+          for (final extra in consumptions.skip(1)) {
+            await tx.delete('diesel_movements', where: 'id=?', whereArgs: [extra['id']]);
+          }
+        }
+      } else {
+        for (final move in oldDieselMoves) {
+          await tx.delete('diesel_movements', where: 'id=?', whereArgs: [move['id']]);
+        }
+      }
+      // Capture the persisted post-recalculation state, not the planning list:
+      // this makes deleted/updated/inserted records reviewable from the audit log.
+      final newCloudPeriods = await tx.query('cloud_periods',
+        where: 'irrigation_id=?', whereArgs: [id], orderBy: 'start_datetime,id');
+      final newDieselMoves = await tx.query('diesel_movements',
+        where: 'irrigation_id=?', whereArgs: [id], orderBy: 'id');
+      Map<int, Map<String, Object?>> indexById(List<Map<String, Object?>> rows) => {
+        for (final row in rows)
+          if (row['id'] is num) (row['id'] as num).toInt(): row,
+      };
+      final oldCloudById = indexById(oldCloudPeriods);
+      final newCloudById = indexById(newCloudPeriods);
+      final oldDieselById = indexById(oldDieselMoves);
+      final newDieselById = indexById(newDieselMoves);
+      final cloudChanges = <Map<String, Object?>>[
+        for (final before in oldCloudPeriods)
+          {
+            'action': newCloudById.containsKey((before['id'] as num).toInt())
+                ? (newCloudById[(before['id'] as num).toInt()].toString() == before.toString()
+                    ? 'retained' : 'updated')
+                : 'deleted',
+            'id': before['id'],
+            'old': before,
+            if (newCloudById.containsKey((before['id'] as num).toInt()))
+              'new': newCloudById[(before['id'] as num).toInt()],
+          },
+        for (final after in newCloudPeriods)
+          if (!oldCloudById.containsKey((after['id'] as num).toInt()))
+            {'action': 'inserted', 'id': after['id'], 'new': after},
+      ];
+      final dieselChanges = <Map<String, Object?>>[
+        for (final before in oldDieselMoves)
+          {
+            'action': newDieselById.containsKey((before['id'] as num).toInt())
+                ? (newDieselById[(before['id'] as num).toInt()].toString() == before.toString()
+                    ? 'retained' : 'updated')
+                : 'deleted',
+            'id': before['id'],
+            'old': before,
+            if (newDieselById.containsKey((before['id'] as num).toInt()))
+              'new': newDieselById[(before['id'] as num).toInt()],
+          },
+        for (final after in newDieselMoves)
+          if (!oldDieselById.containsKey((after['id'] as num).toInt()))
+            {'action': 'inserted', 'id': after['id'], 'new': after},
+      ];
+      if (oldCloudPeriods.isNotEmpty || oldDieselMoves.isNotEmpty ||
+          newCloudPeriods.isNotEmpty || newDieselMoves.isNotEmpty) {
+        await database.auditTx(tx, userId: userId, operation: 'update',
+          table: 'irrigation_related_movements', recordId: id,
+          oldValues: {
+            'cloud_periods': oldCloudPeriods,
+            'diesel_movements': oldDieselMoves,
+          },
+          newValues: {
+            'cloud_periods': newCloudPeriods,
+            'diesel_movements': newDieselMoves,
+            'cloud_period_changes': cloudChanges,
+            'diesel_movement_changes': dieselChanges,
+            'diesel_liters': result.dieselLiters,
+            'diesel_shortage_liters': shortageLiters,
+            'diesel_amount': result.dieselAmount,
+          },
+          reason: 'إعادة احتساب الحركات التابعة للسقاية؛ يتضمن السجل حالة كل حركة (محتفظ بها/معدلة/محذوفة/مضافة) والقيم قبل وبعد');
+      }
+
+      // Recreate wage accruals and partner allocations from the edited amount.
+      var totalWorkerEntitlement = 0;
+      final wageWorkers = await tx.query('workers',
+        columns: ['id'],
+        where: "station_id=? AND active=1 AND pay_type IN ('hourly', 'percentage')",
+        whereArgs: [(old['station_id'] as num).toInt()], orderBy: 'id');
+      for (final wageWorker in wageWorkers) {
+        totalWorkerEntitlement += await _accrueWorkerIrrigationTx(
+          tx, workerId: (wageWorker['id'] as num).toInt(), irrigationId: id,
+          amount: result.totalAmount, hours: result.chargeableMinutes / 60.0,
+          date: start, userId: userId);
+      }
+      if (partyType == 'worker') {
+        await tx.insert('worker_transactions', {
+          'worker_id': workerId, 'date': start.toIso8601String(), 'type': 'irrigation',
+          'amount': result.totalAmount, 'reference_type': 'irrigation', 'reference_id': id,
+          'notes': 'خصم قيمة سقاية من حساب العامل', 'created_by': userId,
+        });
+      } else if (partyType == 'partner') {
+        await tx.insert('partner_transactions', {
+          'partner_id': partnerId, 'date': start.toIso8601String(), 'type': 'irrigation',
+          'amount': result.totalAmount, 'ownership_snapshot': null,
+          'reference_type': 'irrigation', 'reference_id': id,
+          'notes': 'خصم قيمة سقاية من حساب الشريك', 'created_by': userId,
+        });
+      }
+      final partnerPool = (result.totalAmount - totalWorkerEntitlement).clamp(0, result.totalAmount).toInt();
+      if (partnerPool > 0) {
+        await _accruePartnersFromIrrigationTx(tx,
+          irrigationId: id, stationId: (old['station_id'] as num).toInt(),
+          amount: partnerPool, date: start, userId: userId);
+      }
+      await database.auditTx(tx, userId: userId, operation: 'update',
+        table: 'irrigations', recordId: id, oldValues: old,
+        newValues: values, reason: 'تعديل وقت السقاية وإعادة ترحيل قيدها');
+      return result.totalAmount;
+    });
+  }
+
   Future<void> cancelIrrigation(int id, int userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب إلغاء السقاية مطلوب');
     await database.transaction((tx) async {
@@ -3044,6 +3468,87 @@ class AccountingService {
       oldValues: pay,
       reason: reason,
     );
+  }
+
+  /// تعديل سند قبض/صرف بطريقة قابلة للتتبع: يُعكس السند السابق ويُنشأ البديل
+  /// داخل المعاملة نفسها؛ عند أي فشل تُلغى العمليتان معًا.
+  /// السندات المرتبطة بالسقايات تُعدّل من شاشة السقايات حتى لا ينفصل paid_amount.
+  Future<int> replacePayment({
+    required int id,
+    required int userId,
+    required String reason,
+    int? beneficiaryId,
+    int? partnerId,
+    int? workerId,
+    required int amount,
+    required int paymentMethodId,
+    required int cashboxId,
+    String? referenceNumber,
+    String? notes,
+  }) async {
+    if (reason.trim().isEmpty) throw ArgumentError('سبب تعديل السند مطلوب');
+    final partyCount = [beneficiaryId, partnerId, workerId]
+        .where((value) => value != null).length;
+    if (partyCount != 1) throw ArgumentError('يجب تحديد طرف واحد فقط للسند');
+    if (amount <= 0) throw ArgumentError('المبلغ يجب أن يكون أكبر من صفر');
+    return database.transaction((tx) async {
+      final rows = await tx.query('payments', where: 'id=?', whereArgs: [id], limit: 1);
+      if (rows.isEmpty || rows.first['status'] != 'posted') {
+        throw StateError('السند غير موجود أو ملغى مسبقًا');
+      }
+      final old = rows.first;
+      final oldReference = '${old['reference_number'] ?? ''}';
+      if (oldReference.startsWith('IRR-')) {
+        throw StateError('هذا السند مرتبط بسقاية؛ عدّل السقاية من شاشة فواتير السقايات حتى يبقى رصيدها صحيحًا.');
+      }
+      await _assertPeriodOpen(tx, DateTime.parse('${old['date']}'));
+      await _cancelPaymentRowTx(tx, old,
+        reason: 'تعديل السند: ${reason.trim()}', userId: userId);
+      final replacementId = await _paymentInTx(
+        tx, beneficiaryId: beneficiaryId, partnerId: partnerId, workerId: workerId,
+        amount: amount, paymentMethodId: paymentMethodId, cashboxId: cashboxId,
+        userId: userId, referenceNumber: referenceNumber, notes: notes,
+        sendNotification: false,
+        paymentDate: DateTime.parse('${old['date']}'),
+      );
+      // Keep the party-specific subledgers in sync just as payWorker/payPartner do.
+      if (workerId != null) {
+        await tx.insert('worker_transactions', {
+          'worker_id': workerId,
+          'date': DateTime.parse('${old['date']}').toIso8601String(),
+          'type': 'payment',
+          'amount': amount,
+          'cashbox_id': cashboxId,
+          'reference_type': 'payment',
+          'reference_id': replacementId,
+          'notes': notes,
+          'created_by': userId,
+        });
+      }
+      if (partnerId != null) {
+        await tx.insert('partner_transactions', {
+          'partner_id': partnerId,
+          'date': DateTime.parse('${old['date']}').toIso8601String(),
+          'type': 'payment',
+          'amount': amount,
+          'reference_type': 'payment',
+          'reference_id': replacementId,
+          'notes': notes,
+          'created_by': userId,
+        });
+      }
+      final replacementRows = await tx.query('payments',
+        where: 'id=?', whereArgs: [replacementId], limit: 1);
+      await database.auditTx(tx, userId: userId, operation: 'replace',
+        table: 'payments', recordId: replacementId,
+        oldValues: {'replaced_payment_id': id, 'payment': old},
+        newValues: {
+          'replacement_payment_id': replacementId,
+          'payment': replacementRows.isEmpty ? null : replacementRows.first,
+        },
+        reason: reason.trim());
+      return replacementId;
+    });
   }
 
   /// إلغاء دفعة (قبض من مستفيد أو دفع لعامل/شريك) مع عكس أثرها كاملًا.

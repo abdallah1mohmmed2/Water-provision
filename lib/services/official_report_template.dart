@@ -86,7 +86,12 @@ class OfficialReportTemplate {
         pageFormat: PdfPageFormat.a4,
         textDirection: pw.TextDirection.rtl,
         margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-        theme: pw.ThemeData.withFont(base: arabicFont, bold: arabicBold),
+        theme: pw.ThemeData.withFont(
+          base: arabicFont,
+          bold: arabicBold,
+          // Arabic font lacks some Latin punctuation used by references and dates.
+          fontFallback: [pw.Font.helvetica()],
+        ),
         build: (context) => [
           _buildOfficialHeader(
             right1: rightHeader1,
@@ -103,7 +108,7 @@ class OfficialReportTemplate {
             child: pw.Text(
               reportTitle,
               textAlign: pw.TextAlign.center,
-              style: pw.TextStyle(
+              style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], 
                 font: arabicBold,
                 fontSize: 18,
                 color: PdfColors.black,
@@ -154,7 +159,7 @@ class OfficialReportTemplate {
     required Uint8List? emblemBytes,
     required pw.Font boldFont,
   }) {
-    final headerTextStyle = pw.TextStyle(font: boldFont, fontSize: 10);
+    final headerTextStyle = pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 10);
 
     pw.Widget headerColumn(List<String> lines) => pw.Expanded(
           child: pw.Column(
@@ -195,7 +200,7 @@ class OfficialReportTemplate {
                   child: pw.Text(
                     'الشعار',
                     textAlign: pw.TextAlign.center,
-                    style: pw.TextStyle(
+                    style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], 
                       font: boldFont,
                       fontSize: 8,
                       color: PdfColors.grey700,
@@ -276,7 +281,7 @@ class OfficialReportTemplate {
                   data.title,
                   textAlign: pw.TextAlign.center,
                   maxLines: 2,
-                  style: pw.TextStyle(
+                  style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], 
                     font: boldFont,
                     fontSize: data.isLarge ? 9 : 9.5,
                     height: 1.15,
@@ -296,7 +301,7 @@ class OfficialReportTemplate {
                   fit: pw.BoxFit.scaleDown,
                   child: pw.Text(
                     data.value,
-                    style: pw.TextStyle(font: boldFont, fontSize: 10),
+                    style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 10),
                   ),
                 ),
               ),
@@ -317,7 +322,7 @@ class OfficialReportTemplate {
             ),
             child: pw.Text(
               data.number,
-              style: pw.TextStyle(font: boldFont, fontSize: 9),
+              style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 9),
             ),
           ),
         ),
@@ -351,7 +356,7 @@ class OfficialReportTemplate {
                   child: pw.Text(
                     col,
                     textAlign: pw.TextAlign.center,
-                    style: pw.TextStyle(
+                    style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], 
                       font: boldFont,
                       fontSize: 9,
                       height: 1.15,
@@ -375,7 +380,7 @@ class OfficialReportTemplate {
                     child: pw.Text(
                       cell,
                       textAlign: pw.TextAlign.center,
-                      style: pw.TextStyle(font: font, fontSize: 9),
+                      style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: font, fontSize: 9),
                     ),
                   ),
                 )
@@ -398,7 +403,7 @@ class OfficialReportTemplate {
                     ? footerRow[index]
                     : '',
                 textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(font: boldFont, fontSize: 9),
+                style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 9),
               ),
             ),
           ),
@@ -411,7 +416,7 @@ class OfficialReportTemplate {
     pw.Font boldFont, {
     required String thirdLabel,
   }) {
-    final style = pw.TextStyle(font: boldFont, fontSize: 10.5);
+    final style = pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 10.5);
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [

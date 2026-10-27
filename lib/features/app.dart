@@ -7978,23 +7978,41 @@ class _PaymentsState extends State<PaymentsPage> {
     }
   }
 
-  Future<void> add() async {
+  Future<void> add([Map<String, Object?>? existing]) async {
+    if (existing != null) {
+      target = existing['beneficiary_id'] != null
+          ? 'beneficiary'
+          : existing['worker_id'] != null
+          ? 'worker'
+          : 'partner';
+    }
     final list = target == 'beneficiary'
         ? bs
         : target == 'worker'
         ? ws
         : ps;
-    int? party = list.isEmpty ? null : list.first['id'] as int;
-    int? method = methods.isEmpty ? null : methods.first['id'] as int;
-    int? cb = cashboxForMethod(methods, cash, method, null);
-    final amount = TextEditingController(),
-        note = TextEditingController(),
-        reference = TextEditingController();
+    final initialPartyId = existing == null
+        ? null
+        : (existing['beneficiary_id'] ?? existing['worker_id'] ?? existing['partner_id']) as int?;
+    if (existing != null && initialPartyId != null &&
+        !list.any((x) => x['id'] == initialPartyId)) {
+      msg('لا يمكن تعديل السند لأن الطرف الأصلي غير متاح ضمن قائمة الأطراف النشطة. فعّل الطرف أولًا ثم أعد المحاولة.');
+      return;
+    }
+    int? party = initialPartyId != null && list.any((x) => x['id'] == initialPartyId)
+        ? initialPartyId
+        : list.isEmpty ? null : list.first['id'] as int;
+    int? method = existing?['payment_method_id'] as int? ??
+        (methods.isEmpty ? null : methods.first['id'] as int);
+    int? cb = cashboxForMethod(methods, cash, method, existing?['cashbox_id'] as int?);
+    final amount = TextEditingController(text: existing?['amount']?.toString() ?? ''),
+        note = TextEditingController(text: existing?['notes']?.toString() ?? ''),
+        reference = TextEditingController(text: existing?['reference_number']?.toString() ?? '');
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (c, s) => AlertDialog(
-          title: const Text('تسجيل دفعة'),
+          title: Text(existing == null ? 'تسجيل دفعة' : 'تعديل سند قبض/صرف'),
           content: SizedBox(
             width: 480,
             child: Column(
@@ -8026,6 +8044,7 @@ class _PaymentsState extends State<PaymentsPage> {
                   decoration: const InputDecoration(labelText: 'الطرف'),
                 ),
                 DropdownButtonFormField<int>(
+                  key: ValueKey(target),
                   initialValue: party,
                   items: [
                     for (final x
@@ -8090,7 +8109,19 @@ class _PaymentsState extends State<PaymentsPage> {
       ),
     );
     if (ok == true) {
+      if (!mounted) return;
       try {
+        String? editReason;
+        if (existing != null) {
+          // Recheck immediately before using State.context after the dialog await.
+          if (!mounted) return;
+          editReason = await askReason(
+            context,
+            'تعديل سند قبض/صرف',
+            message: 'سيُعكس أثر السند السابق ويُنشأ السند المعدّل داخل معاملة واحدة. أدخل سبب التعديل.',
+          );
+          if (editReason == null || !mounted) return;
+        }
         final a = int.parse(amount.text);
         final recipientRows = target == 'beneficiary'
             ? bs
@@ -8105,7 +8136,21 @@ class _PaymentsState extends State<PaymentsPage> {
           }
         }
         int paymentId;
-        if (target == 'beneficiary') {
+        if (existing != null) {
+          paymentId = await widget.r.accounting.replacePayment(
+            id: existing['id'] as int,
+            userId: widget.userId,
+            reason: editReason!,
+            beneficiaryId: target == 'beneficiary' ? party : null,
+            workerId: target == 'worker' ? party : null,
+            partnerId: target == 'partner' ? party : null,
+            amount: a,
+            paymentMethodId: method!,
+            cashboxId: cb!,
+            referenceNumber: reference.text,
+            notes: note.text,
+          );
+        } else if (target == 'beneficiary') {
           paymentId = await widget.r.accounting.receivePayment(
             beneficiaryId: party!,
             amount: a,
@@ -8138,6 +8183,10 @@ class _PaymentsState extends State<PaymentsPage> {
         }
         await load();
         if (!mounted) return;
+        if (existing != null) {
+          msg('تم تعديل السند بنجاح. رقم السند الجديد: $paymentId');
+          return;
+        }
         final recipientName =
             recipient?['name']?.toString() ?? targetName(target);
         final action = target == 'beneficiary'
@@ -8271,6 +8320,13 @@ class _PaymentsState extends State<PaymentsPage> {
                                 : null,
                           ),
                         ),
+                        if (x['status'] == 'posted' &&
+                            !'${x['reference_number'] ?? ''}'.startsWith('IRR-'))
+                          IconButton(
+                            tooltip: 'تعديل سند القبض/الصرف',
+                            onPressed: () => add(x),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
                         if (x['status'] == 'posted')
                           IconButton(
                             tooltip: 'إلغاء الدفعة',
@@ -11947,6 +12003,98 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
 
   Future<List<Map<String, Object?>>> _pdfRows() async => visible;
 
+  Future<void> _editInvoice(Map<String, Object?> row) async {
+    final id = _n(row['invoice_id']);
+    final originalStart = DateTime.tryParse('${row['start_datetime']}');
+    final originalEnd = DateTime.tryParse('${row['end_datetime']}');
+    if (id <= 0 || originalStart == null || originalEnd == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر قراءة بيانات السقاية للتعديل')),
+      );
+      return;
+    }
+
+    DateTime selectedStartDate = DateTime(originalStart.year, originalStart.month, originalStart.day);
+    DateTime selectedEndDate = DateTime(originalEnd.year, originalEnd.month, originalEnd.day);
+    TimeOfDay selectedStartTime = TimeOfDay.fromDateTime(originalStart);
+    TimeOfDay selectedEndTime = TimeOfDay.fromDateTime(originalEnd);
+
+    final startDate = await showDatePicker(
+      context: context, firstDate: DateTime(2020), lastDate: DateTime(2100),
+      initialDate: selectedStartDate, locale: const Locale('ar'),
+      helpText: 'اختر تاريخ بداية السقاية',
+    );
+    if (startDate == null || !mounted) return;
+    selectedStartDate = startDate;
+    final startTime = await showTimePicker(
+      context: context, initialTime: selectedStartTime, helpText: 'اختر وقت بداية السقاية',
+    );
+    if (startTime == null || !mounted) return;
+    selectedStartTime = startTime;
+
+    final endDate = await showDatePicker(
+      context: context, firstDate: DateTime(2020), lastDate: DateTime(2100),
+      initialDate: selectedEndDate, locale: const Locale('ar'),
+      helpText: 'اختر تاريخ نهاية السقاية',
+    );
+    if (endDate == null || !mounted) return;
+    selectedEndDate = endDate;
+    final endTime = await showTimePicker(
+      context: context, initialTime: selectedEndTime, helpText: 'اختر وقت نهاية السقاية',
+    );
+    if (endTime == null || !mounted) return;
+    selectedEndTime = endTime;
+
+    final start = DateTime(selectedStartDate.year, selectedStartDate.month, selectedStartDate.day,
+        selectedStartTime.hour, selectedStartTime.minute);
+    final end = DateTime(selectedEndDate.year, selectedEndDate.month, selectedEndDate.day,
+        selectedEndTime.hour, selectedEndTime.minute);
+    if (!end.isAfter(start)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('وقت النهاية يجب أن يكون بعد وقت البداية')),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('تأكيد تعديل السقاية'),
+        content: Text('سيعاد احتساب مدة السقاية وقيمتها وإعادة ترحيل قيدها.\nمن: ${DateFormat('yyyy/MM/dd HH:mm').format(start)}\nإلى: ${DateFormat('yyyy/MM/dd HH:mm').format(end)}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('تأكيد التعديل')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final newTotal = await widget.r.accounting.updateIrrigationBasic(
+        id: id, start: start, end: end,
+      );
+      if (!mounted) return;
+      final paid = _n(row['paid_amount']);
+      final partyLabel = row['worker_id'] != null
+          ? 'العامل'
+          : row['partner_id'] != null
+              ? 'الشريك'
+              : 'المستفيد';
+      final message = paid > newTotal
+          ? 'تم تعديل السقاية. المدفوعات المسجلة تتجاوز القيمة الجديدة بمقدار ${_money(paid - newTotal)}. لم يُسوَّ الفرق تلقائيًا؛ راجع كشف حساب $partyLabel للتحقق من أثره على الرصيد.'
+          : 'تم تعديل السقاية وتحديث القيود والحركات التابعة.';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
+    }
+  }
+
   Future<void> _previewPdf() async {
     try {
       final bytes = await ReportService(widget.r).invoicesPdf(rows: await _pdfRows(), from: from, to: to);
@@ -12112,6 +12260,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                 DataColumn(label: const Text('القيمة الإجمالية'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('المسلّمة'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('ملاحظات'), onSort: _sort),
+                                const DataColumn(label: Text('إجراء')),
                               ],
                               rows: [
                                 for (var i = 0; i < data.length; i++)
@@ -12126,6 +12275,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text(_money(data[i]['total_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),
+                                      DataCell(IconButton(tooltip: 'تعديل السقاية', icon: const Icon(Icons.edit_calendar_rounded, color: _reportOliveDark), onPressed: () => _editInvoice(data[i]))),
                                     ],
                                   ),
                               ],

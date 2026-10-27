@@ -336,6 +336,144 @@ void main() {
         paidAmount: 0,
       );
 
+  test('تعديل السقاية يعيد احتساب أجور العمال وحصص الشركاء دون مضاعفة الرصيد التراكمي', () async {
+    await useSolar6000();
+    await db.update('workers', {'active': 0}, 'id>?', [0]);
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
+
+    final start = DateTime(2044, 3, 4, 8);
+    final beneficiary = await db.insert('beneficiaries', {
+      'name': 'مستفيد اختبار إعادة توزيع السقاية',
+      'created_at': start.toIso8601String(),
+      'updated_at': start.toIso8601String(),
+    });
+    final worker = await db.insert('workers', {
+      'name': 'عامل اختبار إعادة الاحتساب',
+      'pay_type': 'hourly',
+      'hourly_rate': 700,
+      'active': 1,
+    });
+    final p1 = await db.insert('partners', {
+      'name': 'شريك اختبار إعادة الاحتساب أ',
+      'ownership_mode': 'shares',
+      'shares_count': 1,
+      'active': 1,
+    });
+    final p2 = await db.insert('partners', {
+      'name': 'شريك اختبار إعادة الاحتساب ب',
+      'ownership_mode': 'shares',
+      'shares_count': 1,
+      'active': 1,
+    });
+
+    final id = await svc.recordIrrigation(
+      stationId: 1,
+      pumpId: 1,
+      beneficiaryId: beneficiary,
+      operatorWorkerId: worker,
+      start: start,
+      end: start.add(const Duration(hours: 1)),
+      systemType: 'solar',
+      waterRate: 0,
+      litersPerHour: 0,
+      dieselPrice: 0,
+      solarRate: 0,
+      thirdRate: 0,
+      cloudMinutes: 0,
+      paidAmount: 0,
+    );
+
+    // قبل التعديل: 6,000 إيراد، 700 للعامل، و2,650 لكل شريك.
+    expect(await glPayable('2100', 'worker_id', worker), 700);
+    expect(await glPayable('2200', 'partner_id', p1), 2650);
+    expect(await glPayable('2200', 'partner_id', p2), 2650);
+    expect((await svc.workerBalance(worker))['balance'], 700);
+    expect((await svc.partnerBalance(p1))['balance'], 2650);
+    expect((await svc.partnerBalance(p2))['balance'], 2650);
+
+    await svc.updateIrrigationBasic(
+      id: id,
+      start: start,
+      end: start.add(const Duration(hours: 2)),
+      userId: 1,
+    );
+
+    // بعد التعديل: 12,000 إيراد، 1,400 للعامل، و5,300 لكل شريك.
+    // يجب أن يكون الرصيد النهائي مساويًا للاستحقاق الجديد، لا القديم + الجديد.
+    expect(await glPayable('2100', 'worker_id', worker), 1400);
+    expect(await glPayable('2200', 'partner_id', p1), 5300);
+    expect(await glPayable('2200', 'partner_id', p2), 5300);
+    expect((await svc.workerBalance(worker))['balance'], 1400);
+    expect((await svc.partnerBalance(p1))['balance'], 5300);
+    expect((await svc.partnerBalance(p2))['balance'], 5300);
+
+    final workerRows = await db.query(
+      "SELECT type,amount,reference_type,reference_id FROM worker_transactions WHERE worker_id=? AND ((reference_type='irrigation' AND reference_id=?) OR (reference_type='irrigation_edit' AND reference_id IN (SELECT id FROM worker_transactions WHERE worker_id=? AND reference_type='irrigation' AND reference_id=?))) ORDER BY id",
+      args: [worker, id, worker, id],
+    );
+    expect(workerRows.where((r) => r['type'] == 'irrigation').length, 2);
+    expect(workerRows.where((r) => r['type'] == 'irrigation_reversal').length, 1);
+    // يحتفظ السجل التاريخي بالاستحقاق القديم (700) والجديد (1,400).
+    // لا تُجمع هذه الصفوف وحدها كرصيد؛ صف العكس المنفصل يلغي القديم محاسبيًا.
+    expect(workerRows.where((r) => r['type'] == 'irrigation').fold<int>(
+      0, (sum, row) => sum + (row['amount'] as num).round(),
+    ), 2100);
+
+    for (final partnerId in [p1, p2]) {
+      final partnerRows = await db.query(
+        "SELECT type,amount,reference_type,reference_id FROM partner_transactions WHERE partner_id=? AND reference_type IN ('irrigation_profit','irrigation_edit') AND reference_id IN (?, (SELECT id FROM partner_transactions WHERE partner_id=? AND reference_type='irrigation_profit' AND reference_id=? LIMIT 1)) ORDER BY id",
+        args: [partnerId, id, partnerId, id],
+      );
+      expect(partnerRows.where((r) => r['type'] == 'share_accrual').length, 2);
+      expect(partnerRows.where((r) => r['type'] == 'irrigation_reversal').length, 1);
+    }
+
+    final audit = await StationRepository(db).auditIrrigationRevenue(
+      from: DateTime(2044, 3, 4),
+      to: DateTime(2044, 3, 4),
+    );
+    expect(audit['irrigation_total'], 12000);
+    expect(audit['ledger_revenue_total'], 12000);
+    expect(audit['difference'], 0);
+  });
+
+  test('تعديل وقت السقاية يعيد احتساب المدة والقيمة وقيد الإيراد', () async {
+    await useSolar6000();
+    await db.update('workers', {'active': 0}, 'id>?', [0]);
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
+    final partner = await StationRepository(db).createPartner(
+      name: 'شريك اختبار تعديل السقاية',
+      mode: 'shares',
+      shares: 1,
+    );
+    await db.update('partners', {'active': 0}, 'id=?', [partner]);
+
+    final start = DateTime(2044, 3, 2, 8);
+    final irrigationId = await irrigationFor(partnerId: partner, start: start);
+    final updatedTotal = await svc.updateIrrigationBasic(
+      id: irrigationId,
+      start: start,
+      end: start.add(const Duration(hours: 2)),
+      userId: 1,
+    );
+
+    final updated = (await db.query(
+      'SELECT minutes,total_amount,start_datetime,end_datetime,status FROM irrigations WHERE id=?',
+      args: [irrigationId],
+    )).single;
+    expect(updated['status'], 'posted');
+    expect(updated['minutes'], 120);
+    expect(updated['total_amount'], 12000);
+    expect(updatedTotal, 12000);
+    final audit = await StationRepository(db).auditIrrigationRevenue(
+      from: DateTime(2044, 3, 2),
+      to: DateTime(2044, 3, 2),
+    );
+    expect(audit['irrigation_total'], 12000);
+    expect(audit['ledger_revenue_total'], 12000);
+    expect(audit['difference'], 0);
+  });
+
   test('تدقيق الإيرادات يكشف اختلاف قيمة السقاية عن قيد الأستاذ', () async {
     await useSolar6000();
     await db.update('workers', {'active': 0}, 'id>?', [0]);
@@ -867,6 +1005,67 @@ void main() {
     expect(
       (await db.query("SELECT status FROM payments WHERE id=?", args: [pay2])).single['status'],
       'cancelled',
+    );
+  });
+
+  test('تعديل سند القبض يحافظ على التاريخ ويحدّث الصندوق مرة واحدة', () async {
+    final repo = StationRepository(db);
+    final beneficiary = await repo.createBeneficiary(name: 'اختبار تعديل سند القبض');
+    await db.transaction((tx) => tx.rawUpdate(
+      'UPDATE cashboxes SET current_balance=100000 WHERE id=1',
+    ));
+    await svc.receivePayment(
+      beneficiaryId: beneficiary,
+      amount: 300,
+      paymentMethodId: 1,
+      cashboxId: 1,
+    );
+    final original = (await db.query(
+      "SELECT id FROM payments WHERE beneficiary_id=? AND status='posted' ORDER BY id DESC LIMIT 1",
+      args: [beneficiary],
+    )).single;
+    final paymentId = original['id'] as int;
+    final originalDate = DateTime.now()
+        .subtract(const Duration(days: 1))
+        .toIso8601String();
+    await db.update('payments', {'date': originalDate}, 'id=?', [paymentId]);
+    final cashBeforeEdit = await cashboxBalance(1);
+
+    final replacementId = await svc.replacePayment(
+      id: paymentId,
+      userId: 1,
+      reason: 'تصحيح مبلغ السند',
+      beneficiaryId: beneficiary,
+      amount: 500,
+      paymentMethodId: 1,
+      cashboxId: 1,
+      referenceNumber: 'TEST-REPLACEMENT',
+    );
+
+    final replacement = (await db.query(
+      'SELECT date, status, amount FROM payments WHERE id=?',
+      args: [replacementId],
+    )).single;
+    expect(replacement['status'], 'posted');
+    expect(replacement['amount'], 500);
+    expect(
+      DateTime.parse(replacement['date'] as String).isAtSameMomentAs(
+        DateTime.parse(originalDate),
+      ),
+      isTrue,
+    );
+    expect(await cashboxBalance(1), cashBeforeEdit + 200);
+    expect(
+      (await db.query('SELECT status FROM payments WHERE id=?', args: [paymentId]))
+          .single['status'],
+      'cancelled',
+    );
+    expect(
+      (await db.query(
+        "SELECT COUNT(*) n FROM journal_entries WHERE reference_type='payment' AND reference_id=? AND status='posted'",
+        args: [replacementId],
+      )).single['n'],
+      1,
     );
   });
 
