@@ -2759,8 +2759,8 @@ class AccountingService {
 
 
 
-  /// تعديل آمن محدود لسقاية مستفيد غير مرتبطة بتسويات أو حركات تابعة.
-  /// الحالات ذات الآثار الجانبية تُرفض بدل تعديل جزء من القيد المحاسبي فقط.
+  /// يعدّل السقاية ويعيد احتساب القيود والحركات التابعة داخل معاملة واحدة.
+  /// الفترات المقفلة والتعارضات الزمنية تُرفض صراحةً لحماية الإقفال وسجل تشغيل المضخة.
   Future<void> updateIrrigationBasic({
     required int id,
     required DateTime start,
@@ -2777,8 +2777,12 @@ class AccountingService {
       final type = '${old['system_type']}';
       final oldStart = DateTime.parse('${old['start_datetime']}');
       final oldEnd = DateTime.parse('${old['end_datetime']}');
-      await _assertPeriodOpen(tx, oldStart, stationId: (old['station_id'] as num).toInt());
-      await _assertPeriodOpen(tx, start, stationId: (old['station_id'] as num).toInt());
+      try {
+        await _assertPeriodOpen(tx, oldStart, stationId: (old['station_id'] as num).toInt());
+        await _assertPeriodOpen(tx, start, stationId: (old['station_id'] as num).toInt());
+      } on StateError {
+        throw StateError('لا يمكن تعديل السقاية داخل فترة محاسبية مقفلة. أعد فتح الفترة من شاشة الإقفال مع تسجيل السبب، ثم أعد التعديل؛ لم تُغيّر أي بيانات.');
+      }
       final overlap = await tx.rawQuery(
         "SELECT id,start_datetime,end_datetime FROM irrigations WHERE id<>? AND pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",
         [id, old['pump_id'], end.toIso8601String(), start.toIso8601String()],
