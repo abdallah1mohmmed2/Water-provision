@@ -346,6 +346,7 @@ class ReportService {
                     width: .35,
                   ),
                 ),
+            ),
           pw.SizedBox(height: 12),
           pw.Directionality(
             textDirection: pw.TextDirection.rtl,
