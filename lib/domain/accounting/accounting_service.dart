@@ -12,7 +12,7 @@ import 'balance_sql.dart';
 /// السلف داخلة في الرصيد حتى لا يبقى الرصيد سالبًا فتتضاعف السلفة التالية.
 /// مخزون المحطة (لترات).
 const String _stationDieselStockSql =
-    "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements";
+    "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements";
 
 const String _beneficiaryDieselStockSql =
     "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)"
@@ -1974,7 +1974,7 @@ class AccountingService {
       await _assertPeriodOpen(tx, date);
       final amount = (liters * unitPrice).round();
       final stock = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
+        "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
       );
       final current = (stock.first['stock'] as num?)?.toDouble() ?? 0;
       if ((kind == 'delivery' || kind == 'consumption') && liters > current) {
@@ -2087,7 +2087,7 @@ class AccountingService {
 
   Future<double> dieselStock() async {
     final r = await database.query(
-      "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
+      "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
     );
     return (r.first['stock'] as num?)?.toDouble() ?? 0;
   }
@@ -2985,6 +2985,7 @@ class AccountingService {
       final delta = switch (kind) {
         'receipt' || 'opening_balance' || 'correction' => liters,
         'delivery' || 'consumption' => -liters,
+        'advance' => m['irrigation_id'] == null ? -liters : 0.0,
         _ => 0.0,
       };
       final st = await tx.rawQuery(_stationDieselStockSql);
