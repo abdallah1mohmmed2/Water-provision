@@ -132,7 +132,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
     if (ok == true) {
       try {
         final db = await _db;
-        final stationId = await _stationId(db);
+        final stationId = await _stationId();
         final value = int.parse(opening.text.trim());
         await db.transaction((tx) async {
           await tx.insert('general_accounts', {
@@ -155,7 +155,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
     name.dispose(); phone.dispose(); address.dispose(); notes.dispose(); opening.dispose();
   }
 
-  Future<int> _stationId(Database db) => widget.repository.accounting.currentStationId();
+  Future<int> _stationId() => widget.repository.accounting.currentStationId();
 
   Future<void> _addTransaction(Map<String, Object?> account, String type) async {
     final amount = TextEditingController();
