@@ -7994,6 +7994,11 @@ class _PaymentsState extends State<PaymentsPage> {
     final initialPartyId = existing == null
         ? null
         : (existing['beneficiary_id'] ?? existing['worker_id'] ?? existing['partner_id']) as int?;
+    if (existing != null && initialPartyId != null &&
+        !list.any((x) => x['id'] == initialPartyId)) {
+      msg('لا يمكن تعديل السند لأن الطرف الأصلي غير متاح ضمن قائمة الأطراف النشطة. فعّل الطرف أولًا ثم أعد المحاولة.');
+      return;
+    }
     int? party = initialPartyId != null && list.any((x) => x['id'] == initialPartyId)
         ? initialPartyId
         : list.isEmpty ? null : list.first['id'] as int;
