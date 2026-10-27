@@ -12014,10 +12014,16 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     if (confirmed != true || !mounted) return;
 
     try {
-      await widget.r.accounting.updateIrrigationBasic(id: id, start: start, end: end);
+      final newTotal = await widget.r.accounting.updateIrrigationBasic(
+        id: id, start: start, end: end,
+      );
       if (!mounted) return;
+      final paid = _n(row['paid_amount']);
+      final message = paid > newTotal
+          ? 'تم تعديل السقاية. المبلغ المدفوع يزيد عن القيمة الجديدة بمقدار ${(paid - newTotal).toString()}؛ بقي الفرق رصيدًا دائنًا للمستفيد.'
+          : 'تم تعديل السقاية وتحديث القيود والحركات التابعة.';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تعديل السقاية وتحديث القيد المحاسبي')),
+        SnackBar(content: Text(message)),
       );
       await _load();
     } catch (e) {
