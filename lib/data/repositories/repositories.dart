@@ -66,23 +66,20 @@ class StationRepository {
       );
       return newId;
     });
-    if (openingDiesel > 0) {
-      await accounting.addDieselMovement(
-        beneficiaryId: id,
-        kind: 'opening_balance',
-        liters: openingDiesel,
-        unitPrice: 0,
-        date: AppClock.now(),
-        userId: userId,
-        notes: 'رصيد ديزل افتتاحي',
-      );
-    }
+    // openingDiesel belongs to the beneficiary's own carried stock. It is
+    // already stored in beneficiaries.opening_diesel_liters and must not be
+    // inserted as a station inventory movement.
     await db.audit(
       userId: userId,
       operation: 'create',
       table: 'beneficiaries',
       recordId: id,
-      newValues: {'name': name},
+      newValues: {
+        'name': name,
+        'opening_balance': opening,
+        'carried_balance': carried,
+        'opening_diesel_liters': openingDiesel,
+      },
     );
     return id;
   }
