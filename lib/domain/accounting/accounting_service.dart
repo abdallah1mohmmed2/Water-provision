@@ -147,8 +147,19 @@ class AccountingService {
     if (debit != credit) {
       throw StateError('القيد غير متوازن: المدين $debit / الدائن $credit');
     }
-    if (debit < 0 || credit < 0 || lines.isEmpty) {
-      throw StateError('القيد المحاسبي غير صالح');
+    if (debit <= 0 || credit <= 0 || lines.isEmpty) {
+      throw StateError('القيد المحاسبي يجب أن يحتوي مبلغًا موجبًا ومتوازنًا');
+    }
+    for (final line in lines) {
+      final lineDebit = (line['debit'] as num?)?.toDouble() ?? 0;
+      final lineCredit = (line['credit'] as num?)?.toDouble() ?? 0;
+      if (lineDebit < 0 ||
+          lineCredit < 0 ||
+          (lineDebit > 0 && lineCredit > 0) ||
+          lineDebit != lineDebit.roundToDouble() ||
+          lineCredit != lineCredit.roundToDouble()) {
+        throw StateError('سطر القيد المحاسبي يحتوي مبلغًا غير صالح');
+      }
     }
     final now = AppClock.now().toIso8601String();
     final entryStationId = stationId ?? await _selectedStationIdTx(tx);
@@ -2289,6 +2300,16 @@ class AccountingService {
     final sharePartners = partners.where((p) => '${p['ownership_mode']}' == 'shares').toList();
     final percentagePartners = partners.where((p) => '${p['ownership_mode']}' == 'percentage').toList();
     final totalShares = sharePartners.fold<int>(0, (sum, p) => sum + ((p['shares_count'] as num?)?.round() ?? 0));
+    final configuredPercentageTotal = percentagePartners.fold<double>(0, (sum, p) {
+      final percentage = (p['ownership_percentage'] as num?)?.toDouble() ?? 0;
+      if (percentage < 0 || percentage > 100) {
+        throw StateError('نسبة ملكية الشريك غير صالحة؛ يجب أن تكون بين صفر و100');
+      }
+      return sum + percentage;
+    });
+    if (configuredPercentageTotal > 100.0000001) {
+      throw StateError('مجموع نسب ملكية الشركاء النشطين يتجاوز 100%؛ صحح الملكية قبل تسجيل السقاية');
+    }
     final percentageAmounts = <int, int>{};
     var percentageTotal = 0;
     for (final p in percentagePartners) {
