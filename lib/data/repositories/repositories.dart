@@ -1006,6 +1006,7 @@ class StationRepository {
         final notes = '${row['notes'] ?? ''}';
         if (type == 'share_accrual' || type == 'contribution') earnings += amount;
         if (type == 'share_adjustment') earnings -= amount;
+        if (type == 'share_adjustment_reversal') earnings += amount;
         if (type == 'irrigation_reversal' && notes.startsWith('عكس نصيب الشريك')) {
           earnings -= amount;
         }
@@ -1134,7 +1135,7 @@ class StationRepository {
       final type = '${row['type'] ?? ''}';
       final amount = (row['amount'] as num?)?.round() ?? 0;
       final signed = switch (type) {
-        'share_accrual' || 'opening_balance' => amount,
+        'share_accrual' || 'opening_balance' || 'contribution' || 'share_adjustment_reversal' => amount,
         'payment' || 'irrigation' || 'share_adjustment' => -amount,
         'irrigation_reversal' =>
           (row['reversal_of_direct_irrigation'] as num?)?.toInt() == 1
@@ -1152,6 +1153,7 @@ class StationRepository {
           'payment' => 'دفعة للشريك',
           'irrigation' => 'سقاية على حساب الشريك',
           'share_adjustment' => 'تسوية حصة الشريك',
+          'share_adjustment_reversal' => 'عكس تسوية حصة الشريك',
           'irrigation_reversal' => 'عكس سقاية',
           _ => 'حركة شريك',
         },
