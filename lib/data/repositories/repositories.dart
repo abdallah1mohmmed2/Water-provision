@@ -913,6 +913,15 @@ class StationRepository {
       FROM $table x WHERE x.id=?
     ''', [id, id, id]);
     if (rows.isEmpty) return {'irrigation_minutes': 0, 'irrigation_total': 0, 'earnings': 0, 'paid': 0, 'balance': 0};
+    if (!isWorker) {
+      // Keep the summary balance aligned with the statement's ledger/legacy fallback.
+      final movements = await partnerTransactions(id);
+      final currentBalance = movements.fold<int>(
+        0,
+        (sum, row) => sum + ((row['signed_amount'] as num?)?.round() ?? 0),
+      );
+      return {...rows.first, 'balance': currentBalance};
+    }
     return rows.first;
   }
 
@@ -2550,12 +2559,16 @@ class StationRepository {
               });
             }
 
-            final closingBalance = periodStart != null
-                ? openingBalance + periodTransactions.fold<int>(0, (sum, row) =>
-                    sum + ((row['signed_amount'] as num?)?.round() ?? 0))
-                : (periodTransactions.isNotEmpty
-                    ? (periodTransactions.first['balance'] as num?)?.round() ?? 0
-                    : (partner['balance'] as num?)?.round() ?? 0);
+            // Period-end balance is the net of every movement through the selected end date.
+            // It must not fall back to the current balance when the period has no movements.
+            final closingBalance = transactions.fold<int>(0, (sum, row) {
+              final date = DateTime.tryParse('${row['date'] ?? ''}');
+              if (endExclusive != null && (date == null || !date.isBefore(endExclusive))) {
+                return sum;
+              }
+              if (date == null && endExclusive != null) return sum;
+              return sum + ((row['signed_amount'] as num?)?.round() ?? 0);
+            });
             profitSummaryRows.add({
               'date': to?.toIso8601String() ?? (periodStart?.toIso8601String()),
               'partner_id': id,
