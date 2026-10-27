@@ -2332,4 +2332,30 @@ void main() {
     expect(await accountNet('5010'), fuelExpenseBefore);
   });
 
+  test('رصيد ديزل المستفيد الافتتاحي لا يزيد مخزون المحطة', () async {
+    final repo = StationRepository(db);
+    final stationStockBefore = await svc.dieselStock();
+    final movementCountBefore = (await db.query(
+      "SELECT COUNT(*) c FROM diesel_movements WHERE kind='opening_balance'",
+    )).single['c'];
+    final beneficiary = await repo.createBeneficiary(
+      name: 'مستفيد رصيد ديزل افتتاحي',
+      openingDiesel: 12,
+    );
+    expect(await svc.dieselStock(), closeTo(stationStockBefore, 0.0001));
+    expect(
+      (await db.query(
+        "SELECT opening_diesel_liters FROM beneficiaries WHERE id=?",
+        args: [beneficiary],
+      )).single['opening_diesel_liters'],
+      12,
+    );
+    expect(
+      (await db.query(
+        "SELECT COUNT(*) c FROM diesel_movements WHERE kind='opening_balance'",
+      )).single['c'],
+      movementCountBefore,
+    );
+  });
+
 }
