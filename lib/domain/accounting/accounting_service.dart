@@ -12,7 +12,7 @@ import 'balance_sql.dart';
 /// السلف داخلة في الرصيد حتى لا يبقى الرصيد سالبًا فتتضاعف السلفة التالية.
 /// مخزون المحطة (لترات).
 const String _stationDieselStockSql =
-    "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements";
+    "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements";
 
 const String _beneficiaryDieselStockSql =
     "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)"
@@ -1974,6 +1974,9 @@ class AccountingService {
     if (!{'receipt', 'delivery', 'advance', 'consumption', 'correction', 'opening_balance'}.contains(kind)) {
       throw ArgumentError('نوع حركة الديزل غير صالح');
     }
+    if ((kind == 'correction' || kind == 'opening_balance') && beneficiaryId != null) {
+      throw ArgumentError('تصحيح ورصيد مخزون الديزل الافتتاحي يخص مخزون المحطة ولا يُسجل على مستفيد');
+    }
     // قراءة الإعدادات خارج المعاملة لتفادي تعليق sqflite (استعلام على الاتصال أثناء معاملة مفتوحة).
     final financialCredit = await _settingBool(
       'diesel_delivery_financial_credit',
@@ -1985,7 +1988,7 @@ class AccountingService {
         throw ArgumentError('تصحيح المخزون والرصيد الافتتاحي يتطلبان قيمة مالية موجبة');
       }
       final stock = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
+        "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
       );
       final current = (stock.first['stock'] as num?)?.toDouble() ?? 0;
       if ((kind == 'delivery' ||
@@ -2133,7 +2136,7 @@ class AccountingService {
 
   Future<double> dieselStock() async {
     final r = await database.query(
-      "SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
+      "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
     );
     return (r.first['stock'] as num?)?.toDouble() ?? 0;
   }
@@ -3029,7 +3032,9 @@ class AccountingService {
       final liters = (m['liters'] as num).toDouble();
       // أثر الحركة على مخزون المحطة، وبعد إلغائها يجب ألا يصبح سالبًا.
       final delta = switch (kind) {
-        'receipt' || 'opening_balance' || 'correction' => liters,
+        'receipt' => liters,
+        'opening_balance' || 'correction' =>
+          m['beneficiary_id'] == null ? liters : 0.0,
         'delivery' || 'consumption' => -liters,
         'advance' => m['irrigation_id'] == null ? -liters : 0.0,
         _ => 0.0,
