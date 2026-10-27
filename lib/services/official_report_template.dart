@@ -55,6 +55,8 @@ class OfficialReportTemplate {
     String thirdSignatureLabel = 'الاعتماد والختم: ....................',
     String fileName = 'official_report.pdf',
     int minTableRows = 7,
+    PdfPageFormat pageFormat = PdfPageFormat.a4,
+    bool printAfterGenerate = true,
   }) async {
     if (columns.isEmpty) {
       throw ArgumentError.value(columns, 'columns', 'يجب توفير عمود واحد على الأقل.');
@@ -83,7 +85,7 @@ class OfficialReportTemplate {
 
     document.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: pageFormat,
         textDirection: pw.TextDirection.rtl,
         margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 24),
         theme: pw.ThemeData.withFont(
@@ -134,10 +136,12 @@ class OfficialReportTemplate {
     );
 
     final bytes = await document.save();
-    await Printing.layoutPdf(
-      onLayout: (_) async => bytes,
-      name: fileName,
-    );
+    if (printAfterGenerate) {
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: fileName,
+      );
+    }
     return bytes;
   }
 
