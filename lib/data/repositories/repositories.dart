@@ -1171,17 +1171,20 @@ class StationRepository {
     final partyFilter = partyColumn == null
         ? "(a.code=? OR (a.code=? AND jl.${legacyPartyColumn ?? 'worker_id'}=?))"
         : "a.code=? AND jl.$partyColumn=?";
-    final args = partyColumn == null ? [accountCode, legacyAccountCode, id] : [accountCode, id];
+    final args = [id, ...(partyColumn == null ? [accountCode, legacyAccountCode, id] : [accountCode, id])];
     final rows = await db.rawQuery('''
-      SELECT je.id journal_entry_id,jl.id journal_line_id,je.date,je.description,je.reference_type,je.reference_id,jl.debit,jl.credit,jl.memo
+      SELECT je.id journal_entry_id,jl.id journal_line_id,je.date,je.description,je.reference_type,je.reference_id,jl.debit,jl.credit,jl.memo,
+             wt.notes transaction_notes
       FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id
+      LEFT JOIN worker_transactions wt ON wt.worker_id=? AND wt.id=je.reference_id AND je.reference_type IN ('worker_payment','worker','worker_opening')
       WHERE $partyFilter AND je.status='posted' ORDER BY je.date ASC,je.id ASC,jl.id ASC''', args);
     var running=0; final out=<Map<String,Object?>>[];
     for (final row in rows) {
       final debit=(row['debit'] as num?)?.round() ?? 0, credit=(row['credit'] as num?)?.round() ?? 0, signed=credit-debit;
       running += signed; final ref='${row['reference_type']}';
       final type=switch(ref){'payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=>'opening_balance',_=>ref};
-      out.add({...row,'type':type,'amount':signed.abs(),'signed_amount':signed,'description':row['memo'] ?? row['description'],'balance':running,'lah':signed>0?signed:0,'alayh':signed<0?-signed:0});
+      final notes='${row['transaction_notes'] ?? ''}'.trim();
+      out.add({...row,'type':type == 'worker_payment' ? 'payment' : type,'amount':signed.abs(),'signed_amount':signed,'description':notes.isNotEmpty ? notes : row['memo'] ?? row['description'],'balance':running,'lah':signed>0?signed:0,'alayh':signed<0?-signed:0});
     }
     return out.reversed.toList();
   }
@@ -2570,7 +2573,7 @@ class StationRepository {
               combined.add({
                 ...row,
                 'beneficiary_name': name,
-                'description': '$name - ${row['description'] ?? ''}',
+                'description': row['type'] == 'opening_balance' ? 'الرصيد الافتتاحي' : (row['description'] ?? 'حركة عامل'),
               });
             }
           }
@@ -2627,7 +2630,7 @@ class StationRepository {
           final selectedWorkers = <Map<String, Object?>>[];
           if (workerId != null && workerId > 0) {
             selectedWorkers.addAll(await db.rawQuery(
-              "SELECT w.id,w.name,${BalanceSql.workerPersonal('w')} balance FROM workers w WHERE w.id=? LIMIT 1",
+              "SELECT w.id,w.name,w.opening_balance,${BalanceSql.workerPersonal('w')} balance FROM workers w WHERE w.id=? LIMIT 1",
               [workerId],
             ));
           } else {
@@ -2668,7 +2671,7 @@ class StationRepository {
                 'date': periodStart.toIso8601String(),
                 'worker_id': id,
                 'worker_name': name,
-                'description': 'الرصيد المرحل قبل الفترة - $name',
+                'description': 'الرصيد الافتتاحي / المرحل قبل الفترة',
                 'type': 'opening_balance',
                 'lah': openingBalance > 0 ? openingBalance : 0,
                 'alayh': openingBalance < 0 ? -openingBalance : 0,
@@ -2677,19 +2680,21 @@ class StationRepository {
                 'balance': openingBalance,
                 'statement_kind': 'worker',
               });
-            } else if (transactions.isEmpty) {
-              final balance = (worker['balance'] as num?)?.round() ?? 0;
+            } else if (!transactions.any((row) => row['type'] == 'opening_balance')) {
+              // Show the configured opening balance even when no date range is selected.
+              // This is an informational starting row; do not add it to the ledger twice.
+              final opening = (worker['opening_balance'] as num?)?.round() ?? 0;
               rows.add({
                 'date': null,
                 'worker_id': id,
                 'worker_name': name,
-                'description': '$name (الرصيد الحالي)',
-                'type': 'current_balance',
-                'lah': balance > 0 ? balance : 0,
-                'alayh': balance < 0 ? -balance : 0,
-                'amount': balance.abs(),
-                'signed_amount': balance,
-                'balance': balance,
+                'description': 'الرصيد الافتتاحي',
+                'type': 'opening_balance',
+                'lah': opening > 0 ? opening : 0,
+                'alayh': opening < 0 ? -opening : 0,
+                'amount': opening.abs(),
+                'signed_amount': opening,
+                'balance': opening,
                 'statement_kind': 'worker',
               });
             }
