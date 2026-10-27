@@ -2529,7 +2529,18 @@ class AccountingService {
     int? userId,
     String? memo,
   }) async => database.transaction((tx) async {
+    if (amount <= 0) {
+      throw ArgumentError('قيمة استحقاق العامل يجب أن تكون أكبر من صفر');
+    }
     await _assertPeriodOpen(tx, date);
+    final worker = await tx.query(
+      'workers',
+      columns: ['id'],
+      where: 'id=?',
+      whereArgs: [workerId],
+      limit: 1,
+    );
+    if (worker.isEmpty) throw StateError('العامل غير موجود');
     final id = await tx.insert('worker_transactions', {
       'worker_id': workerId,
       'date': date.toIso8601String(),
@@ -2574,7 +2585,18 @@ class AccountingService {
     double? percentage,
     int? userId,
   }) async => database.transaction((tx) async {
+    if (amount <= 0) {
+      throw ArgumentError('قيمة حصة الشريك يجب أن تكون أكبر من صفر');
+    }
     await _assertPeriodOpen(tx, date);
+    final partner = await tx.query(
+      'partners',
+      columns: ['id'],
+      where: 'id=?',
+      whereArgs: [partnerId],
+      limit: 1,
+    );
+    if (partner.isEmpty) throw StateError('الشريك غير موجود');
     final id = await tx.insert('partner_transactions', {
       'partner_id': partnerId,
       'date': date.toIso8601String(),
