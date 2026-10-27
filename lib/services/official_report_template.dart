@@ -56,6 +56,7 @@ class OfficialReportTemplate {
     String fileName = 'official_report.pdf',
     int minTableRows = 7,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
+    int preferredRowsPerPage = 30,
     bool printAfterGenerate = true,
   }) async {
     if (columns.isEmpty) {
@@ -74,6 +75,9 @@ class OfficialReportTemplate {
     final normalizedFooter = footerTotalRow == null
         ? null
         : _fitRow(footerTotalRow, columns.length);
+    final density = preferredRowsPerPage.clamp(1, 40).toInt();
+    final cellFontSize = density >= 26 ? 7.5 : density >= 16 ? 8.2 : 9.0;
+    final cellVerticalPadding = density >= 26 ? 2.5 : density >= 16 ? 3.5 : 5.0;
 
     final arabicFont = await _loadFont(
       'assets/fonts/NotoNaskhArabic-Regular.ttf',
@@ -128,6 +132,8 @@ class OfficialReportTemplate {
             footerRow: normalizedFooter,
             font: arabicFont,
             boldFont: arabicBold,
+            cellFontSize: cellFontSize,
+            cellVerticalPadding: cellVerticalPadding,
           ),
           pw.SizedBox(height: 35),
           _buildOfficialSignatures(arabicBold, thirdLabel: thirdSignatureLabel),
@@ -326,7 +332,7 @@ class OfficialReportTemplate {
             ),
             child: pw.Text(
               data.number,
-              style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 9),
+              style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: cellFontSize),
             ),
           ),
         ),
@@ -340,6 +346,8 @@ class OfficialReportTemplate {
     List<String>? footerRow,
     required pw.Font font,
     required pw.Font boldFont,
+    required double cellFontSize,
+    required double cellVerticalPadding,
   }) {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.black, width: 0.8),
@@ -359,7 +367,7 @@ class OfficialReportTemplate {
                   constraints: const pw.BoxConstraints(minHeight: 32),
                   padding: const pw.EdgeInsets.symmetric(
                     horizontal: 3,
-                    vertical: 4,
+                    vertical: cellVerticalPadding,
                   ),
                   alignment: pw.Alignment.center,
                   child: pw.Text(
@@ -367,7 +375,7 @@ class OfficialReportTemplate {
                     textAlign: pw.TextAlign.center,
                     style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], 
                       font: boldFont,
-                      fontSize: 9,
+                      fontSize: cellFontSize,
                       height: 1.15,
                     ),
                   ),
@@ -392,7 +400,7 @@ class OfficialReportTemplate {
                     child: pw.Text(
                       cell,
                       textAlign: pw.TextAlign.center,
-                      style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: font, fontSize: 9),
+                      style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: font, fontSize: cellFontSize),
                     ),
                   ),
                 )
