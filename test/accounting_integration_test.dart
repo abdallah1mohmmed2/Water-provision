@@ -2262,6 +2262,7 @@ void main() {
       date: advanceDate,
     );
     expect(await svc.dieselStock(), closeTo(stockBeforeAdvance - 5, 0.0001));
+    expect((await repo.dieselWarning())['stock'], closeTo(stockBeforeAdvance - 5, 0.0001));
     expect(await accountNet('1300'), inventoryBefore - 500);
 
     final movement = (await db.query(
