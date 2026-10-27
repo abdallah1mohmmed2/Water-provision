@@ -187,11 +187,18 @@ class ReportService {
       return _shapeArabic(label);
     }).toList();
 
-    final tableRows = rows.map((row) {
-      return sourceHeaders
-          .map((header) => _shapeArabic(_formatValue(header, row[header], key)))
-          .toList(growable: false);
-    }).toList(growable: false);
+    final tableRows = rows.isEmpty
+        ? <List<String>>[
+            [
+              _shapeArabic('لا توجد بيانات مطابقة'),
+              ...List<String>.filled(sourceHeaders.length - 1, ''),
+            ],
+          ]
+        : rows.map((row) {
+            return sourceHeaders
+                .map((header) => _shapeArabic(_formatValue(header, row[header], key)))
+                .toList(growable: false);
+          }).toList(growable: false);
 
     num sumOf(String field) => rows.fold<num>(0, (sum, row) {
           final value = row[field];
