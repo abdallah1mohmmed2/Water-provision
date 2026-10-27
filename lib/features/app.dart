@@ -9582,19 +9582,173 @@ class _WorkersState extends State<WorkersPage> {
   }
 
   Future<void> accrueMonthlySalary() async {
-    if (!widget.manager) { msg('ترحيل الرواتب متاح للمدير فقط'); return; }
+    if (!widget.manager) {
+      msg('ترحيل الرواتب متاح للمدير فقط');
+      return;
+    }
+
     final now = AppClock.now();
-    final ok = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
-      title: const Text('ترحيل رواتب الشهر'),
-      content: Text('سيتم ترحيل رواتب العمال ذوي الراتب الشهري لشهر ${now.year}/${now.month.toString().padLeft(2, '0')} إلى دفتر الأستاذ. إذا تم ترحيل الشهر سابقاً لن يتكرر.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('ترحيل الآن'))],
-    )) ?? false;
-    if (!ok) return;
+    var from = DateTime(now.year, now.month, 1);
+    var to = DateTime(now.year, now.month, now.day);
+    final warning = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('تنبيه قبل ترحيل استحقاقات العمال'),
+        content: const Text(
+          'راجع الفترة قبل المتابعة. سيُطلب إدخال المبلغ لكل عامل نشط ذي راتب ثابت فقط. '
+          'استحقاقات عمال الساعة والنسبة تُسجّل من حركات العمل والسقايات، ولن تُدخل يدويًا هنا. '
+          'سيمنع النظام تكرار استحقاق العامل في الفترة نفسها، وسيُسجل الترحيل المحاسبي دفعة واحدة.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('تحديد الفترة')),
+        ],
+      ),
+    ) ?? false;
+    if (!warning || !mounted) return;
+
+    final pickedFrom = await showDatePicker(
+      context: context,
+      initialDate: from,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      locale: const Locale('ar'),
+      helpText: 'اختر بداية فترة الترحيل',
+    );
+    if (pickedFrom == null || !mounted) return;
+    from = DateTime(pickedFrom.year, pickedFrom.month, pickedFrom.day);
+
+    final pickedTo = await showDatePicker(
+      context: context,
+      initialDate: to.isBefore(from) ? from : to,
+      firstDate: from,
+      lastDate: DateTime(2100),
+      locale: const Locale('ar'),
+      helpText: 'اختر نهاية فترة الترحيل',
+    );
+    if (pickedTo == null || !mounted) return;
+    to = DateTime(pickedTo.year, pickedTo.month, pickedTo.day);
+    if (from.isAfter(to)) {
+      msg('تاريخ بداية الفترة يجب ألا يتجاوز تاريخ نهايتها');
+      return;
+    }
+
+    final controllers = <int, TextEditingController>{};
     try {
-      final count = await widget.r.accounting.accrueMonthlySalaries(month: now, userId: widget.userId);
-      msg('تم ترحيل مستحقات $count عامل شهري');
+      final allWorkers = await widget.r.workers();
+      final fixedWorkers = allWorkers.where((w) =>
+        '${w['pay_type'] ?? ''}' == 'fixed' &&
+        (w['active'] as num?)?.toInt() != 0
+      ).toList();
+      for (final worker in fixedWorkers) {
+        controllers[(worker['id'] as num).toInt()] = TextEditingController();
+      }
+      if (!mounted) return;
+
+      final amounts = await showDialog<Map<int, int>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (d) => AlertDialog(
+          title: const Text('مبالغ استحقاقات العمال'),
+          content: SizedBox(
+            width: 420,
+            child: fixedWorkers.isEmpty
+              ? const Text('لا يوجد عمال نشطون بنظام الراتب الثابت.')
+              : SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('الفترة: ${DateFormat('yyyy/MM/dd').format(from)} إلى ${DateFormat('yyyy/MM/dd').format(to)}'),
+                      const SizedBox(height: 8),
+                      const Text('أدخل المبلغ المستحق لكل عامل. اترك الحقل فارغًا أو أدخل صفرًا إذا لم يوجد استحقاق.'),
+                      const SizedBox(height: 12),
+                      for (final worker in fixedWorkers)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: TextField(
+                            controller: controllers[(worker['id'] as num).toInt()],
+                            keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                            decoration: InputDecoration(
+                              labelText: '${worker['name'] ?? 'عامل'} — المبلغ',
+                              suffixText: 'ريال',
+                              border: const OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d), child: const Text('إلغاء')),
+            FilledButton(
+              onPressed: () {
+                final result = <int, int>{};
+                for (final entry in controllers.entries) {
+                  final raw = entry.value.text.trim();
+                  final value = raw.isEmpty ? 0 : int.tryParse(raw);
+                  if (value == null || value < 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('أدخل مبالغ صحيحة غير سالبة')),
+                    );
+                    return;
+                  }
+                  if (value > 0) result[entry.key] = value;
+                }
+                Navigator.pop(d, result);
+              },
+              child: const Text('مراجعة المبالغ'),
+            ),
+          ],
+        ),
+      );
+      if (amounts == null || !mounted) return;
+
+      final periodKey = 'manual_fixed_salary_period:${from.year}-${from.month.toString().padLeft(2, '0')}-${from.day.toString().padLeft(2, '0')}_${to.year}-${to.month.toString().padLeft(2, '0')}-${to.day.toString().padLeft(2, '0')}';
+      final periodLabel = '${DateFormat('yyyy/MM/dd').format(from)} إلى ${DateFormat('yyyy/MM/dd').format(to)}';
+      final total = amounts.values.fold<int>(0, (sum, amount) => sum + amount);
+      final details = <String>[];
+      for (final entry in amounts.entries) {
+        final worker = fixedWorkers.firstWhere((w) => (w['id'] as num).toInt() == entry.key);
+        details.add('${worker['name'] ?? 'عامل'}: ${_money(entry.value)} ريال');
+      }
+      final finalConfirm = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: const Text('تأكيد ترحيل استحقاقات العمال'),
+          content: Text(
+            'الفترة: $periodLabel\n'
+            'عدد العمال ذوي المبالغ المدخلة: ${amounts.length}\n'
+            'إجمالي الاستحقاقات: ${_money(total)} ريال\n\n'
+            '${details.isEmpty ? 'لم تُدخل أي مبالغ موجبة.' : details.join('\n')}\n\n'
+            'لن تُرحّل استحقاقات عمال الساعة أو النسبة يدويًا، ولن يتم توزيع أرباح الشركاء من هذه الشاشة.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('تأكيد الترحيل')),
+          ],
+        ),
+      ) ?? false;
+      if (!finalConfirm || !mounted) return;
+
+      final count = await widget.r.accounting.createWorkerAccrualBatch(
+        amounts: amounts,
+        from: from,
+        to: to,
+        date: to,
+        periodKey: periodKey,
+        periodLabel: periodLabel,
+        userId: widget.userId,
+      );
       await load();
-    } catch (e) { msg(friendlyError(e)); }
+      msg('تم ترحيل استحقاقات $count عامل للفترة المحددة');
+    } catch (e) {
+      msg(friendlyError(e));
+    } finally {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+    }
   }
   void msg(String x) {
     if (mounted) {
