@@ -52,7 +52,8 @@ check('PDF embeds both Arabic fonts',
 check('PDF table cells explicitly use Arabic font',
       'pw.Text(' in pdf_template and 'font: font' in pdf_template and
       '_buildOfficialTable(' in pdf_template)
-check('official PDF template includes Arabic page numbering',
+check('PDF filter summary and page footer use the official template',
+      'attachments: filterText' in pdf and
       "'صفحة ${context.pageNumber} / ${context.pagesCount}'" in pdf_template and
       'font: arabicFont' in pdf_template)
 check('reports have explicit per-report columns', 'static const reportColumns' in pdf and 'cash_flow' in pdf)
