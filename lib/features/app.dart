@@ -8039,6 +8039,7 @@ class _PaymentsState extends State<PaymentsPage> {
                   decoration: const InputDecoration(labelText: 'الطرف'),
                 ),
                 DropdownButtonFormField<int>(
+                  key: ValueKey(target),
                   initialValue: party,
                   items: [
                     for (final x
