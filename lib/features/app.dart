@@ -12883,7 +12883,9 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
   Widget build(BuildContext context) {
     final p = partner;
     final bal = _n(summary['balance']);
-    final financialRows = rows.where((x) => x['type'] != 'partner_profit_total' && x['type'] != 'partner_irrigation_info');
+    final periodSummary = rows.where((x) => x['type'] == 'partner_profit_total').firstOrNull;
+    final periodBal = _n(periodSummary?['balance']);
+    final financialRows = rows.where((x) => x['type'] != 'partner_profit_total' && x['type'] != 'partner_irrigation_info' && x['type'] != 'current_balance');
     final lah = financialRows.fold<int>(0, (sum, x) => sum + _n(x['lah']));
     final alayh = financialRows.fold<int>(0, (sum, x) => sum + _n(x['alayh']));
 
@@ -13160,6 +13162,17 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                             bal >= 0 ? _reportGreen : _reportOrange,
                           ),
                           const SizedBox(width: 9),
+                          _kpi(
+                            from != null || to != null ? 'رصيد نهاية الفترة' : 'الرصيد الختامي',
+                            money(periodBal),
+                            Icons.event_available_rounded,
+                            periodBal >= 0 ? _reportGreen : _reportOrange,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 9),
+                      Row(
+                        children: [
                           _kpi('إجمالي له', money(lah), Icons.south_west_rounded, _reportGreen),
                           const SizedBox(width: 9),
                           _kpi('إجمالي عليه', money(alayh), Icons.north_east_rounded, _reportOrange),
