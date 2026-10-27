@@ -299,11 +299,12 @@ class ReportService {
           if (rows.isEmpty)
             _emptyReportState(font: font, bold: bold)
           else
-            pw.Directionality(
-              textDirection: pw.TextDirection.rtl,
-              child: pw.TableHelper.fromTextArray(
-                headers: headers,
-                data: data,
+            pw.TableHelper.fromTextArray(
+                // Arabic cells are already shaped by _shapeArabic. Render the
+                // table left-to-right with reversed columns to avoid bidi's
+                // crash on mixed Arabic/Latin reference values.
+                headers: headers.reversed.toList(),
+                data: data.map((row) => row.reversed.toList()).toList(),
                 headerCount: 1,
                 headerDecoration: pw.BoxDecoration(
                   color: PdfColor.fromHex('#123A4A'),
@@ -345,8 +346,6 @@ class ReportService {
                     width: .35,
                   ),
                 ),
-              ),
-            ),
           pw.SizedBox(height: 12),
           pw.Directionality(
             textDirection: pw.TextDirection.rtl,
