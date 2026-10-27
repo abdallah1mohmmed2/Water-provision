@@ -1169,10 +1169,36 @@ class StationRepository {
       final rows = await tx.query('workers', where: 'id=?', whereArgs: [id], limit: 1);
       if (rows.isEmpty) throw StateError('العامل غير موجود');
       final balanceRows = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE -jl.debit END),0) balance FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND (a.code=? OR (a.code='2100' AND jl.worker_id=?))",
+        "SELECT COUNT(jl.id) entry_count,COALESCE(SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE -jl.debit END),0) balance FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND (a.code=? OR (a.code='2100' AND jl.worker_id=?))",
         ['2100.W$id', id],
       );
-      final bal = (balanceRows.first['balance'] as num?)?.round() ?? 0;
+      var bal = (balanceRows.first['balance'] as num?)?.round() ?? 0;
+      if (((balanceRows.first['entry_count'] as num?)?.toInt() ?? 0) == 0) {
+        final legacy = await tx.rawQuery(
+          "SELECT wt.*,i.party_type irrigation_party_type FROM worker_transactions wt LEFT JOIN irrigations i ON wt.reference_type='irrigation' AND i.id=wt.reference_id WHERE wt.worker_id=? ORDER BY wt.date,wt.id",
+          [id],
+        );
+        bal = 0;
+        for (final row in legacy) {
+          final type = '${row['type'] ?? ''}';
+          final amount = (row['amount'] as num?)?.round() ?? 0;
+          final notes = '${row['notes'] ?? ''}';
+          bal += switch (type) {
+            'accrual' || 'salary' || 'worker_entitlement' || 'opening_balance' => amount,
+            'payment' => -amount,
+            'payment_reversal' => amount,
+            'irrigation' => notes.startsWith('خصم قيمة سقاية')
+                ? -amount
+                : notes.startsWith('استحقاق') || row['irrigation_party_type'] != 'worker'
+                    ? amount
+                    : -amount,
+            'irrigation_reversal' => notes.startsWith('عكس استحقاق العامل')
+                ? -amount
+                : amount,
+            _ => 0,
+          };
+        }
+      }
       if (bal != 0) {
         throw StateError('لا يمكن حذف عامل رصيده ${AccountingCalculations.partyDueLabel(bal)}؛ سوِّ حسابه أولًا');
       }
@@ -1350,10 +1376,33 @@ class StationRepository {
       final rows = await tx.query('partners', where: 'id=?', whereArgs: [id], limit: 1);
       if (rows.isEmpty) throw StateError('الشريك غير موجود');
       final balanceRows = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE -jl.debit END),0) balance FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND (a.code=? OR (a.code='2200' AND jl.partner_id=?))",
+        "SELECT COUNT(jl.id) entry_count,COALESCE(SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE -jl.debit END),0) balance FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND (a.code=? OR (a.code='2200' AND jl.partner_id=?))",
         ['2200.P$id', id],
       );
-      final bal = (balanceRows.first['balance'] as num?)?.round() ?? 0;
+      var bal = (balanceRows.first['balance'] as num?)?.round() ?? 0;
+      if (((balanceRows.first['entry_count'] as num?)?.toInt() ?? 0) == 0) {
+        final legacy = await tx.query(
+          'partner_transactions',
+          where: 'partner_id=?',
+          whereArgs: [id],
+          orderBy: 'date,id',
+        );
+        bal = 0;
+        for (final row in legacy) {
+          final type = '${row['type'] ?? ''}';
+          final amount = (row['amount'] as num?)?.round() ?? 0;
+          final notes = '${row['notes'] ?? ''}';
+          bal += switch (type) {
+            'share_accrual' || 'opening_balance' || 'contribution' => amount,
+            'payment' || 'irrigation' || 'share_adjustment' => -amount,
+            'payment_reversal' => amount,
+            'irrigation_reversal' => notes.startsWith('عكس سقاية الشريك')
+                ? amount
+                : -amount,
+            _ => 0,
+          };
+        }
+      }
       if (bal != 0) {
         throw StateError('لا يمكن حذف شريك رصيده ${AccountingCalculations.partyDueLabel(bal)}؛ سوِّ حسابه أولًا');
       }
