@@ -86,7 +86,12 @@ class OfficialReportTemplate {
         pageFormat: PdfPageFormat.a4,
         textDirection: pw.TextDirection.rtl,
         margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-        theme: pw.ThemeData.withFont(base: arabicFont, bold: arabicBold),
+        theme: pw.ThemeData.withFont(
+          base: arabicFont,
+          bold: arabicBold,
+          // Arabic font lacks some Latin punctuation used by references and dates.
+          fontFallback: [pw.Font.helvetica()],
+        ),
         build: (context) => [
           _buildOfficialHeader(
             right1: rightHeader1,
