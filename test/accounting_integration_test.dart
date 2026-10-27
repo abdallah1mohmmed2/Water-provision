@@ -903,8 +903,23 @@ void main() {
     final expected = (await svc.beneficiaryBalance(b))['balance'];
     expect(stmt.last['balance'], expected);
     expect(expected, 1000 + 6000 + 500 - 2000);
+
+    // موجب المستفيد يعني «عليه»: السقاية والسلفة مدينة، والدفعة دائنة.
+    final irrigationRow = stmt.singleWhere((row) => row['type'] == 's');
+    final paymentRow = stmt.singleWhere((row) => row['type'] == 'p');
+    final advanceRow = stmt.singleWhere((row) => row['type'] == 'a');
+    expect(irrigationRow['lah'], 0);
+    expect(irrigationRow['alayh'], 6000);
+    expect(paymentRow['lah'], 2000);
+    expect(paymentRow['alayh'], 0);
+    expect(advanceRow['lah'], 0);
+    expect(advanceRow['alayh'], 500);
+    final openingRow = stmt.singleWhere((row) => row['type'] == 'opening_balance');
+    expect(openingRow['lah'], 0);
+    expect(openingRow['alayh'], 1000);
+
     // الأعمدة التي يعرضها تقرير PDF موجودة في الصفوف
-    for (final k in ['description', 'debit', 'credit', 'balance']) {
+    for (final k in ['description', 'debit', 'credit', 'lah', 'alayh', 'balance']) {
       expect(stmt.first.containsKey(k), isTrue, reason: k);
     }
   });
