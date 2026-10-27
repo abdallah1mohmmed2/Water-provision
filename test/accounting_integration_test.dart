@@ -2108,4 +2108,44 @@ void main() {
     expect((partners[1]['ownership_percentage'] as num).toDouble(), 40);
   });
 
+  test('رفض إعدادات أجر العامل غير الصالحة عند الإنشاء والتعديل', () async {
+    final repo = StationRepository(db);
+    await expectLater(
+      repo.createWorker(name: 'عامل نسبة سالبة', payType: 'percentage', percentageRate: -1),
+      throwsA(isA<ArgumentError>()),
+    );
+    await expectLater(
+      repo.createWorker(name: 'عامل نسبة عالية', payType: 'percentage', percentageRate: 101),
+      throwsA(isA<ArgumentError>()),
+    );
+    await expectLater(
+      repo.createWorker(name: 'عامل أجر سالب', payType: 'hourly', hourlyRate: -1),
+      throwsA(isA<ArgumentError>()),
+    );
+    await expectLater(
+      repo.createWorker(name: 'عامل نوع غير صالح', payType: 'monthly'),
+      throwsA(isA<ArgumentError>()),
+    );
+
+    final worker = await repo.createWorker(
+      name: 'عامل إعداد صحيح',
+      payType: 'hourly',
+      hourlyRate: 500,
+    );
+    await expectLater(
+      repo.updateWorker(worker, {'hourly_rate': -10}, null),
+      throwsA(isA<ArgumentError>()),
+    );
+    await expectLater(
+      repo.updateWorker(worker, {'percentage_rate': 101}, null),
+      throwsA(isA<ArgumentError>()),
+    );
+    final saved = (await db.query(
+      'SELECT hourly_rate,percentage_rate FROM workers WHERE id=?',
+      args: [worker],
+    )).single;
+    expect((saved['hourly_rate'] as num).round(), 500);
+    expect((saved['percentage_rate'] as num).toDouble(), 0);
+  });
+
 }
