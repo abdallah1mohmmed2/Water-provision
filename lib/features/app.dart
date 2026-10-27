@@ -11931,7 +11931,10 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   String _dateLabel(DateTime? d) => d == null ? 'اختر تاريخًا' : DateFormat('yyyy/MM/dd').format(d);
   String _time(Object? value) {
     final d = DateTime.tryParse('$value');
-    return d == null ? '—' : DateFormat('HH:mm').format(d);
+    if (d == null) return '—';
+    final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final periodLabel = d.hour < 12 ? 'ص' : 'م';
+    return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
   }
   String _duration(Object? value) {
     final minutes = _n(value).clamp(0, 100000000);
