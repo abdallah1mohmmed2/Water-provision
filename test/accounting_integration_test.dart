@@ -911,7 +911,7 @@ void main() {
     expect(replacement['status'], 'posted');
     expect(replacement['amount'], 500);
     expect(
-      DateTime.parse('${replacement['date'] as String}').isAtSameMomentAs(
+      DateTime.parse(replacement['date'] as String).isAtSameMomentAs(
         DateTime.parse(originalDate),
       ),
       isTrue,
