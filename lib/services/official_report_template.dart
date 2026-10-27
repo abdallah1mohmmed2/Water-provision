@@ -92,6 +92,18 @@ class OfficialReportTemplate {
         pageFormat: pageFormat,
         textDirection: pw.TextDirection.rtl,
         margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        footer: (context) => pw.Container(
+          alignment: pw.Alignment.center,
+          padding: const pw.EdgeInsets.only(top: 6),
+          child: pw.Text(
+            'صفحة ${context.pageNumber} / ${context.pagesCount}',
+            style: pw.TextStyle(
+              font: arabicFont,
+              fontSize: 8,
+              color: PdfColors.grey700,
+            ),
+          ),
+        ),
         theme: pw.ThemeData.withFont(
           base: arabicFont,
           bold: arabicBold,
