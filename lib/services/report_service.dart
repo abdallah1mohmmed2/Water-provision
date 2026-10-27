@@ -782,12 +782,15 @@ class ReportService {
                         ),
                       ),
                       pw.Spacer(),
-                      pw.Text(
-                        reportNumber,
-                        style: pw.TextStyle(
-                          font: font,
-                          fontSize: 7.5,
-                          color: PdfColor.fromHex('#D5E8E1'),
+                      pw.Directionality(
+                        textDirection: pw.TextDirection.ltr,
+                        child: pw.Text(
+                          reportNumber,
+                          style: pw.TextStyle(
+                            font: font,
+                            fontSize: 7.5,
+                            color: PdfColor.fromHex('#D5E8E1'),
+                          ),
                         ),
                       ),
                     ],
@@ -815,12 +818,27 @@ class ReportService {
                           ),
                         ),
                       ),
-                      pw.Text(
-                        '${DateFormat('yyyy/MM/dd').format(date)}  •  $recordCount سجل',
-                        style: pw.TextStyle(
-                          font: font,
-                          fontSize: 7.5,
-                          color: PdfColor.fromHex('#C7DED8'),
+                      pw.Directionality(
+                        textDirection: pw.TextDirection.ltr,
+                        child: pw.Text(
+                          DateFormat('yyyy-MM-dd').format(date),
+                          style: pw.TextStyle(
+                            font: font,
+                            fontSize: 7.5,
+                            color: PdfColor.fromHex('#C7DED8'),
+                          ),
+                        ),
+                      ),
+                      pw.SizedBox(width: 4),
+                      pw.Directionality(
+                        textDirection: pw.TextDirection.rtl,
+                        child: pw.Text(
+                          '$recordCount سجل',
+                          style: pw.TextStyle(
+                            font: font,
+                            fontSize: 7.5,
+                            color: PdfColor.fromHex('#C7DED8'),
+                          ),
                         ),
                       ),
                     ],
