@@ -2761,14 +2761,14 @@ class AccountingService {
 
   /// يعدّل السقاية ويعيد احتساب القيود والحركات التابعة داخل معاملة واحدة.
   /// الفترات المقفلة والتعارضات الزمنية تُرفض صراحةً لحماية الإقفال وسجل تشغيل المضخة.
-  Future<void> updateIrrigationBasic({
+  Future<int> updateIrrigationBasic({
     required int id,
     required DateTime start,
     required DateTime end,
     int? userId,
   }) async {
     if (!end.isAfter(start)) throw ArgumentError('وقت النهاية يجب أن يكون بعد البداية');
-    await database.transaction((tx) async {
+    return database.transaction((tx) async {
       final rows = await tx.query('irrigations', where: 'id=?', whereArgs: [id], limit: 1);
       if (rows.isEmpty || rows.first['status'] != 'posted') {
         throw StateError('السقاية غير موجودة أو ملغاة/غير مرحّلة');
@@ -3108,6 +3108,7 @@ class AccountingService {
       await database.auditTx(tx, userId: userId, operation: 'update',
         table: 'irrigations', recordId: id, oldValues: old,
         newValues: values, reason: 'تعديل وقت السقاية وإعادة ترحيل قيدها');
+      return result.totalAmount;
     });
   }
 
