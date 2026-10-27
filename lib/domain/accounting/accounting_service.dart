@@ -2778,8 +2778,10 @@ class AccountingService {
       final oldStart = DateTime.parse('${old['start_datetime']}');
       final oldEnd = DateTime.parse('${old['end_datetime']}');
       try {
-        await _assertPeriodOpen(tx, oldStart, stationId: (old['station_id'] as num).toInt());
-        await _assertPeriodOpen(tx, start, stationId: (old['station_id'] as num).toInt());
+        await _assertPeriodRangeOpen(tx, oldStart, oldEnd,
+          stationId: (old['station_id'] as num).toInt());
+        await _assertPeriodRangeOpen(tx, start, end,
+          stationId: (old['station_id'] as num).toInt());
       } on StateError {
         throw StateError('لا يمكن تعديل السقاية داخل فترة محاسبية مقفلة. أعد فتح الفترة من شاشة الإقفال مع تسجيل السبب، ثم أعد التعديل؛ لم تُغيّر أي بيانات.');
       }
@@ -2818,7 +2820,7 @@ class AccountingService {
           shiftedCloudPeriods.add({'id': period['id'], 'start_datetime': shiftedStart.toIso8601String(),
             'end_datetime': shiftedEnd.toIso8601String(), 'minutes': mins, 'old': period});
         }
-        cloud = cloudSum.clamp(0, end.difference(start).inMinutes);
+        cloud = cloudSum.clamp(0, end.difference(start).inMinutes).toInt();
       }
       final allowMidnight = cfg['allow_midnight_crossing'] == 'true';
       var result = type == 'diesel'
