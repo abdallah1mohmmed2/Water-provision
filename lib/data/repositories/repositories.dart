@@ -1133,24 +1133,34 @@ class StationRepository {
     if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
       throw ArgumentError('اسم العامل مطلوب');
     }
-    final found = await db.query('workers', where:'id=?', whereArgs:[id], limit:1);
-    if (found.isEmpty) throw StateError('العامل غير موجود');
-    final old = found.first;
-    final payType = '${values['pay_type'] ?? old['pay_type']}';
-    final fixedSalary = (values['fixed_salary'] ?? old['fixed_salary'] ?? 0) as num;
-    final hourlyRate = (values['hourly_rate'] ?? old['hourly_rate'] ?? 0) as num;
-    final percentageRate = (values['percentage_rate'] ?? old['percentage_rate'] ?? 0) as num;
-    if (!{'fixed', 'hourly', 'percentage'}.contains(payType)) {
-      throw ArgumentError('نوع أجر العامل غير صالح');
-    }
-    if (fixedSalary < 0 || hourlyRate < 0) {
-      throw ArgumentError('الراتب الثابت وأجر الساعة لا يمكن أن يكونا سالبين');
-    }
-    if (percentageRate < 0 || percentageRate > 100) {
-      throw ArgumentError('نسبة أجر العامل يجب أن تكون بين صفر و100');
-    }
-    await db.update('workers', values, 'id=?', [id]);
-    await db.audit(userId:userId, operation:'update', table:'workers', recordId:id, oldValues:old, newValues:values);
+    await db.transaction((tx) async {
+      final found = await tx.query('workers', where: 'id=?', whereArgs: [id], limit: 1);
+      if (found.isEmpty) throw StateError('العامل غير موجود');
+      final old = found.first;
+      final payType = '${values['pay_type'] ?? old['pay_type']}';
+      final fixedSalary = (values['fixed_salary'] ?? old['fixed_salary'] ?? 0) as num;
+      final hourlyRate = (values['hourly_rate'] ?? old['hourly_rate'] ?? 0) as num;
+      final percentageRate = (values['percentage_rate'] ?? old['percentage_rate'] ?? 0) as num;
+      if (!{'fixed', 'hourly', 'percentage'}.contains(payType)) {
+        throw ArgumentError('نوع أجر العامل غير صالح');
+      }
+      if (fixedSalary < 0 || hourlyRate < 0) {
+        throw ArgumentError('الراتب الثابت وأجر الساعة لا يمكن أن يكونا سالبين');
+      }
+      if (percentageRate < 0 || percentageRate > 100) {
+        throw ArgumentError('نسبة أجر العامل يجب أن تكون بين صفر و100');
+      }
+      await tx.update('workers', values, where: 'id=?', whereArgs: [id]);
+      await db.auditTx(
+        tx,
+        userId: userId,
+        operation: 'update',
+        table: 'workers',
+        recordId: id,
+        oldValues: old,
+        newValues: values,
+      );
+    });
   }
 
   Future<void> deleteWorker(int id, int? userId, String reason) async {
