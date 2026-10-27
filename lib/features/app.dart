@@ -8113,6 +8113,8 @@ class _PaymentsState extends State<PaymentsPage> {
       try {
         String? editReason;
         if (existing != null) {
+          // Recheck immediately before using State.context after the dialog await.
+          if (!mounted) return;
           editReason = await askReason(
             context,
             'تعديل سند قبض/صرف',
