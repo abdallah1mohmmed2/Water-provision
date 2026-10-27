@@ -2903,7 +2903,7 @@ class AccountingService {
           'worker_id': item['worker_id'], 'date': AppClock.now().toIso8601String(),
           'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
           'reference_type': 'irrigation_edit', 'reference_id': transactionId,
-          'notes': (('${item['notes'] ?? ''}').startsWith('خصم قيمة سقاية') ? 'عكس سقاية العامل' : 'عكس استحقاق العامل') + ' لإعادة احتساب السقاية رقم $id',
+          'notes': '${('${item['notes'] ?? ''}').startsWith('خصم قيمة سقاية') ? 'عكس سقاية العامل' : 'عكس استحقاق العامل'} لإعادة احتساب السقاية رقم $id',
           'created_by': userId,
         });
       }
