@@ -976,14 +976,9 @@ class StationRepository {
     final sourceRows = await db.rawQuery('''
       SELECT pt.id, pt.date, pt.type, pt.amount, pt.reference_type,
              pt.reference_id, pt.notes,
-             CASE WHEN pt.type='irrigation_reversal' AND EXISTS (
-               SELECT 1 FROM partner_transactions original
-               WHERE original.partner_id=pt.partner_id
-                 AND original.reference_type='irrigation'
-                 AND original.reference_id=pt.reference_id
-                 AND original.type='irrigation'
-                 AND original.amount=pt.amount
-             ) THEN 1 ELSE 0 END reversal_of_direct_irrigation
+             CASE WHEN pt.type='irrigation_reversal'
+                       AND COALESCE(pt.notes,'') LIKE 'عكس سقاية الشريك%'
+                  THEN 1 ELSE 0 END reversal_of_direct_irrigation
       FROM partner_transactions pt
       WHERE pt.partner_id=?
       ORDER BY pt.date ASC, pt.id ASC
