@@ -2297,50 +2297,17 @@ class AccountingService {
       orderBy: 'id',
     );
     if (partners.isEmpty || amount <= 0) return;
-    final sharePartners = partners.where((p) => '${p['ownership_mode']}' == 'shares').toList();
-    final percentagePartners = partners.where((p) => '${p['ownership_mode']}' == 'percentage').toList();
-    final totalShares = sharePartners.fold<int>(0, (sum, p) => sum + ((p['shares_count'] as num?)?.round() ?? 0));
-    final configuredPercentageTotal = percentagePartners.fold<double>(0, (sum, p) {
-      final percentage = (p['ownership_percentage'] as num?)?.toDouble() ?? 0;
-      if (percentage < 0 || percentage > 100) {
-        throw StateError('نسبة ملكية الشريك غير صالحة؛ يجب أن تكون بين صفر و100');
-      }
-      return sum + percentage;
-    });
-    if (configuredPercentageTotal > 100.0000001) {
-      throw StateError('مجموع نسب ملكية الشركاء النشطين يتجاوز 100%؛ صحح الملكية قبل تسجيل السقاية');
-    }
-    final percentageAmounts = <int, int>{};
-    var percentageTotal = 0;
-    for (final p in percentagePartners) {
-      final value = AccountingCalculations.partnerShare(
-        distributable: amount,
-        percentage: (p['ownership_percentage'] as num?)?.toDouble() ?? 0,
-      );
-      percentageAmounts[(p['id'] as num).toInt()] = value;
-      percentageTotal += value;
-    }
-    final sharePool = (amount - percentageTotal).clamp(0, amount);
-    var remaining = sharePool;
-    var remainingShares = totalShares;
+    // Use the shared allocation routine so independent percentage rounding
+    // cannot allocate more than the irrigation pool (for example 3 x 33.33%
+    // of a very small amount). The same rules are used by final distribution.
+    final allocations = AccountingCalculations.partnerDistributionAmounts(
+      distributable: amount,
+      partners: partners,
+    );
     for (final p in partners) {
       final pid = (p['id'] as num).toInt();
       final mode = '${p['ownership_mode']}';
-      final shares = (p['shares_count'] as num?)?.round() ?? 0;
-      final int value;
-      if (mode == 'percentage') {
-        value = percentageAmounts[pid] ?? 0;
-      } else if (totalShares <= 0 || shares <= 0) {
-        value = 0;
-      } else if (remainingShares == shares) {
-        value = remaining;
-      } else {
-        value = (sharePool * shares / totalShares).round().clamp(0, remaining).toInt();
-      }
-      if (mode == 'shares' && value > 0) {
-        remaining -= value;
-        remainingShares -= shares;
-      }
+      final value = allocations[pid] ?? 0;
       if (value <= 0) continue;
       final id = await tx.insert('partner_transactions', {
         'partner_id': pid,
