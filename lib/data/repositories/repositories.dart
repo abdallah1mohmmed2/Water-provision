@@ -147,24 +147,38 @@ class StationRepository {
 
   Future<void> deleteBeneficiary(int id, int? userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الحذف المنطقي مطلوب');
-    final rows = await db.rawQuery('SELECT * FROM beneficiaries WHERE id=?', [id]);
-    if (rows.isEmpty) throw StateError('المستفيد غير موجود');
-    final old = rows.first;
-    final bal = (await accounting.beneficiaryBalance(id))['balance'] ?? 0;
-    if (bal != 0) {
-      throw StateError(
-        'لا يمكن حذف مستفيد رصيده ${AccountingCalculations.balanceLabel(bal)}؛ سوِّ الرصيد أولًا ثم احذفه',
-      );
-    }
-    final running = await db.rawQuery(
-      "SELECT 1 FROM irrigation_sessions WHERE beneficiary_id=? AND status='running' LIMIT 1",
-      [id],
-    );
-    if (running.isNotEmpty) {
-      throw StateError('لا يمكن حذف مستفيد لديه جلسة سقي قيد التشغيل');
-    }
     final now = AppClock.now().toIso8601String();
     await db.transaction((tx) async {
+      final rows = await tx.query(
+        'beneficiaries',
+        where: 'id=?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('المستفيد غير موجود');
+      final old = rows.first;
+      final balanceRows = await tx.rawQuery(
+        'SELECT ${BalanceSql.beneficiary('b')} balance FROM beneficiaries b WHERE b.id=?',
+        [id],
+      );
+      final bal = balanceRows.isEmpty
+          ? 0
+          : (balanceRows.first['balance'] as num?)?.round() ?? 0;
+      if (bal != 0) {
+        throw StateError(
+          'لا يمكن حذف مستفيد رصيده ${AccountingCalculations.balanceLabel(bal)}؛ سوِّ الرصيد أولًا ثم احذفه',
+        );
+      }
+      final running = await tx.query(
+        'irrigation_sessions',
+        columns: ['id'],
+        where: "beneficiary_id=? AND status='running'",
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (running.isNotEmpty) {
+        throw StateError('لا يمكن حذف مستفيد لديه جلسة سقي قيد التشغيل');
+      }
       await tx.update(
         'beneficiaries',
         {'status': 'deleted', 'updated_at': now},
@@ -194,7 +208,6 @@ class StationRepository {
       );
     });
   }
-
   Future<Map<String, Object?>> beneficiaryDetails(int id) async {
     final b = (await db.rawQuery(
       'SELECT * FROM beneficiaries WHERE id=?',
@@ -1123,14 +1136,29 @@ class StationRepository {
 
   Future<void> deleteWorker(int id, int? userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الحذف مطلوب');
-    final bal = (await accounting.workerBalance(id))['balance'] ?? 0;
-    if (bal != 0) {
-      throw StateError('لا يمكن حذف عامل رصيده ${AccountingCalculations.partyDueLabel(bal)}؛ سوِّ حسابه أولًا');
-    }
-    await db.update('workers', {'active':0}, 'id=?', [id]);
-    await db.audit(userId:userId, operation:'logical_delete', table:'workers', recordId:id, reason:reason);
+    await db.transaction((tx) async {
+      final rows = await tx.query('workers', where: 'id=?', whereArgs: [id], limit: 1);
+      if (rows.isEmpty) throw StateError('العامل غير موجود');
+      final balanceRows = await tx.rawQuery(
+        "SELECT COALESCE(SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE -jl.debit END),0) balance FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND (a.code=? OR (a.code='2100' AND jl.worker_id=?))",
+        ['2100.W$id', id],
+      );
+      final bal = (balanceRows.first['balance'] as num?)?.round() ?? 0;
+      if (bal != 0) {
+        throw StateError('لا يمكن حذف عامل رصيده ${AccountingCalculations.partyDueLabel(bal)}؛ سوِّ حسابه أولًا');
+      }
+      await tx.update('workers', {'active':0}, where: 'id=?', whereArgs: [id]);
+      await db.auditTx(
+        tx,
+        userId: userId,
+        operation: 'logical_delete',
+        table: 'workers',
+        recordId: id,
+        oldValues: rows.first,
+        reason: reason,
+      );
+    });
   }
-
   Future<int?> workerTransaction({
     required int workerId,
     required String type,
@@ -1268,14 +1296,29 @@ class StationRepository {
 
   Future<void> deletePartner(int id, int? userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الحذف مطلوب');
-    final bal = (await accounting.partnerBalance(id))['balance'] ?? 0;
-    if (bal != 0) {
-      throw StateError('لا يمكن حذف شريك رصيده ${AccountingCalculations.partyDueLabel(bal)}؛ سوِّ حسابه أولًا');
-    }
-    await db.update('partners', {'active':0}, 'id=?', [id]);
-    await db.audit(userId:userId, operation:'logical_delete', table:'partners', recordId:id, reason:reason);
+    await db.transaction((tx) async {
+      final rows = await tx.query('partners', where: 'id=?', whereArgs: [id], limit: 1);
+      if (rows.isEmpty) throw StateError('الشريك غير موجود');
+      final balanceRows = await tx.rawQuery(
+        "SELECT COALESCE(SUM(CASE WHEN jl.credit>0 THEN jl.credit ELSE -jl.debit END),0) balance FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND (a.code=? OR (a.code='2200' AND jl.partner_id=?))",
+        ['2200.P$id', id],
+      );
+      final bal = (balanceRows.first['balance'] as num?)?.round() ?? 0;
+      if (bal != 0) {
+        throw StateError('لا يمكن حذف شريك رصيده ${AccountingCalculations.partyDueLabel(bal)}؛ سوِّ حسابه أولًا');
+      }
+      await tx.update('partners', {'active':0}, where: 'id=?', whereArgs: [id]);
+      await db.auditTx(
+        tx,
+        userId: userId,
+        operation: 'logical_delete',
+        table: 'partners',
+        recordId: id,
+        oldValues: rows.first,
+        reason: reason,
+      );
+    });
   }
-
   Future<List<Map<String, Object?>>> paymentMethods() => db.rawQuery(
     'SELECT pm.*,c.name cashbox_name FROM payment_methods pm LEFT JOIN cashboxes c ON c.id=pm.cashbox_id WHERE pm.active=1 ORDER BY pm.name',
   );
