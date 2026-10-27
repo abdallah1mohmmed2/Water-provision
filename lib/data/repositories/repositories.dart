@@ -256,10 +256,10 @@ class StationRepository {
     final creditDelivery =
         (await settings())['diesel_delivery_financial_credit'] == 'true';
     final events = await db.rawQuery(
-      "SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.cloud_minutes,i.chargeable_minutes,i.total_amount,i.paid_amount,'s' type,i.total_amount debit,0 credit,i.total_amount lah,0 alayh,'سقاية' description FROM irrigations i WHERE i.beneficiary_id=? AND i.status!='cancelled' "
-      "UNION ALL SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,'p',0,p.amount,0,p.amount,'دفعة' FROM payments p WHERE p.beneficiary_id=? AND p.status='posted' "
-      "UNION ALL SELECT d.id,d.date,d.date,d.date,'diesel_advance',0,0,0,0,0,'a',d.amount,0,d.amount,0,'سلفة ديزل' FROM diesel_movements d WHERE d.beneficiary_id=? AND d.kind='advance' AND d.irrigation_id IS NULL "
-      "${creditDelivery ? "UNION ALL SELECT d.id,d.date,d.date,d.date,'diesel_delivery',0,0,0,0,0,'d',0,d.amount,0,d.amount,'تسليم ديزل' FROM diesel_movements d WHERE d.beneficiary_id=? AND d.kind='delivery' " : ''}"
+      "SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.cloud_minutes,i.chargeable_minutes,i.total_amount,i.paid_amount,'s' type,i.total_amount debit,0 credit,0 lah,i.total_amount alayh,'سقاية' description FROM irrigations i WHERE i.beneficiary_id=? AND i.status!='cancelled' "
+      "UNION ALL SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,'p',0,p.amount,p.amount,0,'دفعة' FROM payments p WHERE p.beneficiary_id=? AND p.status='posted' "
+      "UNION ALL SELECT d.id,d.date,d.date,d.date,'diesel_advance',0,0,0,0,0,'a',d.amount,0,0,d.amount,'سلفة ديزل' FROM diesel_movements d WHERE d.beneficiary_id=? AND d.kind='advance' AND d.irrigation_id IS NULL "
+      "${creditDelivery ? "UNION ALL SELECT d.id,d.date,d.date,d.date,'diesel_delivery',0,0,0,0,0,'d',0,d.amount,d.amount,0,'تسليم ديزل' FROM diesel_movements d WHERE d.beneficiary_id=? AND d.kind='delivery' " : ''}"
       "ORDER BY date,id",
       [id, id, id, if (creditDelivery) id],
     );
@@ -300,8 +300,8 @@ class StationRepository {
         'description': 'الرصيد المرحّل قبل الفترة',
         'debit': periodOpeningBalance > 0 ? periodOpeningBalance : 0,
         'credit': periodOpeningBalance < 0 ? -periodOpeningBalance : 0,
-        'lah': periodOpeningBalance > 0 ? periodOpeningBalance : 0,
-        'alayh': periodOpeningBalance < 0 ? -periodOpeningBalance : 0,
+        'lah': periodOpeningBalance < 0 ? -periodOpeningBalance : 0,
+        'alayh': periodOpeningBalance > 0 ? periodOpeningBalance : 0,
         'balance': periodOpeningBalance,
       });
     } else {
@@ -315,8 +315,8 @@ class StationRepository {
           'description': 'رصيد افتتاحي',
           'debit': opening > 0 ? opening : 0,
           'credit': opening < 0 ? -opening : 0,
-          'lah': opening > 0 ? opening : 0,
-          'alayh': opening < 0 ? -opening : 0,
+          'lah': opening < 0 ? -opening : 0,
+          'alayh': opening > 0 ? opening : 0,
           'balance': opening,
         });
       }
@@ -328,8 +328,8 @@ class StationRepository {
           'description': 'رصيد مرحّل',
           'debit': carried > 0 ? carried : 0,
           'credit': carried < 0 ? -carried : 0,
-          'lah': carried > 0 ? carried : 0,
-          'alayh': carried < 0 ? -carried : 0,
+          'lah': carried < 0 ? -carried : 0,
+          'alayh': carried > 0 ? carried : 0,
           'balance': initialBalance,
         });
       }
