@@ -365,7 +365,7 @@ class OfficialReportTemplate {
               .map(
                 (col) => pw.Container(
                   constraints: const pw.BoxConstraints(minHeight: 32),
-                  padding: const pw.EdgeInsets.symmetric(
+                  padding: pw.EdgeInsets.symmetric(
                     horizontal: 3,
                     vertical: cellVerticalPadding,
                   ),
@@ -392,9 +392,9 @@ class OfficialReportTemplate {
                 .map(
                   (cell) => pw.Container(
                     constraints: const pw.BoxConstraints(minHeight: 24),
-                    padding: const pw.EdgeInsets.symmetric(
+                    padding: pw.EdgeInsets.symmetric(
                       horizontal: 3,
-                      vertical: 4,
+                      vertical: cellVerticalPadding,
                     ),
                     alignment: pw.Alignment.center,
                     child: pw.Text(
@@ -413,9 +413,9 @@ class OfficialReportTemplate {
             columns.length,
             (index) => pw.Container(
               constraints: const pw.BoxConstraints(minHeight: 24),
-              padding: const pw.EdgeInsets.symmetric(
+              padding: pw.EdgeInsets.symmetric(
                 horizontal: 3,
-                vertical: 4,
+                vertical: cellVerticalPadding,
               ),
               alignment: pw.Alignment.center,
               child: pw.Text(
@@ -423,7 +423,7 @@ class OfficialReportTemplate {
                     ? footerRow[footerRow.length - 1 - index]
                     : '',
                 textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 9),
+                style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: cellFontSize),
               ),
             ),
           ),
