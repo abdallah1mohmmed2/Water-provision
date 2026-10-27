@@ -2749,7 +2749,7 @@ class AccountingService {
         final signed = switch (type) {
           'share_accrual' || 'opening_balance' || 'contribution' => amount,
           'payment' || 'irrigation' || 'share_adjustment' => -amount,
-          'payment_reversal' => amount,
+          'payment_reversal' || 'share_adjustment_reversal' => amount,
           'irrigation_reversal' => notes.startsWith('عكس سقاية الشريك')
               ? amount
               : -amount,
