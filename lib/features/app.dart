@@ -11947,6 +11947,87 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
 
   Future<List<Map<String, Object?>>> _pdfRows() async => visible;
 
+  Future<void> _editInvoice(Map<String, Object?> row) async {
+    final id = _n(row['invoice_id']);
+    final originalStart = DateTime.tryParse('${row['start_datetime']}');
+    final originalEnd = DateTime.tryParse('${row['end_datetime']}');
+    if (id <= 0 || originalStart == null || originalEnd == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذر قراءة بيانات السقاية للتعديل')),
+      );
+      return;
+    }
+
+    DateTime selectedStartDate = DateTime(originalStart.year, originalStart.month, originalStart.day);
+    DateTime selectedEndDate = DateTime(originalEnd.year, originalEnd.month, originalEnd.day);
+    TimeOfDay selectedStartTime = TimeOfDay.fromDateTime(originalStart);
+    TimeOfDay selectedEndTime = TimeOfDay.fromDateTime(originalEnd);
+
+    final startDate = await showDatePicker(
+      context: context, firstDate: DateTime(2020), lastDate: DateTime(2100),
+      initialDate: selectedStartDate, locale: const Locale('ar'),
+      helpText: 'اختر تاريخ بداية السقاية',
+    );
+    if (startDate == null || !mounted) return;
+    selectedStartDate = startDate;
+    final startTime = await showTimePicker(
+      context: context, initialTime: selectedStartTime, helpText: 'اختر وقت بداية السقاية',
+    );
+    if (startTime == null || !mounted) return;
+    selectedStartTime = startTime;
+
+    final endDate = await showDatePicker(
+      context: context, firstDate: DateTime(2020), lastDate: DateTime(2100),
+      initialDate: selectedEndDate, locale: const Locale('ar'),
+      helpText: 'اختر تاريخ نهاية السقاية',
+    );
+    if (endDate == null || !mounted) return;
+    selectedEndDate = endDate;
+    final endTime = await showTimePicker(
+      context: context, initialTime: selectedEndTime, helpText: 'اختر وقت نهاية السقاية',
+    );
+    if (endTime == null || !mounted) return;
+    selectedEndTime = endTime;
+
+    final start = DateTime(selectedStartDate.year, selectedStartDate.month, selectedStartDate.day,
+        selectedStartTime.hour, selectedStartTime.minute);
+    final end = DateTime(selectedEndDate.year, selectedEndDate.month, selectedEndDate.day,
+        selectedEndTime.hour, selectedEndTime.minute);
+    if (!end.isAfter(start)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('وقت النهاية يجب أن يكون بعد وقت البداية')),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('تأكيد تعديل السقاية'),
+        content: Text('سيعاد احتساب مدة السقاية وقيمتها وإعادة ترحيل قيدها.\nمن: ${DateFormat('yyyy/MM/dd HH:mm').format(start)}\nإلى: ${DateFormat('yyyy/MM/dd HH:mm').format(end)}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('تأكيد التعديل')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await widget.r.accounting.updateIrrigationBasic(id: id, start: start, end: end);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تعديل السقاية وتحديث القيد المحاسبي')),
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(friendlyError(e))),
+      );
+    }
+  }
+
   Future<void> _previewPdf() async {
     try {
       final bytes = await ReportService(widget.r).invoicesPdf(rows: await _pdfRows(), from: from, to: to);
@@ -12112,6 +12193,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                 DataColumn(label: const Text('القيمة الإجمالية'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('المسلّمة'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('ملاحظات'), onSort: _sort),
+                                const DataColumn(label: Text('إجراء')),
                               ],
                               rows: [
                                 for (var i = 0; i < data.length; i++)
@@ -12126,6 +12208,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text(_money(data[i]['total_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),
+                                      DataCell(IconButton(tooltip: 'تعديل السقاية', icon: const Icon(Icons.edit_calendar_rounded, color: _reportOliveDark), onPressed: () => _editInvoice(data[i]))),
                                     ],
                                   ),
                               ],
