@@ -109,16 +109,33 @@ class StationRepository {
     if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
       throw ArgumentError('اسم المستفيد مطلوب');
     }
-    final rows = await db.rawQuery('SELECT * FROM beneficiaries WHERE id=?', [id]);
-    if (rows.isEmpty) throw StateError('المستفيد غير موجود');
-    final old = rows.first;
-    final newValues = {...values, 'updated_at': AppClock.now().toIso8601String()};
-    int asInt(Object? v) => (v as num?)?.round() ?? 0;
-    final oldOpening = asInt(old['opening_balance']);
-    final oldCarried = asInt(old['carried_balance']);
-    final newOpening = values.containsKey('opening_balance') ? asInt(values['opening_balance']) : oldOpening;
-    final newCarried = values.containsKey('carried_balance') ? asInt(values['carried_balance']) : oldCarried;
+    final now = AppClock.now().toIso8601String();
+    int balanceValue(Object? value, String label) {
+      if (value == null) return 0;
+      if (value is! num || value != value.roundToDouble()) {
+        throw ArgumentError('$label يجب أن يكون مبلغًا صحيحًا دون كسور');
+      }
+      return value.round();
+    }
+
     await db.transaction((tx) async {
+      final rows = await tx.query(
+        'beneficiaries',
+        where: 'id=?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('المستفيد غير موجود');
+      final old = rows.first;
+      final oldOpening = balanceValue(old['opening_balance'], 'الرصيد الافتتاحي الحالي');
+      final oldCarried = balanceValue(old['carried_balance'], 'الرصيد المرحّل الحالي');
+      final newOpening = values.containsKey('opening_balance')
+          ? balanceValue(values['opening_balance'], 'الرصيد الافتتاحي')
+          : oldOpening;
+      final newCarried = values.containsKey('carried_balance')
+          ? balanceValue(values['carried_balance'], 'الرصيد المرحّل')
+          : oldCarried;
+      final newValues = {...values, 'updated_at': now};
       await tx.update('beneficiaries', newValues, where: 'id=?', whereArgs: [id]);
       await accounting.postBeneficiaryBalanceDeltaTx(
         tx,
