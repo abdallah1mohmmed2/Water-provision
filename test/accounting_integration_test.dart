@@ -1846,6 +1846,80 @@ void main() {
     expect(pdfBytes, isNotEmpty);
     expect(String.fromCharCodes(pdfBytes.take(4)), '%PDF');
 
+    // اختبار المطابقة بين التقرير العام والكشف التفصيلي بعد تسوية فائض
+    // الاستحقاق المباشر: يجب أن تُخصم التسوية من إجمالي أرباح الشريك في كليهما.
+    final directAccrual = (await db.query(
+      "SELECT id FROM partner_transactions WHERE partner_id=? AND reference_type='irrigation_profit' AND reference_id=? ORDER BY id LIMIT 1",
+      args: [p1, irrigationId],
+    )).single;
+    final directAccrualId = (directAccrual['id'] as num).toInt();
+    final adjustmentDate = operationDate.add(const Duration(hours: 5));
+    final adjustmentId = await db.insert('partner_transactions', {
+      'partner_id': p1,
+      'date': adjustmentDate.toIso8601String(),
+      'type': 'share_adjustment',
+      'amount': 5000,
+      'reference_type': 'partner_profit_adjustment',
+      'reference_id': directAccrualId,
+      'notes': 'تسوية اختبارية لمطابقة تقارير الشركاء',
+      'created_by': 1,
+    });
+    final partnerAccount = (await db.query(
+      "SELECT id FROM accounts WHERE code=? LIMIT 1",
+      args: ['2200.P$p1'],
+    )).single;
+    final equityAccount = (await db.query(
+      "SELECT id FROM accounts WHERE code='3200' LIMIT 1",
+    )).single;
+    final adjustmentEntry = await db.insert('journal_entries', {
+      'station_id': stationId,
+      'date': adjustmentDate.toIso8601String(),
+      'reference_type': 'partner_profit_adjustment',
+      'reference_id': adjustmentId,
+      'description': 'تسوية اختبارية لفائض حصة الشريك',
+      'status': 'posted',
+      'created_by': 1,
+      'created_at': adjustmentDate.toIso8601String(),
+    });
+    await db.insert('journal_lines', {
+      'journal_entry_id': adjustmentEntry,
+      'account_id': partnerAccount['id'],
+      'partner_id': p1,
+      'debit': 5000,
+      'credit': 0,
+      'memo': 'خصم تسوية من مستحق الشريك',
+    });
+    await db.insert('journal_lines', {
+      'journal_entry_id': adjustmentEntry,
+      'account_id': equityAccount['id'],
+      'partner_id': p1,
+      'debit': 0,
+      'credit': 5000,
+      'memo': 'عكس فائض حصة الشريك',
+    });
+
+    final generalAfterAdjustment = await repo.report(
+      'partner_profit_distribution',
+      from: start,
+      to: end,
+    );
+    final generalPartner = generalAfterAdjustment.singleWhere((row) => row['id'] == p1);
+    expect(generalPartner['gross_amount'], 52500);
+    expect(generalPartner['net_amount'], 45500);
+
+    final detailedAfterAdjustment = await repo.report(
+      'partner_accounts',
+      from: start,
+      to: end,
+      partnerId: p1,
+    );
+    final detailedProfit = detailedAfterAdjustment.singleWhere(
+      (row) => row['type'] == 'partner_profit_total',
+    );
+    expect(detailedProfit['signed_amount'], 52500);
+    expect(detailedProfit['balance'], 45500);
+    expect((await svc.partnerBalance(p1))['balance'], 45500);
+
     // الفترة المقفلة فعليًا يجب أن تمنع ترحيل توزيع جديد حتى لو كان التقرير قابلًا للعرض.
     final closedStart = DateTime(2034, 1, 1);
     final closedEndExclusive = DateTime(2035, 1, 1);
