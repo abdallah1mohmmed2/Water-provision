@@ -4324,9 +4324,23 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                             OutlinedButton.icon(
                                               onPressed: () async {
                                                 try {
-                                                  await ReportService(widget.r).printPdf(
+                                                  final beneficiaryId = x['id'] as int;
+                                                  final rows = await widget.r.report(
                                                     'beneficiary_statement',
-                                                    beneficiaryId: x['id'] as int,
+                                                    beneficiaryId: beneficiaryId,
+                                                  );
+                                                  if (!mounted) return;
+                                                  await Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (_) => ReportPreviewPage(
+                                                        widget.r,
+                                                        keyName: 'beneficiary_statement',
+                                                        rows: rows,
+                                                        filters: 'المستفيد: ${x['name'] ?? ''}',
+                                                        beneficiaryId: beneficiaryId,
+                                                      ),
+                                                    ),
                                                   );
                                                 } catch (e) {
                                                   if (mounted) {
@@ -4337,7 +4351,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                                 }
                                               },
                                               icon: const Icon(Icons.picture_as_pdf_rounded),
-                                              label: const Text('كشف الحساب PDF'),
+                                              label: const Text('كشف الحساب'),
                                             ),
                                             OutlinedButton.icon(
                                               onPressed: () => sendAccountSummary(x),
