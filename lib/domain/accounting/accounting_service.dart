@@ -2824,7 +2824,14 @@ class AccountingService {
             'end_datetime': shiftedEnd.toIso8601String(), 'minutes': mins, 'old': period});
         }
         cloud = cloudSum.clamp(0, end.difference(start).inMinutes).toInt();
+      } else {
+        // Older irrigation rows may store only a total cloud-minute value.
+        // Clamp it to the edited duration just as recordIrrigation does.
+        cloud = cloud.clamp(0, end.difference(start).inMinutes).toInt();
       }
+      // Cloud stoppage is only billable for solar systems. Keep diesel and
+      // equivalent-system recalculation consistent with recordIrrigation.
+      final effectiveCloud = type == 'solar' ? cloud : 0;
       final allowMidnight = cfg['allow_midnight_crossing'] == 'true';
       var result = type == 'diesel'
           ? AccountingCalculations.diesel(
@@ -2832,7 +2839,7 @@ class AccountingService {
               hourlyWaterRate: (old['water_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
               litersPerHour: (old['diesel_liters_per_hour_snapshot'] as num?)?.toDouble() ?? 0,
               dieselPrice: (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0,
-              cloudMinutes: cloud,
+              cloudMinutes: effectiveCloud,
               allowMidnightCrossing: allowMidnight,
               rounding: rounding, partialHour: partialHour,
             )
