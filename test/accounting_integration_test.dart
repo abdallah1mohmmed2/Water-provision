@@ -428,7 +428,7 @@ void main() {
       'shares_count': 3,
       'active': 1,
     });
-    await svc.recordIrrigation(
+    final irrigationId = await svc.recordIrrigation(
       stationId: 1,
       pumpId: 1,
       beneficiaryId: b,
@@ -453,7 +453,8 @@ void main() {
       4300,
     );
     final direct = await db.query(
-      "SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' ORDER BY id",
+      "SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=? ORDER BY id",
+      args: [irrigationId],
     );
     expect(direct.fold<int>(0, (sum, row) => sum + (row['amount'] as num).round()), 4300);
   });
