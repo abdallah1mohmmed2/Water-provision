@@ -2659,7 +2659,7 @@ class StationRepository {
           final selectedWorkers = <Map<String, Object?>>[];
           if (workerId != null && workerId > 0) {
             selectedWorkers.addAll(await db.rawQuery(
-              "SELECT w.id,w.name,w.opening_balance,w.opening_balance,${BalanceSql.workerPersonal('w')} balance FROM workers w WHERE w.id=? LIMIT 1",
+              "SELECT w.id,w.name,w.opening_balance,${BalanceSql.workerPersonal('w')} balance FROM workers w WHERE w.id=? LIMIT 1",
               [workerId],
             ));
           } else {
@@ -2724,28 +2724,6 @@ class StationRepository {
                 'amount': opening.abs(),
                 'signed_amount': opening,
                 'balance': opening,
-                'statement_kind': 'worker',
-              });
-            }
-
-            // Older databases may have a configured opening balance without a
-            // matching ledger opening entry. Show it once without treating it
-            // as a movement in the selected period.
-            if (periodStart == null &&
-                !transactions.any((row) => row['type'] == 'opening_balance')) {
-              final configuredOpening =
-                  (worker['opening_balance'] as num?)?.round() ?? 0;
-              rows.add({
-                'date': transactions.isEmpty ? null : transactions.last['date'],
-                'worker_id': id,
-                'worker_name': name,
-                'description': 'الرصيد الافتتاحي',
-                'type': 'opening_balance',
-                'lah': configuredOpening > 0 ? configuredOpening : 0,
-                'alayh': configuredOpening < 0 ? -configuredOpening : 0,
-                'amount': configuredOpening.abs(),
-                'signed_amount': configuredOpening,
-                'balance': configuredOpening,
                 'statement_kind': 'worker',
               });
             }
