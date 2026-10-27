@@ -2842,7 +2842,7 @@ class AccountingService {
       // Reverse linked wage and partner accrual rows without deleting history.
       final workerRows = await tx.query(
         'worker_transactions',
-        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation'",
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation' AND NOT EXISTS (SELECT 1 FROM worker_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=worker_transactions.id AND rev.type='irrigation_reversal')",
         whereArgs: [id],
       );
       for (final item in workerRows) {
@@ -2852,28 +2852,28 @@ class AccountingService {
         await tx.insert('worker_transactions', {
           'worker_id': item['worker_id'], 'date': AppClock.now().toIso8601String(),
           'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
-          'reference_type': 'irrigation_edit', 'reference_id': id,
+          'reference_type': 'irrigation_edit', 'reference_id': transactionId,
           'notes': 'عكس استحقاق/خصم سابق لإعادة احتساب السقاية رقم $id',
           'created_by': userId,
         });
       }
       final directPartnerRows = await tx.query(
         'partner_transactions',
-        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation'",
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=partner_transactions.id AND rev.type='irrigation_reversal')",
         whereArgs: [id],
       );
       for (final item in directPartnerRows) {
         await tx.insert('partner_transactions', {
           'partner_id': item['partner_id'], 'date': AppClock.now().toIso8601String(),
           'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
-          'reference_type': 'irrigation_edit', 'reference_id': id,
+          'reference_type': 'irrigation_edit', 'reference_id': (item['id'] as num).toInt(),
           'notes': 'عكس خصم السقاية السابقة رقم $id لإعادة احتسابها',
           'created_by': userId,
         });
       }
       final partnerRows = await tx.query(
         'partner_transactions',
-        where: "reference_type='irrigation_profit' AND reference_id=? AND type='share_accrual'",
+        where: "reference_type='irrigation_profit' AND reference_id=? AND type='share_accrual' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=partner_transactions.id AND rev.type='irrigation_reversal')",
         whereArgs: [id],
       );
       for (final item in partnerRows) {
