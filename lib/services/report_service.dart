@@ -181,7 +181,7 @@ class ReportService {
           ? ({
               'party_name': 'الجهة',
               'start_datetime': 'من',
-              'end_datetime': 'إلى',
+              'end_datetime': 'النهاية',
               'minutes': 'المدة',
               'paid_amount': 'المدفوع',
               'total_amount': 'المبلغ',
@@ -1012,7 +1012,7 @@ class ReportService {
       parts.add('الاسم: ${personName.trim()}');
     }
     if (from != null) parts.add('من ${DateFormat('yyyy/MM/dd').format(from)}');
-    if (to != null) parts.add('إلى ${DateFormat('yyyy/MM/dd').format(to)}');
+    if (to != null) parts.add('حتى ${DateFormat('yyyy/MM/dd').format(to)}');
     if (systemType != null) {
       parts.add(
         'المنظومة: ${systemType == 'all'
