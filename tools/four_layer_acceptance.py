@@ -52,9 +52,9 @@ check('PDF embeds both Arabic fonts',
 check('PDF table cells explicitly use Arabic font',
       'pw.Text(' in pdf_template and 'font: font' in pdf_template and
       '_buildOfficialTable(' in pdf_template)
-check('PDF filter and footer explicitly use Arabic font',
-      'pw.Text(filterText, style: pw.TextStyle(font: font' in pdf and
-      "'صفحة ${pi + 1} / ${pages.length}'" in pdf)
+check('official PDF template includes Arabic page numbering',
+      "'صفحة ${context.pageNumber} / ${context.pagesCount}'" in pdf_template and
+      'font: arabicFont' in pdf_template)
 check('reports have explicit per-report columns', 'static const reportColumns' in pdf and 'cash_flow' in pdf)
 check('PDF uses landscape for wide report tables',
       'PdfPageFormat.a4.landscape' in pdf and 'pageFormat: pageFormat' in pdf_template)
