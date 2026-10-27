@@ -398,6 +398,17 @@ void main() {
     final ids = rows.map((r) => (r['irrigation_id'] as num).toInt()).toSet();
     expect(ids, contains(sameDayId));
     expect(ids, isNot(contains(nextDayId)));
+    final pdf = await ReportService(StationRepository(db)).pdf(
+      'irrigations',
+      from: day,
+      to: day,
+      systemType: 'solar',
+    );
+    expect(pdf, isNotEmpty);
+    final reportRun = await db.query(
+      "SELECT row_count FROM report_runs WHERE report_key='irrigations' ORDER BY id DESC LIMIT 1",
+    );
+    expect((reportRun.single['row_count'] as num).toInt(), 1);
     await db.delete('irrigations', 'id IN (?,?)', [sameDayId, nextDayId]);
     await db.delete('beneficiaries', 'id=?', [beneficiaryId]);
   });
