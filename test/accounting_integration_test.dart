@@ -2076,4 +2076,36 @@ void main() {
     );
   });
 
+  test('منع مجموع نسب ملكية الشركاء النشطين من تجاوز 100%', () async {
+    final repo = StationRepository(db);
+    final p1 = await repo.createPartner(
+      name: 'شريك نسبة 60',
+      mode: 'percentage',
+      percentage: 60,
+    );
+    final p2 = await repo.createPartner(
+      name: 'شريك نسبة 40',
+      mode: 'percentage',
+      percentage: 40,
+    );
+    await expectLater(
+      repo.createPartner(
+        name: 'شريك يتجاوز الحد',
+        mode: 'percentage',
+        percentage: 1,
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+    await expectLater(
+      repo.updatePartner(p2, {'ownership_percentage': 41}, null),
+      throwsA(isA<ArgumentError>()),
+    );
+    final partners = await db.query(
+      "SELECT id,ownership_percentage FROM partners WHERE id IN (?,?) ORDER BY id",
+      args: [p1, p2],
+    );
+    expect((partners[0]['ownership_percentage'] as num).toDouble(), 60);
+    expect((partners[1]['ownership_percentage'] as num).toDouble(), 40);
+  });
+
 }
