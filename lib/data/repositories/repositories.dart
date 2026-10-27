@@ -1931,6 +1931,11 @@ class StationRepository {
            AND operation IN ('cancel','delete','logical_delete')
          ORDER BY id DESC LIMIT 50""",
     );
+    final auditEventCount = await db.rawQuery(
+      """SELECT COUNT(*) count FROM audit_logs
+         WHERE table_name='irrigations'
+           AND operation IN ('cancel','delete','logical_delete')""",
+    );
     final irrigationTotal = (irrigationTotals.first['total'] as num?)?.round() ?? 0;
     final ledgerTotal = (ledgerTotals.first['total'] as num?)?.round() ?? 0;
     return {
@@ -1943,7 +1948,7 @@ class StationRepository {
       'difference': irrigationTotal - ledgerTotal,
       'cancelled_irrigation_count': (cancelled.first['count'] as num?)?.toInt() ?? 0,
       'cancelled_irrigation_total': (cancelled.first['total'] as num?)?.round() ?? 0,
-      'irrigation_audit_event_count': auditEvents.length,
+      'irrigation_audit_event_count': (auditEventCount.first['count'] as num?)?.toInt() ?? 0,
       'irrigation_audit_events': auditEvents,
       'mismatched_irrigations': perIrrigation,
     };
