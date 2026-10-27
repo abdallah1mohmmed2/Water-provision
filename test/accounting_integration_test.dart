@@ -1596,21 +1596,29 @@ void main() {
     );
   });
 
-  test('ترقية v17 تنشئ جدول شهادات مطابقة النقد والبنك', () async {
+  test('ترقية v17 تنشئ جداول مطابقة النقد والبنك والحسابات العامة حتى الإصدار 19', () async {
     final opened = await db.db;
     await opened.execute('PRAGMA user_version=17');
     await db.close();
     final upgraded = await db.db;
-    final table = await upgraded.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='cash_reconciliations'",
+    final tables = await upgraded.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions')",
     );
-    final index = await upgraded.rawQuery(
+    final cashIndex = await upgraded.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_cash_rec_period'",
     );
+    final generalIndex = await upgraded.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_general_account_transactions_account_date'",
+    );
     final version = await upgraded.rawQuery('PRAGMA user_version');
-    expect(table, isNotEmpty);
-    expect(index, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 18);
+    expect(tables.map((row) => row['name']).toSet(), containsAll({
+      'cash_reconciliations',
+      'general_accounts',
+      'general_account_transactions',
+    }));
+    expect(cashIndex, isNotEmpty);
+    expect(generalIndex, isNotEmpty);
+    expect((version.single.values.single as num).toInt(), 19);
   });
 
   test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {
@@ -2385,26 +2393,30 @@ void main() {
     expect((saved['percentage_rate'] as num).toDouble(), 0);
   });
 
-  test('رفض عدد حصص الشريك الكسري لأنه يخالف نوع العمود وقاعدة التوزيع', () async {
+  test('يدعم عدد حصص الشريك الكسري في الإنشاء والتعديل والتخزين', () async {
     final repo = StationRepository(db);
-    await expectLater(
-      repo.createPartner(name: 'شريك حصص كسرية', mode: 'shares', shares: 1.5),
-      throwsA(isA<ArgumentError>()),
-    );
     final partner = await repo.createPartner(
-      name: 'شريك حصص صحيحة',
+      name: 'شريك حصص كسرية',
       mode: 'shares',
-      shares: 2,
+      shares: 1.5,
     );
-    await expectLater(
-      repo.updatePartner(partner, {'shares_count': 2.5}, null),
-      throwsA(isA<ArgumentError>()),
-    );
-    final saved = (await db.query(
+    var saved = (await db.query(
       'SELECT shares_count FROM partners WHERE id=?',
       args: [partner],
     )).single;
-    expect((saved['shares_count'] as num).round(), 2);
+    expect((saved['shares_count'] as num).toDouble(), 1.5);
+
+    await repo.updatePartner(partner, {'shares_count': 2.5}, null);
+    saved = (await db.query(
+      'SELECT shares_count FROM partners WHERE id=?',
+      args: [partner],
+    )).single;
+    expect((saved['shares_count'] as num).toDouble(), 2.5);
+
+    await expectLater(
+      repo.createPartner(name: 'شريك حصص غير صالحة', mode: 'shares', shares: 0),
+      throwsA(isA<ArgumentError>()),
+    );
   });
 
   test('تقريب نسب الشركاء لا يوزع أكثر من مبلغ السقاية', () {
