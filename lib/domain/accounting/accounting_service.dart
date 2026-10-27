@@ -2765,7 +2765,7 @@ class AccountingService {
     required int id,
     required DateTime start,
     required DateTime end,
-    required int userId,
+    int? userId,
   }) async {
     if (!end.isAfter(start)) throw ArgumentError('وقت النهاية يجب أن يكون بعد البداية');
     await database.transaction((tx) async {
