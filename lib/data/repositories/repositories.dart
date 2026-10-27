@@ -1869,6 +1869,67 @@ class StationRepository {
     "SELECT * FROM beneficiaries WHERE is_needy=1 AND status='active' ORDER BY name",
   );
 
+  /// يقارن قيم السقايات الفعلية بقيود الإيراد المرحلة في الفترة نفسها.
+  /// هذه دالة تدقيق للقراءة فقط؛ لا تُنشئ قيودًا ولا تغيّر الأرصدة.
+  Future<Map<String, Object?>> auditIrrigationRevenue({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final stationId = await accounting.currentStationId();
+    final start = DateTime(from.year, from.month, from.day).toIso8601String();
+    final endExclusive = DateTime(to.year, to.month, to.day + 1).toIso8601String();
+
+    final irrigationTotals = await db.rawQuery(
+      """SELECT COUNT(*) count,COALESCE(SUM(i.total_amount),0) total
+         FROM irrigations i
+         WHERE i.station_id=? AND i.status!='cancelled'
+           AND COALESCE(date(i.date),date(i.start_datetime))>=date(?)
+           AND COALESCE(date(i.date),date(i.start_datetime))<date(?)""",
+      [stationId, start, endExclusive],
+    );
+    final ledgerTotals = await db.rawQuery(
+      """SELECT COALESCE(SUM(jl.credit-jl.debit),0) total
+         FROM journal_lines jl
+         JOIN journal_entries je ON je.id=jl.journal_entry_id
+         JOIN accounts a ON a.id=jl.account_id
+         WHERE je.station_id=? AND je.status='posted' AND a.type='revenue'
+           AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal')
+           AND je.date>=? AND je.date<?""",
+      [stationId, start, endExclusive],
+    );
+    final perIrrigation = await db.rawQuery(
+      """SELECT i.id irrigation_id,i.date,i.total_amount irrigation_amount,
+                COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) ledger_amount,
+                COUNT(DISTINCT je.id) posted_entries
+         FROM irrigations i
+         LEFT JOIN journal_entries je
+           ON je.reference_type='irrigation' AND je.reference_id=i.id
+              AND je.station_id=i.station_id AND je.status='posted'
+         LEFT JOIN journal_lines jl ON jl.journal_entry_id=je.id
+         LEFT JOIN accounts a ON a.id=jl.account_id
+         WHERE i.station_id=? AND i.status!='cancelled'
+           AND COALESCE(date(i.date),date(i.start_datetime))>=date(?)
+           AND COALESCE(date(i.date),date(i.start_datetime))<date(?)
+         GROUP BY i.id,i.date,i.total_amount
+         HAVING COUNT(DISTINCT je.id)=0
+            OR COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0)<>i.total_amount
+         ORDER BY i.date,i.id""",
+      [stationId, start, endExclusive],
+    );
+    final irrigationTotal = (irrigationTotals.first['total'] as num?)?.round() ?? 0;
+    final ledgerTotal = (ledgerTotals.first['total'] as num?)?.round() ?? 0;
+    return {
+      'station_id': stationId,
+      'from': start,
+      'to_exclusive': endExclusive,
+      'irrigation_count': (irrigationTotals.first['count'] as num?)?.toInt() ?? 0,
+      'irrigation_total': irrigationTotal,
+      'ledger_revenue_total': ledgerTotal,
+      'difference': irrigationTotal - ledgerTotal,
+      'mismatched_irrigations': perIrrigation,
+    };
+  }
+
   Future<Map<String, Object?>> partnerProfitSummary({required DateTime from, required DateTime to}) async {
     final stationId = await accounting.currentStationId();
     final start = DateTime(from.year, from.month, from.day);
