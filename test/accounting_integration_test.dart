@@ -368,20 +368,28 @@ void main() {
     await db.update('workers', {'active': 0}, 'id>?', [0]);
     await db.update('partners', {'active': 0}, 'id>?', [0]);
     final day = DateTime(2043, 6, 12);
-    final partnerId = await db.insert('partners', {
-      'name': 'شريك اختبار فلتر اليوم',
-      'ownership_mode': 'shares',
-      'shares_count': 1,
-      'active': 1,
+    final beneficiaryId = await db.insert('beneficiaries', {
+      'name': 'مستفيد اختبار فلتر اليوم',
+      'created_at': day.toIso8601String(),
+      'updated_at': day.toIso8601String(),
     });
-    final sameDayId = await irrigationFor(
-      partnerId: partnerId,
-      start: day.add(const Duration(hours: 8)),
+    Future<int> addBeneficiaryIrrigation(DateTime start) => svc.recordIrrigation(
+      stationId: 1,
+      pumpId: 1,
+      beneficiaryId: beneficiaryId,
+      start: start,
+      end: start.add(const Duration(hours: 1)),
+      systemType: 'solar',
+      waterRate: 0,
+      litersPerHour: 0,
+      dieselPrice: 0,
+      solarRate: 6000,
+      thirdRate: 0,
+      cloudMinutes: 0,
+      paidAmount: 0,
     );
-    final nextDayId = await irrigationFor(
-      partnerId: partnerId,
-      start: day.add(const Duration(days: 1, hours: 8)),
-    );
+    final sameDayId = await addBeneficiaryIrrigation(day.add(const Duration(hours: 8)));
+    final nextDayId = await addBeneficiaryIrrigation(day.add(const Duration(days: 1, hours: 8)));
     final rows = await StationRepository(db).report(
       'irrigations',
       from: day,
