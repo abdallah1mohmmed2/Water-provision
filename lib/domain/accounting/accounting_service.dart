@@ -2573,13 +2573,13 @@ class AccountingService {
     if (endExclusive.isBefore(start) || !endExclusive.isAfter(start)) {
       throw ArgumentError('تاريخ بداية الفترة يجب ألا يتجاوز تاريخ نهايتها');
     }
+    if (amounts.values.any((amount) => amount < 0)) {
+      throw ArgumentError('مبالغ الاستحقاق يجب ألا تكون سالبة');
+    }
     final positiveAmounts = Map<int, int>.fromEntries(
       amounts.entries.where((entry) => entry.value > 0),
     );
     if (positiveAmounts.isEmpty) return 0;
-    if (positiveAmounts.values.any((amount) => amount < 0)) {
-      throw ArgumentError('مبالغ الاستحقاق يجب ألا تكون سالبة');
-    }
     return database.transaction((tx) async {
       final stationId = await _selectedStationIdTx(tx);
       await _assertPeriodRangeOpen(tx, start, endExclusive, stationId: stationId);
