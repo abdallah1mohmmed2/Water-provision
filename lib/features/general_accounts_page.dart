@@ -110,7 +110,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
                 TextFormField(controller: opening, decoration: const InputDecoration(labelText: 'الرصيد الافتتاحي'), keyboardType: TextInputType.number, validator: (v) => int.tryParse((v ?? '').trim()) == null || int.parse(v!.trim()) < 0 ? 'أدخل مبلغًا صحيحًا موجبًا أو صفرًا' : null),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: direction,
+                  initialValue: direction,
                   decoration: const InputDecoration(labelText: 'اتجاه الرصيد الافتتاحي'),
                   items: const [
                     DropdownMenuItem(value: 'receivable', child: Text('لنا عليه')),
@@ -186,7 +186,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
     if (ok == true) {
       try {
         final db = await _db;
-        final stationId = await _stationId(db);
+        final stationId = await _stationId();
         final value = int.parse(amount.text.trim());
         await db.transaction((tx) async {
           final accountId = (account['id'] as num).toInt();
@@ -252,7 +252,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
                           key: PageStorageKey('general-account-$id'),
                           initiallyExpanded: _expandedId == id,
                           onExpansionChanged: (expanded) => setState(() => _expandedId = expanded ? id : null),
-                          leading: CircleAvatar(child: const Icon(Icons.account_balance_wallet_outlined)),
+                          leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_outlined)),
                           title: Text('${account['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
                           subtitle: Text('${account['phone'] ?? 'بدون هاتف'}\n${balance > 0 ? 'لنا عليه' : balance < 0 ? 'له علينا' : 'الرصيد متوازن'}: ${_money(balance)} ريال', style: const TextStyle(height: 1.5)),
                           children: [
