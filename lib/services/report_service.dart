@@ -141,23 +141,14 @@ class ReportService {
     }
     if (personName != null && personName.isEmpty) personName = null;
 
-    final doc = pw.Document();
-    final font = pw.Font.ttf(
-      (await rootBundle.load(
-        'assets/fonts/NotoNaskhArabic-Regular.ttf',
-      )).buffer.asByteData(),
-    );
-    final bold = pw.Font.ttf(
-      (await rootBundle.load(
-        'assets/fonts/NotoNaskhArabic-Bold.ttf',
-      )).buffer.asByteData(),
-    );
     final availableKeys = <String>{
       for (final row in rows) ...row.keys,
     };
     final expectedHeaders = reportColumns[key] ?? <String>[];
+    // Empty reports keep the configured columns so the official template can
+    // render a useful empty-state table instead of failing on zero columns.
     final sourceHeaders = rows.isEmpty
-        ? <String>[]
+        ? List<String>.from(expectedHeaders)
         : expectedHeaders.where(availableKeys.contains).toList();
     if (sourceHeaders.isEmpty && rows.isNotEmpty) {
       sourceHeaders.addAll(rows.first.keys.take(8));
@@ -165,64 +156,120 @@ class ReportService {
       if (key == 'worker_transactions' && availableKeys.contains('pay_type')) {
         sourceHeaders
           ..clear()
-          ..addAll(['name', 'phone', 'job_title', 'pay_type', 'balance'].where(availableKeys.contains));
+          ..addAll(['name', 'phone', 'job_title', 'pay_type', 'balance']
+              .where(availableKeys.contains));
       } else if (key == 'partner_accounts' && availableKeys.contains('ownership_mode')) {
         sourceHeaders
           ..clear()
-          ..addAll(['name', 'phone', 'ownership_mode', 'shares_count', 'ownership_percentage', 'balance'].where(availableKeys.contains));
+          ..addAll(['name', 'phone', 'ownership_mode', 'shares_count',
+                  'ownership_percentage', 'balance']
+              .where(availableKeys.contains));
       } else {
         sourceHeaders
           ..clear()
           ..addAll(rows.first.keys.take(8));
       }
     }
+
     final headers = sourceHeaders.map((header) {
       final label = key == 'irrigations'
           ? ({
               'party_name': 'الجهة',
               'start_datetime': 'من',
-              'end_datetime': 'النهاية',
-              'minutes': 'المدة',
+              'end_datetime': 'إلى',
+              'minutes': 'إجمالي الدقائق',
               'paid_amount': 'المدفوع',
-              'total_amount': 'المبلغ',
+              'total_amount': 'القيمة الإجمالية',
               'cloud_minutes': 'الغيم',
               'cloud_status': 'حالة الخصم',
             }[header] ?? _fieldName(header))
           : _fieldName(header);
       return _shapeArabic(label);
     }).toList();
-    final data = rows
-        .map(
-          (row) => sourceHeaders
-              .map((header) => _shapeArabic(_formatValue(header, row[header], key)))
-              .toList(),
-        )
-        .toList();
-    final configuredRows = int.tryParse(settings['pdf_rows'] ?? '30') ?? 30;
-    final targetRows = configuredRows.clamp(1, 40).toInt();
-    // The preference controls table density; long/wrapped rows still paginate
-    // automatically rather than being clipped to a fixed count per page.
-    final cellFontSize = targetRows >= 26
-        ? 7.5
-        : targetRows >= 16
-        ? 8.2
-        : 9.0;
-    final cellVerticalPadding = targetRows >= 26
-        ? 3.5
-        : targetRows >= 16
-        ? 5.0
-        : 7.0;
-    final isLandscape = sourceHeaders.length >= 5 ||
-        const {
-          'irrigations',
-          'payment_methods',
-          'cashboxes',
-          'diesel_inventory',
-        }.contains(key);
-    final pageFormat = isLandscape
-        ? PdfPageFormat.a4.landscape
-        : PdfPageFormat.a4;
-    final station = settings['station_name'] ?? 'محطة ساقية';
+
+    final tableRows = rows.map((row) {
+      return sourceHeaders
+          .map((header) => _shapeArabic(_formatValue(header, row[header], key)))
+          .toList(growable: false);
+    }).toList(growable: false);
+
+    num sumOf(String field) => rows.fold<num>(0, (sum, row) {
+          final value = row[field];
+          if (value is num) return sum + value;
+          return sum + (num.tryParse('${value ?? ''}') ?? 0);
+        });
+    String money(num value) => NumberFormat('#,##0.##').format(value);
+    final summaryBoxes = <StatBoxData>[
+      StatBoxData(
+        number: '1',
+        title: rows.any((row) => row.containsKey('minutes'))
+            ? 'عدد السقايات / السجلات'
+            : 'عدد السجلات',
+        value: NumberFormat('#,##0').format(rows.length),
+        isBlueTint: true,
+      ),
+      if (rows.any((row) => row.containsKey('minutes')))
+        StatBoxData(
+          number: '2',
+          title: 'إجمالي الدقائق',
+          value: '${money(sumOf('minutes'))} د',
+        ),
+      if (rows.any((row) => row.containsKey('cloud_minutes')))
+        StatBoxData(
+          number: '3',
+          title: 'إجمالي الغيم',
+          value: '${money(sumOf('cloud_minutes'))} د',
+          isBlueTint: true,
+        ),
+      if (rows.any((row) => row.containsKey('total_amount') ||
+          row.containsKey('total') || row.containsKey('amount')))
+        StatBoxData(
+          number: '4',
+          title: 'إجمالي القيمة',
+          value: '${money(sumOf(rows.any((row) => row.containsKey('total_amount'))
+              ? 'total_amount'
+              : rows.any((row) => row.containsKey('total')) ? 'total' : 'amount'))} ريال',
+          isBlueTint: true,
+        ),
+      if (rows.any((row) => row.containsKey('paid_amount')))
+        StatBoxData(
+          number: '5',
+          title: 'إجمالي المدفوع',
+          value: '${money(sumOf('paid_amount'))} ريال',
+        ),
+      if (rows.any((row) => row.containsKey('distributable_profit')))
+        StatBoxData(
+          number: '6',
+          title: 'صافي الربح القابل للتوزيع',
+          value: '${money(sumOf('distributable_profit'))} ريال',
+          isLarge: true,
+          isBlueTint: true,
+        ),
+      if (rows.any((row) => row.containsKey('gross_amount')))
+        StatBoxData(
+          number: '7',
+          title: 'إجمالي استحقاقات الشركاء',
+          value: '${money(sumOf('gross_amount'))} ريال',
+        ),
+      if (rows.any((row) => row.containsKey('partner_expenses')))
+        StatBoxData(
+          number: '8',
+          title: 'مصروفات الشركاء الخاصة',
+          value: '${money(sumOf('partner_expenses'))} ريال',
+        ),
+      if (rows.any((row) => row.containsKey('net_amount')))
+        StatBoxData(
+          number: '9',
+          title: 'صافي الاستحقاقات بعد المصروفات',
+          value: '${money(sumOf('net_amount'))} ريال',
+          isBlueTint: true,
+        ),
+    ];
+
+    final reportTitle = personName == null
+        ? titles[key]!
+        : '${titles[key]} — $personName';
+    final reportNumber = 'R-${DateFormat('yyMMdd-HHmm').format(started)}';
     final filterText = _filters(
       from,
       to,
@@ -236,132 +283,24 @@ class ReportService {
       status,
       personName: personName,
     );
-    final reportTitle = personName == null
-        ? titles[key]!
-        : '${titles[key]} — $personName';
-    final reportNumber =
-        'R-${DateFormat('yyMMdd-HHmm').format(started)}';
 
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: pageFormat,
-        margin: const pw.EdgeInsets.fromLTRB(30, 22, 30, 28),
-        theme: pw.ThemeData.withFont(base: font, bold: bold),
-        maxPages: 1000,
-        header: (_) => pw.Column(
-          children: [
-            _reportHeader(
-              title: reportTitle,
-              station: station,
-              reportNumber: reportNumber,
-              recordCount: rows.length,
-              date: started,
-              font: font,
-              bold: bold,
-            ),
-            pw.SizedBox(height: 7),
-            pw.Container(
-              height: 3,
-              child: pw.Row(
-                children: [
-                  pw.Expanded(
-                    child: pw.Container(color: PdfColor.fromHex('#0B8277')),
-                  ),
-                  pw.Expanded(
-                    child: pw.Container(color: PdfColor.fromHex('#46A68C')),
-                  ),
-                  pw.Expanded(
-                    child: pw.Container(color: PdfColor.fromHex('#D9B66F')),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        footer: (context) => _reportFooter(
-          page: context.pageNumber,
-          totalPages: context.pagesCount,
-          font: font,
-          bold: bold,
-          showSignature: false,
-        ),
-        build: (_) => [
-          pw.Directionality(
-            textDirection: pw.TextDirection.rtl,
-            child: _reportSummary(
-              rows: rows,
-              filterText: filterText,
-              font: font,
-              bold: bold,
-            ),
-          ),
-          pw.SizedBox(height: 12),
-          if (rows.isEmpty)
-            _emptyReportState(font: font, bold: bold)
-          else
-            pw.TableHelper.fromTextArray(
-                // Arabic cells are already shaped by _shapeArabic. Render the
-                // table left-to-right with reversed columns to avoid bidi's
-                // crash on mixed Arabic/Latin reference values.
-                headers: headers.reversed.toList(),
-                data: data.map((row) => row.reversed.toList()).toList(),
-                headerCount: 1,
-                headerDecoration: pw.BoxDecoration(
-                  color: PdfColor.fromHex('#123A4A'),
-                ),
-                headerStyle: pw.TextStyle(
-                  font: bold,
-                  fontSize: 8.5,
-                  color: PdfColors.white,
-                ),
-                headerAlignment: pw.Alignment.center,
-                cellStyle: pw.TextStyle(
-                  font: font,
-                  fontSize: cellFontSize,
-                  color: PdfColor.fromHex('#23333B'),
-                ),
-                oddRowDecoration: pw.BoxDecoration(
-                  color: PdfColor.fromHex('#F0F6F4'),
-                ),
-                cellAlignment: pw.Alignment.center,
-                cellPadding: pw.EdgeInsets.symmetric(
-                  horizontal: isLandscape ? 7 : 5,
-                  vertical: cellVerticalPadding,
-                ),
-                border: pw.TableBorder(
-                  top: pw.BorderSide(
-                    color: PdfColor.fromHex('#C9D7D3'),
-                    width: .8,
-                  ),
-                  bottom: pw.BorderSide(
-                    color: PdfColor.fromHex('#C9D7D3'),
-                    width: .8,
-                  ),
-                  horizontalInside: pw.BorderSide(
-                    color: PdfColor.fromHex('#DDE7E4'),
-                    width: .45,
-                  ),
-                  verticalInside: pw.BorderSide(
-                    color: PdfColor.fromHex('#E4EBE9'),
-                    width: .35,
-                  ),
-                ),
-            ),
-          pw.SizedBox(height: 12),
-          pw.Directionality(
-            textDirection: pw.TextDirection.rtl,
-            child: _reportClosing(
-              key: key,
-              rows: rows,
-              font: font,
-              bold: bold,
-            ),
-          ),
-        ],
-      ),
+    final bytes = await OfficialReportTemplate.preview(
+      rightHeader1: 'الجمهورية اليمنية',
+      rightHeader2: 'نظام ساقية لإدارة محطة ضخ مياه الري',
+      rightHeader3: settings['station_name'] ?? 'محطة ساقية',
+      date: DateFormat('yyyy/MM/dd').format(started),
+      refNumber: reportNumber,
+      attachments: filterText.isEmpty ? 'عدد السجلات: ${rows.length}' : filterText,
+      reportTitle: reportTitle,
+      summaryBoxes: summaryBoxes,
+      columns: headers,
+      rows: tableRows,
+      thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
+      fileName: '${titles[key] ?? key}.pdf',
+      minTableRows: 7,
+      pageFormat: sourceHeaders.length >= 6 ? PdfPageFormat.a4.landscape : PdfPageFormat.a4,
+      printAfterGenerate: false,
     );
-
-    final bytes = await doc.save();
 
     // Audit logging must not prevent an otherwise valid PDF from being printed.
     // Older local databases may not yet contain the report_runs table.
@@ -1071,93 +1010,67 @@ class ReportService {
   }
 
   Future<Uint8List> paymentReceiptPdf(int paymentId) async {
-    final rows = await repo.db.query(
-      'SELECT p.*, COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,pm.name method_name,c.name cashbox_name FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN cashboxes c ON c.id=p.cashbox_id WHERE p.id=?',
-      args: [paymentId],
+    final rows = await repo.db.rawQuery(
+      '''SELECT p.*, COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,
+                pm.name method_name,c.name cashbox_name
+         FROM payments p
+         LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id
+         LEFT JOIN workers w ON w.id=p.worker_id
+         LEFT JOIN partners pt ON pt.id=p.partner_id
+         JOIN payment_methods pm ON pm.id=p.payment_method_id
+         JOIN cashboxes c ON c.id=p.cashbox_id
+         WHERE p.id=?''',
+      [paymentId],
     );
     if (rows.isEmpty) throw StateError('الإيصال غير موجود');
     final x = rows.first;
-    final font = pw.Font.ttf(
-      (await rootBundle.load(
-        'assets/fonts/NotoNaskhArabic-Regular.ttf',
-      )).buffer.asByteData(),
-    );
-    final bold = pw.Font.ttf(
-      (await rootBundle.load(
-        'assets/fonts/NotoNaskhArabic-Bold.ttf',
-      )).buffer.asByteData(),
-    );
-    final receiptSettings = await repo.settings();
-    final doc = pw.Document();
-    doc.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a5,
-        theme: pw.ThemeData.withFont(base: font, bold: bold),
-        margin: const pw.EdgeInsets.all(18),
-        build: (c) => pw.Directionality(
-          textDirection: pw.TextDirection.rtl,
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-            children: [
-              _reportHeader(
-                title: x['beneficiary_id'] != null ? 'سند قبض' : 'سند صرف',
-                station: receiptSettings['station_name'] ?? 'محطة ساقية',
-                reportNumber: '#${x['id']}',
-                recordCount: 1,
-                date: DateTime.tryParse('${x['date']}') ?? AppClock.now(),
-                font: font,
-                bold: bold,
-              ),
-              pw.SizedBox(height: 5),
-              pw.Container(
-                height: 5,
-                child: pw.Row(children: [
-                  pw.Expanded(child: pw.Container(color: PdfColor.fromHex('#174A70'))),
-                  pw.Expanded(child: pw.Container(color: PdfColor.fromHex('#087A68'))),
-                  pw.Expanded(child: pw.Container(color: PdfColor.fromHex('#48A23F'))),
-                ]),
-              ),
-              pw.SizedBox(height: 16),
-              pw.Container(
-                padding: const pw.EdgeInsets.all(14),
-                decoration: pw.BoxDecoration(
-                  color: PdfColor.fromHex('#EEF0F2'),
-                  border: pw.Border.all(color: PdfColor.fromHex('#B9C2CA')),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(9)),
-                ),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-                  children: [
-                    for (final item in <List<String>>[
-                      ['الطرف', '${x['party_name'] ?? '-'}'],
-                      ['المبلغ', '${x['amount']} ريال'],
-                      ['طريقة الدفع', '${x['method_name']}'],
-                      ['الصندوق', '${x['cashbox_name']}'],
-                      ['التاريخ', '${x['date']}'],
-                      ['المرجع', '${x['reference_number'] ?? '-'}'],
-                    ]) ...[
-                      pw.Padding(
-                        padding: const pw.EdgeInsets.symmetric(vertical: 7),
-                        child: pw.Row(
-                          children: [
-                            pw.Expanded(child: pw.Text(item[0], style: pw.TextStyle(font: bold, fontSize: 10))),
-                            pw.Expanded(flex: 2, child: pw.Text(item[1], style: pw.TextStyle(font: font, fontSize: 10))),
-                          ],
-                        ),
-                      ),
-                      pw.Divider(color: PdfColor.fromHex('#D6DCE1')),
-                    ],
-                  ],
-                ),
-              ),
-              pw.Spacer(),
-              _reportFooter(page: 1, totalPages: 1, font: font, bold: bold),
-            ],
-          ),
+    final settings = await repo.settings();
+    final now = DateTime.tryParse('${x['date']}') ?? AppClock.now();
+    final amount = x['amount'] is num
+        ? (x['amount'] as num)
+        : num.tryParse('${x['amount'] ?? ''}') ?? 0;
+    final isReceipt = x['beneficiary_id'] != null;
+    String display(Object? value) {
+      final text = value == null || '$value'.trim().isEmpty ? '—' : '$value';
+      return _shapeArabic(text);
+    }
+    final dateFormat = DateFormat('yyyy/MM/dd');
+    return OfficialReportTemplate.preview(
+      rightHeader1: 'الجمهورية اليمنية',
+      rightHeader2: 'نظام ساقية لإدارة محطة ضخ مياه الري',
+      rightHeader3: settings['station_name'] ?? 'محطة ساقية',
+      date: dateFormat.format(AppClock.now()),
+      refNumber: 'PAY-$paymentId',
+      attachments: 'تاريخ الحركة: ${dateFormat.format(now)}',
+      reportTitle: isReceipt ? 'سند قبض' : 'سند صرف',
+      summaryBoxes: [
+        StatBoxData(
+          number: '1',
+          title: 'المبلغ',
+          value: '${NumberFormat('#,##0.##').format(amount)} ريال',
+          isBlueTint: true,
+          isLarge: true,
         ),
-      ),
+        StatBoxData(number: '2', title: 'طريقة الدفع', value: display(x['method_name'])),
+        StatBoxData(number: '3', title: 'الصندوق', value: display(x['cashbox_name'])),
+      ],
+      columns: const ['الطرف', 'المبلغ', 'طريقة الدفع', 'الصندوق', 'التاريخ', 'المرجع'],
+      rows: [
+        [
+          display(x['party_name']),
+          NumberFormat('#,##0.##').format(amount),
+          display(x['method_name']),
+          display(x['cashbox_name']),
+          dateFormat.format(now),
+          display(x['reference_number']),
+        ],
+      ],
+      thirdSignatureLabel: 'توقيع المستلم / المسلّم: ....................',
+      fileName: '${isReceipt ? 'سند-قبض' : 'سند-صرف'}-$paymentId.pdf',
+      minTableRows: 1,
+      pageFormat: PdfPageFormat.a4,
+      printAfterGenerate: false,
     );
-    return doc.save();
   }
 
   Future<void> printPaymentReceipt(int paymentId) async =>
@@ -1360,6 +1273,8 @@ class ReportService {
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
       fileName: 'تقرير-الفواتير.pdf',
       minTableRows: 7,
+      pageFormat: PdfPageFormat.a4.landscape,
+      printAfterGenerate: false,
     );
   }
 
