@@ -1965,7 +1965,15 @@ class AccountingService {
     int? userId,
     String? notes,
   }) async {
-    if (liters <= 0) throw ArgumentError('كمية الديزل يجب أن تكون أكبر من صفر');
+    if (!liters.isFinite || liters <= 0) {
+      throw ArgumentError('كمية الديزل يجب أن تكون رقمًا موجبًا وصالحًا');
+    }
+    if (unitPrice < 0) {
+      throw ArgumentError('سعر لتر الديزل لا يمكن أن يكون سالبًا');
+    }
+    if (!{'receipt', 'delivery', 'advance', 'consumption', 'correction', 'opening_balance'}.contains(kind)) {
+      throw ArgumentError('نوع حركة الديزل غير صالح');
+    }
     // قراءة الإعدادات خارج المعاملة لتفادي تعليق sqflite (استعلام على الاتصال أثناء معاملة مفتوحة).
     final financialCredit = await _settingBool(
       'diesel_delivery_financial_credit',
