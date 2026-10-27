@@ -2775,27 +2775,10 @@ class AccountingService {
       }
       final old = rows.first;
       final type = '${old['system_type']}';
-      if (type == 'diesel') {
-        throw StateError('هذه السقاية مرتبطة بحساب استهلاك الديزل؛ لم تُغيّر أي بيانات');
-      }
-      final linked = await tx.rawQuery(
-        """SELECT
-          (SELECT COUNT(*) FROM payments WHERE reference_number=? AND status='posted') payments_count,
-          (SELECT COUNT(*) FROM diesel_movements WHERE irrigation_id=?) diesel_count,
-          (SELECT COUNT(*) FROM cloud_periods WHERE irrigation_id=?) cloud_count""",
-        ['IRR-$id', id, id],
-      );
-      final rel = linked.first;
-      if (rel.values.any((v) => (v as num? ?? 0) != 0)) {
-        throw StateError('هذه السقاية مرتبطة بدفعات أو حركات ديزل أو فترات غيم مفصلة؛ لم تُغيّر أي بيانات حفاظًا على تطابق الحسابات');
-      }
       final partnerAdjustments = await tx.rawQuery(
         "SELECT COUNT(*) n FROM partner_transactions WHERE reference_type='partner_profit_adjustment' AND type='share_adjustment' AND reference_id IN (SELECT id FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?)",
         [id],
       );
-      if (((partnerAdjustments.first['n'] as num?)?.toInt() ?? 0) > 0) {
-        throw StateError('تمت تسوية حصة شريك مرتبطة بهذه السقاية؛ يلزم عكس التسوية أولًا، ولم تُغيّر أي بيانات');
-      }
       final oldStart = DateTime.parse('${old['start_datetime']}');
       await _assertPeriodOpen(tx, oldStart, stationId: (old['station_id'] as num).toInt());
       await _assertPeriodOpen(tx, start, stationId: (old['station_id'] as num).toInt());
@@ -2809,22 +2792,59 @@ class AccountingService {
       final rounding = cfg['rounding'] ?? 'nearest';
       final partialHour = cfg['partial_hour'] != 'false';
       final cloud = ((old['cloud_minutes'] as num?)?.toInt() ?? 0);
-      final result = type == 'solar'
-          ? AccountingCalculations.solar(
+      final allowMidnight = cfg['allow_midnight_crossing'] == 'true';
+      var result = type == 'diesel'
+          ? AccountingCalculations.diesel(
               start: start, end: end,
-              hourlyRate: (old['solar_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+              hourlyWaterRate: (old['water_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+              litersPerHour: (old['diesel_liters_per_hour_snapshot'] as num?)?.toDouble() ?? 0,
+              dieselPrice: (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0,
               cloudMinutes: cloud,
-              allowMidnightCrossing: cfg['allow_midnight_crossing'] == 'true',
+              allowMidnightCrossing: allowMidnight,
               rounding: rounding, partialHour: partialHour,
             )
-          : AccountingCalculations.equivalent(
-              start: start, end: end,
-              hourlyRate: (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
-              allowMidnightCrossing: cfg['allow_midnight_crossing'] == 'true',
-              rounding: rounding, partialHour: partialHour,
-            );
-      if (((old['paid_amount'] as num?)?.toInt() ?? 0) > result.totalAmount) {
-        throw StateError('القيمة الجديدة أقل من المبلغ المدفوع سابقًا؛ لم تُغيّر أي بيانات');
+          : type == 'solar'
+              ? AccountingCalculations.solar(
+                  start: start, end: end,
+                  hourlyRate: (old['solar_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  cloudMinutes: cloud,
+                  allowMidnightCrossing: allowMidnight,
+                  rounding: rounding, partialHour: partialHour,
+                )
+              : AccountingCalculations.equivalent(
+                  start: start, end: end,
+                  hourlyRate: (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  allowMidnightCrossing: allowMidnight,
+                  rounding: rounding, partialHour: partialHour,
+                );
+      var chargedDiesel = result.dieselAmount;
+      var shortageLiters = 0.0;
+      final partyTypeForDiesel = '${old['party_type'] ?? 'beneficiary'}';
+      final dieselBeneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
+      if (type == 'diesel' && partyTypeForDiesel == 'beneficiary' && result.dieselLiters > 0) {
+        final stockRows = await tx.rawQuery(_beneficiaryDieselStockSql, [
+          dieselBeneficiaryId, dieselBeneficiaryId, dieselBeneficiaryId,
+        ]);
+        var stockWithoutThisIrrigation = (stockRows.first['stock'] as num?)?.toDouble() ?? 0;
+        final oldMoves = await tx.query('diesel_movements',
+          where: 'irrigation_id=?', whereArgs: [id]);
+        for (final move in oldMoves) {
+          final liters = (move['liters'] as num?)?.toDouble() ?? 0;
+          if ('${move['kind']}' == 'advance') stockWithoutThisIrrigation -= liters;
+          if ('${move['kind']}' == 'consumption') stockWithoutThisIrrigation += liters;
+        }
+        shortageLiters = (result.dieselLiters - stockWithoutThisIrrigation).clamp(0, result.dieselLiters).toDouble();
+        final financialCredit = (cfg['diesel_delivery_financial_credit'] ?? '').toLowerCase() == 'true';
+        if (!financialCredit) {
+          chargedDiesel = AccountingCalculations.roundAmount(shortageLiters *
+            ((old['diesel_price_snapshot'] as num?)?.toDouble() ?? 0), rounding);
+        }
+        result = IrrigationResult(
+          minutes: result.minutes, cloudMinutes: result.cloudMinutes,
+          chargeableMinutes: result.chargeableMinutes, waterAmount: result.waterAmount,
+          dieselAmount: chargedDiesel, totalAmount: result.waterAmount + chargedDiesel,
+          dieselLiters: result.dieselLiters,
+        );
       }
       final partyType = '${old['party_type'] ?? 'beneficiary'}';
       final beneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
