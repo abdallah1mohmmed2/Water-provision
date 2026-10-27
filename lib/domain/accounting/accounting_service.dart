@@ -2883,7 +2883,7 @@ class AccountingService {
         await tx.insert('partner_transactions', {
           'partner_id': item['partner_id'], 'date': AppClock.now().toIso8601String(),
           'type': 'irrigation_reversal', 'amount': (item['amount'] as num).round(),
-          'reference_type': 'irrigation_edit', 'reference_id': id,
+          'reference_type': 'irrigation_edit', 'reference_id': transactionId,
           'notes': 'عكس حصة الشريك السابقة من السقاية رقم $id لإعادة احتسابها',
           'created_by': userId,
         });
