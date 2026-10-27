@@ -2028,4 +2028,52 @@ void main() {
     );
   });
 
+  test('رفض الاستحقاقات اليدوية ذات المبلغ الصفري أو السالب والطرف غير الموجود', () async {
+    final worker = await db.insert('workers', {
+      'name': 'عامل تحقق مبلغ الاستحقاق',
+      'pay_type': 'fixed',
+    });
+    final partner = await db.insert('partners', {
+      'name': 'شريك تحقق مبلغ الحصة',
+      'ownership_mode': 'shares',
+      'shares_count': 1,
+    });
+    final workerCountBefore = (await db.query(
+      'SELECT COUNT(*) c FROM worker_transactions WHERE worker_id=?',
+      args: [worker],
+    )).single['c'];
+    final partnerCountBefore = (await db.query(
+      'SELECT COUNT(*) c FROM partner_transactions WHERE partner_id=?',
+      args: [partner],
+    )).single['c'];
+
+    for (final amount in [0, -1]) {
+      await expectLater(
+        svc.createWorkerAccrual(workerId: worker, amount: amount, date: DateTime(2042, 1, 1)),
+        throwsA(isA<ArgumentError>()),
+      );
+      await expectLater(
+        svc.createPartnerShare(partnerId: partner, amount: amount, date: DateTime(2042, 1, 1)),
+        throwsA(isA<ArgumentError>()),
+      );
+    }
+    await expectLater(
+      svc.createWorkerAccrual(workerId: -999, amount: 100, date: DateTime(2042, 1, 1)),
+      throwsStateError,
+    );
+    await expectLater(
+      svc.createPartnerShare(partnerId: -999, amount: 100, date: DateTime(2042, 1, 1)),
+      throwsStateError,
+    );
+
+    expect(
+      (await db.query('SELECT COUNT(*) c FROM worker_transactions WHERE worker_id=?', args: [worker])).single['c'],
+      workerCountBefore,
+    );
+    expect(
+      (await db.query('SELECT COUNT(*) c FROM partner_transactions WHERE partner_id=?', args: [partner])).single['c'],
+      partnerCountBefore,
+    );
+  });
+
 }
