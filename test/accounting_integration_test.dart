@@ -2308,4 +2308,28 @@ void main() {
     expect((await db.query('SELECT COUNT(*) c FROM diesel_movements')).single['c'], before);
   });
 
+  test('تصحيح مخزون الديزل ينشئ قيدًا ماليًا قابلًا للعكس', () async {
+    final stockBefore = await svc.dieselStock();
+    final inventoryBefore = await accountNet('1300');
+    final fuelExpenseBefore = await accountNet('5010');
+    final date = DateTime.now();
+    await svc.addDieselMovement(
+      kind: 'correction',
+      liters: 2,
+      unitPrice: 100,
+      date: date,
+      notes: 'تصحيح مخزون اختبار',
+    );
+    expect(await svc.dieselStock(), closeTo(stockBefore + 2, 0.0001));
+    expect(await accountNet('1300'), inventoryBefore + 200);
+    expect(await accountNet('5010'), fuelExpenseBefore - 200);
+    final movement = (await db.query(
+      "SELECT id FROM diesel_movements WHERE kind='correction' AND notes='تصحيح مخزون اختبار' ORDER BY id DESC LIMIT 1",
+    )).single;
+    await svc.cancelDieselMovement((movement['id'] as num).toInt(), 1, 'إلغاء تصحيح اختباري');
+    expect(await svc.dieselStock(), closeTo(stockBefore, 0.0001));
+    expect(await accountNet('1300'), inventoryBefore);
+    expect(await accountNet('5010'), fuelExpenseBefore);
+  });
+
 }
