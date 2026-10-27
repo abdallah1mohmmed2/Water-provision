@@ -115,6 +115,31 @@ void main() {
         throwsArgumentError,
       );
     });
+    test('توزيع أرباح الشركاء يدعم الحصص الكسرية مثل 1.5 و2.25 و4.5', () {
+      expect(
+        AccountingCalculations.partnerShareByMode(
+          mode: 'shares',
+          distributable: 10000,
+          partnerShares: 1.5,
+          totalShares: 8.25,
+          percentage: 0,
+        ),
+        1818,
+      );
+      final amounts = AccountingCalculations.partnerDistributionAmounts(
+        distributable: 10000,
+        partners: [
+          {'id': 1, 'ownership_mode': 'shares', 'ownership_percentage': 0, 'shares_count': 1.5},
+          {'id': 2, 'ownership_mode': 'shares', 'ownership_percentage': 0, 'shares_count': 2.25},
+          {'id': 3, 'ownership_mode': 'shares', 'ownership_percentage': 0, 'shares_count': 4.5},
+        ],
+      );
+      expect(amounts[1], 1818);
+      expect(amounts[2], 2727);
+      expect(amounts[3], 5455);
+      expect(amounts.values.fold<int>(0, (sum, value) => sum + value), 10000);
+    });
+
     test('التقريب بالأعداد الصحيحة: 23 دقيقة × 300 لأعلى = 115 وليس 116', () {
       final x = AccountingCalculations.equivalent(
         start: start,
