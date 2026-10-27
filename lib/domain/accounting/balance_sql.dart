@@ -47,7 +47,7 @@ class BalanceSql {
   /// أنواع حركات الشريك التي تزيد المستحق له. «irrigation_reversal» و«payment_reversal»
   /// عكسٌ لخصم سابق فتزيد الرصيد لكنها ليست أرباحًا ولا مساهمة.
   static const String partnerCredit =
-      "('share_accrual','contribution','irrigation_reversal','payment_reversal')";
+      "('share_accrual','contribution','irrigation_reversal','payment_reversal','share_adjustment_reversal')";
 
   /// الأنواع التي تُعدّ «أرباح/مستحقات مكتسبة» للشريك (بدون عكوس).
   static const String partnerEarnings = "('share_accrual','contribution')";
