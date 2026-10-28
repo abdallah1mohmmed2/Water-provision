@@ -8330,8 +8330,8 @@ class _PaymentsState extends State<PaymentsPage> {
             'المبلغ': money(a),
             'طريقة الدفع': paymentMethodName,
             'البيان': note.text.trim().isEmpty ? '—' : note.text.trim(),
-            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
-            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: partyType),
+            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: target),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: target),
           },
         );
         if (!mounted) return;
@@ -9552,8 +9552,8 @@ class _WorkersState extends State<WorkersPage> {
           'المبلغ': money(amountValue),
           'طريقة الدفع': paymentMethodName,
           'البيان': 'صرف مستحقات العامل',
-          'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
-          'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: partyType),
+          'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: 'worker'),
+          'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: 'worker'),
         },
       );
       if (!mounted) return;
@@ -10378,8 +10378,8 @@ class _PartnersState extends State<PartnersPage> {
             'المبلغ': money(amountValue),
             'طريقة الدفع': paymentMethodName,
             'البيان': 'صرف مستحقات الشريك',
-            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
-            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: partyType),
+            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: 'partner'),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: 'partner'),
           },
         );
         if (!mounted) return;
