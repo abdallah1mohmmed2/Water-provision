@@ -39,3 +39,4 @@ flutter:
     - assets/db/001_initial.sql
     - assets/fonts/NotoNaskhArabic-Regular.ttf
     - assets/fonts/NotoNaskhArabic-Bold.ttf
+    - assets/images/report_logo.png.b64
