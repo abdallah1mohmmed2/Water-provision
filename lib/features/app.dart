@@ -6617,7 +6617,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
             children: [
               SizedBox(
                 width: 280,
-                child: TextField(
+                child: DebouncedSearchField(
                   onChanged: (v) => setState(() => q = v),
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search),
@@ -7048,7 +7048,7 @@ class _SessionsState extends State<SessionsPage> {
       ],
       child: Column(
         children: [
-          TextField(
+          DebouncedSearchField(
             onChanged: (v) => setState(() => q = v),
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
@@ -7972,7 +7972,7 @@ class _DieselState extends State<DieselPage> {
                 ),
               ),
               const SizedBox(height: 10),
-              TextField(
+              DebouncedSearchField(
                 onChanged: (v) => setState(() => q = v),
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search),
@@ -8410,7 +8410,7 @@ class _PaymentsState extends State<PaymentsPage> {
           ],
         ),
         const SizedBox(height: 10),
-        TextField(
+        DebouncedSearchField(
           onChanged: (v) => setState(() => q = v),
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search),
@@ -9246,7 +9246,7 @@ class _ExpensesState extends State<ExpensesPage> {
     ],
     child: Column(
       children: [
-        TextField(
+        DebouncedSearchField(
           onChanged: (v) => setState(() => q = v),
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search),
@@ -9949,7 +9949,7 @@ class _WorkersState extends State<WorkersPage> {
       ],
       child: Column(
         children: [
-          TextField(
+          DebouncedSearchField(
             onChanged: (v) => setState(() => q = v),
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
@@ -10570,7 +10570,7 @@ class _PartnersState extends State<PartnersPage> {
       ],
       child: Column(
         children: [
-          TextField(
+          DebouncedSearchField(
             onChanged: (v) => setState(() => q = v),
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
@@ -15306,4 +15306,45 @@ class _BackupState extends State<BackupPage> {
       if (history.isEmpty) const EmptyView('لا توجد عمليات نسخ أو استعادة بعد') else ...[for (final x in history.take(50)) _historyCard(x)],
     ]));
   }
+}
+
+/// Search input that delays publishing query changes until typing pauses.
+/// Keeps large result screens from rebuilding for every individual keystroke.
+class DebouncedSearchField extends StatefulWidget {
+  const DebouncedSearchField({
+    super.key,
+    required this.onChanged,
+    required this.decoration,
+    this.debounce = const Duration(milliseconds: 250),
+  });
+
+  final ValueChanged<String> onChanged;
+  final InputDecoration decoration;
+  final Duration debounce;
+
+  @override
+  State<DebouncedSearchField> createState() => _DebouncedSearchFieldState();
+}
+
+class _DebouncedSearchFieldState extends State<DebouncedSearchField> {
+  Timer? _debounceTimer;
+
+  void _handleChanged(String value) {
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(widget.debounce, () {
+      if (mounted) widget.onChanged(value);
+    });
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextField(
+        onChanged: _handleChanged,
+        decoration: widget.decoration,
+      );
 }
