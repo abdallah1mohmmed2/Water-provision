@@ -1193,78 +1193,10 @@ class ReportService {
   /// preserving Arabic names and readable report titles.
   String _pdfFileName(String value) {
     final cleaned = value
-        .replaceAll(RegExp(r'[\\/:*?"<>|\\u0000-\\u001F]'), '-')
-        .replaceAll(RegExp(r'\\s+'), ' ')
+        .replaceAll(RegExp(r'[\\/:*?"<>|\u0000-\u001F]'), '-')
+        .replaceAll(RegExp(r'\s+'), ' ')
         .trim()
-        .replaceAll(RegExp(r'[. ]+    String key, {
-    DateTime? from,
-    DateTime? to,
-    int? beneficiaryId,
-    int? workerId,
-    int? partnerId,
-    String? systemType,
-    int? cashboxId,
-    int? paymentMethodId,
-    String? category,
-    String? status,
-    List<Map<String, Object?>>? sourceRows,
-  }) async {
-    if (key == 'beneficiary_statement' && beneficiaryId != null) {
-      await printBeneficiaryStatementOfficial(
-        beneficiaryId: beneficiaryId,
-        from: from,
-        to: to,
-      );
-      return;
-    }
-    if (key == 'worker_transactions') {
-      await _printWorkerTransactionsOfficial(workerId: workerId, from: from, to: to);
-      return;
-    }
-    // Generate the document before opening Android's print UI so exceptions
-    // from fonts, data formatting, or PDF layout surface in the calling screen.
-    final bytes = await pdf(
-      key,
-      from: from,
-      to: to,
-      beneficiaryId: beneficiaryId,
-      workerId: workerId,
-      partnerId: partnerId,
-      systemType: systemType,
-      cashboxId: cashboxId,
-      paymentMethodId: paymentMethodId,
-      category: category,
-      status: status,
-      sourceRows: sourceRows,
-    );
-    if (bytes.isEmpty) {
-      throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');
-    }
-    try {
-      await Printing.layoutPdf(
-        // Give Android's print/save dialog the actual report name instead of
-        // its generic default filename, "document".
-        name: await _reportFileName(key, beneficiaryId: beneficiaryId, workerId: workerId, partnerId: partnerId),
-        onLayout: (_) async => bytes,
-      );
-    } catch (printError) {
-      // Keep a usable PDF delivery path if Android's native print dialog fails
-      // for any reason, not only the known "No value" bridge error.
-      try {
-        await Printing.sharePdf(
-          bytes: bytes,
-          filename: '${await _reportFileName(key, beneficiaryId: beneficiaryId, workerId: workerId, partnerId: partnerId)}.pdf',
-        );
-      } catch (shareError) {
-        throw StateError(
-          'تم إنشاء ملف PDF لكن تعذّر فتح الطباعة أو المشاركة. '
-          'خطأ الطباعة: $printError؛ خطأ المشاركة/الحفظ: $shareError',
-        );
-      }
-    }
-  }
-}
-), '');
+        .replaceAll(RegExp(r'[. ]+\$'), '');
     return cleaned.isEmpty ? 'تقرير' : cleaned;
   }
 
