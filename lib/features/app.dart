@@ -10180,6 +10180,13 @@ class _PartnersState extends State<PartnersPage> {
     load();
   }
 
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
+    super.dispose();
+  }
+
   Future<void> add() async {
     final n = TextEditingController(), phone = TextEditingController();
     final open = TextEditingController(text: '0');
