@@ -55,6 +55,10 @@ checks={
  ),
  'PDF total footer is omitted when not configured': 'if (footerRow != null)' in template,
  'PDF print path': 'Printing.layoutPdf' in report,
+ 'legacy wide PDF reports remain landscape': (
+     "'payment_methods'" in report and "'cashboxes'" in report and
+     "'diesel_inventory'" in report and 'sourceHeaders.length >= 5' in report
+ ),
 }
 for k,v in checks.items():
     if not v: errors.append(k)
