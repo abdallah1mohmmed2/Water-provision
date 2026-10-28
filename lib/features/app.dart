@@ -9992,13 +9992,18 @@ class _WorkersState extends State<WorkersPage> {
                           : 1;
                       const gap = 12.0;
                       final w = (box.maxWidth - gap * (cols - 1)) / cols;
-                      return SingleChildScrollView(
-                        child: Wrap(
-                          spacing: gap,
-                          runSpacing: gap,
-                          children: [
-                            for (final x in filtered)
-                              SizedBox(
+                      return GridView.builder(
+                        padding: EdgeInsets.zero,
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: cols,
+                          crossAxisSpacing: gap,
+                          mainAxisSpacing: gap,
+                          childAspectRatio: cols == 1 ? 1.25 : 1.05,
+                        ),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final x = filtered[index];
+                          return SizedBox(
                                 width: w,
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(24),
@@ -10104,9 +10109,8 @@ style: TextStyle(
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
+                              );
+                        },
                       );
                     },
                   ),
@@ -10618,13 +10622,18 @@ class _PartnersState extends State<PartnersPage> {
                           : 1;
                       const gap = 12.0;
                       final w = (box.maxWidth - gap * (cols - 1)) / cols;
-                      return SingleChildScrollView(
-                        child: Wrap(
-                          spacing: gap,
-                          runSpacing: gap,
-                          children: [
-                            for (final x in filtered)
-                              SizedBox(
+                      return GridView.builder(
+                        padding: EdgeInsets.zero,
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: cols,
+                          crossAxisSpacing: gap,
+                          mainAxisSpacing: gap,
+                          childAspectRatio: cols == 1 ? 1.25 : 1.05,
+                        ),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final x = filtered[index];
+                          return SizedBox(
                                 width: w,
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(24),
@@ -10734,9 +10743,8 @@ style: TextStyle(
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
+                              );
+                        },
                       );
                     },
                   ),
