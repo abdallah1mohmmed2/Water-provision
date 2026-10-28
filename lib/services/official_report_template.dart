@@ -419,27 +419,32 @@ class OfficialReportTemplate {
                 .toList(),
           ),
         ),
-        pw.TableRow(
-          decoration: const pw.BoxDecoration(color: tableHeaderBg),
-          children: List.generate(
-            columns.length,
-            (index) => pw.Container(
-              constraints: const pw.BoxConstraints(minHeight: 24),
-              padding: pw.EdgeInsets.symmetric(
-                horizontal: 3,
-                vertical: cellVerticalPadding,
-              ),
-              alignment: pw.Alignment.center,
-              child: pw.Text(
-                footerRow != null && index < footerRow.length
-                    ? footerRow[footerRow.length - 1 - index]
-                    : '',
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: cellFontSize),
+        if (footerRow != null)
+          pw.TableRow(
+            decoration: const pw.BoxDecoration(color: tableHeaderBg),
+            children: List.generate(
+              columns.length,
+              (index) => pw.Container(
+                constraints: const pw.BoxConstraints(minHeight: 24),
+                padding: pw.EdgeInsets.symmetric(
+                  horizontal: 3,
+                  vertical: cellVerticalPadding,
+                ),
+                alignment: pw.Alignment.center,
+                child: pw.Text(
+                  index < footerRow.length
+                      ? footerRow[footerRow.length - 1 - index]
+                      : '',
+                  textAlign: pw.TextAlign.center,
+                  style: pw.TextStyle(
+                    fontFallback: [pw.Font.helvetica()],
+                    font: boldFont,
+                    fontSize: cellFontSize,
+                  ),
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
