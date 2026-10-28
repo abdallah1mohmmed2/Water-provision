@@ -67,7 +67,8 @@ void main() {
         const {},
       );
 
-      expect(message, contains('{اسم العميل}'));
+      expect(message, contains('—'));
+      expect(message, isNot(contains('{')));
     });
   });
 }
