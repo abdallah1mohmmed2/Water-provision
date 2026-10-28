@@ -39,17 +39,9 @@ jobs:
         run: flutter build apk --release
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v2.0.0-build-{0}', github.run_number) }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || format('Saqia Android build {0}', github.run_number) }}
           files: build/app/outputs/flutter-apk/app-release.apk
           generate_release_notes: true
-
-      - name: Upload APK artifact for manual runs
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Saqia-App-Release
-          path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
-          retention-days: 30
