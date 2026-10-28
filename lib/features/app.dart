@@ -6834,6 +6834,8 @@ class _SessionsState extends State<SessionsPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
     ticker?.cancel();
     super.dispose();
   }
@@ -7052,6 +7054,7 @@ class _SessionsState extends State<SessionsPage> {
         children: [
           TextField(
             onChanged: (v) {
+              _searchGeneration++;
               setState(() => q = v);
               _searchDebounce?.cancel();
               _searchDebounce = Timer(const Duration(milliseconds: 300), load);
@@ -7754,6 +7757,13 @@ class _DieselState extends State<DieselPage> {
     load();
   }
 
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
+    super.dispose();
+  }
+
   Future<void> add() async {
     String kind = 'receipt';
     int? bid, cb = cs.isEmpty ? null : cs.first['id'] as int;
@@ -7984,6 +7994,7 @@ class _DieselState extends State<DieselPage> {
               const SizedBox(height: 10),
               TextField(
                 onChanged: (v) {
+                  _searchGeneration++;
                   setState(() => q = v);
                   _searchDebounce?.cancel();
                   _searchDebounce = Timer(const Duration(milliseconds: 300), load);
@@ -9083,6 +9094,13 @@ class _ExpensesState extends State<ExpensesPage> {
     }
   }
 
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
+    super.dispose();
+  }
+
   Future<void> add() async {
     String cat = 'other';
     String scope = 'general';
@@ -9263,6 +9281,7 @@ class _ExpensesState extends State<ExpensesPage> {
       children: [
         TextField(
           onChanged: (v) {
+            _searchGeneration++;
             setState(() => q = v);
             _searchDebounce?.cancel();
             _searchDebounce = Timer(const Duration(milliseconds: 300), load);
@@ -9347,6 +9366,13 @@ class _WorkersState extends State<WorkersPage> {
   void initState() {
     super.initState();
     load();
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
+    super.dispose();
   }
 
   Future<void> add() async {
@@ -9970,6 +9996,7 @@ class _WorkersState extends State<WorkersPage> {
         children: [
           TextField(
             onChanged: (v) {
+              _searchGeneration++;
               setState(() => q = v);
               _searchDebounce?.cancel();
               _searchDebounce = Timer(const Duration(milliseconds: 300), load);
@@ -10600,6 +10627,7 @@ class _PartnersState extends State<PartnersPage> {
         children: [
           TextField(
             onChanged: (v) {
+              _searchGeneration++;
               setState(() => q = v);
               _searchDebounce?.cancel();
               _searchDebounce = Timer(const Duration(milliseconds: 300), load);
