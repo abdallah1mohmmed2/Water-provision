@@ -307,7 +307,15 @@ class ReportService {
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
       fileName: '${titles[key] ?? key}.pdf',
       minTableRows: 7,
-      pageFormat: sourceHeaders.length >= 6 ? PdfPageFormat.a4.landscape : PdfPageFormat.a4,
+      pageFormat: sourceHeaders.length >= 5 ||
+              const {
+                'irrigations',
+                'payment_methods',
+                'cashboxes',
+                'diesel_inventory',
+              }.contains(key)
+          ? PdfPageFormat.a4.landscape
+          : PdfPageFormat.a4,
       preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
       printAfterGenerate: false,
     );
