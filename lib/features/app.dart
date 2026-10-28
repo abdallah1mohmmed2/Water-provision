@@ -7995,11 +7995,10 @@ class _DieselState extends State<DieselPage> {
               ),
               const SizedBox(height: 8),
               Expanded(
-                child: ListView.builder(
-                  itemCount: rows.length,
-                  itemBuilder: (context, index) {
-                    final x = rows[index];
-                    return Card(
+                child: ListView(
+                  children: [
+                    for (final x in rows)
+                      Card(
                         child: ListTile(
                           title: Text(
                             '${x['beneficiary_name'] ?? 'المخزون'} • ${statusName(x['kind'])}',
@@ -9273,11 +9272,10 @@ class _ExpensesState extends State<ExpensesPage> {
           ),
         ),
         Expanded(
-          child: ListView.builder(
-            itemCount: rows.length,
-            itemBuilder: (context, index) {
-              final x = rows[index];
-              return Card(
+          child: ListView(
+            children: [
+              for (final x in rows)
+                Card(
                   child: ListTile(
                     title: Text('${x['title']}'),
                     subtitle: Text(
