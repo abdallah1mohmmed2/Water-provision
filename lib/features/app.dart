@@ -1353,6 +1353,32 @@ class _ShellState extends State<AdminShell> {
         repo,
         manager: role == AppRole.manager,
         userId: widget.userId,
+        onNewIrrigation: () {
+          // زر شاشة السقايات يفتح الفورم العائم نفسه، دون إنشاء مسار حفظ مختلف.
+          final floatingIrrigationKey = GlobalKey<_NewIrrigationState>();
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (routeContext) {
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  await floatingIrrigationKey.currentState?.openQuickForm();
+                  if (routeContext.mounted) {
+                    Navigator.of(routeContext).maybePop();
+                  }
+                });
+                return Scaffold(
+                  backgroundColor: Theme.of(routeContext).scaffoldBackgroundColor,
+                  body: SafeArea(
+                    child: NewIrrigationPage(
+                      repo,
+                      key: floatingIrrigationKey,
+                      manager: role == AppRole.manager,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ).then((_) => refreshCounts());
+        },
       ),
       4 => SessionsPage(repo, userId: widget.userId),
       5 => QueueBookingPage(
@@ -6321,10 +6347,12 @@ class IrrigationsPage extends StatefulWidget {
   final StationRepository r;
   final bool manager;
   final int userId;
+  final VoidCallback? onNewIrrigation;
   const IrrigationsPage(
     this.r, {
     required this.manager,
     required this.userId,
+    this.onNewIrrigation,
     super.key,
   });
   @override
@@ -6548,7 +6576,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
       subtitle: 'سجل السقايات مع البحث والتصفية ومراجعة الحالة',
       actions: [
         FilledButton.icon(
-          onPressed: () => Navigator.push(
+          onPressed: widget.onNewIrrigation ?? () => Navigator.push(
             c,
             MaterialPageRoute(
               builder: (_) =>
