@@ -1196,7 +1196,7 @@ class ReportService {
         .replaceAll(RegExp(r'[\\/:*?"<>|\u0000-\u001F]'), '-')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim()
-        .replaceAll(RegExp(r'[. ]+\$'), '');
+        .replaceAll(RegExp(r'[. ]+$'), '');
     return cleaned.isEmpty ? 'تقرير' : cleaned;
   }
 
