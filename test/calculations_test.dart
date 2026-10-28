@@ -57,6 +57,35 @@ void main() {
       expect(x.totalAmount, 12000);
     });
 
+    test('سعر الساعة 7000: قيمة الدقائق الجزئية تُقرّب للأعلى', () {
+      int charge(int minutes) => AccountingCalculations.solar(
+            start: start,
+            end: start.add(Duration(minutes: minutes)),
+            hourlyRate: 7000,
+            cloudMinutes: 0,
+          ).totalAmount;
+
+      expect(charge(16), 1867);
+      expect(charge(32), 3734);
+      expect(charge(48), 5600);
+      expect(charge(60), 7000);
+      expect(charge(1553), 181184); // 25 ساعة و53 دقيقة
+    });
+
+    test('حصة الشريك تُقرّب لأسفل دائمًا ولا تتجاوز المبلغ المتاح', () {
+      expect(AccountingCalculations.partnerShare(
+        distributable: 123459,
+        percentage: 10,
+      ), 12345);
+      expect(AccountingCalculations.partnerShareByMode(
+        mode: 'shares',
+        distributable: 10000,
+        partnerShares: 4.5,
+        totalShares: 8.25,
+        percentage: 0,
+      ), 5454);
+    });
+
     test('منتصف الليل مرفوض افتراضيًا ومسموح بإعداد صريح', () {
       final late = DateTime(2026, 1, 1, 23, 50);
       final early = DateTime(2026, 1, 1, 0, 10);
@@ -136,8 +165,9 @@ void main() {
       );
       expect(amounts[1], 1818);
       expect(amounts[2], 2727);
-      expect(amounts[3], 5455);
-      expect(amounts.values.fold<int>(0, (sum, value) => sum + value), 10000);
+      expect(amounts[3], 5454);
+      // التقريب لأسفل لكل شريك؛ لا يُمنح باقي التقريب تلقائيًا للشريك الأخير.
+      expect(amounts.values.fold<int>(0, (sum, value) => sum + value), 9999);
     });
 
     test('التقريب بالأعداد الصحيحة: 23 دقيقة × 300 لأعلى = 115 وليس 116', () {
