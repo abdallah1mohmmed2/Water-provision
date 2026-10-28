@@ -39,10 +39,6 @@ val generateLauncherIcons by tasks.registering {
             output.parentFile.mkdirs()
             val scaled = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
             val graphics = scaled.createGraphics()
-            graphics.setRenderingHint(
-                java.awt.RenderingHints.KEY_INTERPOLATION,
-                java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC
-            )
             graphics.drawImage(source, 0, 0, size, size, null)
             graphics.dispose()
             check(ImageIO.write(scaled, "png", output)) { "Could not write ${output.path}" }
