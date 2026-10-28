@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -86,7 +87,7 @@ class OfficialReportTemplate {
       'assets/fonts/NotoNaskhArabic-Bold.ttf',
     );
     final defaultEmblemBytes = emblemImageBytes ??
-        (await rootBundle.load('assets/images/report_logo.png')).buffer.asUint8List();
+        base64Decode((await rootBundle.loadString('assets/images/report_logo.png.b64')).trim());
     final document = pw.Document();
 
     document.addPage(
