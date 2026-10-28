@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 import '../core/app_clock.dart';
 import '../data/repositories/repositories.dart';
+import '../services/manual_message_service.dart';
+import '../services/official_report_template.dart';
 
 /// Signed balance: positive means "لنا عليه"; negative means "له علينا".
 /// A receipt reduces the amount owed to us; a payment increases it.
@@ -213,6 +215,201 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
     amount.dispose(); notes.dispose(); reference.dispose();
   }
 
+
+  int _sumType(Iterable<Map<String, Object?>> rows, String type) {
+    return rows
+        .where((row) => row['type'] == type)
+        .fold<int>(0, (sum, row) => sum + ((row['amount'] as num?)?.toInt() ?? 0));
+  }
+
+  String _balanceDescription(int balance) {
+    if (balance > 0) return 'لنا عليه ${_money(balance)} ريال';
+    if (balance < 0) return 'له علينا ${_money(balance)} ريال';
+    return 'الرصيد متوازن: 0 ريال';
+  }
+
+  Future<void> _editAccount(Map<String, Object?> account) async {
+    final name = TextEditingController(text: '${account['name'] ?? ''}');
+    final phone = TextEditingController(text: '${account['phone'] ?? ''}');
+    final address = TextEditingController(text: '${account['address'] ?? ''}');
+    final notes = TextEditingController(text: '${account['notes'] ?? ''}');
+    final openingValue = (account['opening_balance'] as num?)?.toInt() ?? 0;
+    final opening = TextEditingController(text: _money(openingValue));
+    String direction = openingValue < 0 ? 'payable' : 'receivable';
+    final formKey = GlobalKey<FormState>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('تعديل حساب ${account['name']}'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                TextFormField(
+                  controller: name,
+                  autofocus: true,
+                  decoration: const InputDecoration(labelText: 'اسم الحساب *'),
+                  validator: (v) => v == null || v.trim().isEmpty ? 'اسم الحساب مطلوب' : null,
+                ),
+                TextFormField(controller: phone, decoration: const InputDecoration(labelText: 'رقم الهاتف (اختياري)'), keyboardType: TextInputType.phone),
+                TextFormField(controller: address, decoration: const InputDecoration(labelText: 'العنوان (اختياري)')),
+                TextFormField(
+                  controller: opening,
+                  decoration: const InputDecoration(labelText: 'الرصيد الافتتاحي'),
+                  keyboardType: TextInputType.number,
+                  validator: (v) {
+                    final parsed = int.tryParse((v ?? '').trim());
+                    return parsed == null || parsed < 0 ? 'أدخل مبلغًا صحيحًا موجبًا أو صفرًا' : null;
+                  },
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: direction,
+                  decoration: const InputDecoration(labelText: 'اتجاه الرصيد الافتتاحي'),
+                  items: const [
+                    DropdownMenuItem(value: 'receivable', child: Text('لنا عليه')),
+                    DropdownMenuItem(value: 'payable', child: Text('له علينا')),
+                  ],
+                  onChanged: (v) => setDialogState(() => direction = v ?? 'receivable'),
+                ),
+                TextFormField(controller: notes, decoration: const InputDecoration(labelText: 'ملاحظات'), maxLines: 2),
+                const SizedBox(height: 8),
+                const Text('تعديل الرصيد الافتتاحي لا يغيّر الحركات المسجلة.', style: TextStyle(fontSize: 12)),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+            FilledButton(onPressed: () { if (formKey.currentState!.validate()) Navigator.pop(dialogContext, true); }, child: const Text('حفظ التعديلات')),
+          ],
+        ),
+      ),
+    );
+    if (ok == true) {
+      try {
+        final db = await _db;
+        final stationId = await _stationId();
+        final value = int.parse(opening.text.trim());
+        final accountId = (account['id'] as num).toInt();
+        final changed = await db.update(
+          'general_accounts',
+          {
+            'name': name.text.trim(),
+            'phone': phone.text.trim().isEmpty ? null : phone.text.trim(),
+            'address': address.text.trim().isEmpty ? null : address.text.trim(),
+            'opening_balance': direction == 'receivable' ? value : -value,
+            'notes': notes.text.trim().isEmpty ? null : notes.text.trim(),
+            'updated_at': AppClock.now().toIso8601String(),
+          },
+          where: 'id=? AND station_id=? AND active=1',
+          whereArgs: [accountId, stationId],
+        );
+        if (changed == 0) throw StateError('الحساب غير موجود أو لم يعد نشطًا');
+        await _load();
+        if (mounted) {
+          setState(() => _expandedId = accountId);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث بيانات الحساب')));
+        }
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('فشل تعديل الحساب: $e')));
+      }
+    }
+    name.dispose();
+    phone.dispose();
+    address.dispose();
+    notes.dispose();
+    opening.dispose();
+  }
+
+  Future<void> _exportAccountPdf(Map<String, Object?> account) async {
+    try {
+      final db = await _db;
+      final stationId = await _stationId();
+      final accountId = (account['id'] as num).toInt();
+      final transactions = await db.query(
+        'general_account_transactions',
+        where: 'account_id=? AND station_id=?',
+        whereArgs: [accountId, stationId],
+        orderBy: 'date ASC, id ASC',
+      );
+      final opening = (account['opening_balance'] as num?)?.toInt() ?? 0;
+      var runningBalance = opening;
+      var totalReceipts = 0;
+      var totalPayments = 0;
+      final rows = <List<String>>[];
+      for (final transaction in transactions) {
+        final amount = (transaction['amount'] as num?)?.toInt() ?? 0;
+        final receipt = transaction['type'] == 'receipt';
+        if (receipt) {
+          totalReceipts += amount;
+          runningBalance -= amount;
+        } else {
+          totalPayments += amount;
+          runningBalance += amount;
+        }
+        final rawDate = '${transaction['date'] ?? ''}';
+        final date = rawDate.contains('T') ? rawDate.split('T').first : rawDate;
+        final reference = '${transaction['reference_number'] ?? ''}'.trim();
+        final notes = '${transaction['notes'] ?? ''}'.trim();
+        rows.add([
+          date,
+          receipt ? 'قبض من الحساب' : 'صرف للحساب',
+          _money(amount),
+          [reference, notes].where((value) => value.isNotEmpty).join(' — '),
+          _money(runningBalance),
+        ]);
+      }
+      final settings = await widget.repository.settings();
+      await OfficialReportTemplate.preview(
+        rightHeader1: '${settings['station_name'] ?? 'منظومة السقاية'}',
+        rightHeader2: 'الحسابات العامة',
+        rightHeader3: 'كشف حساب مستقل',
+        date: AppClock.now().toIso8601String().split('T').first,
+        refNumber: 'حساب رقم $accountId',
+        attachments: '—',
+        reportTitle: 'كشف حساب عام — ${account['name']}',
+        summaryBoxes: [
+          StatBoxData(number: '1', title: 'الرصيد الافتتاحي', value: _balanceDescription(opening)),
+          StatBoxData(number: '2', title: 'إجمالي القبض', value: '${_money(totalReceipts)} ريال'),
+          StatBoxData(number: '3', title: 'إجمالي الصرف', value: '${_money(totalPayments)} ريال'),
+          StatBoxData(number: '4', title: 'الرصيد الحالي', value: _balanceDescription(runningBalance), isBlueTint: true),
+        ],
+        columns: const ['التاريخ', 'نوع الحركة', 'المبلغ (ريال)', 'المرجع / الملاحظات', 'الرصيد الجاري'],
+        rows: rows,
+        fileName: 'general_account_$accountId.pdf',
+        preferredRowsPerPage: 20,
+        printAfterGenerate: true,
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر إنشاء كشف PDF: $e')));
+    }
+  }
+
+  Future<void> _sendAccountMessage(Map<String, Object?> account) async {
+    final accountId = (account['id'] as num).toInt();
+    final rows = _transactions[accountId] ?? const <Map<String, Object?>>[];
+    final balance = _balance(account);
+    final name = '${account['name'] ?? 'الحساب'}';
+    final message = [
+      ManualMessageService.accountSummaryMessage(
+        recipientName: name,
+        partyLabel: 'الحساب العام',
+        balanceLabel: _balanceDescription(balance),
+        asOf: AppClock.now(),
+      ),
+      'إجمالي القبض: ${_money(_sumType(rows, 'receipt'))} ريال',
+      'إجمالي الصرف: ${_money(_sumType(rows, 'payment'))} ريال',
+    ].join('\n');
+    await ManualMessageService.offerChoices(
+      context,
+      title: 'إرسال رسالة حساب عام',
+      recipientName: name,
+      phone: '${account['phone'] ?? ''}',
+      message: message,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -253,7 +450,43 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
                           initiallyExpanded: _expandedId == id,
                           onExpansionChanged: (expanded) => setState(() => _expandedId = expanded ? id : null),
                           leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet_outlined)),
-                          title: Text('${account['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                          title: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('${account['name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                              Wrap(
+                                spacing: 0,
+                                runSpacing: 0,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'كشف حساب PDF',
+                                    visualDensity: VisualDensity.compact,
+                                    constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                                    padding: EdgeInsets.zero,
+                                    onPressed: () => _exportAccountPdf(account),
+                                    icon: const Icon(Icons.picture_as_pdf_outlined, size: 20),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'تعديل الحساب',
+                                    visualDensity: VisualDensity.compact,
+                                    constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                                    padding: EdgeInsets.zero,
+                                    onPressed: () => _editAccount(account),
+                                    icon: const Icon(Icons.edit_outlined, size: 20),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'إرسال رسالة',
+                                    visualDensity: VisualDensity.compact,
+                                    constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+                                    padding: EdgeInsets.zero,
+                                    onPressed: () => _sendAccountMessage(account),
+                                    icon: const Icon(Icons.message_outlined, size: 20),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                           subtitle: Text('${account['phone'] ?? 'بدون هاتف'}\n${balance > 0 ? 'لنا عليه' : balance < 0 ? 'له علينا' : 'الرصيد متوازن'}: ${_money(balance)} ريال', style: const TextStyle(height: 1.5)),
                           children: [
                             if ((account['address'] as String?)?.isNotEmpty == true || (account['notes'] as String?)?.isNotEmpty == true)
