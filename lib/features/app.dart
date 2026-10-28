@@ -5300,6 +5300,13 @@ int? parseClock(String raw) {
   Future<void> openQuickForm() async {
     if (!mounted || saved) return;
 
+    // كل مرة يفتح فيها النموذج العائم يبدأ بتاريخ اليوم؛ ويظل التاريخ
+    // الذي يختاره المستخدم ثابتاً طوال عمر هذا الفورم فقط.
+    final today = AppClock.now();
+    selectedDate = DateTime(today.year, today.month, today.day);
+    start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, start.hour, start.minute);
+    if (!end.isAfter(start)) end = start.add(const Duration(hours: 1));
+
     // كانت الفقاعة تستدعي هذه الدالة بعد أول إطار، وغالباً كان load()
     // ما يزال يجلب البيانات؛ شرط loading السابق كان ينهي الدالة بصمت.
     // انتظر التحميل الأول بدلاً من إسقاط طلب فتح النموذج.
@@ -5358,6 +5365,32 @@ int? parseClock(String raw) {
                   children: [
                     const Text('بطاقة وقت التشغيل', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
                     const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final pickedDate = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2100),
+                          locale: const Locale('ar'),
+                          helpText: 'اختيار تاريخ السقاية',
+                        );
+                        if (pickedDate == null || !mounted) return;
+                        setState(() {
+                          selectedDate = DateTime(pickedDate.year, pickedDate.month, pickedDate.day);
+                          start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, start.hour, start.minute);
+                          final startClock = start.hour * 60 + start.minute;
+                          final endClock = end.hour * 60 + end.minute;
+                          final dayOffset = endClock <= startClock ? 1 : 0;
+                          end = DateTime(selectedDate.year, selectedDate.month, selectedDate.day + dayOffset, end.hour, end.minute);
+                          cloudPeriods.clear();
+                        });
+                        dialogSetState(() {});
+                      },
+                      icon: const Icon(Icons.calendar_month_rounded),
+                      label: Text('تاريخ السقاية: ${DateFormat('yyyy/MM/dd', 'ar').format(selectedDate)}'),
+                    ),
+                    const SizedBox(height: 8),
                     TextField(
                       controller: searchController,
                       focusNode: quickFormSearchFocusNode,
