@@ -85,6 +85,8 @@ class OfficialReportTemplate {
     final arabicBold = await _loadFont(
       'assets/fonts/NotoNaskhArabic-Bold.ttf',
     );
+    final defaultEmblemBytes = emblemImageBytes ??
+        (await rootBundle.load('assets/images/report_logo.png')).buffer.asUint8List();
     final document = pw.Document();
 
     document.addPage(
@@ -118,7 +120,7 @@ class OfficialReportTemplate {
             date: date,
             refNumber: refNumber,
             attachments: attachments,
-            emblemBytes: emblemImageBytes,
+            emblemBytes: defaultEmblemBytes,
             boldFont: arabicBold,
           ),
           pw.SizedBox(height: 14),
@@ -203,8 +205,8 @@ class OfficialReportTemplate {
         headerColumn([right1, right2, right3]),
         pw.SizedBox(width: 8),
         pw.Container(
-          width: 68,
-          height: 62,
+          width: 76,
+          height: 88,
           alignment: pw.Alignment.center,
           child: emblemBytes != null
               ? pw.Image(pw.MemoryImage(emblemBytes), fit: pw.BoxFit.contain)
