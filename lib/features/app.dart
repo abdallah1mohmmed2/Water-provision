@@ -9548,6 +9548,7 @@ class _WorkersState extends State<WorkersPage> {
           'الرصيد الحالي': _messageBalanceLabel(currentBalance),
         },
       );
+      if (!mounted) return;
       await ManualMessageService.offerChoices(
         context,
         title: 'تم دفع مستحق العامل',
@@ -10373,13 +10374,14 @@ class _PartnersState extends State<PartnersPage> {
             'الرصيد الحالي': _messageBalanceLabel(currentBalance),
           },
         );
+        if (!mounted) return;
         await ManualMessageService.offerChoices(
           context,
           title: 'تم دفع مستحق الشريك',
           recipientName: recipientName,
           phone: x['phone']?.toString() ?? '',
           message: message,
-        );;
+        );
       } catch (e) {
         msg(friendlyError(e));
       }
