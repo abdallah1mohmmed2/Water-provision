@@ -9998,7 +9998,7 @@ class _WorkersState extends State<WorkersPage> {
                           crossAxisCount: cols,
                           crossAxisSpacing: gap,
                           mainAxisSpacing: gap,
-                          childAspectRatio: cols == 1 ? 1.25 : 1.05,
+                          childAspectRatio: cols == 1 ? 1.1 : 0.85,
                         ),
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
@@ -10628,7 +10628,7 @@ class _PartnersState extends State<PartnersPage> {
                           crossAxisCount: cols,
                           crossAxisSpacing: gap,
                           mainAxisSpacing: gap,
-                          childAspectRatio: cols == 1 ? 1.25 : 1.05,
+                          childAspectRatio: cols == 1 ? 1.1 : 0.85,
                         ),
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
