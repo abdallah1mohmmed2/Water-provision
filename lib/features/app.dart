@@ -5810,7 +5810,7 @@ int? parseClock(String raw) {
         final currentBalance = await _messageBalanceForParty(
           widget.r,
           partyType,
-          recipientId!,
+          recipientId,
         );
         final totalAmount =
             (irrigationRow['total_amount'] as num?)?.round() ?? 0;
@@ -5833,6 +5833,7 @@ int? parseClock(String raw) {
             'رقم العملية': '$irrigationId',
           },
         );
+        if (!mounted) return;
         await ManualMessageService.offerChoices(
           context,
           title: 'تم تسجيل السقاية',
@@ -8325,6 +8326,7 @@ class _PaymentsState extends State<PaymentsPage> {
             'الرصيد الحالي': _messageBalanceLabel(currentBalance),
           },
         );
+        if (!mounted) return;
         await ManualMessageService.offerChoices(
           context,
           title: 'تمت العملية',
