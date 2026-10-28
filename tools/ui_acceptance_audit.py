@@ -53,6 +53,7 @@ checks={
      and 'pageFormat: pageFormat' in template
      and 'if (printAfterGenerate)' in template
  ),
+ 'PDF total footer is omitted when not configured': 'if (footerRow != null)' in template,
  'PDF print path': 'Printing.layoutPdf' in report,
 }
 for k,v in checks.items():
