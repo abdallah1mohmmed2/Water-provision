@@ -55,6 +55,9 @@ class OfficialReportTemplate {
     String thirdSignatureLabel = 'الاعتماد والختم: ....................',
     String fileName = 'official_report.pdf',
     int minTableRows = 7,
+    PdfPageFormat pageFormat = PdfPageFormat.a4,
+    int preferredRowsPerPage = 30,
+    bool printAfterGenerate = true,
   }) async {
     if (columns.isEmpty) {
       throw ArgumentError.value(columns, 'columns', 'يجب توفير عمود واحد على الأقل.');
@@ -72,6 +75,9 @@ class OfficialReportTemplate {
     final normalizedFooter = footerTotalRow == null
         ? null
         : _fitRow(footerTotalRow, columns.length);
+    final density = preferredRowsPerPage.clamp(1, 40).toInt();
+    final cellFontSize = density >= 26 ? 7.5 : density >= 16 ? 8.2 : 9.0;
+    final cellVerticalPadding = density >= 26 ? 2.5 : density >= 16 ? 3.5 : 5.0;
 
     final arabicFont = await _loadFont(
       'assets/fonts/NotoNaskhArabic-Regular.ttf',
@@ -83,9 +89,21 @@ class OfficialReportTemplate {
 
     document.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
+        pageFormat: pageFormat,
         textDirection: pw.TextDirection.rtl,
         margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+        footer: (context) => pw.Container(
+          alignment: pw.Alignment.center,
+          padding: const pw.EdgeInsets.only(top: 6),
+          child: pw.Text(
+            'صفحة ${context.pageNumber} / ${context.pagesCount}',
+            style: pw.TextStyle(
+              font: arabicFont,
+              fontSize: 8,
+              color: PdfColors.grey700,
+            ),
+          ),
+        ),
         theme: pw.ThemeData.withFont(
           base: arabicFont,
           bold: arabicBold,
@@ -126,6 +144,8 @@ class OfficialReportTemplate {
             footerRow: normalizedFooter,
             font: arabicFont,
             boldFont: arabicBold,
+            cellFontSize: cellFontSize,
+            cellVerticalPadding: cellVerticalPadding,
           ),
           pw.SizedBox(height: 35),
           _buildOfficialSignatures(arabicBold, thirdLabel: thirdSignatureLabel),
@@ -134,10 +154,12 @@ class OfficialReportTemplate {
     );
 
     final bytes = await document.save();
-    await Printing.layoutPdf(
-      onLayout: (_) async => bytes,
-      name: fileName,
-    );
+    if (printAfterGenerate) {
+      await Printing.layoutPdf(
+        onLayout: (_) async => bytes,
+        name: fileName,
+      );
+    }
     return bytes;
   }
 
@@ -336,6 +358,8 @@ class OfficialReportTemplate {
     List<String>? footerRow,
     required pw.Font font,
     required pw.Font boldFont,
+    required double cellFontSize,
+    required double cellVerticalPadding,
   }) {
     return pw.Table(
       border: pw.TableBorder.all(color: PdfColors.black, width: 0.8),
@@ -353,9 +377,9 @@ class OfficialReportTemplate {
               .map(
                 (col) => pw.Container(
                   constraints: const pw.BoxConstraints(minHeight: 32),
-                  padding: const pw.EdgeInsets.symmetric(
+                  padding: pw.EdgeInsets.symmetric(
                     horizontal: 3,
-                    vertical: 4,
+                    vertical: cellVerticalPadding,
                   ),
                   alignment: pw.Alignment.center,
                   child: pw.Text(
@@ -363,7 +387,7 @@ class OfficialReportTemplate {
                     textAlign: pw.TextAlign.center,
                     style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], 
                       font: boldFont,
-                      fontSize: 9,
+                      fontSize: cellFontSize,
                       height: 1.15,
                     ),
                   ),
@@ -380,42 +404,47 @@ class OfficialReportTemplate {
                 .map(
                   (cell) => pw.Container(
                     constraints: const pw.BoxConstraints(minHeight: 24),
-                    padding: const pw.EdgeInsets.symmetric(
+                    padding: pw.EdgeInsets.symmetric(
                       horizontal: 3,
-                      vertical: 4,
+                      vertical: cellVerticalPadding,
                     ),
                     alignment: pw.Alignment.center,
                     child: pw.Text(
                       cell,
                       textAlign: pw.TextAlign.center,
-                      style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: font, fontSize: 9),
+                      style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: font, fontSize: cellFontSize),
                     ),
                   ),
                 )
                 .toList(),
           ),
         ),
-        pw.TableRow(
-          decoration: const pw.BoxDecoration(color: tableHeaderBg),
-          children: List.generate(
-            columns.length,
-            (index) => pw.Container(
-              constraints: const pw.BoxConstraints(minHeight: 24),
-              padding: const pw.EdgeInsets.symmetric(
-                horizontal: 3,
-                vertical: 4,
-              ),
-              alignment: pw.Alignment.center,
-              child: pw.Text(
-                footerRow != null && index < footerRow.length
-                    ? footerRow[footerRow.length - 1 - index]
-                    : '',
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 9),
+        if (footerRow != null)
+          pw.TableRow(
+            decoration: const pw.BoxDecoration(color: tableHeaderBg),
+            children: List.generate(
+              columns.length,
+              (index) => pw.Container(
+                constraints: const pw.BoxConstraints(minHeight: 24),
+                padding: pw.EdgeInsets.symmetric(
+                  horizontal: 3,
+                  vertical: cellVerticalPadding,
+                ),
+                alignment: pw.Alignment.center,
+                child: pw.Text(
+                  index < footerRow.length
+                      ? footerRow[footerRow.length - 1 - index]
+                      : '',
+                  textAlign: pw.TextAlign.center,
+                  style: pw.TextStyle(
+                    fontFallback: [pw.Font.helvetica()],
+                    font: boldFont,
+                    fontSize: cellFontSize,
+                  ),
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
