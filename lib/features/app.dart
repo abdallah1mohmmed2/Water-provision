@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:printing/printing.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import '../core/theme.dart';
 import '../core/permissions.dart';
@@ -238,6 +239,12 @@ String settingDisplay(String k, String v) => switch (k) {
         ? 'وقت الجهاز'
         : v,
   'partial_hour' => v == 'true' ? 'نعم' : 'لا',
+  'rounding' => switch (v) {
+    'nearest' => 'التقريب إلى أقرب عدد صحيح',
+    'up' => 'التقريب لأعلى',
+    'down' => 'التقريب لأسفل',
+    _ => v,
+  },
   'manager_override_required' => v == 'true' ? 'نعم' : 'لا',
   'allow_midnight_crossing' => v == 'true' ? 'نعم' : 'لا',
   'sound_notifications' => v == 'true' ? 'نعم' : 'لا',
@@ -1353,6 +1360,32 @@ class _ShellState extends State<AdminShell> {
         repo,
         manager: role == AppRole.manager,
         userId: widget.userId,
+        onNewIrrigation: () {
+          // زر شاشة السقايات يفتح الفورم العائم نفسه، دون إنشاء مسار حفظ مختلف.
+          final floatingIrrigationKey = GlobalKey<_NewIrrigationState>();
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (routeContext) {
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  await floatingIrrigationKey.currentState?.openQuickForm();
+                  if (routeContext.mounted) {
+                    Navigator.of(routeContext).maybePop();
+                  }
+                });
+                return Scaffold(
+                  backgroundColor: Theme.of(routeContext).scaffoldBackgroundColor,
+                  body: SafeArea(
+                    child: NewIrrigationPage(
+                      repo,
+                      key: floatingIrrigationKey,
+                      manager: role == AppRole.manager,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ).then((_) => refreshCounts());
+        },
       ),
       4 => SessionsPage(repo, userId: widget.userId),
       5 => QueueBookingPage(
@@ -5191,7 +5224,10 @@ int? parseClock(String raw) {
     if (a == null || b == null || startPeriod == null) return;
     final startHour = (a ~/ 60) % 12;
     final endHour = (b ~/ 60) % 12;
-    final crossesTwelve = (endHour == 0 && startHour != 0) || b < a;
+    // بدّل صباحاً/مساءً فقط عند عبور حد 11 إلى 12.
+    // كون وقت النهاية أصغر رقمياً من البداية لا يعني تبديل الفترة؛
+    // فمثلاً 12:00 صباحاً إلى 01:00 صباحاً مدة ساعة واحدة، لا 13 ساعة.
+    final crossesTwelve = startHour == 11 && endHour == 0;
     endPeriod = crossesTwelve ? _oppositePeriod(startPeriod!) : startPeriod;
   }
 
@@ -5300,6 +5336,13 @@ int? parseClock(String raw) {
   Future<void> openQuickForm() async {
     if (!mounted || saved) return;
 
+    // كل مرة يفتح فيها النموذج العائم يبدأ بتاريخ اليوم؛ ويظل التاريخ
+    // الذي يختاره المستخدم ثابتاً طوال عمر هذا الفورم فقط.
+    final today = AppClock.now();
+    selectedDate = DateTime(today.year, today.month, today.day);
+    start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, start.hour, start.minute);
+    if (!end.isAfter(start)) end = start.add(const Duration(hours: 1));
+
     // كانت الفقاعة تستدعي هذه الدالة بعد أول إطار، وغالباً كان load()
     // ما يزال يجلب البيانات؛ شرط loading السابق كان ينهي الدالة بصمت.
     // انتظر التحميل الأول بدلاً من إسقاط طلب فتح النموذج.
@@ -5358,6 +5401,32 @@ int? parseClock(String raw) {
                   children: [
                     const Text('بطاقة وقت التشغيل', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
                     const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final pickedDate = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2100),
+                          locale: const Locale('ar'),
+                          helpText: 'اختيار تاريخ السقاية',
+                        );
+                        if (pickedDate == null || !mounted) return;
+                        setState(() {
+                          selectedDate = DateTime(pickedDate.year, pickedDate.month, pickedDate.day);
+                          start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, start.hour, start.minute);
+                          final startClock = start.hour * 60 + start.minute;
+                          final endClock = end.hour * 60 + end.minute;
+                          final dayOffset = endClock <= startClock ? 1 : 0;
+                          end = DateTime(selectedDate.year, selectedDate.month, selectedDate.day + dayOffset, end.hour, end.minute);
+                          cloudPeriods.clear();
+                        });
+                        dialogSetState(() {});
+                      },
+                      icon: const Icon(Icons.calendar_month_rounded),
+                      label: Text('تاريخ السقاية: ${DateFormat('yyyy/MM/dd', 'ar').format(selectedDate)}'),
+                    ),
+                    const SizedBox(height: 8),
                     TextField(
                       controller: searchController,
                       focusNode: quickFormSearchFocusNode,
@@ -6288,10 +6357,12 @@ class IrrigationsPage extends StatefulWidget {
   final StationRepository r;
   final bool manager;
   final int userId;
+  final VoidCallback? onNewIrrigation;
   const IrrigationsPage(
     this.r, {
     required this.manager,
     required this.userId,
+    this.onNewIrrigation,
     super.key,
   });
   @override
@@ -6515,7 +6586,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
       subtitle: 'سجل السقايات مع البحث والتصفية ومراجعة الحالة',
       actions: [
         FilledButton.icon(
-          onPressed: () => Navigator.push(
+          onPressed: widget.onNewIrrigation ?? () => Navigator.push(
             c,
             MaterialPageRoute(
               builder: (_) =>
@@ -14486,6 +14557,59 @@ class _SettingsState extends State<SettingsPage> {
     },
   );
 
+  Future<void> _pickImageSetting(String key, String label) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        dialogTitle: 'اختيار $label',
+        type: FileType.image,
+        allowMultiple: false,
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final path = result.files.single.path;
+      if (path == null || path.trim().isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تعذر الوصول إلى مسار الصورة المختارة على هذا الجهاز')),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      if (!await runGuarded(context, () => widget.r.setSetting(key, path))) return;
+      await load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تم حفظ $label')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر اختيار الصورة: ${friendlyError(e)}')),
+        );
+      }
+    }
+  }
+
+  Widget _imageSettingTile(String key, String label, IconData icon) {
+    final path = (s[key] ?? '').trim();
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      subtitle: Text(
+        path.isEmpty ? 'لم يتم اختيار صورة' : path,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: FilledButton.tonalIcon(
+        onPressed: () => _pickImageSetting(key, label),
+        icon: const Icon(Icons.folder_open_rounded),
+        label: const Text('اختيار صورة'),
+      ),
+    );
+  }
+
   Widget setTile(String k, String label, [bool n = false]) => ListTile(
     title: Text(label),
     subtitle: Text(settingDisplay(k, s[k] ?? 'غير مضبوط')),
@@ -14634,8 +14758,8 @@ class _SettingsState extends State<SettingsPage> {
               setTile('currency', 'العملة'),
               setTile('timezone', 'المنطقة الزمنية'),
               setTile('app_name', 'اسم التطبيق'),
-              setTile('station_logo_path', 'مسار شعار المحطة'),
-              setTile('app_icon_path', 'مسار أيقونة التطبيق'),
+              _imageSettingTile('station_logo_path', 'شعار المحطة', Icons.image_outlined),
+              _imageSettingTile('app_icon_path', 'أيقونة التطبيق', Icons.app_registration_rounded),
             ],
           ),
           SettingGroup(
@@ -14668,8 +14792,12 @@ class _SettingsState extends State<SettingsPage> {
                   'سعر النوع الثالث بالساعة',
                   true,
                 ),
-              setTile('partial_hour', 'محاسبة الجزء من الساعة'),
-              setTile('rounding', 'سياسة التقريب'),
+              boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
+              dropdownTile('rounding', 'سياسة التقريب', const [
+                MapEntry('nearest', 'التقريب إلى أقرب عدد صحيح'),
+                MapEntry('up', 'التقريب لأعلى'),
+                MapEntry('down', 'التقريب لأسفل'),
+              ]),
             ],
           ),
           SettingGroup(

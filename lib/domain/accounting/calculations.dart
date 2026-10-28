@@ -88,10 +88,12 @@ class AccountingCalculations {
     );
     final cloud = cloudMinutes.clamp(0, minutes);
     final charge = minutes - cloud;
+    // سياسة محطة المياه: قيمة الماء تُقرّب للأعلى إلى أقرب ريال دائمًا.
+    // لا نقرّب سعر الدقيقة منفردًا؛ نحسب من سعر الساعة والدقائق مباشرة.
     final water = amountForMinutes(
       charge,
       hourlyWaterRate,
-      rounding,
+      'up',
       partialHour,
     );
     // لترات/ساعة بدقة 3 خانات عشرية، والحساب بأعداد صحيحة.
@@ -125,7 +127,8 @@ class AccountingCalculations {
     );
     final cloud = cloudMinutes.clamp(0, minutes);
     final charge = minutes - cloud;
-    final total = amountForMinutes(charge, hourlyRate, rounding, partialHour);
+    // قيمة سقاية المستفيد تُقرّب للأعلى إلى أقرب ريال عند وجود كسر.
+    final total = amountForMinutes(charge, hourlyRate, 'up', partialHour);
     return IrrigationResult(
       minutes: minutes,
       cloudMinutes: cloud,
@@ -150,7 +153,8 @@ class AccountingCalculations {
       end,
       allowMidnightCrossing: allowMidnightCrossing,
     );
-    final total = amountForMinutes(minutes, hourlyRate, rounding, partialHour);
+    // قيمة سقاية المستفيد تُقرّب للأعلى إلى أقرب ريال عند وجود كسر.
+    final total = amountForMinutes(minutes, hourlyRate, 'up', partialHour);
     return IrrigationResult(
       minutes: minutes,
       cloudMinutes: 0,
@@ -230,7 +234,7 @@ class AccountingCalculations {
   static int partnerShare({
     required int distributable,
     required double percentage,
-  }) => (distributable * percentage / 100).round();
+  }) => (distributable * percentage / 100).floor();
 
   static int workerEntitlement({
     required String payType,
@@ -268,7 +272,7 @@ class AccountingCalculations {
     if (totalShares <= 0 || partnerShares < 0) {
       throw ArgumentError('بيانات الأسهم غير صالحة');
     }
-    return (distributable * partnerShares / totalShares).round();
+    return (distributable * partnerShares / totalShares).floor();
   }
 
   /// يوزع المتبقي دون تجاوز المبلغ المتاح حتى عند خلط النسب والأسهم.
@@ -297,29 +301,27 @@ class AccountingCalculations {
     }
 
     final result = <int, int>{};
+    // لا نرفع حصص الشركاء بالتقريب ولا نمنح الشريك الأخير باقي الكسور.
+    // كل حصة تُقرّب لأسفل، وما يتبقى يظل غير موزع ولا يتجاوز صافي الربح.
     final percentagePool = (distributable * percentageTotal / 100)
-        .round()
+        .floor()
         .clamp(0, distributable)
         .toInt();
     var percentageAllocated = 0;
-    for (var i = 0; i < percentagePartners.length; i++) {
-      final p = percentagePartners[i];
+    for (final p in percentagePartners) {
       final id = (p['id'] as num).toInt();
       final percentage = (p['ownership_percentage'] as num?)?.toDouble() ?? 0;
-      final remaining = percentagePool - percentageAllocated;
-      final amount = i == percentagePartners.length - 1
-          ? remaining
-          : percentageTotal <= 0
-              ? 0
-              : (percentagePool * percentage / percentageTotal)
-                  .round()
-                  .clamp(0, remaining)
-                  .toInt();
+      final amount = percentageTotal <= 0
+          ? 0
+          : (percentagePool * percentage / percentageTotal)
+              .floor()
+              .clamp(0, percentagePool - percentageAllocated)
+              .toInt();
       result[id] = amount;
       percentageAllocated += amount;
     }
 
-    final sharePool = distributable - percentageAllocated;
+    final sharePool = distributable - percentagePool;
     if (sharePartners.isNotEmpty) {
       final totalShares = sharePartners.fold<double>(0, (sum, p) {
         final value = (p['shares_count'] as num?)?.toDouble() ?? 0;
@@ -330,17 +332,13 @@ class AccountingCalculations {
         throw ArgumentError('إجمالي حصص الشركاء يجب أن يكون أكبر من صفر');
       }
       var sharesAllocated = 0;
-      for (var i = 0; i < sharePartners.length; i++) {
-        final p = sharePartners[i];
+      for (final p in sharePartners) {
         final id = (p['id'] as num).toInt();
         final shares = (p['shares_count'] as num?)?.toDouble() ?? 0;
-        final remaining = sharePool - sharesAllocated;
-        final amount = i == sharePartners.length - 1
-            ? remaining
-            : (sharePool * shares / totalShares)
-                .round()
-                .clamp(0, remaining)
-                .toInt();
+        final amount = (sharePool * shares / totalShares)
+            .floor()
+            .clamp(0, sharePool - sharesAllocated)
+            .toInt();
         result[id] = amount;
         sharesAllocated += amount;
       }
