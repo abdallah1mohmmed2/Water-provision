@@ -400,7 +400,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
       ),
       'إجمالي القبض: ${_money(_sumType(rows, 'receipt'))} ريال',
       'إجمالي الصرف: ${_money(_sumType(rows, 'payment'))} ريال',
-    ].join('\\n');
+    ].join('\n');
     await ManualMessageService.offerChoices(
       context,
       title: 'إرسال رسالة حساب عام',
