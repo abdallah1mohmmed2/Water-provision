@@ -33,6 +33,36 @@ const _blue = Color(0xff287bff),
 
 String money(Object? v) =>
     '${(v is num ? v : num.tryParse('$v') ?? 0).round()} ريال';
+Future<int> _messageBalanceForParty(
+  StationRepository repository,
+  String partyType,
+  int id,
+) async {
+  final balance = switch (partyType) {
+    'beneficiary' => await repository.accounting.beneficiaryBalance(id),
+    'worker' => await repository.accounting.workerBalance(id),
+    'partner' => await repository.accounting.partnerBalance(id),
+    _ => const <String, int>{'balance': 0},
+  };
+  return (balance['balance'] as num?)?.round() ?? 0;
+}
+
+String _messageBalanceLabel(Object? raw) {
+  final value = (raw as num?)?.round() ?? 0;
+  if (value > 0) return 'عليه $value ريال';
+  if (value < 0) return 'له ${value.abs()} ريال';
+  return 'متوازن (0 ريال)';
+}
+
+Future<String> _renderSavedMessageTemplate(
+  StationRepository repository,
+  String key,
+  Map<String, Object?> values,
+) async {
+  final savedSettings = await repository.settings();
+  return MessageTemplateService.render(savedSettings[key], key, values);
+}
+
 String friendlyError(Object e) {
   if (e is ArgumentError && e.message != null) return '${e.message}';
   if (e is StateError) return e.message;
@@ -5672,9 +5702,11 @@ int? parseClock(String raw) {
           break;
         }
       }
-      final previousBalance = partyType == 'beneficiary'
-          ? (await widget.r.accounting.beneficiaryBalance(bid!))['balance'] ?? 0
-          : 0;
+      final previousBalance = await _messageBalanceForParty(
+        widget.r,
+        partyType,
+        recipientId!,
+      );
       final irrigationId = await widget.r.accounting.recordIrrigation(
         stationId: stationId,
         pumpId: pumpId!,
@@ -5765,72 +5797,42 @@ int? parseClock(String raw) {
       }
       if (mounted) {
         final recipientName = recipient?['name']?.toString() ?? 'الطرف';
-        final eventVerb = partyType == 'beneficiary'
-            ? 'تم تسجيل السقاية لكم'
-            : 'تم تسجيل السقاية المرتبطة بحسابكم';
-        String message;
-        if (partyType == 'beneficiary') {
-          final rows = await widget.r.db.rawQuery(
-            'SELECT i.*, b.name beneficiary_name, p.name pump_name '
-            'FROM irrigations i '
-            'LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id '
-            'LEFT JOIN pumps p ON p.id=i.pump_id WHERE i.id=?',
-            [irrigationId],
-          );
-          final row = rows.isEmpty ? <String, Object?>{} : rows.first;
-          final currentBalance =
-              (await widget.r.accounting.beneficiaryBalance(bid!))['balance'] ?? 0;
-          String balanceLabel(int value) => value > 0
-              ? 'عليه $value ريال'
-              : value < 0
-                  ? 'له ${value.abs()} ريال'
-                  : 'متوازن (0 ريال)';
-          final total = (row['total_amount'] as num?)?.round() ?? 0;
-          final water = (row['water_amount'] as num?)?.round() ?? 0;
-          final diesel = (row['diesel_amount'] as num?)?.round() ?? 0;
-          final paidAmount = (row['paid_amount'] as num?)?.round() ?? 0;
-          final cloud = (row['cloud_minutes'] as num?)?.round() ?? 0;
-          final chargeableMinutes =
-              (row['chargeable_minutes'] as num?)?.round() ?? minutes - cloud;
-          final hourlyRate =
-              (row['water_hourly_rate_snapshot'] as num?)?.toDouble() ?? waterRate.toDouble();
-          final minuteRate = hourlyRate / 60;
-          final systemName = switch ('${row['system_type'] ?? type}') {
-            'diesel' => 'ديزل',
-            'solar' => 'شمسي',
-            'equivalent_hybrid' => 'النوع الثالث',
-            _ => 'غير محدد',
-          };
-          message = [
-            'السلام عليكم $recipientName،',
-            'تم تسجيل السقاية لكم بنجاح.',
-            'المستفيد: ${row['beneficiary_name'] ?? recipientName}',
-            'المضخة: ${row['pump_name'] ?? 'غير محددة'}',
-            'نوع المنظومة: $systemName',
-            'من: ${DateFormat('yyyy/MM/dd HH:mm').format(start)}',
-            'إلى: ${DateFormat('yyyy/MM/dd HH:mm').format(end)}',
-            'إجمالي الدقائق: $minutes دقيقة',
-            if (cloud > 0) 'دقائق الغيم المخصومة: $cloud دقيقة',
-            'الدقائق المحتسبة: $chargeableMinutes دقيقة',
-            'سعر الدقيقة: ${minuteRate.toStringAsFixed(2)} ريال',
-            'قيمة المياه: $water ريال',
-            if (systemName == 'ديزل') 'قيمة الديزل: $diesel ريال',
-            'إجمالي السقاية الحالية: $total ريال',
-            'المدفوع: $paidAmount ريال',
-            'الرصيد السابق: ${balanceLabel(previousBalance)}',
-            'الرصيد بعد السقاية: ${balanceLabel((currentBalance as num).round())}',
-            'رقم العملية: $irrigationId',
-          ].join('\n');
-        } else {
-          message = [
-            'السلام عليكم $recipientName،',
-            eventVerb,
-            'التاريخ: ${DateFormat('yyyy/MM/dd').format(start)} من ${DateFormat('HH:mm').format(start)} إلى ${DateFormat('HH:mm').format(end)}',
-            'المدة: $minutes دقيقة.',
-            'رقم العملية: $irrigationId.',
-          ].join('\n');
-        }
-        if (!mounted) return;
+        final irrigationRows = await widget.r.db.rawQuery(
+          'SELECT i.*, b.name beneficiary_name, p.name pump_name '
+          'FROM irrigations i '
+          'LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id '
+          'LEFT JOIN pumps p ON p.id=i.pump_id WHERE i.id=?',
+          [irrigationId],
+        );
+        final irrigationRow = irrigationRows.isEmpty
+            ? <String, Object?>{}
+            : irrigationRows.first;
+        final currentBalance = await _messageBalanceForParty(
+          widget.r,
+          partyType,
+          recipientId!,
+        );
+        final totalAmount =
+            (irrigationRow['total_amount'] as num?)?.round() ?? 0;
+        final paidAmount =
+            (irrigationRow['paid_amount'] as num?)?.round() ?? 0;
+        final message = await _renderSavedMessageTemplate(
+          widget.r,
+          MessageTemplateService.irrigationKey,
+          {
+            'اسم العميل': recipientName,
+            'تاريخ السقاية': DateFormat('yyyy/MM/dd').format(start),
+            'وقت البداية': DateFormat('HH:mm').format(start),
+            'وقت النهاية': DateFormat('HH:mm').format(end),
+            'إجمالي الدقائق': '$minutes',
+            'قيمة السقاية': money(totalAmount),
+            'المبلغ المدفوع': money(paidAmount),
+            'المتبقي من السقاية': money(totalAmount - paidAmount),
+            'الرصيد السابق': _messageBalanceLabel(previousBalance),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance),
+            'رقم العملية': '$irrigationId',
+          },
+        );
         await ManualMessageService.offerChoices(
           context,
           title: 'تم تسجيل السقاية',
@@ -8220,6 +8222,12 @@ class _PaymentsState extends State<PaymentsPage> {
           if (editReason == null || !mounted) return;
         }
         final a = int.parse(amount.text);
+        final transactionAt = AppClock.now();
+        final previousBalance = await _messageBalanceForParty(
+          widget.r,
+          target,
+          party!,
+        );
         final recipientRows = target == 'beneficiary'
             ? bs
             : target == 'worker'
@@ -8286,14 +8294,37 @@ class _PaymentsState extends State<PaymentsPage> {
         }
         final recipientName =
             recipient?['name']?.toString() ?? targetName(target);
-        final action = target == 'beneficiary'
-            ? 'تم استلام دفعة من حسابكم'
-            : 'تم صرف دفعة لكم';
-        final message = [
-          'السلام عليكم $recipientName،',
-          '$action بمبلغ ${money(a)} بتاريخ ${DateFormat('yyyy/MM/dd HH:mm').format(AppClock.now())}.',
-          'رقم العملية: $paymentId.',
-        ].join('\n');
+        final currentBalance = await _messageBalanceForParty(
+          widget.r,
+          target,
+          party!,
+        );
+        final methodRows = await widget.r.db.rawQuery(
+          'SELECT name FROM payment_methods WHERE id=? LIMIT 1',
+          [method],
+        );
+        final paymentMethodName = methodRows.isEmpty
+            ? '—'
+            : '${methodRows.first['name'] ?? '—'}';
+        final templateKey = target == 'beneficiary'
+            ? MessageTemplateService.receiptKey
+            : MessageTemplateService.paymentKey;
+        final message = await _renderSavedMessageTemplate(
+          widget.r,
+          templateKey,
+          {
+            'اسم العميل': recipientName,
+            'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+            'رقم السند': reference.text.trim().isNotEmpty
+                ? reference.text.trim()
+                : '$paymentId',
+            'المبلغ': money(a),
+            'طريقة الدفع': paymentMethodName,
+            'البيان': note.text.trim().isEmpty ? '—' : note.text.trim(),
+            'الرصيد السابق': _messageBalanceLabel(previousBalance),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance),
+          },
+        );
         await ManualMessageService.offerChoices(
           context,
           title: 'تمت العملية',
