@@ -21,6 +21,7 @@ import '../services/report_service.dart';
 import '../services/official_report_template.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
+import '../services/message_template_service.dart';
 import 'general_accounts_page.dart';
 
 const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
@@ -32,6 +33,44 @@ const _blue = Color(0xff287bff),
 
 String money(Object? v) =>
     '${(v is num ? v : num.tryParse('$v') ?? 0).round()} ريال';
+Future<int> _messageBalanceForParty(
+  StationRepository repository,
+  String partyType,
+  int id,
+) async {
+  final balance = switch (partyType) {
+    'beneficiary' => await repository.accounting.beneficiaryBalance(id),
+    'worker' => await repository.accounting.workerBalance(id),
+    'partner' => await repository.accounting.partnerBalance(id),
+    _ => const <String, int>{'balance': 0},
+  };
+  return (balance['balance'] as num?)?.round() ?? 0;
+}
+
+String _messageBalanceLabel(
+  Object? raw, {
+  required String partyType,
+}) {
+  final value = (raw as num?)?.round() ?? 0;
+  if (value == 0) return 'متوازن (0 ريال)';
+  final beneficiary = partyType == 'beneficiary';
+  if (value > 0) {
+    return beneficiary ? 'عليه $value ريال' : 'له $value ريال';
+  }
+  return beneficiary
+      ? 'له ${value.abs()} ريال'
+      : 'عليه ${value.abs()} ريال';
+}
+
+Future<String> _renderSavedMessageTemplate(
+  StationRepository repository,
+  String key,
+  Map<String, Object?> values,
+) async {
+  final savedSettings = await repository.settings();
+  return MessageTemplateService.render(savedSettings[key], key, values);
+}
+
 String friendlyError(Object e) {
   if (e is ArgumentError && e.message != null) return '${e.message}';
   if (e is StateError) return e.message;
@@ -2275,7 +2314,7 @@ class _DashboardState extends State<DashboardPage> {
                     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       const Text('لوحة التحكم', style: TextStyle(color: neon, fontSize: 12, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 7),
-                      const Text('مرحباً بك في ساقية', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
+                      const Text('مرحباً بك في منظومة', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 7),
                       Text('ملخص التشغيل والعمليات اليومية في مكان واحد',
                         style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 11, height: 1.5)),
@@ -5671,9 +5710,11 @@ int? parseClock(String raw) {
           break;
         }
       }
-      final previousBalance = partyType == 'beneficiary'
-          ? (await widget.r.accounting.beneficiaryBalance(bid!))['balance'] ?? 0
-          : 0;
+      final previousBalance = await _messageBalanceForParty(
+        widget.r,
+        partyType,
+        recipientId!,
+      );
       final irrigationId = await widget.r.accounting.recordIrrigation(
         stationId: stationId,
         pumpId: pumpId!,
@@ -5764,71 +5805,42 @@ int? parseClock(String raw) {
       }
       if (mounted) {
         final recipientName = recipient?['name']?.toString() ?? 'الطرف';
-        final eventVerb = partyType == 'beneficiary'
-            ? 'تم تسجيل السقاية لكم'
-            : 'تم تسجيل السقاية المرتبطة بحسابكم';
-        String message;
-        if (partyType == 'beneficiary') {
-          final rows = await widget.r.db.rawQuery(
-            'SELECT i.*, b.name beneficiary_name, p.name pump_name '
-            'FROM irrigations i '
-            'LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id '
-            'LEFT JOIN pumps p ON p.id=i.pump_id WHERE i.id=?',
-            [irrigationId],
-          );
-          final row = rows.isEmpty ? <String, Object?>{} : rows.first;
-          final currentBalance =
-              (await widget.r.accounting.beneficiaryBalance(bid!))['balance'] ?? 0;
-          String balanceLabel(int value) => value > 0
-              ? 'عليه $value ريال'
-              : value < 0
-                  ? 'له ${value.abs()} ريال'
-                  : 'متوازن (0 ريال)';
-          final total = (row['total_amount'] as num?)?.round() ?? 0;
-          final water = (row['water_amount'] as num?)?.round() ?? 0;
-          final diesel = (row['diesel_amount'] as num?)?.round() ?? 0;
-          final paidAmount = (row['paid_amount'] as num?)?.round() ?? 0;
-          final cloud = (row['cloud_minutes'] as num?)?.round() ?? 0;
-          final chargeableMinutes =
-              (row['chargeable_minutes'] as num?)?.round() ?? minutes - cloud;
-          final hourlyRate =
-              (row['water_hourly_rate_snapshot'] as num?)?.toDouble() ?? waterRate.toDouble();
-          final minuteRate = hourlyRate / 60;
-          final systemName = switch ('${row['system_type'] ?? type}') {
-            'diesel' => 'ديزل',
-            'solar' => 'شمسي',
-            'equivalent_hybrid' => 'النوع الثالث',
-            _ => 'غير محدد',
-          };
-          message = [
-            'السلام عليكم $recipientName،',
-            'تم تسجيل السقاية لكم بنجاح.',
-            'المستفيد: ${row['beneficiary_name'] ?? recipientName}',
-            'المضخة: ${row['pump_name'] ?? 'غير محددة'}',
-            'نوع المنظومة: $systemName',
-            'من: ${DateFormat('yyyy/MM/dd HH:mm').format(start)}',
-            'إلى: ${DateFormat('yyyy/MM/dd HH:mm').format(end)}',
-            'إجمالي الدقائق: $minutes دقيقة',
-            if (cloud > 0) 'دقائق الغيم المخصومة: $cloud دقيقة',
-            'الدقائق المحتسبة: $chargeableMinutes دقيقة',
-            'سعر الدقيقة: ${minuteRate.toStringAsFixed(2)} ريال',
-            'قيمة المياه: $water ريال',
-            if (systemName == 'ديزل') 'قيمة الديزل: $diesel ريال',
-            'إجمالي السقاية الحالية: $total ريال',
-            'المدفوع: $paidAmount ريال',
-            'الرصيد السابق: ${balanceLabel(previousBalance)}',
-            'الرصيد بعد السقاية: ${balanceLabel((currentBalance as num).round())}',
-            'رقم العملية: $irrigationId',
-          ].join('\n');
-        } else {
-          message = [
-            'السلام عليكم $recipientName،',
-            eventVerb,
-            'التاريخ: ${DateFormat('yyyy/MM/dd').format(start)} من ${DateFormat('HH:mm').format(start)} إلى ${DateFormat('HH:mm').format(end)}',
-            'المدة: $minutes دقيقة.',
-            'رقم العملية: $irrigationId.',
-          ].join('\n');
-        }
+        final irrigationRows = await widget.r.db.rawQuery(
+          'SELECT i.*, b.name beneficiary_name, p.name pump_name '
+          'FROM irrigations i '
+          'LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id '
+          'LEFT JOIN pumps p ON p.id=i.pump_id WHERE i.id=?',
+          [irrigationId],
+        );
+        final irrigationRow = irrigationRows.isEmpty
+            ? <String, Object?>{}
+            : irrigationRows.first;
+        final currentBalance = await _messageBalanceForParty(
+          widget.r,
+          partyType,
+          recipientId,
+        );
+        final totalAmount =
+            (irrigationRow['total_amount'] as num?)?.round() ?? 0;
+        final paidAmount =
+            (irrigationRow['paid_amount'] as num?)?.round() ?? 0;
+        final message = await _renderSavedMessageTemplate(
+          widget.r,
+          MessageTemplateService.irrigationKey,
+          {
+            'اسم العميل': recipientName,
+            'تاريخ السقاية': DateFormat('yyyy/MM/dd').format(start),
+            'وقت البداية': DateFormat('HH:mm').format(start),
+            'وقت النهاية': DateFormat('HH:mm').format(end),
+            'إجمالي الدقائق': '$minutes',
+            'قيمة السقاية': money(totalAmount),
+            'المبلغ المدفوع': money(paidAmount),
+            'المتبقي من السقاية': money(totalAmount - paidAmount),
+            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: partyType),
+            'رقم العملية': '$irrigationId',
+          },
+        );
         if (!mounted) return;
         await ManualMessageService.offerChoices(
           context,
@@ -8219,6 +8231,12 @@ class _PaymentsState extends State<PaymentsPage> {
           if (editReason == null || !mounted) return;
         }
         final a = int.parse(amount.text);
+        final transactionAt = AppClock.now();
+        final previousBalance = await _messageBalanceForParty(
+          widget.r,
+          target,
+          party!,
+        );
         final recipientRows = target == 'beneficiary'
             ? bs
             : target == 'worker'
@@ -8285,14 +8303,38 @@ class _PaymentsState extends State<PaymentsPage> {
         }
         final recipientName =
             recipient?['name']?.toString() ?? targetName(target);
-        final action = target == 'beneficiary'
-            ? 'تم استلام دفعة من حسابكم'
-            : 'تم صرف دفعة لكم';
-        final message = [
-          'السلام عليكم $recipientName،',
-          '$action بمبلغ ${money(a)} بتاريخ ${DateFormat('yyyy/MM/dd HH:mm').format(AppClock.now())}.',
-          'رقم العملية: $paymentId.',
-        ].join('\n');
+        final currentBalance = await _messageBalanceForParty(
+          widget.r,
+          target,
+          party!,
+        );
+        final methodRows = await widget.r.db.rawQuery(
+          'SELECT name FROM payment_methods WHERE id=? LIMIT 1',
+          [method],
+        );
+        final paymentMethodName = methodRows.isEmpty
+            ? '—'
+            : '${methodRows.first['name'] ?? '—'}';
+        final templateKey = target == 'beneficiary'
+            ? MessageTemplateService.receiptKey
+            : MessageTemplateService.paymentKey;
+        final message = await _renderSavedMessageTemplate(
+          widget.r,
+          templateKey,
+          {
+            'اسم العميل': recipientName,
+            'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+            'رقم السند': reference.text.trim().isNotEmpty
+                ? reference.text.trim()
+                : '$paymentId',
+            'المبلغ': money(a),
+            'طريقة الدفع': paymentMethodName,
+            'البيان': note.text.trim().isEmpty ? '—' : note.text.trim(),
+            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: target),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: target),
+          },
+        );
+        if (!mounted) return;
         await ManualMessageService.offerChoices(
           context,
           title: 'تمت العملية',
@@ -9465,6 +9507,11 @@ class _WorkersState extends State<WorkersPage> {
     );
     if (ok == true) {
       if (!mounted) return;
+      final transactionAt = AppClock.now();
+      final previousBalance = type == 'payment'
+          ? await _messageBalanceForParty(widget.r, 'worker', x['id'] as int)
+          : 0;
+      if (!mounted) return;
       int? paymentId;
       if (!await runGuarded(
         context,
@@ -9485,22 +9532,39 @@ class _WorkersState extends State<WorkersPage> {
       if (type != 'payment' || !mounted) return;
       final recipientName = x['name']?.toString() ?? 'العامل';
       final amountValue = int.parse(a.text);
-      final operationNumber = paymentId == null
-          ? ''
-          : ' رقم العملية: $paymentId.';
-      final message = [
-        'السلام عليكم $recipientName،',
-        'تم صرف مبلغ ${money(amountValue)} لكم بتاريخ ${DateFormat('yyyy/MM/dd HH:mm').format(AppClock.now())}.',
-        operationNumber,
-      ].where((line) => line.isNotEmpty).join('\n');
+      final currentBalance =
+          await _messageBalanceForParty(widget.r, 'worker', x['id'] as int);
+      final methodRows = pm == null
+          ? <Map<String, Object?>>[]
+          : await widget.r.db.rawQuery(
+              'SELECT name FROM payment_methods WHERE id=? LIMIT 1',
+              [pm],
+            );
+      final paymentMethodName = methodRows.isEmpty
+          ? '—'
+          : '${methodRows.first['name'] ?? '—'}';
+      final message = await _renderSavedMessageTemplate(
+        widget.r,
+        MessageTemplateService.paymentKey,
+        {
+          'اسم العميل': recipientName,
+          'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+          'رقم السند': paymentId == null ? '—' : '$paymentId',
+          'المبلغ': money(amountValue),
+          'طريقة الدفع': paymentMethodName,
+          'البيان': 'صرف مستحقات العامل',
+          'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: 'worker'),
+          'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: 'worker'),
+        },
+      );
+      if (!mounted) return;
       await ManualMessageService.offerChoices(
         context,
         title: 'تم دفع مستحق العامل',
         recipientName: recipientName,
         phone: x['phone']?.toString() ?? '',
         message: message,
-      );
-    }
+      );    }
   }
 
   Future<void> editWorker(Map<String, Object?> x) async {
@@ -10277,6 +10341,12 @@ class _PartnersState extends State<PartnersPage> {
     if (ok == true) {
       try {
         final amountValue = int.parse(amount.text);
+        final transactionAt = AppClock.now();
+        final previousBalance = await _messageBalanceForParty(
+          widget.r,
+          'partner',
+          x['id'] as int,
+        );
         final paymentId = await widget.r.accounting.payPartner(
           partnerId: x['id'] as int,
           amount: amountValue,
@@ -10287,11 +10357,33 @@ class _PartnersState extends State<PartnersPage> {
         await load();
         if (!mounted) return;
         final recipientName = x['name']?.toString() ?? 'الشريك';
-        final message = [
-          'السلام عليكم $recipientName،',
-          'تم صرف مبلغ ${money(amountValue)} لكم بتاريخ ${DateFormat('yyyy/MM/dd HH:mm').format(AppClock.now())}.',
-          'رقم العملية: $paymentId.',
-        ].join('\n');
+        final currentBalance = await _messageBalanceForParty(
+          widget.r,
+          'partner',
+          x['id'] as int,
+        );
+        final methodRows = await widget.r.db.rawQuery(
+          'SELECT name FROM payment_methods WHERE id=? LIMIT 1',
+          [pm],
+        );
+        final paymentMethodName = methodRows.isEmpty
+            ? '—'
+            : '${methodRows.first['name'] ?? '—'}';
+        final message = await _renderSavedMessageTemplate(
+          widget.r,
+          MessageTemplateService.paymentKey,
+          {
+            'اسم العميل': recipientName,
+            'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+            'رقم السند': '$paymentId',
+            'المبلغ': money(amountValue),
+            'طريقة الدفع': paymentMethodName,
+            'البيان': 'صرف مستحقات الشريك',
+            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: 'partner'),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: 'partner'),
+          },
+        );
+        if (!mounted) return;
         await ManualMessageService.offerChoices(
           context,
           title: 'تم دفع مستحق الشريك',
@@ -14088,6 +14180,121 @@ class _SettingsState extends State<SettingsPage> {
     }
   }
 
+  Future<void> editMessageTemplates() async {
+    const keys = [
+      MessageTemplateService.irrigationKey,
+      MessageTemplateService.receiptKey,
+      MessageTemplateService.paymentKey,
+    ];
+    const labels = ['رسالة السقاية', 'رسالة القبض', 'رسالة الدفع'];
+    var selected = keys.first;
+    final controllers = <String, TextEditingController>{
+      for (final key in keys)
+        key: TextEditingController(
+          text: s[key] ?? MessageTemplateService.defaults[key]!,
+        ),
+    };
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, refresh) => AlertDialog(
+            title: const Text('قوالب الرسائل'),
+            content: SizedBox(
+              width: 560,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text('اختر نوع الرسالة ثم عدّل نصها. لإضافة معلومة، اخترها من القائمة؛ لا تحتاج إلى كتابة أي رموز.'),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: selected,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'نوع الرسالة'),
+                      items: [
+                        for (var i = 0; i < keys.length; i++)
+                          DropdownMenuItem(value: keys[i], child: Text(labels[i])),
+                      ],
+                      onChanged: (value) => refresh(() => selected = value ?? keys.first),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: controllers[selected],
+                      minLines: 8,
+                      maxLines: 14,
+                      decoration: const InputDecoration(labelText: 'نص الرسالة', border: OutlineInputBorder(), alignLabelWithHint: true),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('إضافة معلومة إلى الرسالة', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final field in MessageTemplateService.fields[selected] ?? const <String>[])
+                          ActionChip(
+                            label: Text(field),
+                            onPressed: () {
+                              final controller = controllers[selected]!;
+                              final text = controller.text;
+                              final selection = controller.selection;
+                              final insertion = '{$field}';
+                              final start = selection.isValid ? selection.start : text.length;
+                              final end = selection.isValid ? selection.end : text.length;
+                              controller.value = TextEditingValue(
+                                text: text.replaceRange(start, end, insertion),
+                                selection: TextSelection.collapsed(offset: start + insertion.length),
+                              );
+                              refresh(() {});
+                            },
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => refresh(() => controllers[selected]!.text = MessageTemplateService.defaults[selected]!),
+                      icon: const Icon(Icons.restore),
+                      label: const Text('استعادة النص الافتراضي'),
+                    ),
+                    const Divider(),
+                    const Text('معاينة تجريبية', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    Text(MessageTemplateService.preview(controllers[selected]!.text)),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('إلغاء')),
+              FilledButton.icon(
+                onPressed: () async {
+                  try {
+                    for (final key in keys) {
+                      await widget.r.setSetting(key, controllers[key]!.text);
+                    }
+                    await load();
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    if (mounted) ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('تم حفظ قوالب الرسائل')));
+                  } catch (e) {
+                    if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('تعذر حفظ القوالب: $e')));
+                  }
+                },
+                icon: const Icon(Icons.save),
+                label: const Text('حفظ القوالب'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+    }
+  }
+
   Widget _appearanceSettings() {
     final selected = s['theme_key'] ?? 'olive';
     final mode = s['theme_mode'] ?? 'system';
@@ -14727,6 +14934,18 @@ class _SettingsState extends State<SettingsPage> {
         children: [
           _settingsHero(),
           _appearanceSettings(),
+          SettingGroup(
+            title: 'قوالب الرسائل',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.message_outlined, color: _reportOliveDark),
+                title: const Text('تعديل رسائل السقاية والقبض والدفع'),
+                subtitle: const Text('تعديل النص، إدراج معلومات جاهزة، معاينة الرسالة واستعادة النص الافتراضي'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: editMessageTemplates,
+              ),
+            ],
+          ),
           SettingGroup(
             title: 'الفقاعة العائمة',
             children: [
