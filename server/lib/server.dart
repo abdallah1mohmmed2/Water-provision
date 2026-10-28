@@ -73,7 +73,7 @@ class SaqiaServer {
   }
 
   List<Map<String,Object?>> _rows(ResultSet rows) => rows.map((row) => {
-    for (var i = 0; i < rows.columnNames.length; i++) rows.columnNames[i]: row[i]
+    for (final column in rows.columnNames) column: row[column]
   }).toList();
   Response _json(Object body, {int status = 200}) => Response(status, body: jsonEncode(body), headers: {'content-type':'application/json; charset=utf-8'});
   Future<Map<String,dynamic>> _body(Request r) async { try { final raw = await r.readAsString(); if (raw.trim().isEmpty) return {}; return jsonDecode(raw) as Map<String,dynamic>; } catch (_) { return {}; } }
