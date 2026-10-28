@@ -305,7 +305,7 @@ class ReportService {
       columns: headers,
       rows: tableRows,
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
-      fileName: '${titles[key] ?? key}.pdf',
+      fileName: _pdfFileName(reportTitle),
       minTableRows: 7,
       pageFormat: sourceHeaders.length >= 5 ||
               const {
@@ -550,8 +550,23 @@ class ReportService {
     );
   }
 
-  Future<void> printPaymentReceipt(int paymentId) async =>
-      Printing.layoutPdf(onLayout: (_) => paymentReceiptPdf(paymentId));
+  Future<void> printPaymentReceipt(int paymentId) async {
+    final bytes = await paymentReceiptPdf(paymentId);
+    final rows = await repo.db.rawQuery(
+      '''SELECT p.id, p.beneficiary_id, p.worker_id, p.partner_id,
+                COALESCE(b.name, w.name, pt.name) party_name
+         FROM payments p
+         LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id
+         LEFT JOIN workers w ON w.id=p.worker_id
+         LEFT JOIN partners pt ON pt.id=p.partner_id
+         WHERE p.id=? LIMIT 1''',
+      [paymentId],
+    );
+    final isReceipt = rows.isNotEmpty && rows.first['beneficiary_id'] != null;
+    final partyName = rows.isEmpty ? '' : '${rows.first['party_name'] ?? ''}'.trim();
+    final baseName = '${isReceipt ? 'سند قبض' : 'سند صرف'}${partyName.isEmpty ? '' : ' $partyName'} رقم $paymentId';
+    await Printing.layoutPdf(name: _pdfFileName(baseName), onLayout: (_) async => bytes);
+  }
 
   /// إنشاء PDF مخصص لتقرير الفواتير بأعمدته الثمانية وإجمالياته الرسمية.
   Future<Uint8List> invoicesPdf({
@@ -763,7 +778,7 @@ class ReportService {
   }) async {
     final bytes = await invoicesPdf(rows: rows, from: from, to: to);
     await Printing.layoutPdf(
-      name: 'تقرير-الفواتير',
+      name: _pdfFileName('تقرير الفواتير'),
       onLayout: (_) async => bytes,
     );
   }
@@ -774,7 +789,7 @@ class ReportService {
     DateTime? to,
   }) async {
     final bytes = await invoicesPdf(rows: rows, from: from, to: to);
-    await Printing.sharePdf(bytes: bytes, filename: 'تقرير-الفواتير.pdf');
+    await Printing.sharePdf(bytes: bytes, filename: '${_pdfFileName('تقرير الفواتير')}.pdf');
   }
 
   num _workerNum(Object? value) {
@@ -1011,7 +1026,7 @@ class ReportService {
         refNumber: 'WST-${DateFormat('yyMMdd-HHmm').format(now)}',
         attachments: 'الفترة: ${_workerPeriod(from)} إلى ${_workerPeriod(to)}',
         thirdSignatureLabel: 'إقرار العامل وتوقيعه: ....................',
-        fileName: 'كشف-حساب-وتسوية-مستحقات-عامل.pdf',
+        fileName: _pdfFileName('كشف حساب وتسوية مستحقات عامل ${worker['name'] ?? 'غير محدد'}'),
         reportTitle: 'كشف حساب وتسوية مستحقات عامل — ${worker['name'] ?? 'غير محدد'}',
         summaryBoxes: [
           StatBoxData(number: '1', title: 'نوع وطريقة التحاسب', value: '${_workerPayType(worker)} — ${_workerPayBasis(worker)}'),
@@ -1167,11 +1182,111 @@ class ReportService {
       rows: tableRows,
       footerTotalRow: ['', 'الإجمالي', '', NumberFormat('#,##0').format(totalCredit), NumberFormat('#,##0').format(totalDebit), NumberFormat('#,##0').format(balance)],
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
-      fileName: 'كشف-حساب-$name.pdf',
+      fileName: _pdfFileName('كشف حساب المستفيد $name'),
       minTableRows: 7,
 
         preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
       );
+  }
+
+  /// Removes characters rejected by Android's save/print filename field while
+  /// preserving Arabic names and readable report titles.
+  String _pdfFileName(String value) {
+    final cleaned = value
+        .replaceAll(RegExp(r'[\\/:*?"<>|\\u0000-\\u001F]'), '-')
+        .replaceAll(RegExp(r'\\s+'), ' ')
+        .trim()
+        .replaceAll(RegExp(r'[. ]+    String key, {
+    DateTime? from,
+    DateTime? to,
+    int? beneficiaryId,
+    int? workerId,
+    int? partnerId,
+    String? systemType,
+    int? cashboxId,
+    int? paymentMethodId,
+    String? category,
+    String? status,
+    List<Map<String, Object?>>? sourceRows,
+  }) async {
+    if (key == 'beneficiary_statement' && beneficiaryId != null) {
+      await printBeneficiaryStatementOfficial(
+        beneficiaryId: beneficiaryId,
+        from: from,
+        to: to,
+      );
+      return;
+    }
+    if (key == 'worker_transactions') {
+      await _printWorkerTransactionsOfficial(workerId: workerId, from: from, to: to);
+      return;
+    }
+    // Generate the document before opening Android's print UI so exceptions
+    // from fonts, data formatting, or PDF layout surface in the calling screen.
+    final bytes = await pdf(
+      key,
+      from: from,
+      to: to,
+      beneficiaryId: beneficiaryId,
+      workerId: workerId,
+      partnerId: partnerId,
+      systemType: systemType,
+      cashboxId: cashboxId,
+      paymentMethodId: paymentMethodId,
+      category: category,
+      status: status,
+      sourceRows: sourceRows,
+    );
+    if (bytes.isEmpty) {
+      throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');
+    }
+    try {
+      await Printing.layoutPdf(
+        // Give Android's print/save dialog the actual report name instead of
+        // its generic default filename, "document".
+        name: await _reportFileName(key, beneficiaryId: beneficiaryId, workerId: workerId, partnerId: partnerId),
+        onLayout: (_) async => bytes,
+      );
+    } catch (printError) {
+      // Keep a usable PDF delivery path if Android's native print dialog fails
+      // for any reason, not only the known "No value" bridge error.
+      try {
+        await Printing.sharePdf(
+          bytes: bytes,
+          filename: '${await _reportFileName(key, beneficiaryId: beneficiaryId, workerId: workerId, partnerId: partnerId)}.pdf',
+        );
+      } catch (shareError) {
+        throw StateError(
+          'تم إنشاء ملف PDF لكن تعذّر فتح الطباعة أو المشاركة. '
+          'خطأ الطباعة: $printError؛ خطأ المشاركة/الحفظ: $shareError',
+        );
+      }
+    }
+  }
+}
+), '');
+    return cleaned.isEmpty ? 'تقرير' : cleaned;
+  }
+
+  Future<String> _reportFileName(
+    String key, {
+    int? beneficiaryId,
+    int? workerId,
+    int? partnerId,
+  }) async {
+    String? personName;
+    if (beneficiaryId != null) {
+      final rows = await repo.db.rawQuery('SELECT name FROM beneficiaries WHERE id=? LIMIT 1', [beneficiaryId]);
+      if (rows.isNotEmpty) personName = '${rows.first['name'] ?? ''}'.trim();
+    } else if (workerId != null) {
+      final rows = await repo.db.rawQuery('SELECT name FROM workers WHERE id=? LIMIT 1', [workerId]);
+      if (rows.isNotEmpty) personName = '${rows.first['name'] ?? ''}'.trim();
+    } else if (partnerId != null) {
+      final rows = await repo.db.rawQuery('SELECT name FROM partners WHERE id=? LIMIT 1', [partnerId]);
+      if (rows.isNotEmpty) personName = '${rows.first['name'] ?? ''}'.trim();
+    }
+    final title = titles[key] ?? key;
+    return _pdfFileName(personName == null || personName.isEmpty ? title : '$title $personName');
   }
 
   Future<void> printPdf(
@@ -1223,7 +1338,7 @@ class ReportService {
       await Printing.layoutPdf(
         // Give Android's print/save dialog the actual report name instead of
         // its generic default filename, "document".
-        name: (titles[key] ?? key).replaceAll('/', '-'),
+        name: await _reportFileName(key, beneficiaryId: beneficiaryId, workerId: workerId, partnerId: partnerId),
         onLayout: (_) async => bytes,
       );
     } catch (printError) {
@@ -1232,7 +1347,7 @@ class ReportService {
       try {
         await Printing.sharePdf(
           bytes: bytes,
-          filename: '${(titles[key] ?? 'report').replaceAll('/', '-')}.pdf',
+          filename: '${await _reportFileName(key, beneficiaryId: beneficiaryId, workerId: workerId, partnerId: partnerId)}.pdf',
         );
       } catch (shareError) {
         throw StateError(
