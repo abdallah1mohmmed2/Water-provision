@@ -9511,6 +9511,7 @@ class _WorkersState extends State<WorkersPage> {
       final previousBalance = type == 'payment'
           ? await _messageBalanceForParty(widget.r, 'worker', x['id'] as int)
           : 0;
+      if (!mounted) return;
       int? paymentId;
       if (!await runGuarded(
         context,
