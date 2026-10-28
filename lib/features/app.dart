@@ -5224,7 +5224,10 @@ int? parseClock(String raw) {
     if (a == null || b == null || startPeriod == null) return;
     final startHour = (a ~/ 60) % 12;
     final endHour = (b ~/ 60) % 12;
-    final crossesTwelve = (endHour == 0 && startHour != 0) || b < a;
+    // بدّل صباحاً/مساءً فقط عند عبور حد 11 إلى 12.
+    // كون وقت النهاية أصغر رقمياً من البداية لا يعني تبديل الفترة؛
+    // فمثلاً 12:00 صباحاً إلى 01:00 صباحاً مدة ساعة واحدة، لا 13 ساعة.
+    final crossesTwelve = startHour == 11 && endHour == 0;
     endPeriod = crossesTwelve ? _oppositePeriod(startPeriod!) : startPeriod;
   }
 
