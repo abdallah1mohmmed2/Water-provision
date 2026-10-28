@@ -9,7 +9,7 @@ class AppPrefsData {
   final String appName, themeKey, themeMode;
   final bool reducedMotion, popup, sound;
   const AppPrefsData({
-    this.appName = 'ساقية لإدارة محطة ضخ مياه الري',
+    this.appName = 'منظومة',
     this.themeKey = 'olive',
     this.themeMode = 'system',
     this.reducedMotion = false,
@@ -28,7 +28,9 @@ class AppPrefs {
   static Future<void> apply(Map<String, String> s) async {
     final name = (s['app_name'] ?? '').trim();
     notifier.value = AppPrefsData(
-      appName: name.isEmpty ? const AppPrefsData().appName : name,
+      appName: name.isEmpty || name == 'ساقية لإدارة محطة ضخ مياه الري'
+          ? const AppPrefsData().appName
+          : name,
       themeKey: (s['theme_key'] ?? 'olive').trim(),
       themeMode: (s['theme_mode'] ?? 'system').trim(),
       reducedMotion: s['reduced_motion'] == 'true',
