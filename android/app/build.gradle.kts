@@ -60,6 +60,12 @@ tasks.named("preBuild").configure {
     dependsOn(generateLauncherIcons)
 }
 
+tasks.configureEach {
+    if (name.startsWith("process") && name.endsWith("Resources")) {
+        dependsOn(generateLauncherIcons)
+    }
+}
+
 
 android {
     namespace = "com.saqia.saqia_station"
