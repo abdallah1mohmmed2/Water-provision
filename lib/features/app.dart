@@ -14103,7 +14103,6 @@ class _SettingsState extends State<SettingsPage> {
           text: s[key] ?? MessageTemplateService.defaults[key]!,
         ),
     };
-    String? chosenField;
     try {
       await showDialog<void>(
         context: context,
@@ -14120,7 +14119,7 @@ class _SettingsState extends State<SettingsPage> {
                     const Text('اختر نوع الرسالة ثم عدّل نصها. لإضافة معلومة، اخترها من القائمة؛ لا تحتاج إلى كتابة أي رموز.'),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: selected,
+                      initialValue: selected,
                       isExpanded: true,
                       decoration: const InputDecoration(labelText: 'نوع الرسالة'),
                       items: [
