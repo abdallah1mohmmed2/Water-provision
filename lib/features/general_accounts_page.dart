@@ -362,7 +362,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
       }
       final settings = await widget.repository.settings();
       await OfficialReportTemplate.preview(
-        rightHeader1: '${settings['station_name'] ?? 'منظومة السقاية'}',
+        rightHeader1: settings['station_name']?.toString() ?? 'منظومة السقاية',
         rightHeader2: 'الحسابات العامة',
         rightHeader3: 'كشف حساب مستقل',
         date: AppClock.now().toIso8601String().split('T').first,
