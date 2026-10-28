@@ -9497,6 +9497,10 @@ class _WorkersState extends State<WorkersPage> {
     );
     if (ok == true) {
       if (!mounted) return;
+      final transactionAt = AppClock.now();
+      final previousBalance = type == 'payment'
+          ? await _messageBalanceForParty(widget.r, 'worker', x['id'] as int)
+          : 0;
       int? paymentId;
       if (!await runGuarded(
         context,
@@ -9517,22 +9521,38 @@ class _WorkersState extends State<WorkersPage> {
       if (type != 'payment' || !mounted) return;
       final recipientName = x['name']?.toString() ?? 'العامل';
       final amountValue = int.parse(a.text);
-      final operationNumber = paymentId == null
-          ? ''
-          : ' رقم العملية: $paymentId.';
-      final message = [
-        'السلام عليكم $recipientName،',
-        'تم صرف مبلغ ${money(amountValue)} لكم بتاريخ ${DateFormat('yyyy/MM/dd HH:mm').format(AppClock.now())}.',
-        operationNumber,
-      ].where((line) => line.isNotEmpty).join('\n');
+      final currentBalance =
+          await _messageBalanceForParty(widget.r, 'worker', x['id'] as int);
+      final methodRows = pm == null
+          ? <Map<String, Object?>>[]
+          : await widget.r.db.rawQuery(
+              'SELECT name FROM payment_methods WHERE id=? LIMIT 1',
+              [pm],
+            );
+      final paymentMethodName = methodRows.isEmpty
+          ? '—'
+          : '${methodRows.first['name'] ?? '—'}';
+      final message = await _renderSavedMessageTemplate(
+        widget.r,
+        MessageTemplateService.paymentKey,
+        {
+          'اسم العميل': recipientName,
+          'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+          'رقم السند': paymentId == null ? '—' : '$paymentId',
+          'المبلغ': money(amountValue),
+          'طريقة الدفع': paymentMethodName,
+          'البيان': 'صرف مستحقات العامل',
+          'الرصيد السابق': _messageBalanceLabel(previousBalance),
+          'الرصيد الحالي': _messageBalanceLabel(currentBalance),
+        },
+      );
       await ManualMessageService.offerChoices(
         context,
         title: 'تم دفع مستحق العامل',
         recipientName: recipientName,
         phone: x['phone']?.toString() ?? '',
         message: message,
-      );
-    }
+      );    }
   }
 
   Future<void> editWorker(Map<String, Object?> x) async {
@@ -10309,6 +10329,12 @@ class _PartnersState extends State<PartnersPage> {
     if (ok == true) {
       try {
         final amountValue = int.parse(amount.text);
+        final transactionAt = AppClock.now();
+        final previousBalance = await _messageBalanceForParty(
+          widget.r,
+          'partner',
+          x['id'] as int,
+        );
         final paymentId = await widget.r.accounting.payPartner(
           partnerId: x['id'] as int,
           amount: amountValue,
@@ -10319,18 +10345,39 @@ class _PartnersState extends State<PartnersPage> {
         await load();
         if (!mounted) return;
         final recipientName = x['name']?.toString() ?? 'الشريك';
-        final message = [
-          'السلام عليكم $recipientName،',
-          'تم صرف مبلغ ${money(amountValue)} لكم بتاريخ ${DateFormat('yyyy/MM/dd HH:mm').format(AppClock.now())}.',
-          'رقم العملية: $paymentId.',
-        ].join('\n');
+        final currentBalance = await _messageBalanceForParty(
+          widget.r,
+          'partner',
+          x['id'] as int,
+        );
+        final methodRows = await widget.r.db.rawQuery(
+          'SELECT name FROM payment_methods WHERE id=? LIMIT 1',
+          [pm],
+        );
+        final paymentMethodName = methodRows.isEmpty
+            ? '—'
+            : '${methodRows.first['name'] ?? '—'}';
+        final message = await _renderSavedMessageTemplate(
+          widget.r,
+          MessageTemplateService.paymentKey,
+          {
+            'اسم العميل': recipientName,
+            'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+            'رقم السند': '$paymentId',
+            'المبلغ': money(amountValue),
+            'طريقة الدفع': paymentMethodName,
+            'البيان': 'صرف مستحقات الشريك',
+            'الرصيد السابق': _messageBalanceLabel(previousBalance),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance),
+          },
+        );
         await ManualMessageService.offerChoices(
           context,
           title: 'تم دفع مستحق الشريك',
           recipientName: recipientName,
           phone: x['phone']?.toString() ?? '',
           message: message,
-        );
+        );;
       } catch (e) {
         msg(friendlyError(e));
       }
