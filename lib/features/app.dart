@@ -14735,7 +14735,7 @@ class _SettingsState extends State<SettingsPage> {
                   'سعر النوع الثالث بالساعة',
                   true,
                 ),
-              setTile('partial_hour', 'محاسبة الجزء من الساعة'),
+              boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
               dropdownTile('rounding', 'سياسة التقريب', const [
                 MapEntry('nearest', 'التقريب إلى أقرب عدد صحيح'),
                 MapEntry('up', 'التقريب لأعلى'),
