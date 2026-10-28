@@ -21,6 +21,7 @@ import '../services/report_service.dart';
 import '../services/official_report_template.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
+import '../services/message_template_service.dart';
 import 'general_accounts_page.dart';
 
 const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
@@ -14088,6 +14089,122 @@ class _SettingsState extends State<SettingsPage> {
     }
   }
 
+  Future<void> editMessageTemplates() async {
+    const keys = [
+      MessageTemplateService.irrigationKey,
+      MessageTemplateService.receiptKey,
+      MessageTemplateService.paymentKey,
+    ];
+    const labels = ['رسالة السقاية', 'رسالة القبض', 'رسالة الدفع'];
+    var selected = keys.first;
+    final controllers = <String, TextEditingController>{
+      for (final key in keys)
+        key: TextEditingController(
+          text: s[key] ?? MessageTemplateService.defaults[key]!,
+        ),
+    };
+    String? chosenField;
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, refresh) => AlertDialog(
+            title: const Text('قوالب الرسائل'),
+            content: SizedBox(
+              width: 560,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text('اختر نوع الرسالة ثم عدّل نصها. لإضافة معلومة، اخترها من القائمة؛ لا تحتاج إلى كتابة أي رموز.'),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selected,
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'نوع الرسالة'),
+                      items: [
+                        for (var i = 0; i < keys.length; i++)
+                          DropdownMenuItem(value: keys[i], child: Text(labels[i])),
+                      ],
+                      onChanged: (value) => refresh(() => selected = value ?? keys.first),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: controllers[selected],
+                      minLines: 8,
+                      maxLines: 14,
+                      decoration: const InputDecoration(labelText: 'نص الرسالة', border: OutlineInputBorder(), alignLabelWithHint: true),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('إضافة معلومة إلى الرسالة', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final field in MessageTemplateService.fields[selected] ?? const <String>[])
+                          ActionChip(
+                            label: Text(field),
+                            onPressed: () {
+                              final controller = controllers[selected]!;
+                              final text = controller.text;
+                              final selection = controller.selection;
+                              final insertion = '{$field}';
+                              final start = selection.isValid ? selection.start : text.length;
+                              final end = selection.isValid ? selection.end : text.length;
+                              controller.value = TextEditingValue(
+                                text: text.replaceRange(start, end, insertion),
+                                selection: TextSelection.collapsed(offset: start + insertion.length),
+                              );
+                              refresh(() {});
+                            },
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => refresh(() => controllers[selected]!.text = MessageTemplateService.defaults[selected]!),
+                      icon: const Icon(Icons.restore),
+                      label: const Text('استعادة النص الافتراضي'),
+                    ),
+                    const Divider(),
+                    const Text('معاينة تجريبية', style: TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 6),
+                    Text(MessageTemplateService.preview(controllers[selected]!.text)),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('إلغاء')),
+              FilledButton.icon(
+                onPressed: () async {
+                  try {
+                    for (final key in keys) {
+                      await widget.r.setSetting(key, controllers[key]!.text);
+                    }
+                    await load();
+                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                    if (mounted) ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('تم حفظ قوالب الرسائل')));
+                  } catch (e) {
+                    if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('تعذر حفظ القوالب: $e')));
+                  }
+                },
+                icon: const Icon(Icons.save),
+                label: const Text('حفظ القوالب'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+    }
+  }
+
   Widget _appearanceSettings() {
     final selected = s['theme_key'] ?? 'olive';
     final mode = s['theme_mode'] ?? 'system';
@@ -14727,6 +14844,18 @@ class _SettingsState extends State<SettingsPage> {
         children: [
           _settingsHero(),
           _appearanceSettings(),
+          SettingGroup(
+            title: 'قوالب الرسائل',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.message_outlined, color: _reportOliveDark),
+                title: const Text('تعديل رسائل السقاية والقبض والدفع'),
+                subtitle: const Text('تعديل النص، إدراج معلومات جاهزة، معاينة الرسالة واستعادة النص الافتراضي'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: editMessageTemplates,
+              ),
+            ],
+          ),
           SettingGroup(
             title: 'الفقاعة العائمة',
             children: [
