@@ -6776,6 +6776,8 @@ class SessionsPage extends StatefulWidget {
 
 class _SessionsState extends State<SessionsPage> {
   List<Map<String, Object?>> rows = [];
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
   List<Map<String, Object?>> bs = [], qs = [], ps = [], bookings = [], ws = [];
   String q = '';
   String queueType = 'circular';
@@ -6784,7 +6786,9 @@ class _SessionsState extends State<SessionsPage> {
 
   Future<void> load() async {
     try {
-      final a = await widget.r.sessions();
+      final generation = ++_searchGeneration;
+      final a = await widget.r.sessions(search: q);
+      if (!mounted || generation != _searchGeneration) return;
       final b = await widget.r.beneficiaries();
       final workers = await widget.r.workers();
       final st = await widget.r.settings();
@@ -7033,9 +7037,7 @@ class _SessionsState extends State<SessionsPage> {
 
   @override
   Widget build(BuildContext c) {
-    final filtered = rows
-        .where((x) => _matchesSearch('${x['beneficiary_name']} ${x['pump_name']}', q))
-        .toList();
+    final filtered = rows;
     return PageFrame(
       title: 'جلسات السقي',
       subtitle: 'مؤقت حقيقي محفوظ في قاعدة البيانات مع بدء وإيقاف وتأجيل',
@@ -7049,7 +7051,11 @@ class _SessionsState extends State<SessionsPage> {
       child: Column(
         children: [
           TextField(
-            onChanged: (v) => setState(() => q = v),
+            onChanged: (v) {
+              setState(() => q = v);
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+            },
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
               labelText: 'بحث باسم المستفيد أو المضخة',
@@ -7712,6 +7718,8 @@ class DieselPage extends StatefulWidget {
 
 class _DieselState extends State<DieselPage> {
   List<Map<String, Object?>> rows = [];
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
   List<Map<String, Object?>> bs = [], cs = [];
   double stock = 0;
   Map<String, Object?>? warning;
@@ -7722,8 +7730,10 @@ class _DieselState extends State<DieselPage> {
       if (mounted) setState(() => enabled = false);
       return;
     }
-    final a = await widget.r.diesel(),
-        b = await widget.r.beneficiaries(),
+    final generation = ++_searchGeneration;
+    final a = await widget.r.diesel(search: q);
+    if (!mounted || generation != _searchGeneration) return;
+    final b = await widget.r.beneficiaries(),
         c = await widget.r.cashboxes(),
         s = await widget.r.dieselStock(),
         w = await widget.r.dieselWarning();
@@ -7973,7 +7983,11 @@ class _DieselState extends State<DieselPage> {
               ),
               const SizedBox(height: 10),
               TextField(
-                onChanged: (v) => setState(() => q = v),
+                onChanged: (v) {
+                  setState(() => q = v);
+                  _searchDebounce?.cancel();
+                  _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+                },
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search),
                   labelText: 'بحث في حركات الديزل',
@@ -7981,14 +7995,11 @@ class _DieselState extends State<DieselPage> {
               ),
               const SizedBox(height: 8),
               Expanded(
-                child: ListView(
-                  children: [
-                    for (final x in rows.where(
-                      (x) =>
-                          '${x['beneficiary_name'] ?? ''} ${x['kind']} ${x['notes'] ?? ''}'
-                              .contains(q),
-                    ))
-                      Card(
+                child: ListView.builder(
+                  itemCount: rows.length,
+                  itemBuilder: (context, index) {
+                    final x = rows[index];
+                    return Card(
                         child: ListTile(
                           title: Text(
                             '${x['beneficiary_name'] ?? 'المخزون'} • ${statusName(x['kind'])}',
@@ -9035,11 +9046,15 @@ class ExpensesPage extends StatefulWidget {
 
 class _ExpensesState extends State<ExpensesPage> {
   List<Map<String, Object?>> rows = [];
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
   List<Map<String, Object?>> cash = [], methods = [], partners = [];
   String q = '';
   Future<void> load() async {
-    final a = await widget.r.expenses(),
-        b = await widget.r.cashboxes(),
+    final generation = ++_searchGeneration;
+    final a = await widget.r.expenses(search: q);
+    if (!mounted || generation != _searchGeneration) return;
+    final b = await widget.r.cashboxes(),
         m = await widget.r.paymentMethods(),
         p = await widget.r.partners();
     if (mounted) {
@@ -9247,19 +9262,22 @@ class _ExpensesState extends State<ExpensesPage> {
     child: Column(
       children: [
         TextField(
-          onChanged: (v) => setState(() => q = v),
+          onChanged: (v) {
+            setState(() => q = v);
+            _searchDebounce?.cancel();
+            _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+          },
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search),
             labelText: 'بحث ببيان المصروف أو التصنيف',
           ),
         ),
         Expanded(
-          child: ListView(
-            children: [
-              for (final x in rows.where(
-                (x) => _matchesSearch('${x['title']} ${x['category']}', q),
-              ))
-                Card(
+          child: ListView.builder(
+            itemCount: rows.length,
+            itemBuilder: (context, index) {
+              final x = rows[index];
+              return Card(
                   child: ListTile(
                     title: Text('${x['title']}'),
                     subtitle: Text(
@@ -9316,10 +9334,13 @@ class WorkersPage extends StatefulWidget {
 class _WorkersState extends State<WorkersPage> {
   List<Map<String, Object?>> rows = [];
   String q = '';
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
 
   Future<void> load() async {
-    final x = await widget.r.workers();
-    if (mounted) setState(() => rows = x);
+    final generation = ++_searchGeneration;
+    final x = await widget.r.workers(search: q);
+    if (mounted && generation == _searchGeneration) setState(() => rows = x);
   }
 
   @override
@@ -9922,9 +9943,7 @@ class _WorkersState extends State<WorkersPage> {
 
   @override
   Widget build(BuildContext c) {
-    final filtered = rows
-        .where((x) => _matchesSearch('${x['name']} ${x['phone'] ?? ''}', q))
-        .toList();
+    final filtered = rows;
     return PageFrame(
       title: 'العمال',
       subtitle: 'الأجر بالساعة أو النسبة أو الراتب الثابت مع الاستحقاق والدفع',
@@ -9950,7 +9969,11 @@ class _WorkersState extends State<WorkersPage> {
       child: Column(
         children: [
           TextField(
-            onChanged: (v) => setState(() => q = v),
+            onChanged: (v) {
+              setState(() => q = v);
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+            },
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
               labelText: 'بحث باسم العامل أو الهاتف',
@@ -10111,10 +10134,13 @@ class PartnersPage extends StatefulWidget {
 class _PartnersState extends State<PartnersPage> {
   List<Map<String, Object?>> rows = [];
   String q = '';
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
 
   Future<void> load() async {
-    final x = await widget.r.partners();
-    if (mounted) setState(() => rows = x);
+    final generation = ++_searchGeneration;
+    final x = await widget.r.partners(search: q);
+    if (mounted && generation == _searchGeneration) setState(() => rows = x);
   }
 
   @override
@@ -10550,9 +10576,7 @@ class _PartnersState extends State<PartnersPage> {
 
   @override
   Widget build(BuildContext c) {
-    final filtered = rows
-        .where((x) => _matchesSearch('${x['name']} ${x['phone'] ?? ''}', q))
-        .toList();
+    final filtered = rows;
     return PageFrame(
       title: 'الشركاء',
       subtitle: 'ملكية الشركاء وحصصهم واستحقاقاتهم ومدفوعاتهم',
@@ -10571,7 +10595,11 @@ class _PartnersState extends State<PartnersPage> {
       child: Column(
         children: [
           TextField(
-            onChanged: (v) => setState(() => q = v),
+            onChanged: (v) {
+              setState(() => q = v);
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+            },
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
               labelText: 'بحث باسم الشريك أو الهاتف',
