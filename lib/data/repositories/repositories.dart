@@ -15,13 +15,32 @@ class StationRepository {
     accounting = AccountingService(db);
   }
 
-  // تم التصحيح: استخدام rawQuery بدلاً من query للاستعلامات المباشرة، وحذف args:
-  Future<List<Map<String, Object?>>> beneficiaries([String q = '']) => db.rawQuery(
-    '''SELECT b.*,
-    (${BalanceSql.beneficiary('b')}) balance
-    FROM beneficiaries b WHERE b.status='active' AND (b.name LIKE ? OR COALESCE(b.phone,'') LIKE ? OR COALESCE(b.jerba_number,'') LIKE ? OR COALESCE(b.location,'') LIKE ?) ORDER BY b.name''',
-    ['%$q%', '%$q%', '%$q%', '%$q%'],
-  );
+  // البحث الجزئي يحافظ على مطابقة أي جزء من الاسم والهاتف ورقم الجربة والموقع.
+  // عند خلو النص نتجنب شروط LIKE المتعددة غير الضرورية.
+  Future<List<Map<String, Object?>>> beneficiaries([String q = '']) async {
+    final term = q.trim();
+    final balance = BalanceSql.beneficiary('b');
+    if (term.isEmpty) {
+      return db.rawQuery(
+        '''SELECT b.*, ($balance) balance
+        FROM beneficiaries b
+        WHERE b.status='active'
+        ORDER BY b.name''',
+      );
+    }
+    final pattern = '%$term%';
+    return db.rawQuery(
+      '''SELECT b.*, ($balance) balance
+      FROM beneficiaries b
+      WHERE b.status='active'
+        AND (b.name LIKE ?
+          OR COALESCE(b.phone,'') LIKE ?
+          OR COALESCE(b.jerba_number,'') LIKE ?
+          OR COALESCE(b.location,'') LIKE ?)
+      ORDER BY b.name''',
+      [pattern, pattern, pattern, pattern],
+    );
+  }
 
   Future<int> createBeneficiary({
     required String name,
