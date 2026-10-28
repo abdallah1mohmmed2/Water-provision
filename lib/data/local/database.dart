@@ -519,7 +519,7 @@ class AppDatabase {
       'timezone': 'Asia/Aden',
       'week_start': 'saturday',
       'financial_year_start': '01-01',
-      'app_name': 'ساقية لإدارة محطة ضخ مياه الري',
+      'app_name': 'منظومة',
       'system_type': 'diesel',
       'queue_type': 'circular',
       'time_source': 'device',

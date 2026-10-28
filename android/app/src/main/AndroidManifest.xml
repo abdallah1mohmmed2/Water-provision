@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <application
-        android:label="saqia_station"
+        android:label="منظومة"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
