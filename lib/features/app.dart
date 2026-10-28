@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:printing/printing.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import '../core/theme.dart';
 import '../core/permissions.dart';
@@ -14553,6 +14554,59 @@ class _SettingsState extends State<SettingsPage> {
     },
   );
 
+  Future<void> _pickImageSetting(String key, String label) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        dialogTitle: 'اختيار $label',
+        type: FileType.image,
+        allowMultiple: false,
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final path = result.files.single.path;
+      if (path == null || path.trim().isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تعذر الوصول إلى مسار الصورة المختارة على هذا الجهاز')),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
+      if (!await runGuarded(context, () => widget.r.setSetting(key, path))) return;
+      await load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تم حفظ $label')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر اختيار الصورة: ${friendlyError(e)}')),
+        );
+      }
+    }
+  }
+
+  Widget _imageSettingTile(String key, String label, IconData icon) {
+    final path = (s[key] ?? '').trim();
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      subtitle: Text(
+        path.isEmpty ? 'لم يتم اختيار صورة' : path,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: FilledButton.tonalIcon(
+        onPressed: () => _pickImageSetting(key, label),
+        icon: const Icon(Icons.folder_open_rounded),
+        label: const Text('اختيار صورة'),
+      ),
+    );
+  }
+
   Widget setTile(String k, String label, [bool n = false]) => ListTile(
     title: Text(label),
     subtitle: Text(settingDisplay(k, s[k] ?? 'غير مضبوط')),
@@ -14701,8 +14755,8 @@ class _SettingsState extends State<SettingsPage> {
               setTile('currency', 'العملة'),
               setTile('timezone', 'المنطقة الزمنية'),
               setTile('app_name', 'اسم التطبيق'),
-              setTile('station_logo_path', 'مسار شعار المحطة'),
-              setTile('app_icon_path', 'مسار أيقونة التطبيق'),
+              _imageSettingTile('station_logo_path', 'شعار المحطة', Icons.image_outlined),
+              _imageSettingTile('app_icon_path', 'أيقونة التطبيق', Icons.app_registration_rounded),
             ],
           ),
           SettingGroup(
