@@ -238,6 +238,12 @@ String settingDisplay(String k, String v) => switch (k) {
         ? 'وقت الجهاز'
         : v,
   'partial_hour' => v == 'true' ? 'نعم' : 'لا',
+  'rounding' => switch (v) {
+    'nearest' => 'التقريب إلى أقرب عدد صحيح',
+    'up' => 'التقريب لأعلى',
+    'down' => 'التقريب لأسفل',
+    _ => v,
+  },
   'manager_override_required' => v == 'true' ? 'نعم' : 'لا',
   'allow_midnight_crossing' => v == 'true' ? 'نعم' : 'لا',
   'sound_notifications' => v == 'true' ? 'نعم' : 'لا',
@@ -14730,7 +14736,11 @@ class _SettingsState extends State<SettingsPage> {
                   true,
                 ),
               setTile('partial_hour', 'محاسبة الجزء من الساعة'),
-              setTile('rounding', 'سياسة التقريب'),
+              dropdownTile('rounding', 'سياسة التقريب', const [
+                MapEntry('nearest', 'التقريب إلى أقرب عدد صحيح'),
+                MapEntry('up', 'التقريب لأعلى'),
+                MapEntry('down', 'التقريب لأسفل'),
+              ]),
             ],
           ),
           SettingGroup(
