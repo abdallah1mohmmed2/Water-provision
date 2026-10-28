@@ -5,6 +5,12 @@ import java.awt.image.BufferedImage
 import javax.imageio.ImageIO
 
 
+plugins {
+    id("com.android.application")
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id("dev.flutter.flutter-gradle-plugin")
+}
+
 val generateLauncherIcons by tasks.registering {
     val iconSource = rootProject.file("../assets/images/app_launcher_icon.jpg.b64")
     inputs.file(iconSource)
@@ -54,11 +60,6 @@ tasks.named("preBuild").configure {
     dependsOn(generateLauncherIcons)
 }
 
-plugins {
-    id("com.android.application")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
-    id("dev.flutter.flutter-gradle-plugin")
-}
 
 android {
     namespace = "com.saqia.saqia_station"
