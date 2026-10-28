@@ -47,11 +47,19 @@ Future<int> _messageBalanceForParty(
   return (balance['balance'] as num?)?.round() ?? 0;
 }
 
-String _messageBalanceLabel(Object? raw) {
+String _messageBalanceLabel(
+  Object? raw, {
+  required String partyType,
+}) {
   final value = (raw as num?)?.round() ?? 0;
-  if (value > 0) return 'عليه $value ريال';
-  if (value < 0) return 'له ${value.abs()} ريال';
-  return 'متوازن (0 ريال)';
+  if (value == 0) return 'متوازن (0 ريال)';
+  final beneficiary = partyType == 'beneficiary';
+  if (value > 0) {
+    return beneficiary ? 'عليه $value ريال' : 'له $value ريال';
+  }
+  return beneficiary
+      ? 'له ${value.abs()} ريال'
+      : 'عليه ${value.abs()} ريال';
 }
 
 Future<String> _renderSavedMessageTemplate(
@@ -5828,8 +5836,8 @@ int? parseClock(String raw) {
             'قيمة السقاية': money(totalAmount),
             'المبلغ المدفوع': money(paidAmount),
             'المتبقي من السقاية': money(totalAmount - paidAmount),
-            'الرصيد السابق': _messageBalanceLabel(previousBalance),
-            'الرصيد الحالي': _messageBalanceLabel(currentBalance),
+            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: partyType),
             'رقم العملية': '$irrigationId',
           },
         );
@@ -8322,8 +8330,8 @@ class _PaymentsState extends State<PaymentsPage> {
             'المبلغ': money(a),
             'طريقة الدفع': paymentMethodName,
             'البيان': note.text.trim().isEmpty ? '—' : note.text.trim(),
-            'الرصيد السابق': _messageBalanceLabel(previousBalance),
-            'الرصيد الحالي': _messageBalanceLabel(currentBalance),
+            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: partyType),
           },
         );
         if (!mounted) return;
@@ -9544,8 +9552,8 @@ class _WorkersState extends State<WorkersPage> {
           'المبلغ': money(amountValue),
           'طريقة الدفع': paymentMethodName,
           'البيان': 'صرف مستحقات العامل',
-          'الرصيد السابق': _messageBalanceLabel(previousBalance),
-          'الرصيد الحالي': _messageBalanceLabel(currentBalance),
+          'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
+          'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: partyType),
         },
       );
       if (!mounted) return;
@@ -10370,8 +10378,8 @@ class _PartnersState extends State<PartnersPage> {
             'المبلغ': money(amountValue),
             'طريقة الدفع': paymentMethodName,
             'البيان': 'صرف مستحقات الشريك',
-            'الرصيد السابق': _messageBalanceLabel(previousBalance),
-            'الرصيد الحالي': _messageBalanceLabel(currentBalance),
+            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
+            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: partyType),
           },
         );
         if (!mounted) return;
