@@ -29,6 +29,9 @@ jobs:
       - name: Run accounting calculation and balance unit tests (اختبارات الحسابات والأرصدة)
         run: flutter test test/calculations_test.dart test/general_account_balance_test.dart
 
+      - name: Run saved message template tests (اختبارات قوالب الرسائل المحفوظة)
+        run: flutter test test/message_template_service_test.dart
+
       - name: Run SQLite journal and rollback logic checks (فحص منطق SQLite والقيود العكسية)
         run: python3 tools/sql_logic_check.py
 
