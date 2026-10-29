@@ -12292,9 +12292,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   // تقرير الفواتير فقط: اعرض الدقائق الصافية بعد خصم الغيم للمنظومة الشمسية.
   // تبقى دقائق السقاية الأصلية محفوظة وتُستخدم في حساب القيمة قبل الخصم.
   int _invoiceMinutes(Map<String, Object?> row) {
-    final minutes = _n(row['minutes']).clamp(0, 100000000);
+    final minutes = _n(row['minutes']).clamp(0, 100000000).toInt();
     if ('${row['system_type'] ?? ''}' != 'solar') return minutes;
-    return (minutes - _n(row['cloud_minutes'])).clamp(0, 100000000);
+    return (minutes - _n(row['cloud_minutes'])).clamp(0, 100000000).toInt();
   }
 
   String _duration(Object? value) =>
