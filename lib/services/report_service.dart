@@ -723,23 +723,28 @@ class ReportService {
         ),
         StatBoxData(
           number: '3',
+          title: 'إجمالي الدقائق',
+          value: duration(totalMinutes),
+        ),
+        StatBoxData(
+          number: '4',
           title: 'القيمة الإجمالية',
           value: '${money(totalAmount)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '4',
+          number: '5',
           title: 'إجمالي المدفوع',
           value: '${money(totalPaid)} ريال',
         ),
         StatBoxData(
-          number: '5',
+          number: '6',
           title: 'المتبقي',
           value: '${money(remaining)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '6',
+          number: '7',
           title: 'الفترة',
           value: period,
         ),
