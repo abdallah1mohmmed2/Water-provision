@@ -17,6 +17,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Run Flutter tests and collect coverage
+        run: flutter test --coverage
+
       - name: Run SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
         env:
@@ -26,3 +38,4 @@ jobs:
           args: >
             -Dsonar.projectKey=abdallah1mohmmed2_Water-provision
             -Dsonar.organization=abdallah1mohmmed2
+            -Dsonar.dart.lcov.reportPaths=coverage/lcov.info
