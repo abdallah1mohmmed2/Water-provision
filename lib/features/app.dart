@@ -9283,7 +9283,6 @@ class _ExpensesState extends State<ExpensesPage> {
               );
             },
           ),
-        )
         ),
       ],
     ),
