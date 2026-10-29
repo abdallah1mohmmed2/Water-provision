@@ -12292,9 +12292,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   // عمود الدقائق في تقرير الفواتير يعرض الصافي بعد خصم الغيم للسقايات الشمسية فقط.
   // هذا للعرض والفرز في التقرير فقط؛ لا يغيّر دقائق السقاية المحفوظة أو الحسابات.
   int _invoiceNetMinutes(Map<String, Object?> row) {
-    final minutes = _n(row['minutes']).clamp(0, 100000000);
+    final minutes = _n(row['minutes']).clamp(0, 100000000).toInt();
     if ('${row['system_type'] ?? ''}' != 'solar') return minutes;
-    return (minutes - _n(row['cloud_minutes'])).clamp(0, 100000000);
+    return (minutes - _n(row['cloud_minutes'])).clamp(0, 100000000).toInt();
   }
 
   String _duration(Object? value) =>
