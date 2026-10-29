@@ -681,7 +681,6 @@ class ReportService {
         sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
     final totalAmount =
         data.fold<int>(0, (sum, row) => sum + n(row['total_amount']));
-    final settings = await repo.settings();
     final partialHour = settings['partial_hour'] != 'false';
     int amountBeforeCloud(Map<String, Object?> row) {
       if ('${row['system_type'] ?? ''}' != 'solar' || n(row['cloud_minutes']) <= 0) {
