@@ -12268,6 +12268,13 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     final minutes = _n(value).clamp(0, 100000000);
     return '$minutesد';
   }
+
+  String _durationHoursMinutes(Object? value) {
+    final minutes = _n(value).clamp(0, 100000000);
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+    return '$hours ساعة و $remainingMinutes دقيقة ($minutesد)';
+  }
   String _money(Object? value) => NumberFormat('#,##0').format(_n(value));
 
   Future<void> _load() async {
@@ -12542,7 +12549,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       LayoutBuilder(builder: (context, constraints) {
                         final compact = constraints.maxWidth < 650;
                         final cards = [
-                          _summaryCard('إجمالي الدقائق', _duration(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
+                          _summaryCard('إجمالي الساعات والدقائق', _durationHoursMinutes(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
                           _summaryCard('القيمة الإجمالية', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 1),
                           _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 2),
                         ];
