@@ -666,6 +666,10 @@ class ReportService {
       final minutes = n(value).clamp(0, 100000000);
       return '$minutesد';
     }
+    String hoursMinutes(int total) {
+      final minutes = total.clamp(0, 100000000);
+      return '${minutes ~/ 60} ساعة و ${minutes % 60} دقيقة';
+    }
     String display(Object? value) {
       final text = value == null || '$value'.trim().isEmpty ? '—' : '$value';
       return _shapeArabic(text);
@@ -715,8 +719,8 @@ class ReportService {
         ),
         StatBoxData(
           number: '2',
-          title: 'إجمالي الدقائق',
-          value: duration(totalMinutes),
+          title: 'إجمالي الساعات والدقائق',
+          value: hoursMinutes(totalMinutes),
         ),
         StatBoxData(
           number: '3',
