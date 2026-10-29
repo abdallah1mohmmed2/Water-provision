@@ -938,7 +938,7 @@ class StationRepository {
       clauses.add("(COALESCE(w.name,'') LIKE ? OR COALESCE(w.phone,'') LIKE ?)");
       args.addAll(['%$term%', '%$term%']);
     }
-    final where = clauses.isEmpty ? '' : 'WHERE ' + clauses.join(' AND ');
+    final where = clauses.isEmpty ? '' : 'WHERE ${clauses.join(' AND ')}';
     return db.rawQuery(
       "SELECT w.*, ${BalanceSql.workerPersonal('w')} balance FROM workers w $where ORDER BY w.name",
       args,
@@ -1448,7 +1448,7 @@ class StationRepository {
       args.addAll(['%$term%', '%$term%']);
     }
     return db.rawQuery(
-      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE " + clauses.join(' AND ') + ' ORDER BY p.name',
+      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE ${clauses.join(' AND ')} ORDER BY p.name',
       args,
     );
   }
