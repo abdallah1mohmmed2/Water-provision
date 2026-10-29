@@ -1,0 +1,63 @@
+name: Test integration branch and build APK
+
+on:
+  push:
+    branches:
+      - test/all-open-prs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Install server dependencies
+        working-directory: ./server
+        run: dart pub get
+
+      - name: Run accounting integration tests
+        run: flutter test test/accounting_integration_test.dart
+
+      - name: Run calculation and general account balance tests
+        run: flutter test test/calculations_test.dart test/general_account_balance_test.dart
+
+      - name: Run saved message template tests
+        run: flutter test test/message_template_service_test.dart
+
+      - name: Run SQLite journal and rollback checks
+        run: python3 tools/sql_logic_check.py
+
+      - name: Analyze project
+        run: flutter analyze .
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Upload test APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Water-provision-test-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

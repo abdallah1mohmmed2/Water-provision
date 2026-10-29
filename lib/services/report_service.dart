@@ -662,9 +662,12 @@ class ReportService {
       final periodLabel = d.hour < 12 ? 'ص' : 'م';
       return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
     }
-    String duration(Object? value) {
+    // تفاصيل التقرير وصف الإجمالي يعرضان عدد الدقائق فقط.
+    String duration(Object? value) =>
+        n(value).clamp(0, 100000000).toString();
+    String hoursMinutes(Object? value) {
       final minutes = n(value).clamp(0, 100000000);
-      return '$minutesد';
+      return '${minutes ~/ 60} ساعة و ${minutes % 60} دقيقة';
     }
     String display(Object? value) {
       final text = value == null || '$value'.trim().isEmpty ? '—' : '$value';
@@ -715,28 +718,33 @@ class ReportService {
         ),
         StatBoxData(
           number: '2',
+          title: 'إجمالي الساعات والدقائق',
+          value: hoursMinutes(totalMinutes),
+        ),
+        StatBoxData(
+          number: '3',
           title: 'إجمالي الدقائق',
           value: duration(totalMinutes),
         ),
         StatBoxData(
-          number: '3',
+          number: '4',
           title: 'القيمة الإجمالية',
           value: '${money(totalAmount)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '4',
+          number: '5',
           title: 'إجمالي المدفوع',
           value: '${money(totalPaid)} ريال',
         ),
         StatBoxData(
-          number: '5',
+          number: '6',
           title: 'المتبقي',
           value: '${money(remaining)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '6',
+          number: '7',
           title: 'الفترة',
           value: period,
         ),

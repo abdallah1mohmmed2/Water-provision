@@ -1,6 +1,8 @@
 name: Build Flutter APK
 
 on:
+  push:
+    branches: [ "test/all-open-prs" ]
   workflow_dispatch:
 
 jobs:
