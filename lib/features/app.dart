@@ -12384,7 +12384,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     return AccountingCalculations.amountForMinutes(_n(row['minutes']), rate, 'up', partialHour);
   }
   int get totalAmountBeforeCloud => visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
-  int get totalCloudDeduction => (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
+  int get totalCloudDeduction => (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62).toInt();
   int get totalAmount => visible.fold<int>(0, (sum, row) => sum + _n(row['total_amount']));
   int get totalPaid => visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
 
