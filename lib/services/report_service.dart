@@ -674,6 +674,10 @@ class ReportService {
 
     final totalMinutes =
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
+    // Keep stored minutes as the canonical duration; derive hours only for display.
+    final totalHours = totalMinutes ~/ 60;
+    final remainingMinutes = totalMinutes % 60;
+    final totalHoursMinutes = '$totalHours ساعة و $remainingMinutes دقيقة';
     final totalAmount =
         data.fold<int>(0, (sum, row) => sum + n(row['total_amount']));
     final totalPaid =
@@ -715,28 +719,34 @@ class ReportService {
         ),
         StatBoxData(
           number: '2',
-          title: 'إجمالي الدقائق',
-          value: duration(totalMinutes),
+          title: 'إجمالي الساعات والدقائق',
+          value: totalHoursMinutes,
         ),
         StatBoxData(
           number: '3',
+          title: 'إجمالي الدقائق',
+          value: duration(totalMinutes),
+          isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '4',
           title: 'القيمة الإجمالية',
           value: '${money(totalAmount)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '4',
+          number: '5',
           title: 'إجمالي المدفوع',
           value: '${money(totalPaid)} ريال',
         ),
         StatBoxData(
-          number: '5',
+          number: '6',
           title: 'المتبقي',
           value: '${money(remaining)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '6',
+          number: '7',
           title: 'الفترة',
           value: period,
         ),
