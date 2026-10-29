@@ -662,7 +662,13 @@ class ReportService {
       final periodLabel = d.hour < 12 ? 'ص' : 'م';
       return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
     }
-    // تفاصيل التقرير وصف الإجمالي يعرضان عدد الدقائق فقط.
+    // عمود الدقائق في تفاصيل PDF يعرض الصافي بعد خصم الغيم للسقايات الشمسية فقط.
+    // تبقى دقائق السقاية الأصلية محفوظة ويظل الملخص العام كما هو.
+    int invoiceNetMinutes(Map<String, Object?> row) {
+      final minutes = n(row['minutes']).clamp(0, 100000000);
+      if ('${row['system_type'] ?? ''}' != 'solar') return minutes;
+      return (minutes - n(row['cloud_minutes'])).clamp(0, 100000000);
+    }
     String duration(Object? value) =>
         n(value).clamp(0, 100000000).toString();
     String hoursMinutes(Object? value) {
@@ -711,7 +717,7 @@ class ReportService {
           display(data[i]['party_name']),
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
-          duration(data[i]['minutes']),
+          '${invoiceNetMinutes(data[i])}',
           money(data[i]['total_amount']),
           money(data[i]['paid_amount']),
           display(data[i]['notes']),
@@ -799,7 +805,7 @@ class ReportService {
         'الإجمالي',
         '',
         '',
-        duration(totalMinutes),
+        duration(data.fold<int>(0, (sum, row) => sum + invoiceNetMinutes(row))),
         money(totalAmount),
         money(totalPaid),
         'المتبقي: ${money(remaining)}',
