@@ -6807,7 +6807,7 @@ class _SessionsState extends State<SessionsPage> {
               where: 'id=? AND active=1',
               whereArgs: [selectedId],
             );
-      if (mounted) {
+      if (mounted && generation == _searchGeneration) {
         setState(() {
           rows = a;
           bs = b;
@@ -7740,7 +7740,7 @@ class _DieselState extends State<DieselPage> {
         c = await widget.r.cashboxes(),
         s = await widget.r.dieselStock(),
         w = await widget.r.dieselWarning();
-    if (mounted) {
+    if (mounted && generation == _searchGeneration) {
       setState(() {
         rows = a;
         bs = b;
@@ -9080,7 +9080,7 @@ class _ExpensesState extends State<ExpensesPage> {
     final b = await widget.r.cashboxes(),
         m = await widget.r.paymentMethods(),
         p = await widget.r.partners();
-    if (mounted) {
+    if (mounted && generation == _searchGeneration) {
       setState(() {
         rows = a;
         cash = b;
