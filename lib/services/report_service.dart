@@ -666,6 +666,14 @@ class ReportService {
       final minutes = n(value).clamp(0, 100000000);
       return '$minutesد';
     }
+    String durationHoursMinutes(Object? value) {
+      final minutes = n(value).clamp(0, 100000000);
+      final hours = minutes ~/ 60;
+      final remainingMinutes = minutes % 60;
+      if (hours == 0) return '$remainingMinutesد';
+      if (remainingMinutes == 0) return '$hoursس';
+      return '$hoursس $remainingMinutesد';
+    }
     String display(Object? value) {
       final text = value == null || '$value'.trim().isEmpty ? '—' : '$value';
       return _shapeArabic(text);
@@ -691,7 +699,7 @@ class ReportService {
           display(data[i]['party_name']),
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
-          duration(data[i]['minutes']),
+          '${n(data[i]['minutes'])}',
           money(data[i]['total_amount']),
           money(data[i]['paid_amount']),
           display(data[i]['notes']),
@@ -715,8 +723,8 @@ class ReportService {
         ),
         StatBoxData(
           number: '2',
-          title: 'إجمالي الدقائق',
-          value: duration(totalMinutes),
+          title: 'إجمالي الساعات والدقائق',
+          value: durationHoursMinutes(totalMinutes),
         ),
         StatBoxData(
           number: '3',
@@ -757,7 +765,7 @@ class ReportService {
         'الإجمالي',
         '',
         '',
-        duration(totalMinutes),
+        '$totalMinutes',
         money(totalAmount),
         money(totalPaid),
         'المتبقي: ${money(remaining)}',
