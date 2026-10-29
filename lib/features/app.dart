@@ -7934,7 +7934,11 @@ class _DieselState extends State<DieselPage> {
               ),
               const SizedBox(height: 10),
               DebouncedSearchField(
-                onChanged: (v) => setState(() => q = v),
+                onChanged: (v) {
+                  setState(() => q = v);
+                  _searchDebounce?.cancel();
+                  _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+                },
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search),
                   labelText: 'بحث في حركات الديزل',
@@ -7942,45 +7946,39 @@ class _DieselState extends State<DieselPage> {
               ),
               const SizedBox(height: 8),
               Expanded(
-                child: ListView(
-                  children: [
-                    for (final x in rows.where(
-                      (x) =>
-                          '${x['beneficiary_name'] ?? ''} ${x['kind']} ${x['notes'] ?? ''}'
-                              .contains(q),
-                    ))
-                      Card(
-                        child: ListTile(
-                          title: Text(
-                            '${x['beneficiary_name'] ?? 'المخزون'} • ${statusName(x['kind'])}',
-                          ),
-                          subtitle: Text(
-                            '${x['liters']} لتر • ${x['date']}${(x['notes'] ?? '').toString().isEmpty ? '' : ' • ${x['notes']}'}',
-                          ),
-                          trailing: Wrap(
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            children: [
-                              Text(money(x['amount'])),
-                              if (x['irrigation_id'] == null) ...[
-                                IconButton(
-                                  tooltip: 'تعديل الملاحظات',
-                                  onPressed: () => editMoveNotes(x),
-                                  icon: const Icon(Icons.edit_note_rounded),
-                                ),
-                                IconButton(
-                                  tooltip: 'إلغاء الحركة',
-                                  onPressed: () => cancelMove(x),
-                                  icon: const Icon(
-                                    Icons.cancel_outlined,
-                                    color: Colors.red,
-                                  ),
-                                ),
-                              ],
+                child: ListView.builder(
+                  itemCount: rows.length,
+                  itemBuilder: (context, index) {
+                    final x = rows[index];
+                    return Card(
+                      child: ListTile(
+                        title: Text(
+                          '${x['beneficiary_name'] ?? 'المخزون'} • ${statusName(x['kind'])}',
+                        ),
+                        subtitle: Text(
+                          '${x['liters']} لتر • ${x['date']}${(x['notes'] ?? '').toString().isEmpty ? '' : ' • ${x['notes']}'}',
+                        ),
+                        trailing: Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(money(x['amount'])),
+                            if (x['irrigation_id'] == null) ...[
+                              IconButton(
+                                tooltip: 'تعديل الملاحظات',
+                                onPressed: () => editMoveNotes(x),
+                                icon: const Icon(Icons.edit_note_rounded),
+                              ),
+                              IconButton(
+                                tooltip: 'إلغاء الحركة',
+                                onPressed: () => cancelMove(x),
+                                icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                              ),
                             ],
-                          ),
+                          ],
                         ),
                       ),
-                  ],
+                    );
+                  },
                 ),
               ),
             ],
@@ -9231,52 +9229,61 @@ class _ExpensesState extends State<ExpensesPage> {
     child: Column(
       children: [
         DebouncedSearchField(
-          onChanged: (v) => setState(() => q = v),
+          onChanged: (v) {
+            setState(() => q = v);
+            _searchDebounce?.cancel();
+            _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+          },
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search),
             labelText: 'بحث ببيان المصروف أو التصنيف',
           ),
         ),
         Expanded(
-          child: ListView(
-            children: [
-              for (final x in rows.where(
-                (x) => _matchesSearch('${x['title']} ${x['category']}', q),
-              ))
-                Card(
-                  child: ListTile(
-                    title: Text('${x['title']}'),
-                    subtitle: Text(
-                      '${categoryName('${x['category']}')} • ${x['date']} • '
-                      '${x['partner_id'] == null ? 'مصروف عام' : 'خاص بالشريك: ${partners.firstWhere((p) => (p['id'] as num).toInt() == (x['partner_id'] as num).toInt(), orElse: () => <String, Object?>{})['name'] ?? 'غير معروف'}'} • '
-                      '${statusName(x['status'])}',
-                    ),
-                    trailing: Wrap(
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          money(x['amount']),
-                          style: TextStyle(
-                            decoration: x['status'] == 'cancelled'
-                                ? TextDecoration.lineThrough
-                                : null,
-                          ),
+          child: ListView.builder(
+            itemCount: rows.length,
+            itemBuilder: (context, index) {
+              final x = rows[index];
+              final partnerId = (x['partner_id'] as num?)?.toInt();
+              final partner = partnerId == null
+                  ? null
+                  : partners.cast<Map<String, Object?>>().firstWhere(
+                      (p) => (p['id'] as num?)?.toInt() == partnerId,
+                      orElse: () => <String, Object?>{},
+                    );
+              final partnerName = partner?['name'] ?? 'غير معروف';
+              return Card(
+                child: ListTile(
+                  title: Text('${x['title']}'),
+                  subtitle: Text(
+                    '${categoryName('${x['category']}')} • ${x['date']} • '
+                    '${partnerId == null ? 'مصروف عام' : 'خاص بالشريك: $partnerName'} • '
+                    '${statusName(x['status'])}',
+                  ),
+                  trailing: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        money(x['amount']),
+                        style: TextStyle(
+                          decoration: x['status'] == 'cancelled'
+                              ? TextDecoration.lineThrough
+                              : null,
                         ),
-                        if (x['status'] == 'posted')
-                          IconButton(
-                            tooltip: 'إلغاء المصروف',
-                            onPressed: () => cancelExp(x),
-                            icon: const Icon(
-                              Icons.cancel_outlined,
-                              color: Colors.red,
-                            ),
-                          ),
-                      ],
-                    ),
+                      ),
+                      if (x['status'] == 'posted')
+                        IconButton(
+                          tooltip: 'إلغاء المصروف',
+                          onPressed: () => cancelExp(x),
+                          icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                        ),
+                    ],
                   ),
                 ),
-            ],
+              );
+            },
           ),
+        )
         ),
       ],
     ),
