@@ -1465,43 +1465,12 @@ class _ShellState extends State<AdminShell> {
   }
 }
 
-class _DashboardCircularMenu extends StatefulWidget {
+class _DashboardCircularMenu extends StatelessWidget {
   final List<int> availableMenu;
   final ValueChanged<int> onOpen;
   const _DashboardCircularMenu({required this.availableMenu, required this.onOpen});
 
-  @override
-  State<_DashboardCircularMenu> createState() => _DashboardCircularMenuState();
-}
-
-class _DashboardCircularMenuState extends State<_DashboardCircularMenu>
-    with SingleTickerProviderStateMixin {
-  double rotation = -math.pi / 2;
-  late final AnimationController controller = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 450),
-  );
-  late final Animation<double> scale = CurvedAnimation(parent: controller, curve: Curves.easeOutBack);
-
-  @override
-  void initState() {
-    super.initState();
-    controller.forward();
-  }
-
-  void _rotateFromDrag(DragUpdateDetails details) {
-    const center = Offset(143, 143);
-    final previous = details.localPosition - details.delta - center;
-    final current = details.localPosition - center;
-    if (previous.distance < 1 || current.distance < 1) return;
-    final before = math.atan2(previous.dy, previous.dx);
-    final after = math.atan2(current.dy, current.dx);
-    var delta = after - before;
-    if (delta > math.pi) delta -= 2 * math.pi;
-    if (delta < -math.pi) delta += 2 * math.pi;
-    setState(() => rotation += delta);
-  }
-  // لا نكرر اختصارات الزر العائم (السقاية، حجز الدور، إضافة المصروف،
-  // والصرف/القبض) داخل العجلة؛ نعرض بدلاً منها أقساماً مختلفة ومهمة.
+  // اختصارات ثابتة داخل البطاقة؛ لا نكرر وظائف الزر العائم.
   static const _items = <(int, String, IconData, Color)>[
     (1, 'المستفيدون', Icons.people_alt_rounded, Color(0xFF39FFB6)),
     (10, 'العمال', Icons.engineering_rounded, Color(0xFF00E5FF)),
@@ -1510,16 +1479,15 @@ class _DashboardCircularMenuState extends State<_DashboardCircularMenu>
     (8, 'الصناديق', Icons.account_balance_rounded, Color(0xFF39FFB6)),
     (14, 'التقارير', Icons.analytics_rounded, Color(0xFF00E5FF)),
     (17, 'النسخ الاحتياطي', Icons.backup_rounded, Color(0xFF39FFB6)),
+    (12, 'دفتر اليومية', Icons.menu_book_rounded, Color(0xFF00E5FF)),
+    (13, 'دفتر الأستاذ', Icons.account_tree_rounded, Color(0xFF39FFB6)),
   ];
 
   @override
-  void dispose() { controller.dispose(); super.dispose(); }
-
-  @override
   Widget build(BuildContext context) {
-    final items = _items.where((item) => widget.availableMenu.contains(item.$1)).toList();
+    final items = _items.where((item) => availableMenu.contains(item.$1)).toList();
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
+      padding: const EdgeInsets.fromLTRB(12, 16, 12, 14),
       decoration: BoxDecoration(
         color: const Color(0xFF08111F),
         borderRadius: BorderRadius.circular(28),
@@ -1530,86 +1498,57 @@ class _DashboardCircularMenuState extends State<_DashboardCircularMenu>
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(children: [
-            const Icon(Icons.bolt_rounded, color: Color(0xFF39FFB6)),
-            const SizedBox(width: 8),
-            const Expanded(child: Text('العمليات السريعة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17))),
-            Text('اسحب لتدويرها', style: TextStyle(color: Colors.white.withValues(alpha: .55), fontSize: 10)),
+          const Row(children: [
+            Icon(Icons.bolt_rounded, color: Color(0xFF39FFB6)),
+            SizedBox(width: 8),
+            Expanded(child: Text('العمليات السريعة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17))),
           ]),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 286,
-            child: GestureDetector(
-              // أفقيًا ينتقل المستخدم بين القائمة والتقارير، وعموديًا يدير عناصر العجلة.
-              onVerticalDragUpdate: _rotateFromDrag,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(
-                    width: 222, height: 222,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: const Color(0xFF0D1B2B),
-                      border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: .55), width: 1.4),
-                      boxShadow: [BoxShadow(color: const Color(0xFF00E5FF).withValues(alpha: .12), blurRadius: 24, spreadRadius: 2)],
-                    ),
-                  ),
-                  ...List.generate(items.length, (i) {
-                    final item = items[i];
-                    final angle = rotation + 2 * math.pi * i / items.length;
-                    final dx = 104 * math.cos(angle);
-                    final dy = 104 * math.sin(angle);
-                    return Transform.translate(
-                      offset: Offset(dx, dy),
-                      child: ScaleTransition(
-                        scale: scale,
-                        child: Transform.rotate(
-                          angle: -rotation,
-                          child: SizedBox(
-                            width: 78, height: 78,
-                            child: Material(
-                              color: const Color(0xFF111F30),
-                              shape: const CircleBorder(),
-                              child: InkWell(
-                                customBorder: const CircleBorder(),
-                                onTap: () => widget.onOpen(item.$1),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: item.$4.withValues(alpha: .78)),
-                                    boxShadow: [BoxShadow(color: item.$4.withValues(alpha: .14), blurRadius: 14)],
-                                  ),
-                                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                                    Icon(item.$3, color: item.$4, size: 24),
-                                    const SizedBox(height: 4),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 3),
-                                      child: Text(item.$2, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w700)),
-                                    ),
-                                  ]),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                  Container(
-                    width: 66, height: 66,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: const LinearGradient(colors: [Color(0xFF123047), Color(0xFF10251F)]),
-                      border: Border.all(color: const Color(0xFF39FFB6), width: 1.7),
-                      boxShadow: [BoxShadow(color: const Color(0xFF39FFB6).withValues(alpha: .2), blurRadius: 18)],
-                    ),
-                    child: const Icon(Icons.hub_rounded, color: Color(0xFF39FFB6), size: 30),
-                  ),
-                ],
-              ),
+          const SizedBox(height: 14),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: items.length,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: 1.02,
             ),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return Material(
+                color: const Color(0xFF111F30),
+                borderRadius: BorderRadius.circular(18),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: () => onOpen(item.$1),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: item.$4.withValues(alpha: .68)),
+                      boxShadow: [BoxShadow(color: item.$4.withValues(alpha: .08), blurRadius: 10)],
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(item.$3, color: item.$4, size: 27),
+                        const SizedBox(height: 7),
+                        Text(
+                          item.$2,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
