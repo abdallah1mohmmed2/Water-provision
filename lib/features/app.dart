@@ -12269,6 +12269,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   String search = '';
   String sortKey = 'start_datetime';
   bool ascending = false, loading = true;
+  bool partialHour = true;
   String? error;
 
   @override
@@ -12301,8 +12302,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   Future<void> _load() async {
     if (mounted) setState(() { loading = true; error = null; });
     try {
+      final settings = await widget.r.settings();
       final result = await widget.r.report('invoices', from: from, to: to, systemType: 'all');
-      if (mounted) setState(() { rows = result; loading = false; });
+      if (mounted) setState(() { rows = result; partialHour = settings['partial_hour'] != 'false'; loading = false; });
     } catch (e) {
       if (mounted) setState(() { error = friendlyError(e); loading = false; });
     }
@@ -12371,6 +12373,18 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   }
 
   int get totalMinutes => visible.fold<int>(0, (sum, row) => sum + _n(row['minutes']));
+  int get totalCloudMinutes => visible.fold<int>(0, (sum, row) =>
+      sum + ('${row['system_type'] ?? ''}' == 'solar' ? _n(row['cloud_minutes']) : 0));
+  int _amountBeforeCloud(Map<String, Object?> row) {
+    if ('${row['system_type'] ?? ''}' != 'solar' || _n(row['cloud_minutes']) <= 0) {
+      return _n(row['total_amount']);
+    }
+    final rate = _n(row['solar_hourly_rate_snapshot']);
+    if (rate <= 0) return _n(row['total_amount']);
+    return AccountingCalculations.amountForMinutes(_n(row['minutes']), rate, 'up', partialHour);
+  }
+  int get totalAmountBeforeCloud => visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
+  int get totalCloudDeduction => (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
   int get totalAmount => visible.fold<int>(0, (sum, row) => sum + _n(row['total_amount']));
   int get totalPaid => visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
 
@@ -12571,12 +12585,23 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                         final compact = constraints.maxWidth < 650;
                         final cards = [
                           _summaryCard('إجمالي الساعات والدقائق', _hoursMinutes(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
-                          _summaryCard('إجمالي الدقائق', _duration(totalMinutes), Icons.timelapse_rounded, _reportOliveDark, 1),
-                          _summaryCard('القيمة الإجمالية', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 2),
-                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 3),
+                          _summaryCard('دقائق الغيم المخصومة', _duration(totalCloudMinutes), Icons.cloud_rounded, _reportOliveDark, 1),
+                          _summaryCard('الإيرادات قبل خصم الغيم', '${_money(totalAmountBeforeCloud)} ريال', Icons.price_check_rounded, _reportGreen, 2),
+                          _summaryCard('قيمة خصم الغيم', '${_money(totalCloudDeduction)} ريال', Icons.remove_circle_outline_rounded, _reportOrange, 3),
+                          _summaryCard('الإيرادات بعد خصم الغيم', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 4),
+                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 5),
                         ];
-                        if (!compact) return Row(children: [for (var i = 0; i < cards.length; i++) ...[if (i > 0) const SizedBox(width: 8), Expanded(child: cards[i])]]);
-                        return Column(children: [for (final card in cards) Padding(padding: const EdgeInsets.only(bottom: 8), child: card)]);
+                        return Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (var i = 0; i < cards.length; i++)
+                              SizedBox(
+                                width: compact ? constraints.maxWidth : (constraints.maxWidth - 16) / 3,
+                                child: cards[i],
+                              ),
+                          ],
+                        );
                       }),
                       const SizedBox(height: 8),
                       Container(
