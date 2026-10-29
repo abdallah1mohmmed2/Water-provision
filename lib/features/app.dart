@@ -12354,6 +12354,14 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     final minutes = _n(value).clamp(0, 100000000);
     return '$minutesد';
   }
+  String _durationHoursMinutes(Object? value) {
+    final minutes = _n(value).clamp(0, 100000000);
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+    if (hours == 0) return '$remainingMinutesد';
+    if (remainingMinutes == 0) return '$hoursس';
+    return '$hoursس $remainingMinutesد';
+  }
   String _money(Object? value) => NumberFormat('#,##0').format(_n(value));
 
   Future<void> _load() async {
@@ -12628,7 +12636,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       LayoutBuilder(builder: (context, constraints) {
                         final compact = constraints.maxWidth < 650;
                         final cards = [
-                          _summaryCard('إجمالي الدقائق', _duration(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
+                          _summaryCard('إجمالي الساعات والدقائق', _durationHoursMinutes(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
                           _summaryCard('القيمة الإجمالية', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 1),
                           _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 2),
                         ];
@@ -12702,7 +12710,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text('${data[i]['party_name'] ?? 'غير محدد'}')),
                                       DataCell(Text(_time(data[i]['start_datetime']))),
                                       DataCell(Text(_time(data[i]['end_datetime']))),
-                                      DataCell(Text(_duration(data[i]['minutes']))),
+                                      DataCell(Text('${_n(data[i]['minutes'])}')),
                                       DataCell(Text(_money(data[i]['total_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),
