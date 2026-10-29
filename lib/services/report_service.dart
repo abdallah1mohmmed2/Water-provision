@@ -665,9 +665,9 @@ class ReportService {
     // تقرير الفواتير فقط: الدقائق المعروضة صافية بعد خصم الغيم للمنظومة الشمسية.
     // لا نغيّر دقائق المصدر المستخدمة في حساب قيمة السقاية قبل الخصم.
     int invoiceMinutes(Map<String, Object?> row) {
-      final minutes = n(row['minutes']).clamp(0, 100000000);
+      final minutes = n(row['minutes']).clamp(0, 100000000).toInt();
       if ('${row['system_type'] ?? ''}' != 'solar') return minutes;
-      return (minutes - n(row['cloud_minutes'])).clamp(0, 100000000);
+      return (minutes - n(row['cloud_minutes'])).clamp(0, 100000000).toInt();
     }
     String duration(Object? value) =>
         n(value).clamp(0, 100000000).toString();
