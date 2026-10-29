@@ -8032,6 +8032,12 @@ class _PaymentsState extends State<PaymentsPage> {
   }
 
   @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
+
+  @override
   void initState() {
     super.initState();
     if (widget.compactOnly) {
@@ -8373,7 +8379,12 @@ class _PaymentsState extends State<PaymentsPage> {
         ),
         const SizedBox(height: 10),
         DebouncedSearchField(
-          onChanged: (v) => setState(() => q = v),
+          onChanged: (v) {
+            _searchDebounce?.cancel();
+            _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+              if (mounted) setState(() => q = v);
+            });
+          },
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search),
             labelText: 'بحث بالطرف أو المرجع أو المبلغ أو التاريخ أو الملاحظات',
