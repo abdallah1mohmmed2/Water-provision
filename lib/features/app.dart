@@ -12264,9 +12264,13 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     final periodLabel = d.hour < 12 ? 'ص' : 'م';
     return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
   }
-  String _duration(Object? value) {
+  // عمود إجمالي الدقائق يعرض رقم الدقائق فقط؛ الساعات للملخص لا للحساب المالي.
+  String _duration(Object? value) =>
+      _n(value).clamp(0, 100000000).toString();
+
+  String _hoursMinutes(Object? value) {
     final minutes = _n(value).clamp(0, 100000000);
-    return '$minutesد';
+    return '${minutes ~/ 60} ساعة و ${minutes % 60} دقيقة';
   }
   String _money(Object? value) => NumberFormat('#,##0').format(_n(value));
 
@@ -12542,7 +12546,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       LayoutBuilder(builder: (context, constraints) {
                         final compact = constraints.maxWidth < 650;
                         final cards = [
-                          _summaryCard('إجمالي الدقائق', _duration(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
+                          _summaryCard('إجمالي الساعات والدقائق', _hoursMinutes(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
                           _summaryCard('القيمة الإجمالية', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 1),
                           _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 2),
                         ];
