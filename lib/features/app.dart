@@ -12289,7 +12289,13 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     final periodLabel = d.hour < 12 ? 'ص' : 'م';
     return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
   }
-  // عمود إجمالي الدقائق يعرض رقم الدقائق فقط؛ الساعات للملخص لا للحساب المالي.
+  // عمود الدقائق في تقرير الفواتير يعرض الصافي بعد خصم الغيم للأنظمة الشمسية فقط.
+  int _invoiceMinutes(Map<String, Object?> row) {
+    final minutes = _n(row['minutes']);
+    if ('${row['system_type'] ?? ''}' != 'solar') return minutes;
+    return (minutes - _n(row['cloud_minutes'])).clamp(0, 100000000).toInt();
+  }
+
   String _duration(Object? value) =>
       _n(value).clamp(0, 100000000).toString();
 
@@ -12365,6 +12371,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       }
       if (sortKey == 'start_datetime' || sortKey == 'end_datetime') {
         return '${a[sortKey] ?? ''}'.compareTo('${b[sortKey] ?? ''}');
+      }
+      if (sortKey == 'minutes') {
+        return _invoiceMinutes(a).compareTo(_invoiceMinutes(b));
       }
       return _n(a[sortKey]).compareTo(_n(b[sortKey]));
     }
@@ -12670,7 +12679,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text('${data[i]['party_name'] ?? 'غير محدد'}')),
                                       DataCell(Text(_time(data[i]['start_datetime']))),
                                       DataCell(Text(_time(data[i]['end_datetime']))),
-                                      DataCell(Text('${_n(data[i]['minutes'])}')),
+                                      DataCell(Text('${_invoiceMinutes(data[i])}')),
                                       DataCell(Text(_money(data[i]['total_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),
