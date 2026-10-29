@@ -1448,7 +1448,7 @@ class StationRepository {
       args.addAll(['%$term%', '%$term%']);
     }
     return db.rawQuery(
-      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE ${clauses.join(' AND ')} ORDER BY p.name',
+      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE ${clauses.join(' AND ')} ORDER BY p.name",
       args,
     );
   }
