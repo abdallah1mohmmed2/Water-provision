@@ -662,9 +662,12 @@ class ReportService {
       final periodLabel = d.hour < 12 ? 'ص' : 'م';
       return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
     }
-    String duration(Object? value) {
+    // تفاصيل التقرير وصف الإجمالي يعرضان عدد الدقائق فقط.
+    String duration(Object? value) =>
+        n(value).clamp(0, 100000000).toString();
+    String hoursMinutes(Object? value) {
       final minutes = n(value).clamp(0, 100000000);
-      return '$minutesد';
+      return '${minutes ~/ 60} ساعة و ${minutes % 60} دقيقة';
     }
     String display(Object? value) {
       final text = value == null || '$value'.trim().isEmpty ? '—' : '$value';
@@ -715,8 +718,8 @@ class ReportService {
         ),
         StatBoxData(
           number: '2',
-          title: 'إجمالي الدقائق',
-          value: duration(totalMinutes),
+          title: 'إجمالي الساعات والدقائق',
+          value: hoursMinutes(totalMinutes),
         ),
         StatBoxData(
           number: '3',
