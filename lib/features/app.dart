@@ -8072,6 +8072,7 @@ class _PaymentsState extends State<PaymentsPage> {
       methods = [],
       cash = [];
   String target = 'beneficiary', q = '';
+  Timer? _searchDebounce;
   Future<void> load() async {
     final a = await widget.r.payments(),
         b = await widget.r.beneficiaries(),
@@ -8089,6 +8090,12 @@ class _PaymentsState extends State<PaymentsPage> {
         cash = c;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
   }
 
   @override
@@ -8433,7 +8440,12 @@ class _PaymentsState extends State<PaymentsPage> {
         ),
         const SizedBox(height: 10),
         TextField(
-          onChanged: (v) => setState(() => q = v),
+          onChanged: (v) {
+          _searchDebounce?.cancel();
+          _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+            if (mounted) setState(() => q = v);
+          });
+        },
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search),
             labelText: 'بحث بالطرف أو المرجع أو المبلغ أو التاريخ أو الملاحظات',
