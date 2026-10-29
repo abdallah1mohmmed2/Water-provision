@@ -662,10 +662,6 @@ class ReportService {
       final periodLabel = d.hour < 12 ? 'ص' : 'م';
       return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
     }
-    String duration(Object? value) {
-      final minutes = n(value).clamp(0, 100000000);
-      return '$minutesد';
-    }
     String durationHoursMinutes(Object? value) {
       final minutes = n(value).clamp(0, 100000000);
       final hours = minutes ~/ 60;
