@@ -662,7 +662,12 @@ class ReportService {
       final periodLabel = d.hour < 12 ? 'ص' : 'م';
       return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
     }
-    // تفاصيل التقرير وصف الإجمالي يعرضان عدد الدقائق فقط.
+    // عمود الدقائق وإجمالي عمود الفواتير يعرضان الصافي بعد خصم الغيم للأنظمة الشمسية فقط.
+    int invoiceMinutes(Map<String, Object?> row) {
+      final minutes = n(row['minutes']);
+      if ('${row['system_type'] ?? ''}' != 'solar') return minutes;
+      return (minutes - n(row['cloud_minutes'])).clamp(0, 100000000).toInt();
+    }
     String duration(Object? value) =>
         n(value).clamp(0, 100000000).toString();
     String hoursMinutes(Object? value) {
@@ -677,6 +682,8 @@ class ReportService {
 
     final totalMinutes =
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
+    final totalInvoiceMinutes =
+        data.fold<int>(0, (sum, row) => sum + invoiceMinutes(row));
     final totalCloudMinutes = data.fold<int>(0, (sum, row) =>
         sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
     final totalAmount =
@@ -711,7 +718,7 @@ class ReportService {
           display(data[i]['party_name']),
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
-          duration(data[i]['minutes']),
+          duration(invoiceMinutes(data[i])),
           money(data[i]['total_amount']),
           money(data[i]['paid_amount']),
           display(data[i]['notes']),
@@ -799,7 +806,7 @@ class ReportService {
         'الإجمالي',
         '',
         '',
-        duration(totalMinutes),
+        duration(totalInvoiceMinutes),
         money(totalAmount),
         money(totalPaid),
         'المتبقي: ${money(remaining)}',
