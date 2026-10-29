@@ -2445,6 +2445,10 @@ class StationRepository {
                       COALESCE(NULLIF(TRIM(b.name),''),NULLIF(TRIM(wk.name),''),NULLIF(TRIM(pt.name),''),'غير محدد') party_name,
                       i.start_datetime,i.end_datetime,
                       COALESCE(i.minutes,0) minutes,
+                      COALESCE(i.cloud_minutes,0) cloud_minutes,
+                      COALESCE(i.chargeable_minutes,i.minutes,0) chargeable_minutes,
+                      i.system_type,
+                      COALESCE(i.solar_hourly_rate_snapshot,0) solar_hourly_rate_snapshot,
                       COALESCE(i.total_amount,0) total_amount,
                       COALESCE(i.paid_amount,0) paid_amount,
                       COALESCE(i.notes,'') notes
