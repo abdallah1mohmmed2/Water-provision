@@ -7728,12 +7728,15 @@ class _DieselState extends State<DieselPage> {
   Map<String, Object?>? warning;
   String q = '';
   Future<void> load() async {
+    // Invalidate older requests before the first await; otherwise a slower
+    // configuration read could let an older search overwrite newer results.
+    final generation = ++_searchGeneration;
     final cfg = await SystemConfig.load(widget.r);
+    if (!mounted || generation != _searchGeneration) return;
     if (!cfg.isDiesel) {
       if (mounted) setState(() => enabled = false);
       return;
     }
-    final generation = ++_searchGeneration;
     final a = await widget.r.diesel(search: q);
     if (!mounted || generation != _searchGeneration) return;
     final b = await widget.r.beneficiaries(),
