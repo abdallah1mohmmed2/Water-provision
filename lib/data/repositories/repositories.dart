@@ -15,6 +15,19 @@ class StationRepository {
     accounting = AccountingService(db);
   }
 
+  // يبني شرط البحث الجزئي باستخدام أسماء أعمدة ثابتة من داخل الشيفرة فقط.
+  // القيم المدخلة تبقى معاملات SQL ولا تُدمج في نص الاستعلام.
+  String _partialSearchClause(
+    String search,
+    List<String> columns,
+    List<Object?> args,
+  ) {
+    final term = search.trim();
+    if (term.isEmpty || columns.isEmpty) return '';
+    args.addAll(List<Object?>.filled(columns.length, '%$term%'));
+    return '(${columns.map((column) => "COALESCE($column,'') LIKE ?").join(' OR ')})';
+  }
+
   // البحث الجزئي يحافظ على مطابقة أي جزء من الاسم والهاتف ورقم الجربة والموقع.
   // عند خلو النص نتجنب شروط LIKE المتعددة غير الضرورية.
   Future<List<Map<String, Object?>>> beneficiaries([String q = '']) async {
@@ -697,13 +710,9 @@ class StationRepository {
   }
 
   Future<List<Map<String, Object?>>> sessions({String search = ''}) {
-    final term = search.trim();
     final args = <Object?>[];
-    var where = '';
-    if (term.isNotEmpty) {
-      where = ' WHERE b.name LIKE ? OR p.name LIKE ?';
-      args.addAll(['%$term%', '%$term%']);
-    }
+    final clause = _partialSearchClause(search, ['b.name', 'p.name'], args);
+    final where = clause.isEmpty ? '' : ' WHERE $clause';
     return db.rawQuery(
       'SELECT s.*,b.name beneficiary_name,p.name pump_name FROM irrigation_sessions s JOIN beneficiaries b ON b.id=s.beneficiary_id JOIN pumps p ON p.id=s.pump_id$where ORDER BY COALESCE(s.actual_start,s.planned_start) DESC',
       args,
@@ -914,13 +923,13 @@ class StationRepository {
 
   Future<double> dieselStock() => accounting.dieselStock();
   Future<List<Map<String, Object?>>> diesel({String search = ''}) {
-    final term = search.trim();
     final args = <Object?>[];
-    var where = '';
-    if (term.isNotEmpty) {
-      where = " WHERE COALESCE(b.name,'') LIKE ? OR COALESCE(dm.kind,'') LIKE ? OR COALESCE(dm.notes,'') LIKE ?";
-      args.addAll(['%$term%', '%$term%', '%$term%']);
-    }
+    final clause = _partialSearchClause(
+      search,
+      ['b.name', 'dm.kind', 'dm.notes'],
+      args,
+    );
+    final where = clause.isEmpty ? '' : ' WHERE $clause';
     return db.rawQuery(
       'SELECT dm.*,b.name beneficiary_name FROM diesel_movements dm LEFT JOIN beneficiaries b ON b.id=dm.beneficiary_id$where ORDER BY dm.date DESC',
       args,
@@ -930,12 +939,12 @@ class StationRepository {
     'SELECT p.*,COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,pm.name method_name,c.name cashbox_name FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN cashboxes c ON c.id=p.cashbox_id ORDER BY p.date DESC',
   );
   Future<List<Map<String, Object?>>> expenses({String search = ''}) {
-    final term = search.trim();
-    if (term.isEmpty) return db.rawQuery('SELECT * FROM expenses ORDER BY date DESC');
-    final pattern = '%$term%';
+    final args = <Object?>[];
+    final clause = _partialSearchClause(search, ['title', 'category'], args);
+    final where = clause.isEmpty ? '' : ' WHERE $clause';
     return db.rawQuery(
-      "SELECT * FROM expenses WHERE COALESCE(title,'') LIKE ? OR COALESCE(category,'') LIKE ? ORDER BY date DESC",
-      [pattern, pattern],
+      'SELECT * FROM expenses$where ORDER BY date DESC',
+      args,
     );
   }
   
@@ -952,11 +961,8 @@ class StationRepository {
     final args = <Object?>[];
     final clauses = <String>[];
     if (!includeInactive) clauses.add('w.active=1');
-    final term = search.trim();
-    if (term.isNotEmpty) {
-      clauses.add("(COALESCE(w.name,'') LIKE ? OR COALESCE(w.phone,'') LIKE ?)");
-      args.addAll(['%$term%', '%$term%']);
-    }
+    final searchClause = _partialSearchClause(search, ['w.name', 'w.phone'], args);
+    if (searchClause.isNotEmpty) clauses.add(searchClause);
     final where = clauses.isEmpty ? '' : 'WHERE ${clauses.join(' AND ')}';
     return db.rawQuery(
       "SELECT w.*, ${BalanceSql.workerPersonal('w')} balance FROM workers w $where ORDER BY w.name",
@@ -1461,11 +1467,8 @@ class StationRepository {
     final args = <Object?>[stationId];
     final clauses = <String>['p.station_id=?'];
     if (!includeInactive) clauses.add('p.active=1');
-    final term = search.trim();
-    if (term.isNotEmpty) {
-      clauses.add("(COALESCE(p.name,'') LIKE ? OR COALESCE(p.phone,'') LIKE ?)");
-      args.addAll(['%$term%', '%$term%']);
-    }
+    final searchClause = _partialSearchClause(search, ['p.name', 'p.phone'], args);
+    if (searchClause.isNotEmpty) clauses.add(searchClause);
     return db.rawQuery(
       "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE ${clauses.join(' AND ')} ORDER BY p.name",
       args,
