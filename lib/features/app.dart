@@ -12350,10 +12350,6 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     final periodLabel = d.hour < 12 ? 'ص' : 'م';
     return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
   }
-  String _duration(Object? value) {
-    final minutes = _n(value).clamp(0, 100000000);
-    return '$minutesد';
-  }
   String _durationHoursMinutes(Object? value) {
     final minutes = _n(value).clamp(0, 100000000);
     final hours = minutes ~/ 60;
