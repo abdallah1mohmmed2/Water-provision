@@ -2328,7 +2328,7 @@ class _DashboardState extends State<DashboardPage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         _menuReportsIndicator(
-                          label: 'القائمة الدوارة',
+                          label: 'الاختصارات',
                           selected: _menuReportsPage == 0,
                           onTap: () => _menuReportsController.animateToPage(
                             0,
