@@ -677,8 +677,25 @@ class ReportService {
 
     final totalMinutes =
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
+    final totalCloudMinutes = data.fold<int>(0, (sum, row) =>
+        sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
     final totalAmount =
         data.fold<int>(0, (sum, row) => sum + n(row['total_amount']));
+    final partialHour = settings['partial_hour'] != 'false';
+    int amountBeforeCloud(Map<String, Object?> row) {
+      if ('${row['system_type'] ?? ''}' != 'solar' || n(row['cloud_minutes']) <= 0) {
+        return n(row['total_amount']);
+      }
+      final rate = n(row['solar_hourly_rate_snapshot']);
+      if (rate <= 0) return n(row['total_amount']);
+      return AccountingCalculations.amountForMinutes(
+        n(row['minutes']), rate, 'up', partialHour,
+      );
+    }
+    final totalAmountBeforeCloud = data.fold<int>(
+      0, (sum, row) => sum + amountBeforeCloud(row),
+    );
+    final cloudDeductionAmount = (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
     final totalPaid =
         data.fold<int>(0, (sum, row) => sum + n(row['paid_amount']));
     final remaining = totalAmount - totalPaid;
@@ -728,23 +745,40 @@ class ReportService {
         ),
         StatBoxData(
           number: '4',
-          title: 'القيمة الإجمالية',
-          value: '${money(totalAmount)} ريال',
+          title: 'دقائق الغيم المخصومة',
+          value: duration(totalCloudMinutes),
           isBlueTint: true,
         ),
         StatBoxData(
           number: '5',
+          title: 'الإيرادات قبل خصم الغيم',
+          value: '${money(totalAmountBeforeCloud)} ريال',
+        ),
+        StatBoxData(
+          number: '6',
+          title: 'قيمة خصم الغيم',
+          value: '${money(cloudDeductionAmount)} ريال',
+          isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '7',
+          title: 'الإيرادات بعد خصم الغيم',
+          value: '${money(totalAmount)} ريال',
+          isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '8',
           title: 'إجمالي المدفوع',
           value: '${money(totalPaid)} ريال',
         ),
         StatBoxData(
-          number: '6',
+          number: '9',
           title: 'المتبقي',
           value: '${money(remaining)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '7',
+          number: '10',
           title: 'الفترة',
           value: period,
         ),
