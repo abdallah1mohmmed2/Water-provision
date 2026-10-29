@@ -1936,12 +1936,6 @@ class _DashboardState extends State<DashboardPage> {
   }
 
   @override
-  void dispose() {
-    _searchDebounce?.cancel();
-    super.dispose();
-  }
-
-  @override
   void initState() {
     super.initState();
     load();
@@ -7985,8 +7979,8 @@ class _DieselState extends State<DieselPage> {
                             ],
                           ),
                         ),
-                      );
-                  },
+                      ),
+                  ],
                 ),
               ),
             ],
@@ -8458,8 +8452,8 @@ class _PaymentsState extends State<PaymentsPage> {
                       ],
                     ),
                   ),
-                );
-            },
+                ),
+            ],
           ),
         ),
       ],
