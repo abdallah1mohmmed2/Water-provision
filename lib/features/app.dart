@@ -6776,6 +6776,8 @@ class SessionsPage extends StatefulWidget {
 
 class _SessionsState extends State<SessionsPage> {
   List<Map<String, Object?>> rows = [];
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
   List<Map<String, Object?>> bs = [], qs = [], ps = [], bookings = [], ws = [];
   String q = '';
   String queueType = 'circular';
@@ -6784,7 +6786,9 @@ class _SessionsState extends State<SessionsPage> {
 
   Future<void> load() async {
     try {
-      final a = await widget.r.sessions();
+      final generation = ++_searchGeneration;
+      final a = await widget.r.sessions(search: q);
+      if (!mounted || generation != _searchGeneration) return;
       final b = await widget.r.beneficiaries();
       final workers = await widget.r.workers();
       final st = await widget.r.settings();
@@ -6803,7 +6807,7 @@ class _SessionsState extends State<SessionsPage> {
               where: 'id=? AND active=1',
               whereArgs: [selectedId],
             );
-      if (mounted) {
+      if (mounted && generation == _searchGeneration) {
         setState(() {
           rows = a;
           bs = b;
@@ -6830,6 +6834,8 @@ class _SessionsState extends State<SessionsPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
     ticker?.cancel();
     super.dispose();
   }
@@ -7033,9 +7039,7 @@ class _SessionsState extends State<SessionsPage> {
 
   @override
   Widget build(BuildContext c) {
-    final filtered = rows
-        .where((x) => _matchesSearch('${x['beneficiary_name']} ${x['pump_name']}', q))
-        .toList();
+    final filtered = rows;
     return PageFrame(
       title: 'جلسات السقي',
       subtitle: 'مؤقت حقيقي محفوظ في قاعدة البيانات مع بدء وإيقاف وتأجيل',
@@ -7049,7 +7053,12 @@ class _SessionsState extends State<SessionsPage> {
       child: Column(
         children: [
           TextField(
-            onChanged: (v) => setState(() => q = v),
+            onChanged: (v) {
+              _searchGeneration++;
+              setState(() => q = v);
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+            },
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
               labelText: 'بحث باسم المستفيد أو المضخة',
@@ -7712,22 +7721,29 @@ class DieselPage extends StatefulWidget {
 
 class _DieselState extends State<DieselPage> {
   List<Map<String, Object?>> rows = [];
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
   List<Map<String, Object?>> bs = [], cs = [];
   double stock = 0;
   Map<String, Object?>? warning;
   String q = '';
   Future<void> load() async {
+    // Invalidate older requests before the first await; otherwise a slower
+    // configuration read could let an older search overwrite newer results.
+    final generation = ++_searchGeneration;
     final cfg = await SystemConfig.load(widget.r);
+    if (!mounted || generation != _searchGeneration) return;
     if (!cfg.isDiesel) {
       if (mounted) setState(() => enabled = false);
       return;
     }
-    final a = await widget.r.diesel(),
-        b = await widget.r.beneficiaries(),
+    final a = await widget.r.diesel(search: q);
+    if (!mounted || generation != _searchGeneration) return;
+    final b = await widget.r.beneficiaries(),
         c = await widget.r.cashboxes(),
         s = await widget.r.dieselStock(),
         w = await widget.r.dieselWarning();
-    if (mounted) {
+    if (mounted && generation == _searchGeneration) {
       setState(() {
         rows = a;
         bs = b;
@@ -7742,6 +7758,13 @@ class _DieselState extends State<DieselPage> {
   void initState() {
     super.initState();
     load();
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
+    super.dispose();
   }
 
   Future<void> add() async {
@@ -7973,7 +7996,12 @@ class _DieselState extends State<DieselPage> {
               ),
               const SizedBox(height: 10),
               TextField(
-                onChanged: (v) => setState(() => q = v),
+                onChanged: (v) {
+                  _searchGeneration++;
+                  setState(() => q = v);
+                  _searchDebounce?.cancel();
+                  _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+                },
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search),
                   labelText: 'بحث في حركات الديزل',
@@ -7981,14 +8009,11 @@ class _DieselState extends State<DieselPage> {
               ),
               const SizedBox(height: 8),
               Expanded(
-                child: ListView(
-                  children: [
-                    for (final x in rows.where(
-                      (x) =>
-                          '${x['beneficiary_name'] ?? ''} ${x['kind']} ${x['notes'] ?? ''}'
-                              .contains(q),
-                    ))
-                      Card(
+                child: ListView.builder(
+                  itemCount: rows.length,
+                  itemBuilder: (context, index) {
+                    final x = rows[index];
+                    return Card(
                         child: ListTile(
                           title: Text(
                             '${x['beneficiary_name'] ?? 'المخزون'} • ${statusName(x['kind'])}',
@@ -8018,8 +8043,8 @@ class _DieselState extends State<DieselPage> {
                             ],
                           ),
                         ),
-                      ),
-                  ],
+                      );
+                  },
                 ),
               ),
             ],
@@ -8050,6 +8075,7 @@ class _PaymentsState extends State<PaymentsPage> {
       methods = [],
       cash = [];
   String target = 'beneficiary', q = '';
+  Timer? _searchDebounce;
   Future<void> load() async {
     final a = await widget.r.payments(),
         b = await widget.r.beneficiaries(),
@@ -8067,6 +8093,12 @@ class _PaymentsState extends State<PaymentsPage> {
         cash = c;
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
   }
 
   @override
@@ -8411,7 +8443,12 @@ class _PaymentsState extends State<PaymentsPage> {
         ),
         const SizedBox(height: 10),
         TextField(
-          onChanged: (v) => setState(() => q = v),
+          onChanged: (v) {
+          _searchDebounce?.cancel();
+          _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+            if (mounted) setState(() => q = v);
+          });
+        },
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search),
             labelText: 'بحث بالطرف أو المرجع أو المبلغ أو التاريخ أو الملاحظات',
@@ -9035,14 +9072,18 @@ class ExpensesPage extends StatefulWidget {
 
 class _ExpensesState extends State<ExpensesPage> {
   List<Map<String, Object?>> rows = [];
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
   List<Map<String, Object?>> cash = [], methods = [], partners = [];
   String q = '';
   Future<void> load() async {
-    final a = await widget.r.expenses(),
-        b = await widget.r.cashboxes(),
+    final generation = ++_searchGeneration;
+    final a = await widget.r.expenses(search: q);
+    if (!mounted || generation != _searchGeneration) return;
+    final b = await widget.r.cashboxes(),
         m = await widget.r.paymentMethods(),
         p = await widget.r.partners();
-    if (mounted) {
+    if (mounted && generation == _searchGeneration) {
       setState(() {
         rows = a;
         cash = b;
@@ -9066,6 +9107,13 @@ class _ExpensesState extends State<ExpensesPage> {
     } else {
       load();
     }
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
+    super.dispose();
   }
 
   Future<void> add() async {
@@ -9247,19 +9295,23 @@ class _ExpensesState extends State<ExpensesPage> {
     child: Column(
       children: [
         TextField(
-          onChanged: (v) => setState(() => q = v),
+          onChanged: (v) {
+            _searchGeneration++;
+            setState(() => q = v);
+            _searchDebounce?.cancel();
+            _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+          },
           decoration: const InputDecoration(
             prefixIcon: Icon(Icons.search),
             labelText: 'بحث ببيان المصروف أو التصنيف',
           ),
         ),
         Expanded(
-          child: ListView(
-            children: [
-              for (final x in rows.where(
-                (x) => _matchesSearch('${x['title']} ${x['category']}', q),
-              ))
-                Card(
+          child: ListView.builder(
+            itemCount: rows.length,
+            itemBuilder: (context, index) {
+              final x = rows[index];
+              return Card(
                   child: ListTile(
                     title: Text('${x['title']}'),
                     subtitle: Text(
@@ -9290,8 +9342,8 @@ class _ExpensesState extends State<ExpensesPage> {
                       ],
                     ),
                   ),
-                ),
-            ],
+                );
+            },
           ),
         ),
       ],
@@ -9316,16 +9368,26 @@ class WorkersPage extends StatefulWidget {
 class _WorkersState extends State<WorkersPage> {
   List<Map<String, Object?>> rows = [];
   String q = '';
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
 
   Future<void> load() async {
-    final x = await widget.r.workers();
-    if (mounted) setState(() => rows = x);
+    final generation = ++_searchGeneration;
+    final x = await widget.r.workers(search: q);
+    if (mounted && generation == _searchGeneration) setState(() => rows = x);
   }
 
   @override
   void initState() {
     super.initState();
     load();
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
+    super.dispose();
   }
 
   Future<void> add() async {
@@ -9922,9 +9984,7 @@ class _WorkersState extends State<WorkersPage> {
 
   @override
   Widget build(BuildContext c) {
-    final filtered = rows
-        .where((x) => _matchesSearch('${x['name']} ${x['phone'] ?? ''}', q))
-        .toList();
+    final filtered = rows;
     return PageFrame(
       title: 'العمال',
       subtitle: 'الأجر بالساعة أو النسبة أو الراتب الثابت مع الاستحقاق والدفع',
@@ -9950,7 +10010,12 @@ class _WorkersState extends State<WorkersPage> {
       child: Column(
         children: [
           TextField(
-            onChanged: (v) => setState(() => q = v),
+            onChanged: (v) {
+              _searchGeneration++;
+              setState(() => q = v);
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+            },
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
               labelText: 'بحث باسم العامل أو الهاتف',
@@ -9969,13 +10034,18 @@ class _WorkersState extends State<WorkersPage> {
                           : 1;
                       const gap = 12.0;
                       final w = (box.maxWidth - gap * (cols - 1)) / cols;
-                      return SingleChildScrollView(
-                        child: Wrap(
-                          spacing: gap,
-                          runSpacing: gap,
-                          children: [
-                            for (final x in filtered)
-                              SizedBox(
+                      return GridView.builder(
+                        padding: EdgeInsets.zero,
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: cols,
+                          crossAxisSpacing: gap,
+                          mainAxisSpacing: gap,
+                          childAspectRatio: cols == 1 ? 1.1 : 0.85,
+                        ),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final x = filtered[index];
+                          return SizedBox(
                                 width: w,
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(24),
@@ -10081,9 +10151,8 @@ style: TextStyle(
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
+                              );
+                        },
                       );
                     },
                   ),
@@ -10111,16 +10180,26 @@ class PartnersPage extends StatefulWidget {
 class _PartnersState extends State<PartnersPage> {
   List<Map<String, Object?>> rows = [];
   String q = '';
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
 
   Future<void> load() async {
-    final x = await widget.r.partners();
-    if (mounted) setState(() => rows = x);
+    final generation = ++_searchGeneration;
+    final x = await widget.r.partners(search: q);
+    if (mounted && generation == _searchGeneration) setState(() => rows = x);
   }
 
   @override
   void initState() {
     super.initState();
     load();
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
+    super.dispose();
   }
 
   Future<void> add() async {
@@ -10550,9 +10629,7 @@ class _PartnersState extends State<PartnersPage> {
 
   @override
   Widget build(BuildContext c) {
-    final filtered = rows
-        .where((x) => _matchesSearch('${x['name']} ${x['phone'] ?? ''}', q))
-        .toList();
+    final filtered = rows;
     return PageFrame(
       title: 'الشركاء',
       subtitle: 'ملكية الشركاء وحصصهم واستحقاقاتهم ومدفوعاتهم',
@@ -10571,7 +10648,12 @@ class _PartnersState extends State<PartnersPage> {
       child: Column(
         children: [
           TextField(
-            onChanged: (v) => setState(() => q = v),
+            onChanged: (v) {
+              _searchGeneration++;
+              setState(() => q = v);
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 300), load);
+            },
             decoration: const InputDecoration(
               prefixIcon: Icon(Icons.search),
               labelText: 'بحث باسم الشريك أو الهاتف',
@@ -10590,13 +10672,18 @@ class _PartnersState extends State<PartnersPage> {
                           : 1;
                       const gap = 12.0;
                       final w = (box.maxWidth - gap * (cols - 1)) / cols;
-                      return SingleChildScrollView(
-                        child: Wrap(
-                          spacing: gap,
-                          runSpacing: gap,
-                          children: [
-                            for (final x in filtered)
-                              SizedBox(
+                      return GridView.builder(
+                        padding: EdgeInsets.zero,
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: cols,
+                          crossAxisSpacing: gap,
+                          mainAxisSpacing: gap,
+                          childAspectRatio: cols == 1 ? 1.1 : 0.85,
+                        ),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final x = filtered[index];
+                          return SizedBox(
                                 width: w,
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(24),
@@ -10706,9 +10793,8 @@ style: TextStyle(
                                     ),
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
+                              );
+                        },
                       );
                     },
                   ),
@@ -12268,6 +12354,14 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     final minutes = _n(value).clamp(0, 100000000);
     return '$minutesد';
   }
+  String _durationHoursMinutes(Object? value) {
+    final minutes = _n(value).clamp(0, 100000000);
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+    if (hours == 0) return '$remainingMinutesد';
+    if (remainingMinutes == 0) return '$hoursس';
+    return '$hoursس $remainingMinutesد';
+  }
   String _money(Object? value) => NumberFormat('#,##0').format(_n(value));
 
   Future<void> _load() async {
@@ -12542,7 +12636,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       LayoutBuilder(builder: (context, constraints) {
                         final compact = constraints.maxWidth < 650;
                         final cards = [
-                          _summaryCard('إجمالي الدقائق', _duration(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
+                          _summaryCard('إجمالي الساعات والدقائق', _durationHoursMinutes(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
                           _summaryCard('القيمة الإجمالية', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 1),
                           _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 2),
                         ];
@@ -12616,7 +12710,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text('${data[i]['party_name'] ?? 'غير محدد'}')),
                                       DataCell(Text(_time(data[i]['start_datetime']))),
                                       DataCell(Text(_time(data[i]['end_datetime']))),
-                                      DataCell(Text(_duration(data[i]['minutes']))),
+                                      DataCell(Text('${_n(data[i]['minutes'])}')),
                                       DataCell(Text(_money(data[i]['total_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),
