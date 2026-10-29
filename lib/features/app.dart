@@ -12541,10 +12541,14 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       const SizedBox(height: 14),
                       LayoutBuilder(builder: (context, constraints) {
                         final compact = constraints.maxWidth < 650;
+                        final totalHours = totalMinutes ~/ 60;
+                        final remainingMinutes = totalMinutes % 60;
+                        final totalHoursMinutes = '$totalHours ساعة و $remainingMinutes دقيقة';
                         final cards = [
-                          _summaryCard('إجمالي الدقائق', _duration(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
-                          _summaryCard('القيمة الإجمالية', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 1),
-                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 2),
+                          _summaryCard('إجمالي الساعات والدقائق', totalHoursMinutes, Icons.schedule_rounded, _reportOliveDark, 0),
+                          _summaryCard('إجمالي الدقائق', _duration(totalMinutes), Icons.timer_rounded, _reportOliveDark, 1),
+                          _summaryCard('القيمة الإجمالية', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 2),
+                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 3),
                         ];
                         if (!compact) return Row(children: [Expanded(child: cards[0]), const SizedBox(width: 9), Expanded(child: cards[1]), const SizedBox(width: 9), Expanded(child: cards[2])]);
                         return Column(children: [for (final card in cards) Padding(padding: const EdgeInsets.only(bottom: 8), child: card)]);
