@@ -89,7 +89,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:const Text('إيداع من مال المحاسب'),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
-        DropdownButtonFormField<int>(value:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('@@{x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق الذي استلم النقدية')),
+        DropdownButtonFormField<int>(value:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق الذي استلم النقدية')),
         TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ المودع')),
         TextField(controller:notes,decoration:const InputDecoration(labelText:'البيان')),
       ]),
@@ -97,7 +97,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     )));
     if(ok!=true)return;
     try{await widget.repository.accounting.recordAccountantDeposit(workerId:workerId!,cashboxId:cb!,amount:int.parse(amount.text.trim()),userId:widget.userId,notes:notes.text.trim());msg('سُجل الإيداع: زاد الصندوق وزاد مستحق المحاسب، دون إيراد أو مصروف.');await load();}
-    catch(e){msg('تعذر تسجيل الإيداع: @@e');}
+    catch(e){msg('تعذر تسجيل الإيداع: $e');}
   }
   Future<void> partnerPayoutDialog() async{
     if(workerId==null||partners.isEmpty){msg('لا توجد شراكات نشطة للتسوية');return;}
@@ -106,7 +106,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:const Text('سداد مستحقات شريك من مال المحاسب'),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
-        DropdownButtonFormField<int>(value:pid,items:partners.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('@@{x['name']}'))).toList(),onChanged:(v)=>refresh(()=>pid=v),decoration:const InputDecoration(labelText:'الشريك المستفيد من السداد')),
+        DropdownButtonFormField<int>(value:pid,items:partners.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>pid=v),decoration:const InputDecoration(labelText:'الشريك المستفيد من السداد')),
         TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ المدفوع شخصيًا')),
         TextField(controller:notes,decoration:const InputDecoration(labelText:'البيان / رقم السند')),
       ]),
@@ -114,7 +114,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     )));
     if(ok!=true)return;
     try{await widget.repository.accounting.recordAccountantPartnerPayout(workerId:workerId!,partnerId:pid!,amount:int.parse(amount.text.trim()),userId:widget.userId,notes:notes.text.trim());msg('سُجل السداد: انخفض مستحق الشريك وزاد مستحق المحاسب، دون حركة صندوق أو تغيير ديون المستفيدين.');await load();}
-    catch(e){msg('تعذر تسجيل السداد: @@e');}
+    catch(e){msg('تعذر تسجيل السداد: $e');}
   }
   Future<void> editPay() async{
     final w=worker;if(w==null||!widget.manager)return;
@@ -132,7 +132,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
         if(type=='hourly')TextField(controller:hourly,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'أجر الساعة')),
         if(type=='percentage')TextField(controller:percent,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'النسبة %')),
       ])),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,name.text.trim().isNotEmpty&&(type=='fixed'?(int.tryParse(fixed.text)??0)>0:type=='hourly'?(int.tryParse(hourly.text)??0)>0:(double.tryParse(percent.text)??-1)>=0&&(double.tryParse(percent.text)??101)<=100),child:const Text('حفظ'))],
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,name.text.trim().isNotEmpty&&(type=='fixed'?(int.tryParse(fixed.text)??0)>0:type=='hourly'?(int.tryParse(hourly.text)??0)>0:(double.tryParse(percent.text)??-1)>=0&&(double.tryParse(percent.text)??101)<=100)),child:const Text('حفظ'))],
     )));
     if(ok!=true)return;
     try{await widget.repository.updateWorker(workerId!,{'name':name.text.trim(),'phone':phone.text.trim(),'job_title':job.text.trim(),'pay_type':type,'fixed_salary':int.tryParse(fixed.text)??0,'hourly_rate':int.tryParse(hourly.text)??0,'percentage_rate':double.tryParse(percent.text)??0},widget.userId);msg('تم تحديث الاستحقاق');await load();}
