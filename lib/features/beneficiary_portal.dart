@@ -469,7 +469,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
             leading: CircleAvatar(child: Icon(item['read_at'] == null
               ? Icons.mark_email_unread_outlined : Icons.drafts_outlined)),
             title: Text((item['title'] ?? 'إشعار').toString()),
-            subtitle: Text((item['body'] ?? '').toString() + '\n' + _date(item['created_at'])),
+            subtitle: Text('${(item['body'] ?? '').toString()}\\n${_date(item['created_at'])}'),
             isThreeLine: true,
             trailing: item['read_at'] == null ? const Icon(Icons.circle, size: 9) : null,
             onTap: () => _readNotification(item),
