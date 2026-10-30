@@ -2379,7 +2379,7 @@ class AccountingService {
     }
   }
 
-  Future<int> accrueMonthlySalaries({required DateTime month, int? userId}) async {
+  Future<int> accrueMonthlySalaries({required DateTime month, int? userId, int? workerId}) async {
     final start = DateTime(month.year, month.month, 1), end = DateTime(month.year, month.month + 1, 1);
     // راتب الشهر الجاري يُثبت بتاريخ الترحيل ليظهر ضمن فترة الشهر حتى لو لم
     // ينتهِ الشهر بعد؛ أما الأشهر السابقة فتُثبت في آخر يوم من الشهر.
@@ -2393,8 +2393,8 @@ class AccountingService {
       var count = 0;
       final workers = await tx.query(
         'workers',
-        where: "station_id=? AND active=1 AND pay_type='fixed' AND fixed_salary>0",
-        whereArgs: [stationId],
+        where: "station_id=? AND active=1 AND pay_type='fixed' AND fixed_salary>0${workerId == null ? '' : ' AND id=?'}",
+        whereArgs: [stationId, if (workerId != null) workerId],
       );
       for (final w in workers) {
         final wid = w['id'] as int;
