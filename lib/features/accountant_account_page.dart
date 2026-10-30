@@ -223,7 +223,32 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
   @override Widget build(BuildContext context)=>Directionality(textDirection:TextDirection.rtl,child:loading?const Center(child:CircularProgressIndicator()):RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(14),children:[
     Card(color:Theme.of(context).colorScheme.primaryContainer,child:const Padding(padding:EdgeInsets.all(15),child:const Row(children:[Icon(Icons.manage_accounts,size:32),SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('حساب المحاسب والتسويات المالية',style:TextStyle(fontWeight:FontWeight.w900,fontSize:17)),Text('المحاسب هو مستخدم التطبيق والعامل نفسه؛ جميع الحركات تمر عبر دفتر العامل والأستاذ العام الحالي.',style:TextStyle(fontSize:12,height:1.45))]))]))),
     linkPanel(),
-    if(worker!=null)...[profile(),const SizedBox(height:8),Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('مهام المحاسب داخل التطبيق',style:TextStyle(fontWeight:FontWeight.w900)),const Text('• تسجيل إيداعات النقدية التي يوردها للصندوق.\n• توثيق ما يدفعه للشركاء من ماله الشخصي.\n• متابعة راتبه واستحقاقاته وتسوية ما يُصرف له.\n• متابعة أرصدة الصناديق والعمال والشركاء والتقارير.\n• إصدار كشوف PDF موحدة بالفترة المحددة.',style:TextStyle(height:1.55,fontSize:12))]))),const SizedBox(height:8),SegmentedButton<int>(segments:const[ButtonSegment(value:0,label:Text('الحساب'),icon:Icon(Icons.receipt_long)),ButtonSegment(value:1,label:Text('التسويات'),icon:Icon(Icons.swap_horiz)),ButtonSegment(value:2,label:Text('تقارير عامة'),icon:Icon(Icons.analytics_outlined))],selected:{tab},onSelectionChanged:(v){setState(()=>tab=v.first);if(tab==2)loadReport();}),const SizedBox(height:10),
+    if(worker!=null)...[
+      profile(),
+      const SizedBox(height:8),
+      const Card(
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('مهام المحاسب داخل التطبيق',style: TextStyle(fontWeight: FontWeight.w900)),
+              Text('• تسجيل إيداعات النقدية التي يوردها للصندوق.\n• توثيق ما يدفعه للشركاء من ماله الشخصي.\n• متابعة راتبه واستحقاقاته وتسوية ما يُصرف له.\n• متابعة أرصدة الصناديق والعمال والشركاء والتقارير.\n• إصدار كشوف PDF موحدة بالفترة المحددة.',style: TextStyle(height: 1.55,fontSize: 12)),
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height:8),
+      SegmentedButton<int>(
+        segments: const [
+          ButtonSegment(value:0,label:Text('الحساب'),icon:Icon(Icons.receipt_long)),
+          ButtonSegment(value:1,label:Text('التسويات'),icon:Icon(Icons.swap_horiz)),
+          ButtonSegment(value:2,label:Text('تقارير عامة'),icon:Icon(Icons.analytics_outlined)),
+        ],
+        selected:{tab},
+        onSelectionChanged:(v){setState(()=>tab=v.first);if(tab==2)loadReport();},
+      ),
+      const SizedBox(height:10),
       if(tab==0)accountTab(),
       if(tab==1)Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
         const Text('تسويات المحاسب',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),
