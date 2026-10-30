@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 19,
+      version: 20,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -428,6 +428,11 @@ class AppDatabase {
     await d.execute(
       'CREATE TABLE IF NOT EXISTS beneficiary_sessions (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), token_hash TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT)',
     );
+    await d.execute(
+      'CREATE TABLE IF NOT EXISTS beneficiary_credentials (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id), beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), username_normalized TEXT NOT NULL, password_phc TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, created_by INTEGER REFERENCES app_users(id), updated_by INTEGER REFERENCES app_users(id))',
+    );
+    await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_beneficiary_credentials_username ON beneficiary_credentials(station_id, username_normalized)');
+    await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_beneficiary_credentials_owner ON beneficiary_credentials(station_id, beneficiary_id)');
   }
 
   Future<void> _seed(Database d) async {
