@@ -54,6 +54,11 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     try{final r=await widget.repository.report(reportKey,from:from,to:to,workerId:reportKey=='worker_transactions'?workerId:null);if(mounted)setState(()=>reportRows=r);}
     catch(e){msg('تعذر تحميل التقرير: $e');}
   }
+  Future<void> workerPdf() async{
+    if(workerId==null){msg('اربط المحاسب بعامل أولًا');return;}
+    try{await ReportService(widget.repository).printPdf('worker_transactions',from:from,to:to,workerId:workerId);}
+    catch(e){msg('تعذر إنشاء كشف حساب المحاسب PDF: $e');}
+  }
   Future<void> pdf() async{
     if(reportKey=='worker_transactions'&&workerId==null){msg('اربط المحاسب بعامل أولًا');return;}
     try{await ReportService(widget.repository).printPdf(reportKey,from:from,to:to,workerId:reportKey=='worker_transactions'?workerId:null);}
@@ -175,7 +180,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     final rows=moves.where(inPeriod).toList();
     return Column(children:[
       period(),
-      Row(children:[Expanded(child:FilledButton.icon(onPressed:saving?null:movement,icon:const Icon(Icons.add_card),label:const Text('تسوية مالية'))),const SizedBox(width:8),Expanded(child:OutlinedButton.icon(onPressed:pdf,icon:const Icon(Icons.picture_as_pdf),label:const Text('كشف PDF')))]),
+      Row(children:[Expanded(child:FilledButton.icon(onPressed:saving?null:movement,icon:const Icon(Icons.add_card),label:const Text('تسوية مالية'))),const SizedBox(width:8),Expanded(child:OutlinedButton.icon(onPressed:workerPdf,icon:const Icon(Icons.picture_as_pdf),label:const Text('كشف PDF')))]),
       if(rows.isEmpty)const Card(child:Padding(padding:EdgeInsets.all(20),child:Text('لا توجد حركات في الفترة المحددة')))
       else ...rows.map((r){final lah=(r['lah'] as num?)?.round()??0,alayh=(r['alayh'] as num?)?.round()??0,d=DateTime.tryParse('${r['date']??''}');
         return Card(child:ListTile(leading:CircleAvatar(child:Icon(lah>0?Icons.add:alayh>0?Icons.remove:Icons.receipt_long)),title:Text('${r['description']??r['notes']??'حركة حساب'}',maxLines:2,overflow:TextOverflow.ellipsis),subtitle:Text(d==null?'تاريخ غير محدد':DateFormat('yyyy/MM/dd').format(d)),trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text(lah>0?'له ${money(lah)}':alayh>0?'عليه ${money(alayh)}':'—',style:const TextStyle(fontWeight:FontWeight.w900)),Text('الرصيد ${money(r['balance'])}',style:Theme.of(context).textTheme.labelSmall)])));
@@ -206,7 +211,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
         FilledButton.icon(onPressed:saving?null:depositDialog,icon:const Icon(Icons.savings_outlined),label:const Text('تسجيل إيداع المحاسب في الصندوق')),
         FilledButton.icon(onPressed:saving?null:partnerPayoutDialog,icon:const Icon(Icons.handshake_outlined),label:const Text('تسجيل سداد شريك من مال المحاسب')),
         OutlinedButton.icon(onPressed:saving?null:movement,icon:const Icon(Icons.payments_outlined),label:const Text('استحقاق راتب أو صرف مستحق المحاسب')),
-        OutlinedButton.icon(onPressed:pdf,icon:const Icon(Icons.picture_as_pdf),label:const Text('طباعة كشف حساب المحاسب')),
+        OutlinedButton.icon(onPressed:workerPdf,icon:const Icon(Icons.picture_as_pdf),label:const Text('طباعة كشف حساب المحاسب')),
       ]))),
       if(tab==2)reportsTab(),
     ],
