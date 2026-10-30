@@ -84,11 +84,11 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:Text('تسوية حساب ${w['name']}'),
       content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
-        DropdownButtonFormField<String>(value:kind,items:const[DropdownMenuItem(value:'accrual',child:Text('إضافة استحقاق آخر')),DropdownMenuItem(value:'payment',child:Text('صرف مستحق للمحاسب'))],onChanged:(v)=>refresh(()=>kind=v??'accrual'),decoration:const InputDecoration(labelText:'نوع الحركة')),
+        DropdownButtonFormField<String>(initialValue:kind,items:const[DropdownMenuItem(value:'accrual',child:Text('إضافة استحقاق آخر')),DropdownMenuItem(value:'payment',child:Text('صرف مستحق للمحاسب'))],onChanged:(v)=>refresh(()=>kind=v??'accrual'),decoration:const InputDecoration(labelText:'نوع الحركة')),
         TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ بالريال')),
         if(kind=='payment')...[
-          DropdownButtonFormField<int>(value:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق')),
-          DropdownButtonFormField<int>(value:pm,items:available.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>pm=v),decoration:const InputDecoration(labelText:'طريقة الدفع')),
+          DropdownButtonFormField<int>(initialValue:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق')),
+          DropdownButtonFormField<int>(initialValue:pm,items:available.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>pm=v),decoration:const InputDecoration(labelText:'طريقة الدفع')),
         ],
         TextField(controller:notes,maxLines:2,decoration:const InputDecoration(labelText:'البيان / سبب التسوية')),
       ])),
@@ -115,7 +115,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:const Text('إيداع من مال المحاسب'),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
-        DropdownButtonFormField<int>(value:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق الذي استلم النقدية')),
+        DropdownButtonFormField<int>(initialValue:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق الذي استلم النقدية')),
         TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ المودع')),
         TextField(controller:notes,decoration:const InputDecoration(labelText:'البيان')),
       ]),
@@ -132,7 +132,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:const Text('سداد مستحقات شريك من مال المحاسب'),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
-        DropdownButtonFormField<int>(value:pid,items:partners.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>pid=v),decoration:const InputDecoration(labelText:'الشريك المستفيد من السداد')),
+        DropdownButtonFormField<int>(initialValue:pid,items:partners.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>pid=v),decoration:const InputDecoration(labelText:'الشريك المستفيد من السداد')),
         TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ المدفوع شخصيًا')),
         TextField(controller:notes,decoration:const InputDecoration(labelText:'البيان / رقم السند')),
       ]),
@@ -153,7 +153,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
         TextField(controller:name,decoration:const InputDecoration(labelText:'اسم العامل / المحاسب')),
         TextField(controller:phone,decoration:const InputDecoration(labelText:'رقم الهاتف')),
         TextField(controller:job,decoration:const InputDecoration(labelText:'المسمى الوظيفي')),
-        DropdownButtonFormField<String>(value:type,items:const[DropdownMenuItem(value:'fixed',child:Text('راتب ثابت')),DropdownMenuItem(value:'hourly',child:Text('بالساعة')),DropdownMenuItem(value:'percentage',child:Text('نسبة'))],onChanged:(v)=>refresh(()=>type=v??'hourly')),
+        DropdownButtonFormField<String>(initialValue:type,items:const[DropdownMenuItem(value:'fixed',child:Text('راتب ثابت')),DropdownMenuItem(value:'hourly',child:Text('بالساعة')),DropdownMenuItem(value:'percentage',child:Text('نسبة'))],onChanged:(v)=>refresh(()=>type=v??'hourly')),
         if(type=='fixed')TextField(controller:fixed,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'الراتب الشهري')),
         if(type=='hourly')TextField(controller:hourly,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'أجر الساعة')),
         if(type=='percentage')TextField(controller:percent,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'النسبة %')),
@@ -175,7 +175,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     return Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       const Text('ربط المستخدم بسجل العامل',style:TextStyle(fontWeight:FontWeight.w900)),
       const Text('اختر عاملًا موجودًا ليكون هو المحاسب. لن يُنشأ عامل مكرر؛ وستبقى الرواتب والاستحقاقات والمدفوعات في دفتر العامل نفسه.',style:TextStyle(fontSize:12,height:1.5)),
-      DropdownButtonFormField<int>(value:workerId,isExpanded:true,items:active.map((w)=>DropdownMenuItem<int>(value:(w['id'] as num).toInt(),child:Text('${w['name']}'))).toList(),onChanged:canChange?(v)=>setState(()=>workerId=v):null,decoration:const InputDecoration(labelText:'العامل المرتبط')),
+      DropdownButtonFormField<int>(initialValue:workerId,isExpanded:true,items:active.map((w)=>DropdownMenuItem<int>(value:(w['id'] as num).toInt(),child:Text('${w['name']}'))).toList(),onChanged:canChange?(v)=>setState(()=>workerId=v):null,decoration:const InputDecoration(labelText:'العامل المرتبط')),
       if(canChange)Align(alignment:AlignmentDirectional.centerEnd,child:FilledButton.icon(onPressed:saving||workerId==null?null:assign,icon:const Icon(Icons.link),label:const Text('حفظ الربط')))
       else const Text('تغيير العامل المرتبط متاح للمدير فقط.',style:TextStyle(fontSize:11)),
     ])));
@@ -211,7 +211,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
   Widget reportsTab(){
     final keys=reportRows.isEmpty?<String>[]:reportRows.first.keys.take(5).toList();
     return Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-      DropdownButtonFormField<String>(value:reportKey,items:reports.entries.map((e)=>DropdownMenuItem(value:e.key,child:Text(e.value))).toList(),onChanged:(v){if(v!=null){setState(()=>reportKey=v);loadReport();}},decoration:const InputDecoration(labelText:'نوع التقرير')),
+      DropdownButtonFormField<String>(initialValue:reportKey,items:reports.entries.map((e)=>DropdownMenuItem(value:e.key,child:Text(e.value))).toList(),onChanged:(v){if(v!=null){setState(()=>reportKey=v);loadReport();}},decoration:const InputDecoration(labelText:'نوع التقرير')),
       const SizedBox(height:8),period(),
       Row(children:[Expanded(child:FilledButton.icon(onPressed:loadReport,icon:const Icon(Icons.search),label:const Text('عرض التقرير'))),const SizedBox(width:8),Expanded(child:OutlinedButton.icon(onPressed:pdf,icon:const Icon(Icons.picture_as_pdf),label:const Text('تصدير PDF')))]),
       Text('عدد السجلات: ${reportRows.length}',style:const TextStyle(fontWeight:FontWeight.w800)),
@@ -221,7 +221,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     ]);
   }
   @override Widget build(BuildContext context)=>Directionality(textDirection:TextDirection.rtl,child:loading?const Center(child:CircularProgressIndicator()):RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(14),children:[
-    Card(color:Theme.of(context).colorScheme.primaryContainer,child:const Padding(padding:EdgeInsets.all(15),child:Row(children:[Icon(Icons.manage_accounts,size:32),SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('حساب المحاسب والتسويات المالية',style:TextStyle(fontWeight:FontWeight.w900,fontSize:17)),Text('المحاسب هو مستخدم التطبيق والعامل نفسه؛ جميع الحركات تمر عبر دفتر العامل والأستاذ العام الحالي.',style:TextStyle(fontSize:12,height:1.45))]))]))),
+    Card(color:Theme.of(context).colorScheme.primaryContainer,child:const Padding(padding:EdgeInsets.all(15),child:const Row(children:[Icon(Icons.manage_accounts,size:32),SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('حساب المحاسب والتسويات المالية',style:TextStyle(fontWeight:FontWeight.w900,fontSize:17)),Text('المحاسب هو مستخدم التطبيق والعامل نفسه؛ جميع الحركات تمر عبر دفتر العامل والأستاذ العام الحالي.',style:TextStyle(fontSize:12,height:1.45))]))]))),
     linkPanel(),
     if(worker!=null)...[profile(),const SizedBox(height:8),Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('مهام المحاسب داخل التطبيق',style:TextStyle(fontWeight:FontWeight.w900)),const Text('• تسجيل إيداعات النقدية التي يوردها للصندوق.\n• توثيق ما يدفعه للشركاء من ماله الشخصي.\n• متابعة راتبه واستحقاقاته وتسوية ما يُصرف له.\n• متابعة أرصدة الصناديق والعمال والشركاء والتقارير.\n• إصدار كشوف PDF موحدة بالفترة المحددة.',style:TextStyle(height:1.55,fontSize:12))]))),const SizedBox(height:8),SegmentedButton<int>(segments:const[ButtonSegment(value:0,label:Text('الحساب'),icon:Icon(Icons.receipt_long)),ButtonSegment(value:1,label:Text('التسويات'),icon:Icon(Icons.swap_horiz)),ButtonSegment(value:2,label:Text('تقارير عامة'),icon:Icon(Icons.analytics_outlined))],selected:{tab},onSelectionChanged:(v){setState(()=>tab=v.first);if(tab==2)loadReport();}),const SizedBox(height:10),
       if(tab==0)accountTab(),
