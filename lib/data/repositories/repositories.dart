@@ -1580,6 +1580,7 @@ class StationRepository {
     int? cashboxId,
     int? paymentMethodId,
     String? notes,
+    String? referenceNumber,
     int? userId,
   }) async {
     if (amount <= 0) throw ArgumentError('المبلغ يجب أن يكون أكبر من صفر');
@@ -1607,6 +1608,7 @@ class StationRepository {
         cashboxId: src['cashbox']!,
         userId: userId,
         notes: notes,
+        referenceNumber: referenceNumber,
       );
     } else {
       throw ArgumentError('نوع حركة العامل غير مدعوم: $type');
