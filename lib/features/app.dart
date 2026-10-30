@@ -4201,26 +4201,13 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
           managerId: widget.userId,
         );
       } else {
-        await auth.updateUsername(
+        await auth.updateCredentials(
           beneficiaryId: beneficiaryId,
           username: username.text,
+          newPassword: password.text.isEmpty ? null : password.text,
+          active: active,
           managerId: widget.userId,
         );
-        if (password.text.isNotEmpty) {
-          await auth.resetPassword(
-            beneficiaryId: beneficiaryId,
-            newPassword: password.text,
-            managerId: widget.userId,
-          );
-        }
-        final wasActive = (existing.first['active'] as num).toInt() == 1;
-        if (wasActive != active) {
-          await auth.setAccountActive(
-            beneficiaryId: beneficiaryId,
-            active: active,
-            managerId: widget.userId,
-          );
-        }
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
