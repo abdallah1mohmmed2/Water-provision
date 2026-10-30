@@ -15,7 +15,18 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
   List<Map<String,Object?>> workers=[],moves=[],cashboxes=[],methods=[],partners=[],reportRows=[];
   int? workerId; int tab=0; bool loading=true,saving=false;
   String reportKey='cash_flow'; DateTime? from,to;
-  static const reports=<String,String>{'cash_flow':'التدفق النقدي','monthly_financial':'التقرير المالي الشهري','cashboxes':'الصناديق والتحويلات','worker_transactions':'معاملات العمال','journal':'دفتر اليومية','ledger':'دفتر الأستاذ العام','expenses':'المصروفات','payment_log':'سجل المدفوعات'};
+  static const reports=<String,String>{
+    'cash_flow':'التدفق النقدي','monthly_financial':'التقرير المالي الشهري',
+    'cashboxes':'الصناديق والتحويلات','worker_transactions':'معاملات العمال',
+    'journal':'دفتر اليومية','ledger':'دفتر الأستاذ العام','expenses':'المصروفات',
+    'payment_log':'سجل المدفوعات','partner_accounts':'حسابات الشركاء',
+    'partner_profit_distribution':'أرباح وتوزيعات الشركاء','debts':'المديونيات',
+    'invoices':'الفواتير','irrigations':'السقايات','income':'الدخل',
+    'beneficiary_stats':'إحصائيات المستفيدين','activity_overview':'ملخص النشاط',
+    'payment_methods':'طرق الدفع','queue_bookings':'الطابور والحجوزات',
+    'time_comparison':'المقارنة الزمنية','revenue_comparison':'مقارنة الإيرادات',
+    'system_comparison':'مقارنة المنظومات','diesel_inventory':'مخزون الديزل',
+  };
   Map<String,Object?>? get worker {for(final w in workers){if((w['id'] as num).toInt()==workerId)return w;}return null;}
   int get balance=>(worker?['balance'] as num?)?.round()??0;
   String money(Object? n)=>NumberFormat('#,##0').format((n as num?)?.round()??0);
