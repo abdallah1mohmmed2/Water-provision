@@ -195,6 +195,14 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     Navigator.of(context).pop();
   }
 
+  Future<int> _requireCurrentBeneficiary() async {
+    final current = await widget.auth.currentBeneficiaryId();
+    if (current == null || current != _beneficiaryId) {
+      throw StateError('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
+    }
+    return current;
+  }
+
   Future<void> _createBooking() async {
     if (_beneficiaryId == null || _savingBooking) return;
     final controller = TextEditingController();
@@ -216,7 +224,8 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     if (notes == null) return;
     setState(() => _savingBooking = true);
     try {
-      await _repo.createBeneficiaryBooking(_beneficiaryId!, notes);
+      final ownerId = await _requireCurrentBeneficiary();
+      await _repo.createBeneficiaryBooking(ownerId, notes);
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إرسال طلب الحجز إلى المحطة')));
@@ -243,7 +252,8 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     );
     if (confirmed != true || _beneficiaryId == null) return;
     try {
-      await _repo.cancelBeneficiaryBooking((booking['id'] as num).toInt(), _beneficiaryId!);
+      final ownerId = await _requireCurrentBeneficiary();
+      await _repo.cancelBeneficiaryBooking((booking['id'] as num).toInt(), ownerId);
       await _load();
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -254,7 +264,8 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
   Future<void> _readNotification(Map<String, Object?> notification) async {
     if (_beneficiaryId == null || notification['read_at'] != null) return;
     try {
-      await _repo.markBeneficiaryNotificationRead((notification['id'] as num).toInt(), _beneficiaryId!);
+      final ownerId = await _requireCurrentBeneficiary();
+      await _repo.markBeneficiaryNotificationRead((notification['id'] as num).toInt(), ownerId);
       await _load();
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
