@@ -344,7 +344,7 @@
 
 ### سبب الفشل
 - أظهر تشغيل GitHub Actions رقم `41095715084` على الالتزام `55d0fda4a2b69f583f92c76aecef46b2ce68d91d` فشل خطوة `Analyze ALL project source` بسبب 25 ملاحظة lint.
-- تركزت الملاحظات في `lib/features/beneficiary_portal.dart` و`test/beneficiary_portal_repository_test.dart`: استخدام جمع النصوص بعلامة `+` بدل interpolation، وثلاثة مواضع من تعليمات `if` دون أقواس (أربع ملاحظات موضعية بحسب التقرير).
+- تركزت الملاحظات في `lib/features/beneficiary_portal.dart` و`test/beneficiary_portal_repository_test.dart`: استخدام جمع النصوص بعلامة `+` بدل interpolation، وأربعة مواضع من تعليمات `if` دون أقواس.
 
 ### الإصلاحات المنفذة
 - تحويل تركيب التواريخ، وأسماء المستفيدين، وأرقام الطلبات، وتواريخ الحجوزات، وملخصات الإشعارات والمبالغ إلى string interpolation دون تغيير النصوص أو الحسابات أو سلوك العرض.
