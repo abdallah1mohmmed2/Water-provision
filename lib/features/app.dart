@@ -4231,6 +4231,40 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
         );
       }
       if (!mounted) return;
+      if (!hasAccount) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('تم إنشاء حساب المستفيد'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'هذه كلمة المرور الأولية. سلّمها للمستفيد بأمان؛ لن نعرضها مرة أخرى.',
+                ),
+                const SizedBox(height: 12),
+                SelectableText(
+                  password.text,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('تم، حفظتها'),
+              ),
+            ],
+          ),
+        );
+      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('تم حفظ بيانات دخول المستفيد.')),
       );
