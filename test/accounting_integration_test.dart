@@ -1596,13 +1596,19 @@ void main() {
     );
   });
 
-  test('ترقية v17 تنشئ جداول مطابقة النقد والبنك والحسابات العامة حتى الإصدار 19', () async {
+  test('ترقية v17 إلى v20 تضيف جداول الاعتمادات وتحافظ على سجلات المحطة', () async {
     final opened = await db.db;
+    final beneficiariesBefore = await opened.rawQuery(
+      'SELECT COUNT(*) count FROM beneficiaries',
+    );
+    final irrigationsBefore = await opened.rawQuery(
+      'SELECT COUNT(*) count FROM irrigations',
+    );
     await opened.execute('PRAGMA user_version=17');
     await db.close();
     final upgraded = await db.db;
     final tables = await upgraded.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions')",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials')",
     );
     final cashIndex = await upgraded.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_cash_rec_period'",
@@ -1610,15 +1616,38 @@ void main() {
     final generalIndex = await upgraded.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_general_account_transactions_account_date'",
     );
+    final credentialIndexes = await upgraded.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='index' AND name IN ('idx_beneficiary_credentials_username','idx_beneficiary_credentials_owner')",
+    );
+    final credentialCount = await upgraded.rawQuery(
+      'SELECT COUNT(*) count FROM beneficiary_credentials',
+    );
+    final beneficiariesAfter = await upgraded.rawQuery(
+      'SELECT COUNT(*) count FROM beneficiaries',
+    );
+    final irrigationsAfter = await upgraded.rawQuery(
+      'SELECT COUNT(*) count FROM irrigations',
+    );
     final version = await upgraded.rawQuery('PRAGMA user_version');
     expect(tables.map((row) => row['name']).toSet(), containsAll({
       'cash_reconciliations',
       'general_accounts',
       'general_account_transactions',
+      'beneficiary_credentials',
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 19);
+    expect(credentialIndexes, hasLength(2));
+    expect((credentialCount.single['count'] as num).toInt(), 0);
+    expect(
+      (beneficiariesAfter.single['count'] as num).toInt(),
+      (beneficiariesBefore.single['count'] as num).toInt(),
+    );
+    expect(
+      (irrigationsAfter.single['count'] as num).toInt(),
+      (irrigationsBefore.single['count'] as num).toInt(),
+    );
+    expect((version.single.values.single as num).toInt(), 20);
   });
 
   test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {
