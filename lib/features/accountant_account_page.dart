@@ -110,36 +110,40 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
   }
   Future<void> depositDialog() async{
     if(workerId==null||cashboxes.isEmpty){msg('تأكد من ربط المحاسب ووجود صندوق نشط');return;}
-    final amount=TextEditingController(),notes=TextEditingController();
+    final amount=TextEditingController(),notes=TextEditingController(),voucher=TextEditingController(),sourceVoucher=TextEditingController();
     int? cb=(cashboxes.first['id'] as num).toInt();
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:const Text('إيداع من مال المحاسب'),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
         DropdownButtonFormField<int>(initialValue:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق الذي استلم النقدية')),
         TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ المودع')),
+        TextField(controller:voucher,decoration:const InputDecoration(labelText:'رقم سند الإيداع (إلزامي)')),
+        TextField(controller:sourceVoucher,decoration:const InputDecoration(labelText:'مرجع السند الأصلي (اختياري)')),
         TextField(controller:notes,decoration:const InputDecoration(labelText:'البيان')),
       ]),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,(int.tryParse(amount.text.trim())??0)>0&&cb!=null),child:const Text('تسجيل الإيداع'))],
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,(int.tryParse(amount.text.trim())??0)>0&&cb!=null&&voucher.text.trim().isNotEmpty),child:const Text('تسجيل الإيداع'))],
     )));
     if(ok!=true)return;
-    try{await widget.repository.accounting.recordAccountantDeposit(workerId:workerId!,cashboxId:cb!,amount:int.parse(amount.text.trim()),userId:widget.userId,notes:notes.text.trim());msg('سُجل الإيداع: زاد الصندوق وزاد مستحق المحاسب، دون إيراد أو مصروف.');await load();}
+    try{await widget.repository.accounting.recordAccountantDeposit(workerId:workerId!,cashboxId:cb!,amount:int.parse(amount.text.trim()),voucherNumber:voucher.text.trim(),sourceVoucherReference:sourceVoucher.text.trim(),userId:widget.userId,notes:notes.text.trim());msg('سُجل الإيداع: زاد الصندوق وزاد مستحق المحاسب، دون إيراد أو مصروف.');await load();}
     catch(e){msg('تعذر تسجيل الإيداع: $e');}
   }
   Future<void> partnerPayoutDialog() async{
     if(workerId==null||partners.isEmpty){msg('لا توجد شراكات نشطة للتسوية');return;}
-    final amount=TextEditingController(),notes=TextEditingController();
+    final amount=TextEditingController(),notes=TextEditingController(),voucher=TextEditingController(),sourceVoucher=TextEditingController();
     int? pid=(partners.first['id'] as num).toInt();
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:const Text('سداد مستحقات شريك من مال المحاسب'),
       content:Column(mainAxisSize:MainAxisSize.min,children:[
         DropdownButtonFormField<int>(initialValue:pid,items:partners.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>pid=v),decoration:const InputDecoration(labelText:'الشريك المستفيد من السداد')),
         TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ المدفوع شخصيًا')),
-        TextField(controller:notes,decoration:const InputDecoration(labelText:'البيان / رقم السند')),
+        TextField(controller:voucher,decoration:const InputDecoration(labelText:'رقم سند السداد (إلزامي)')),
+        TextField(controller:sourceVoucher,decoration:const InputDecoration(labelText:'مرجع استحقاق الشريك / السند الأصلي')),
+        TextField(controller:notes,decoration:const InputDecoration(labelText:'البيان')),
       ]),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,(int.tryParse(amount.text.trim())??0)>0&&pid!=null),child:const Text('تسجيل السداد'))],
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,(int.tryParse(amount.text.trim())??0)>0&&pid!=null&&voucher.text.trim().isNotEmpty),child:const Text('تسجيل السداد'))],
     )));
     if(ok!=true)return;
-    try{await widget.repository.accounting.recordAccountantPartnerPayout(workerId:workerId!,partnerId:pid!,amount:int.parse(amount.text.trim()),userId:widget.userId,notes:notes.text.trim());msg('سُجل السداد: انخفض مستحق الشريك وزاد مستحق المحاسب، دون حركة صندوق أو تغيير ديون المستفيدين.');await load();}
+    try{await widget.repository.accounting.recordAccountantPartnerPayout(workerId:workerId!,partnerId:pid!,amount:int.parse(amount.text.trim()),voucherNumber:voucher.text.trim(),sourceVoucherReference:sourceVoucher.text.trim(),userId:widget.userId,notes:notes.text.trim());msg('سُجل السداد: انخفض مستحق الشريك وزاد مستحق المحاسب، دون حركة صندوق أو تغيير ديون المستفيدين.');await load();}
     catch(e){msg('تعذر تسجيل السداد: $e');}
   }
   Future<void> editPay() async{
