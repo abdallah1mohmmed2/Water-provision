@@ -2,7 +2,7 @@ name: Build Flutter APK
 
 on:
   push:
-    branches: [ "test/all-open-prs" ]
+    branches: [ "test/all-open-prs", "feature/accountant-profile-settlements" ]
   workflow_dispatch:
 
 jobs:
