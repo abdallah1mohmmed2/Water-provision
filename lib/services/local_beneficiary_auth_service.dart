@@ -14,25 +14,31 @@ class LocalBeneficiaryAuthService {
   LocalBeneficiaryAuthService({
     AppDatabase? database,
     FlutterSecureStorage? secureStorage,
+    this.stationId = 1,
   }) : db = database ?? AppDatabase.instance,
        _storage = secureStorage ?? const FlutterSecureStorage();
 
   final AppDatabase db;
   final FlutterSecureStorage _storage;
+  final int stationId;
   static const _sessionKey = 'local_beneficiary_session_token_v1';
   static const _sessionDuration = Duration(days: 30);
   static const _uuid = Uuid();
 
   String _normalizeUsername(String value) => value.trim().toLowerCase();
 
-  static String hashPassword(String password, {List<int>? salt}) {
+  static String hashPassword(
+    String password, {
+    List<int>? salt,
+    Argon2Security security = Argon2Security.moderate,
+  }) {
     final actualSalt = salt ??
         List<int>.generate(16, (_) => Random.secure().nextInt(256));
     return argon2id(
       utf8.encode(password),
       actualSalt,
       hashLength: 32,
-      security: Argon2Security.moderate,
+      security: security,
     ).encoded();
   }
 
@@ -48,6 +54,14 @@ class LocalBeneficiaryAuthService {
     final rows = await db.query(
       'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
       args: [actorId, 'manager'],
+    );
+    if (rows.isEmpty) throw StateError('هذه العملية متاحة لمدير نشط فقط');
+  }
+
+  Future<void> _requireManagerInTransaction(dynamic tx, int actorId) async {
+    final rows = await tx.rawQuery(
+      'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
+      [actorId, 'manager'],
     );
     if (rows.isEmpty) throw StateError('هذه العملية متاحة لمدير نشط فقط');
   }
@@ -74,6 +88,7 @@ class LocalBeneficiaryAuthService {
     final hash = hashPassword(password);
 
     await db.transaction((tx) async {
+      await _requireManagerInTransaction(tx, managerId);
       final owners = await tx.rawQuery(
         'SELECT id, station_id, status FROM beneficiaries WHERE id=? LIMIT 1',
         [beneficiaryId],
@@ -121,14 +136,15 @@ class LocalBeneficiaryAuthService {
     if (newPassword.length < 10 || newPassword.length > 128) {
       throw ArgumentError('كلمة المرور يجب أن تكون بين 10 و128 حرفًا');
     }
-    final rows = await db.query(
-      'SELECT id FROM beneficiary_credentials WHERE beneficiary_id=? LIMIT 1',
-      args: [beneficiaryId],
-    );
-    if (rows.isEmpty) throw StateError('لا توجد بيانات دخول لهذا المستفيد');
     final hash = hashPassword(newPassword);
     final now = AppClock.now().toIso8601String();
     await db.transaction((tx) async {
+      await _requireManagerInTransaction(tx, managerId);
+      final rows = await tx.rawQuery(
+        'SELECT id FROM beneficiary_credentials WHERE beneficiary_id=? LIMIT 1',
+        [beneficiaryId],
+      );
+      if (rows.isEmpty) throw StateError('لا توجد بيانات دخول لهذا المستفيد');
       await tx.update(
         'beneficiary_credentials',
         {'password_phc': hash, 'updated_at': now, 'updated_by': managerId},
@@ -161,6 +177,7 @@ class LocalBeneficiaryAuthService {
     await _requireManager(managerId);
     final now = AppClock.now().toIso8601String();
     await db.transaction((tx) async {
+      await _requireManagerInTransaction(tx, managerId);
       final rows = await tx.rawQuery(
         'SELECT id FROM beneficiary_credentials WHERE beneficiary_id=? LIMIT 1',
         [beneficiaryId],
@@ -200,9 +217,9 @@ class LocalBeneficiaryAuthService {
       '''SELECT c.beneficiary_id, c.password_phc
          FROM beneficiary_credentials c
          JOIN beneficiaries b ON b.id=c.beneficiary_id
-         WHERE c.username_normalized=? AND c.active=1 AND b.status='active'
+         WHERE c.username_normalized=? AND c.station_id=? AND c.active=1 AND b.status='active'
          LIMIT 1''',
-      args: [normalized],
+      args: [normalized, stationId],
     );
     if (rows.isEmpty ||
         !verifyPassword('${rows.first['password_phc']}', password)) {
