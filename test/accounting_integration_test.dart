@@ -1597,7 +1597,7 @@ void main() {
     );
   });
 
-  test('ترقية v17 إلى v21 تضيف جداول الاعتمادات وربط المحاسب وتحافظ على سجلات المحطة', () async {
+  test('ترقية v17 إلى v22 تضيف جداول الاعتمادات وربط المحاسب وسندات تسوياته وتحافظ على سجلات المحطة', () async {
     final opened = await db.db;
     final beneficiariesBefore = await opened.rawQuery(
       'SELECT COUNT(*) count FROM beneficiaries',
@@ -1648,7 +1648,7 @@ void main() {
       (irrigationsAfter.single['count'] as num).toInt(),
       (irrigationsBefore.single['count'] as num).toInt(),
     );
-    expect((version.single.values.single as num).toInt(), 21);
+    expect((version.single.values.single as num).toInt(), 22);
     final appUserColumns = await upgraded.rawQuery('PRAGMA table_info(app_users)');
     expect(appUserColumns.map((row) => row['name']), contains('accountant_worker_id'));
   });
@@ -3017,6 +3017,8 @@ void main() {
       workerId: worker,
       cashboxId: 1,
       amount: 52000,
+      voucherNumber: 'ACC-DEP-TEST-001',
+      sourceVoucherReference: 'إيصال ورقي 001',
       notes: 'إيداع شخصي للمحاسب',
     );
     expect(id, greaterThan(0));
@@ -3024,6 +3026,13 @@ void main() {
     expect((await svc.workerBalance(worker))['balance'], 52000);
     expect(await accountNet('5000'), expenseBefore);
     expect(await accountNet('4000'), revenueBefore);
+    final retryId = await svc.recordAccountantDeposit(workerId: worker, cashboxId: 1, amount: 52000, voucherNumber: 'ACC-DEP-TEST-001', sourceVoucherReference: 'إيصال ورقي 001');
+    expect(retryId, id);
+    expect(await cashboxBalance(1), cashBefore + 52000);
+    final voucherRows = await db.query('accountant_settlements', where: 'voucher_number=?', whereArgs: ['ACC-DEP-TEST-001']);
+    expect(voucherRows, hasLength(1));
+    expect(voucherRows.single['source_voucher_reference'], 'إيصال ورقي 001');
+    expect(voucherRows.single['journal_entry_id'], isNotNull);
     final rows = await repo.workerTransactions(worker);
     expect(rows.any((row) => row['type'] == 'accountant_deposit'), isTrue);
   });
@@ -3057,6 +3066,8 @@ void main() {
       workerId: worker,
       partnerId: partner,
       amount: 352000,
+      voucherNumber: 'ACC-PAY-TEST-001',
+      sourceVoucherReference: 'كشف استحقاق شريك 01',
       notes: 'سداد أرباح الشريك من مال المحاسب',
     );
     expect((await svc.partnerBalance(partner))['balance'], 0);
@@ -3069,6 +3080,13 @@ void main() {
     expect(await cashboxBalance(1), cashBefore);
     expect(await accountNet('5000'), expenseBefore);
     expect(await accountNet('4000'), revenueBefore);
+    final retryId = await svc.recordAccountantPartnerPayout(workerId: worker, partnerId: partner, amount: 352000, voucherNumber: 'ACC-PAY-TEST-001', sourceVoucherReference: 'كشف استحقاق شريك 01');
+    expect(retryId, greaterThan(0));
+    expect((await svc.workerBalance(worker))['balance'], 352000);
+    expect((await svc.partnerBalance(partner))['balance'], 0);
+    final voucherRows = await db.query('accountant_settlements', where: 'voucher_number=?', whereArgs: ['ACC-PAY-TEST-001']);
+    expect(voucherRows, hasLength(1));
+    expect(voucherRows.single['partner_transaction_id'], isNotNull);
     final workerRows = await repo.workerTransactions(worker);
     expect(workerRows.any((row) => row['type'] == 'accountant_partner_payout'), isTrue);
     final partnerRows = await repo.partnerTransactions(partner);
