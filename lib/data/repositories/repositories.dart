@@ -1152,7 +1152,7 @@ class StationRepository {
     final paymentPartyColumn = isWorker ? 'p.worker_id' : 'p.partner_id';
     final paidExpression = isWorker
         ? "(SELECT SUM(p.amount) FROM payments p WHERE p.status='posted' AND $paymentPartyColumn=x.id)"
-        : "(SELECT SUM(p.amount) FROM payments p WHERE p.status='posted' AND $paymentPartyColumn=x.id) + (SELECT SUM(pt.amount) FROM partner_transactions pt WHERE pt.partner_id=x.id AND pt.reference_type='accountant_partner_payout')";
+        : "COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.status='posted' AND $paymentPartyColumn=x.id),0) + COALESCE((SELECT SUM(pt.amount) FROM partner_transactions pt WHERE pt.partner_id=x.id AND pt.reference_type='accountant_partner_payout'),0)";
     final rows = await db.rawQuery('''
       SELECT
         COALESCE((SELECT SUM(i.minutes) FROM irrigations i WHERE $idColumn=? AND i.status!='cancelled'),0) irrigation_minutes,
