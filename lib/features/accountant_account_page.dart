@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' as intl;
 import '../core/app_clock.dart';
 import '../data/repositories/repositories.dart';
 import '../services/report_service.dart';
@@ -29,8 +29,8 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
   };
   Map<String,Object?>? get worker {for(final w in workers){if((w['id'] as num).toInt()==workerId)return w;}return null;}
   int get balance=>(worker?['balance'] as num?)?.round()??0;
-  String money(Object? n)=>NumberFormat('#,##0').format((n as num?)?.round()??0);
-  String dateLabel(DateTime? d)=>d==null?'كل الفترات':DateFormat('yyyy/MM/dd').format(d);
+  String money(Object? n)=>intl.NumberFormat('#,##0').format((n as num?)?.round()??0);
+  String dateLabel(DateTime? d)=>d==null?'كل الفترات':intl.DateFormat('yyyy/MM/dd').format(d);
   String get payType=>switch('${worker?['pay_type']}'){'fixed'=>'راتب ثابت شهري','hourly'=>'أجر بالساعة','percentage'=>'نسبة من السقايات',_=>'غير محدد'};
   @override void initState(){super.initState();load();}
   void msg(String s){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));}
@@ -204,7 +204,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
       Row(children:[Expanded(child:FilledButton.icon(onPressed:saving?null:movement,icon:const Icon(Icons.add_card),label:const Text('تسوية مالية'))),const SizedBox(width:8),Expanded(child:OutlinedButton.icon(onPressed:workerPdf,icon:const Icon(Icons.picture_as_pdf),label:const Text('كشف PDF')))]),
       if(rows.isEmpty)const Card(child:Padding(padding:EdgeInsets.all(20),child:Text('لا توجد حركات في الفترة المحددة')))
       else ...rows.map((r){final lah=(r['lah'] as num?)?.round()??0,alayh=(r['alayh'] as num?)?.round()??0,d=DateTime.tryParse('${r['date']??''}');
-        return Card(child:ListTile(leading:CircleAvatar(child:Icon(lah>0?Icons.add:alayh>0?Icons.remove:Icons.receipt_long)),title:Text('${r['description']??r['notes']??'حركة حساب'}',maxLines:2,overflow:TextOverflow.ellipsis),subtitle:Text(d==null?'تاريخ غير محدد':DateFormat('yyyy/MM/dd').format(d)),trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text(lah>0?'له ${money(lah)}':alayh>0?'عليه ${money(alayh)}':'—',style:const TextStyle(fontWeight:FontWeight.w900)),Text('الرصيد ${money(r['balance'])}',style:Theme.of(context).textTheme.labelSmall)])));
+        return Card(child:ListTile(leading:CircleAvatar(child:Icon(lah>0?Icons.add:alayh>0?Icons.remove:Icons.receipt_long)),title:Text('${r['description']??r['notes']??'حركة حساب'}',maxLines:2,overflow:TextOverflow.ellipsis),subtitle:Text(d==null?'تاريخ غير محدد':intl.DateFormat('yyyy/MM/dd').format(d)),trailing:Column(mainAxisAlignment:MainAxisAlignment.center,crossAxisAlignment:CrossAxisAlignment.end,children:[Text(lah>0?'له ${money(lah)}':alayh>0?'عليه ${money(alayh)}':'—',style:const TextStyle(fontWeight:FontWeight.w900)),Text('الرصيد ${money(r['balance'])}',style:Theme.of(context).textTheme.labelSmall)])));
       }),
     ]);
   }
