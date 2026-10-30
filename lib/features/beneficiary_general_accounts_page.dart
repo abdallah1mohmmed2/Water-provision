@@ -7,7 +7,7 @@ import '../services/official_report_template.dart';
 
 /// Signed balance: positive means "لنا عليه"; negative means "له علينا".
 /// A receipt reduces the amount owed to us; a payment increases it.
-int calculateGeneralAccountBalance(
+int calculateBeneficiaryGeneralAccountBalance(
   int openingBalance,
   Iterable<Map<String, Object?>> transactions,
 ) {
@@ -84,7 +84,7 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
   int _balance(Map<String, Object?> account) {
     final opening = (account['opening_balance'] as num?)?.toInt() ?? 0;
     final id = (account['id'] as num).toInt();
-    return calculateGeneralAccountBalance(opening, _transactions[id] ?? const []);
+    return calculateBeneficiaryGeneralAccountBalance(opening, _transactions[id] ?? const []);
   }
 
   String _money(int value) => value.abs().toString();
