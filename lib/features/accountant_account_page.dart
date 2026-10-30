@@ -61,14 +61,14 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
   }
   Future<void> movement() async{
     final w=worker;if(w==null)return;if((w['active'] as num?)?.toInt()!=1){msg('العامل غير نشط');return;}
-    final amount=TextEditingController(),notes=TextEditingController();String kind='accrual';
+    final amount=TextEditingController(text:worker?['pay_type']=='fixed'?'${worker?['fixed_salary']??0}':''),notes=TextEditingController();String kind=worker?['pay_type']=='fixed'?'salary':'accrual';
     int? cb=cashboxes.isEmpty?null:(cashboxes.first['id'] as num).toInt();
     final cash=methods.where((m)=>m['type']=='cash').toList(),available=cash.isNotEmpty?cash:methods;
     int? pm=available.isEmpty?null:(available.first['id'] as num).toInt();
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:Text('تسوية حساب ${w['name']}'),
       content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
-        DropdownButtonFormField<String>(value:kind,items:const[DropdownMenuItem(value:'accrual',child:Text('إضافة استحقاق للمحاسب')),DropdownMenuItem(value:'payment',child:Text('صرف مستحق للمحاسب'))],onChanged:(v)=>refresh(()=>kind=v??'accrual'),decoration:const InputDecoration(labelText:'نوع الحركة')),
+        DropdownButtonFormField<String>(value:kind,items:const[DropdownMenuItem(value:'salary',child:Text('ترحيل راتب ثابت')),DropdownMenuItem(value:'accrual',child:Text('إضافة استحقاق آخر')),DropdownMenuItem(value:'payment',child:Text('صرف مستحق للمحاسب'))],onChanged:(v)=>refresh(()=>kind=v??'accrual'),decoration:const InputDecoration(labelText:'نوع الحركة')),
         TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ بالريال')),
         if(kind=='payment')...[
           DropdownButtonFormField<int>(value:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق')),
@@ -118,25 +118,34 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
   }
   Future<void> editPay() async{
     final w=worker;if(w==null||!widget.manager)return;
+    final name=TextEditingController(text:'${w['name']??''}'),phone=TextEditingController(text:'${w['phone']??''}'),job=TextEditingController(text:'${w['job_title']??''}');
     final fixed=TextEditingController(text:'${w['fixed_salary']??0}'),hourly=TextEditingController(text:'${w['hourly_rate']??0}'),percent=TextEditingController(text:'${w['percentage_rate']??0}');
     String type='${w['pay_type']??'hourly'}';
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:const Text('تعديل استحقاق المحاسب'),
-      content:Column(mainAxisSize:MainAxisSize.min,children:[
+      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+        TextField(controller:name,decoration:const InputDecoration(labelText:'اسم العامل / المحاسب')),
+        TextField(controller:phone,decoration:const InputDecoration(labelText:'رقم الهاتف')),
+        TextField(controller:job,decoration:const InputDecoration(labelText:'المسمى الوظيفي')),
         DropdownButtonFormField<String>(value:type,items:const[DropdownMenuItem(value:'fixed',child:Text('راتب ثابت')),DropdownMenuItem(value:'hourly',child:Text('بالساعة')),DropdownMenuItem(value:'percentage',child:Text('نسبة'))],onChanged:(v)=>refresh(()=>type=v??'hourly')),
         if(type=='fixed')TextField(controller:fixed,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'الراتب الشهري')),
         if(type=='hourly')TextField(controller:hourly,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'أجر الساعة')),
         if(type=='percentage')TextField(controller:percent,keyboardType:const TextInputType.numberWithOptions(decimal:true),decoration:const InputDecoration(labelText:'النسبة %')),
-      ]),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,type=='fixed'?(int.tryParse(fixed.text)??0)>0:type=='hourly'?(int.tryParse(hourly.text)??0)>0:(double.tryParse(percent.text)??-1)>=0&&(double.tryParse(percent.text)??101)<=100),child:const Text('حفظ'))],
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,name.text.trim().isNotEmpty&&(type=='fixed'?(int.tryParse(fixed.text)??0)>0:type=='hourly'?(int.tryParse(hourly.text)??0)>0:(double.tryParse(percent.text)??-1)>=0&&(double.tryParse(percent.text)??101)<=100),child:const Text('حفظ'))],
     )));
     if(ok!=true)return;
-    try{await widget.repository.updateWorker(workerId!,{'pay_type':type,'fixed_salary':int.tryParse(fixed.text)??0,'hourly_rate':int.tryParse(hourly.text)??0,'percentage_rate':double.tryParse(percent.text)??0},widget.userId);msg('تم تحديث الاستحقاق');await load();}
+    try{await widget.repository.updateWorker(workerId!,{'name':name.text.trim(),'phone':phone.text.trim(),'job_title':job.text.trim(),'pay_type':type,'fixed_salary':int.tryParse(fixed.text)??0,'hourly_rate':int.tryParse(hourly.text)??0,'percentage_rate':double.tryParse(percent.text)??0},widget.userId);msg('تم تحديث الاستحقاق');await load();}
     catch(e){msg('تعذر تحديث الاستحقاق: $e');}
   }
   Widget metric(String title,String value,IconData icon)=>Expanded(child:Card(child:Padding(padding:const EdgeInsets.all(11),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Icon(icon,size:19),const SizedBox(height:6),Text(title,style:Theme.of(context).textTheme.labelSmall),Text(value,style:const TextStyle(fontWeight:FontWeight.w900),maxLines:1,overflow:TextOverflow.ellipsis)]))));
   Widget linkPanel(){
-    final active=workers.where((w)=>(w['active'] as num?)?.toInt()==1).toList(),canChange=widget.manager||workerId==null;
+    final active=workers.where((w)=>(w['active'] as num?)?.toInt()==1).toList();
+    if(workerId!=null&&!active.any((w)=>(w['id'] as num).toInt()==workerId)){
+      final inactive=worker;
+      if(inactive!=null)active.add(inactive);
+    }
+    final canChange=widget.manager||workerId==null;
     return Card(child:Padding(padding:const EdgeInsets.all(14),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
       const Text('ربط المستخدم بسجل العامل',style:TextStyle(fontWeight:FontWeight.w900)),
       const Text('اختر عاملًا موجودًا ليكون هو المحاسب. لن يُنشأ عامل مكرر؛ وستبقى الرواتب والاستحقاقات والمدفوعات في دفتر العامل نفسه.',style:TextStyle(fontSize:12,height:1.5)),
