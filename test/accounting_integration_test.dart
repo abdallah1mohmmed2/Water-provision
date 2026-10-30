@@ -1724,20 +1724,20 @@ void main() {
     final suffix = DateTime.now().microsecondsSinceEpoch.toString();
     final first = await db.insert('beneficiaries', {
       'station_id': 1,
-      'name': 'مستفيد جلسة أول ' + suffix,
+      'name': 'مستفيد جلسة أول $suffix',
       'status': 'active',
       'created_at': now,
       'updated_at': now,
     });
     final second = await db.insert('beneficiaries', {
       'station_id': 1,
-      'name': 'مستفيد جلسة ثان ' + suffix,
+      'name': 'مستفيد جلسة ثان $suffix',
       'status': 'active',
       'created_at': now,
       'updated_at': now,
     });
-    final firstUsername = 'session.first.' + suffix;
-    final secondUsername = 'session.second.' + suffix;
+    final firstUsername = 'session.first.$suffix';
+    final secondUsername = 'session.second.$suffix';
     const firstPassword = 'first-strong-password-123';
     const secondPassword = 'second-strong-password-456';
 
@@ -1760,7 +1760,7 @@ void main() {
     );
     expect(stored.single['password_phc'], isNot(firstPassword));
     expect(stored.single['password_phc'].toString().contains('argon2id'), isTrue);
-    expect(await auth.login('unknown.' + suffix, firstPassword), isFalse);
+    expect(await auth.login('unknown.$suffix', firstPassword), isFalse);
     expect(await auth.login(firstUsername, 'wrong-password-123'), isFalse);
     expect(await auth.currentBeneficiaryId(), isNull);
 
