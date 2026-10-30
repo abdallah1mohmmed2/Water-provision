@@ -11,19 +11,47 @@ import '../core/app_clock.dart';
 import '../data/local/database.dart';
 
 /// Local-only beneficiary credentials. This service is separate from API/OTP auth.
+abstract interface class BeneficiarySessionStorage {
+  Future<String?> read();
+  Future<void> write(String token);
+  Future<void> delete();
+}
+
+class _FlutterBeneficiarySessionStorage implements BeneficiarySessionStorage {
+  _FlutterBeneficiarySessionStorage(this.storage);
+  final FlutterSecureStorage storage;
+
+  @override
+  Future<String?> read() =>
+      storage.read(key: 'local_beneficiary_session_token_v1');
+
+  @override
+  Future<void> write(String token) => storage.write(
+    key: 'local_beneficiary_session_token_v1',
+    value: token,
+  );
+
+  @override
+  Future<void> delete() =>
+      storage.delete(key: 'local_beneficiary_session_token_v1');
+}
+
 class LocalBeneficiaryAuthService {
   LocalBeneficiaryAuthService({
     AppDatabase? database,
     FlutterSecureStorage? secureStorage,
+    BeneficiarySessionStorage? sessionStorage,
     this.stationId = 1,
   }) : db = database ?? AppDatabase.instance,
-       _storage = secureStorage ?? const FlutterSecureStorage();
+       _storage = sessionStorage ??
+           _FlutterBeneficiarySessionStorage(
+             secureStorage ?? const FlutterSecureStorage(),
+           );
 
   final AppDatabase db;
-  final FlutterSecureStorage _storage;
+  final BeneficiarySessionStorage _storage;
   final int stationId;
 
-  static const _sessionKey = 'local_beneficiary_session_token_v1';
   static const _sessionDuration = Duration(days: 30);
   static const _uuid = Uuid();
 
@@ -238,13 +266,13 @@ class LocalBeneficiaryAuthService {
         'created_at': now.toIso8601String(),
       });
     });
-    await _storage.write(key: _sessionKey, value: token);
+    await _storage.write(token);
     return true;
   }
 
   /// Resolves identity from the protected session, never from a screen argument.
   Future<int?> currentBeneficiaryId() async {
-    final token = await _storage.read(key: _sessionKey);
+    final token = await _storage.read();
     if (token == null || token.isEmpty) return null;
     final tokenHash = crypto.sha256.convert(utf8.encode(token)).toString();
     final rows = await db.query(
@@ -258,7 +286,7 @@ class LocalBeneficiaryAuthService {
       args: [tokenHash, AppClock.now().toIso8601String()],
     );
     if (rows.isEmpty) {
-      await _storage.delete(key: _sessionKey);
+      await _storage.delete();
       return null;
     }
     return (rows.first['beneficiary_id'] as num).toInt();
