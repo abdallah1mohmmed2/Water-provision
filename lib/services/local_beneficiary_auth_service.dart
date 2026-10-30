@@ -110,7 +110,7 @@ class LocalBeneficiaryAuthService {
       if (existing.isNotEmpty) {
         throw StateError('لدى هذا المستفيد بيانات دخول بالفعل؛ استخدم تعديل بيانات الدخول');
       }
-      await tx.insert('beneficiary_credentials', {
+      final credentialId = await tx.insert('beneficiary_credentials', {
         'station_id': station,
         'beneficiary_id': beneficiaryId,
         'username_normalized': normalized,
@@ -126,8 +126,8 @@ class LocalBeneficiaryAuthService {
         userId: managerId,
         operation: 'beneficiary_login_created',
         table: 'beneficiary_credentials',
-        recordId: beneficiaryId,
-        newValues: {'username': normalized, 'active': true},
+        recordId: credentialId,
+        newValues: {'beneficiary_id': beneficiaryId, 'username': normalized, 'active': true},
       );
     });
   }
@@ -156,6 +156,7 @@ class LocalBeneficiaryAuthService {
         [beneficiaryId],
       );
       if (rows.isEmpty) throw StateError('لا توجد بيانات دخول لهذا المستفيد');
+      final credentialId = (rows.first['id'] as num).toInt();
       final values = <String, Object?>{
         'username_normalized': normalized,
         'active': active ? 1 : 0,
@@ -167,7 +168,7 @@ class LocalBeneficiaryAuthService {
         'beneficiary_credentials',
         values,
         where: 'id=?',
-        whereArgs: [(rows.first['id'] as num).toInt()],
+        whereArgs: [credentialId],
       );
       final wasActive = (rows.first['active'] as num).toInt() == 1;
       final revokeSessions = hash != null || (wasActive && !active);
@@ -184,8 +185,9 @@ class LocalBeneficiaryAuthService {
         userId: managerId,
         operation: 'beneficiary_login_updated',
         table: 'beneficiary_credentials',
-        recordId: beneficiaryId,
+        recordId: credentialId,
         newValues: {
+          'beneficiary_id': beneficiaryId,
           'username': normalized,
           'active': active,
           'password_changed': hash != null,
