@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../core/app_clock.dart';
 import '../data/repositories/repositories.dart';
 import '../services/manual_message_service.dart';
+import '../services/local_beneficiary_auth_service.dart';
 import '../services/official_report_template.dart';
 
 /// Signed balance: positive means "لنا عليه"; negative means "له علينا".
@@ -25,8 +26,8 @@ int calculateBeneficiaryGeneralAccountBalance(
 
 class BeneficiaryGeneralAccountsPage extends StatefulWidget {
   final StationRepository repository;
-  final int? userId;
-  const BeneficiaryGeneralAccountsPage(this.repository, {super.key, this.userId});
+  final LocalBeneficiaryAuthService auth;
+  const BeneficiaryGeneralAccountsPage(this.repository, {required this.auth, super.key});
 
   @override
   State<BeneficiaryGeneralAccountsPage> createState() => _BeneficiaryGeneralAccountsPageState();
@@ -39,8 +40,17 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
   bool _loading = true;
   String? _error;
   int? _expandedId;
+  int? _beneficiaryId;
 
   Future<Database> get _db async => widget.repository.db.db;
+
+  Future<int> _requireOwner() async {
+    final current = await widget.auth.currentBeneficiaryId();
+    if (current == null || current != _beneficiaryId) {
+      throw StateError('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
+    }
+    return current;
+  }
 
   @override
   void initState() {
@@ -58,24 +68,30 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
     if (mounted) setState(() { _loading = true; _error = null; });
     try {
       final db = await _db;
-      final stationId = await widget.repository.accounting.currentStationId();
+      final ownerId = await widget.auth.currentBeneficiaryId();
+      if (ownerId == null) throw StateError('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
       final accounts = await db.query(
-        'general_accounts',
-        where: 'station_id=? AND active=1 AND (name LIKE ? OR COALESCE(phone, \'\') LIKE ?)',
-        whereArgs: [stationId, '%${_search.text.trim()}%', '%${_search.text.trim()}%'],
+        'beneficiary_general_accounts',
+        where: 'beneficiary_id=? AND active=1 AND (name LIKE ? OR COALESCE(phone, \'\') LIKE ?)',
+        whereArgs: [ownerId, '%${_search.text.trim()}%', '%${_search.text.trim()}%'],
         orderBy: 'name COLLATE NOCASE',
       );
       final transactions = <int, List<Map<String, Object?>>>{};
       for (final account in accounts) {
         final id = (account['id'] as num).toInt();
         transactions[id] = await db.query(
-          'general_account_transactions',
-          where: 'account_id=? AND station_id=?',
-          whereArgs: [id, stationId],
+          'beneficiary_general_account_transactions',
+          where: 'account_id=? AND beneficiary_id=?',
+          whereArgs: [id, ownerId],
           orderBy: 'date DESC, id DESC',
         );
       }
-      if (mounted) setState(() { _accounts = accounts; _transactions = transactions; _loading = false; });
+      if (mounted) setState(() {
+        _beneficiaryId = ownerId;
+        _accounts = accounts;
+        _transactions = transactions;
+        _loading = false;
+      });
     } catch (e) {
       if (mounted) setState(() { _error = 'تعذر تحميل الحسابات العامة: $e'; _loading = false; });
     }
@@ -134,11 +150,11 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
     if (ok == true) {
       try {
         final db = await _db;
-        final stationId = await _stationId();
+        final ownerId = await _requireOwner();
         final value = int.parse(opening.text.trim());
         await db.transaction((tx) async {
-          await tx.insert('general_accounts', {
-            'station_id': stationId,
+          await tx.insert('beneficiary_general_accounts', {
+            'beneficiary_id': ownerId,
             'name': name.text.trim(),
             'phone': phone.text.trim().isEmpty ? null : phone.text.trim(),
             'address': address.text.trim().isEmpty ? null : address.text.trim(),
@@ -156,8 +172,6 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
     }
     name.dispose(); phone.dispose(); address.dispose(); notes.dispose(); opening.dispose();
   }
-
-  Future<int> _stationId() => widget.repository.accounting.currentStationId();
 
   Future<void> _addTransaction(Map<String, Object?> account, String type) async {
     final amount = TextEditingController();
@@ -188,21 +202,20 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
     if (ok == true) {
       try {
         final db = await _db;
-        final stationId = await _stationId();
+        final ownerId = await _requireOwner();
         final value = int.parse(amount.text.trim());
         await db.transaction((tx) async {
           final accountId = (account['id'] as num).toInt();
-          final exists = await tx.query('general_accounts', columns: ['id'], where: 'id=? AND station_id=? AND active=1', whereArgs: [accountId, stationId], limit: 1);
+          final exists = await tx.query('beneficiary_general_accounts', columns: ['id'], where: 'id=? AND beneficiary_id=? AND active=1', whereArgs: [accountId, ownerId], limit: 1);
           if (exists.isEmpty) throw StateError('الحساب غير موجود أو غير نشط');
-          await tx.insert('general_account_transactions', {
-            'station_id': stationId,
+          await tx.insert('beneficiary_general_account_transactions', {
+            'beneficiary_id': ownerId,
             'account_id': accountId,
             'date': AppClock.now().toIso8601String(),
             'type': type,
             'amount': value,
             'reference_number': reference.text.trim().isEmpty ? null : reference.text.trim(),
             'notes': notes.text.trim().isEmpty ? null : notes.text.trim(),
-            'created_by': widget.userId,
             'created_at': AppClock.now().toIso8601String(),
           });
         });
@@ -289,11 +302,11 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
     if (ok == true) {
       try {
         final db = await _db;
-        final stationId = await _stationId();
+        final ownerId = await _requireOwner();
         final value = int.parse(opening.text.trim());
         final accountId = (account['id'] as num).toInt();
         final changed = await db.update(
-          'general_accounts',
+          'beneficiary_general_accounts',
           {
             'name': name.text.trim(),
             'phone': phone.text.trim().isEmpty ? null : phone.text.trim(),
@@ -302,8 +315,8 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
             'notes': notes.text.trim().isEmpty ? null : notes.text.trim(),
             'updated_at': AppClock.now().toIso8601String(),
           },
-          where: 'id=? AND station_id=? AND active=1',
-          whereArgs: [accountId, stationId],
+          where: 'id=? AND beneficiary_id=? AND active=1',
+          whereArgs: [accountId, ownerId],
         );
         if (changed == 0) throw StateError('الحساب غير موجود أو لم يعد نشطًا');
         await _load();
@@ -325,12 +338,12 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
   Future<void> _exportAccountPdf(Map<String, Object?> account) async {
     try {
       final db = await _db;
-      final stationId = await _stationId();
+      final ownerId = await _requireOwner();
       final accountId = (account['id'] as num).toInt();
       final transactions = await db.query(
-        'general_account_transactions',
-        where: 'account_id=? AND station_id=?',
-        whereArgs: [accountId, stationId],
+        'beneficiary_general_account_transactions',
+        where: 'account_id=? AND beneficiary_id=?',
+        whereArgs: [accountId, ownerId],
         orderBy: 'date ASC, id ASC',
       );
       final opening = (account['opening_balance'] as num?)?.toInt() ?? 0;
@@ -360,11 +373,10 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
           _money(runningBalance),
         ]);
       }
-      final settings = await widget.repository.settings();
       await OfficialReportTemplate.preview(
-        rightHeader1: settings['station_name']?.toString() ?? 'منظومة السقاية',
-        rightHeader2: 'الحسابات العامة',
-        rightHeader3: 'كشف حساب مستقل',
+        rightHeader1: 'حسابات المستفيد الخاصة',
+        rightHeader2: 'حسابات عامة مستقلة',
+        rightHeader3: 'كشف حساب خاص بالمستفيد',
         date: AppClock.now().toIso8601String().split('T').first,
         refNumber: 'حساب رقم $accountId',
         attachments: '—',
