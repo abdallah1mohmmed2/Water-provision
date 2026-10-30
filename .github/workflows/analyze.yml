@@ -2,7 +2,7 @@ name: Flutter Analyze
 
 on:
   push:
-    branches: [ "main", "master", "test/all-open-prs", "feature/beneficiary-in-app-login" ]
+    branches: [ "main", "master", "test/all-open-prs", "feature/beneficiary-in-app-login", "feature/accountant-profile-settlements" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
