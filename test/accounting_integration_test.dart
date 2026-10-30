@@ -1605,6 +1605,7 @@ void main() {
     final irrigationsBefore = await opened.rawQuery(
       'SELECT COUNT(*) count FROM irrigations',
     );
+    await opened.execute('DROP TABLE IF EXISTS accountant_settlements');
     await opened.execute('PRAGMA user_version=17');
     await db.close();
     final upgraded = await db.db;
@@ -3030,6 +3031,7 @@ void main() {
     final retryId = await svc.recordAccountantDeposit(workerId: worker, cashboxId: 1, amount: 52000, voucherNumber: 'ACC-DEP-TEST-001', sourceVoucherReference: 'إيصال ورقي 001');
     expect(retryId, id);
     expect(await cashboxBalance(1), cashBefore + 52000);
+    await expectLater(svc.recordAccountantDeposit(workerId: worker, cashboxId: 1, amount: 52001, voucherNumber: 'ACC-DEP-TEST-001', sourceVoucherReference: 'إيصال ورقي 001'), throwsStateError);
     final voucherRows = await db.query('accountant_settlements', where: 'voucher_number=?', whereArgs: ['ACC-DEP-TEST-001']);
     expect(voucherRows, hasLength(1));
     expect(voucherRows.single['source_voucher_reference'], 'إيصال ورقي 001');
@@ -3083,6 +3085,7 @@ void main() {
     expect(await accountNet('4000'), revenueBefore);
     final retryId = await svc.recordAccountantPartnerPayout(workerId: worker, partnerId: partner, amount: 352000, voucherNumber: 'ACC-PAY-TEST-001', sourceVoucherReference: 'كشف استحقاق شريك 01');
     expect(retryId, greaterThan(0));
+    await expectLater(svc.recordAccountantPartnerPayout(workerId: worker, partnerId: partner, amount: 351999, voucherNumber: 'ACC-PAY-TEST-001', sourceVoucherReference: 'كشف استحقاق شريك 01'), throwsStateError);
     expect((await svc.workerBalance(worker))['balance'], 352000);
     expect((await svc.partnerBalance(partner))['balance'], 0);
     final voucherRows = await db.query('accountant_settlements', where: 'voucher_number=?', whereArgs: ['ACC-PAY-TEST-001']);
