@@ -106,4 +106,80 @@ void main() {
     );
     expect(rows.single['read_at'], isNotNull);
   });
+  test('private general accounts are isolated per beneficiary and from station accounts', () async {
+    final suffix = DateTime.now().microsecondsSinceEpoch.toString();
+    final owner = await seedBeneficiary('private_accounts_owner_$suffix');
+    final other = await seedBeneficiary('private_accounts_other_$suffix');
+    final now = DateTime.now().toIso8601String();
+
+    final stationAccountId = await db.insert('general_accounts', {
+      'station_id': 1,
+      'name': 'حساب المحطة $suffix',
+      'opening_balance': 900,
+      'active': 1,
+      'created_at': now,
+      'updated_at': now,
+    });
+    final privateAccountId = await db.insert('beneficiary_general_accounts', {
+      'beneficiary_id': owner,
+      'name': 'حساب خاص $suffix',
+      'opening_balance': 500,
+      'active': 1,
+      'created_at': now,
+      'updated_at': now,
+    });
+    await db.insert('beneficiary_general_account_transactions', {
+      'beneficiary_id': owner,
+      'account_id': privateAccountId,
+      'date': now,
+      'type': 'receipt',
+      'amount': 100,
+      'notes': 'حركة خاصة',
+      'created_at': now,
+    });
+
+    final ownerAccounts = await db.query(
+      'SELECT id FROM beneficiary_general_accounts WHERE beneficiary_id=?',
+      args: [owner],
+    );
+    final otherAccounts = await db.query(
+      'SELECT id FROM beneficiary_general_accounts WHERE beneficiary_id=?',
+      args: [other],
+    );
+    final ownerTransactions = await db.query(
+      'SELECT id FROM beneficiary_general_account_transactions WHERE beneficiary_id=? AND account_id=?',
+      args: [owner, privateAccountId],
+    );
+    final otherTransactions = await db.query(
+      'SELECT id FROM beneficiary_general_account_transactions WHERE beneficiary_id=?',
+      args: [other],
+    );
+
+    expect(ownerAccounts.map((row) => row['id']), contains(privateAccountId));
+    expect(otherAccounts, isEmpty);
+    expect(ownerTransactions, hasLength(1));
+    expect(otherTransactions, isEmpty);
+
+    // Even if another beneficiary knows the numeric account ID, the composite
+    // foreign key prevents attaching a transaction to an account they do not own.
+    await expectLater(
+      db.insert('beneficiary_general_account_transactions', {
+        'beneficiary_id': other,
+        'account_id': privateAccountId,
+        'date': now,
+        'type': 'payment',
+        'amount': 25,
+        'created_at': now,
+      }),
+      throwsA(isA<Exception>()),
+    );
+
+    final stationRows = await db.query(
+      'SELECT id,name FROM general_accounts WHERE id=? AND station_id=1',
+      args: [stationAccountId],
+    );
+    expect(stationRows, hasLength(1));
+    expect(stationRows.single['name'], 'حساب المحطة $suffix');
+  });
+
 }
