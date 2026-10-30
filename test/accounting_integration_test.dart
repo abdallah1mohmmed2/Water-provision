@@ -2931,6 +2931,74 @@ void main() {
     expect(after['balance'], 0);
   });
 
+  test('إيداع المحاسب يزيد الصندوق ومستحقه دون تسجيل إيراد أو مصروف', () async {
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(
+      name: 'محاسب اختبار الإيداع',
+      payType: 'fixed',
+      fixedSalary: 1500,
+    );
+    final cashBefore = await cashboxBalance(1);
+    final expenseBefore = await accountNet('5000');
+    final revenueBefore = await accountNet('4000');
+    final id = await svc.recordAccountantDeposit(
+      workerId: worker,
+      cashboxId: 1,
+      amount: 52000,
+      notes: 'إيداع شخصي للمحاسب',
+    );
+    expect(id, greaterThan(0));
+    expect(await cashboxBalance(1), cashBefore + 52000);
+    expect((await svc.workerBalance(worker))['balance'], 52000);
+    expect(await accountNet('5000'), expenseBefore);
+    expect(await accountNet('4000'), revenueBefore);
+    final rows = await repo.workerTransactions(worker);
+    expect(rows.any((row) => row['type'] == 'accountant_deposit'), isTrue);
+  });
+
+  test('سداد المحاسب للشريك من ماله يخفض ذمة الشريك ويزيد ذمة المحاسب دون صندوق أو تغيير دين المستفيد', () async {
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(
+      name: 'محاسب اختبار سداد الشريك',
+      payType: 'fixed',
+      fixedSalary: 1500,
+    );
+    final partner = await repo.createPartner(
+      name: 'شريك اختبار سداد المحاسب',
+      mode: 'shares',
+      shares: 1,
+    );
+    await svc.createPartnerShare(
+      partnerId: partner,
+      amount: 352000,
+      date: DateTime(2049, 1, 1),
+    );
+    final beneficiary = await repo.createBeneficiary(
+      name: 'مستفيد لا تتغير مديونيته بسداد الشريك',
+      opening: 352000,
+    );
+    final beneficiaryBefore = (await svc.beneficiaryBalance(beneficiary))['balance'];
+    final cashBefore = await cashboxBalance(1);
+    final expenseBefore = await accountNet('5000');
+    final revenueBefore = await accountNet('4000');
+    await svc.recordAccountantPartnerPayout(
+      workerId: worker,
+      partnerId: partner,
+      amount: 352000,
+      notes: 'سداد أرباح الشريك من مال المحاسب',
+    );
+    expect((await svc.partnerBalance(partner))['balance'], 0);
+    expect((await svc.workerBalance(worker))['balance'], 352000);
+    expect((await svc.beneficiaryBalance(beneficiary))['balance'], beneficiaryBefore);
+    expect(await cashboxBalance(1), cashBefore);
+    expect(await accountNet('5000'), expenseBefore);
+    expect(await accountNet('4000'), revenueBefore);
+    final workerRows = await repo.workerTransactions(worker);
+    expect(workerRows.any((row) => row['type'] == 'accountant_partner_payout'), isTrue);
+    final partnerRows = await repo.partnerTransactions(partner);
+    expect(partnerRows.any((row) => row['type'] == 'accountant_partner_payout'), isTrue);
+  });
+
 }
 
 class _MemoryBeneficiarySessionStorage implements BeneficiarySessionStorage {
