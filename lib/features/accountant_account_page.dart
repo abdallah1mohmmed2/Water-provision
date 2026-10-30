@@ -77,7 +77,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
   }
   Future<void> movement() async{
     final w=worker;if(w==null)return;if((w['active'] as num?)?.toInt()!=1){msg('العامل غير نشط');return;}
-    final amount=TextEditingController(),notes=TextEditingController();String kind='accrual';
+    final amount=TextEditingController(),notes=TextEditingController(),voucher=TextEditingController();String kind='accrual';
     int? cb=cashboxes.isEmpty?null:(cashboxes.first['id'] as num).toInt();
     final cash=methods.where((m)=>m['type']=='cash').toList(),available=cash.isNotEmpty?cash:methods;
     int? pm=available.isEmpty?null:(available.first['id'] as num).toInt();
@@ -89,13 +89,14 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
         if(kind=='payment')...[
           DropdownButtonFormField<int>(initialValue:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق')),
           DropdownButtonFormField<int>(initialValue:pm,items:available.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>pm=v),decoration:const InputDecoration(labelText:'طريقة الدفع')),
+          TextField(controller:voucher,decoration:const InputDecoration(labelText:'رقم سند صرف المحاسب (إلزامي)')),
         ],
         TextField(controller:notes,maxLines:2,decoration:const InputDecoration(labelText:'البيان / سبب التسوية')),
       ])),
-      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,(int.tryParse(amount.text.trim())??0)>0&&(kind!='payment'||(cb!=null&&pm!=null))),child:const Text('ترحيل'))],
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,(int.tryParse(amount.text.trim())??0)>0&&(kind!='payment'||(cb!=null&&pm!=null&&voucher.text.trim().isNotEmpty))),child:const Text('ترحيل'))],
     )));
     if(ok!=true||!mounted)return;setState(()=>saving=true);
-    try{await widget.repository.workerTransaction(workerId:workerId!,type:kind,amount:int.parse(amount.text.trim()),cashboxId:kind=='payment'?cb:null,paymentMethodId:kind=='payment'?pm:null,notes:notes.text.trim().isEmpty?null:notes.text.trim(),userId:widget.userId);msg('تم ترحيل الحركة إلى حساب العامل والأستاذ العام');await load();}
+    try{await widget.repository.workerTransaction(workerId:workerId!,type:kind,amount:int.parse(amount.text.trim()),cashboxId:kind=='payment'?cb:null,paymentMethodId:kind=='payment'?pm:null,referenceNumber:kind=='payment'?voucher.text.trim():null,notes:notes.text.trim().isEmpty?null:notes.text.trim(),userId:widget.userId);msg('تم ترحيل الحركة إلى حساب العامل والأستاذ العام');await load();}
     catch(e){msg('تعذر ترحيل الحركة: $e');}finally{if(mounted)setState(()=>saving=false);}
   }
   Future<void> monthlySalary() async{
