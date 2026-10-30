@@ -1150,6 +1150,9 @@ class StationRepository {
         ? "(a.code='2100.W'||x.id OR (a.code='2100' AND jl.worker_id=x.id))"
         : "(a.code='2200.P'||x.id OR (a.code='2200' AND jl.partner_id=x.id))";
     final paymentPartyColumn = isWorker ? 'p.worker_id' : 'p.partner_id';
+    final paidExpression = isWorker
+        ? "(SELECT SUM(p.amount) FROM payments p WHERE p.status='posted' AND $paymentPartyColumn=x.id)"
+        : "(SELECT SUM(p.amount) FROM payments p WHERE p.status='posted' AND $paymentPartyColumn=x.id) + (SELECT SUM(pt.amount) FROM partner_transactions pt WHERE pt.partner_id=x.id AND pt.reference_type='accountant_partner_payout')";
     final rows = await db.rawQuery('''
       SELECT
         COALESCE((SELECT SUM(i.minutes) FROM irrigations i WHERE $idColumn=? AND i.status!='cancelled'),0) irrigation_minutes,
@@ -1162,8 +1165,7 @@ class StationRepository {
           WHERE $personalAccountWhere AND je.status='posted'
             AND (je.reference_type IN $earningTypes
               OR (je.reference_type='reversal' AND original.reference_type IN $earningTypes))),0) earnings,
-        COALESCE((SELECT SUM(p.amount) FROM payments p
-          WHERE p.status='posted' AND $paymentPartyColumn=x.id),0) paid,
+        COALESCE($paidExpression,0) paid,
         COALESCE((SELECT SUM(jl.credit-jl.debit)
           FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id
           WHERE $personalAccountWhere AND je.status='posted'),0) balance
