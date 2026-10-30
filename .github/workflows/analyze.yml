@@ -19,6 +19,9 @@ jobs:
       - name: Install App dependencies (تجهيز التطبيق)
         run: flutter pub get
         
+      - name: Run beneficiary local authentication tests (اختبارات دخول المستفيد)
+        run: flutter test test/services/local_beneficiary_auth_service_test.dart
+
       - name: Install Server dependencies (تجهيز الخادم)
         working-directory: ./server
         run: dart pub get
