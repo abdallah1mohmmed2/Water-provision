@@ -154,10 +154,12 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     try {
       final id = await widget.auth.currentBeneficiaryId();
       if (id == null) {
-        if (mounted) setState(() {
-          _loading = false;
-          _error = 'انتهت جلسة الدخول. سجّل الدخول مرة أخرى.';
-        });
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = 'انتهت جلسة الدخول. سجّل الدخول مرة أخرى.';
+          });
+        }
         return;
       }
       final values = await Future.wait([
@@ -171,10 +173,12 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         _loading = false;
       });
     } catch (_) {
-      if (mounted) setState(() {
-        _loading = false;
-        _error = 'تعذر تحميل بيانات الحساب.';
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'تعذر تحميل بيانات الحساب.';
+        });
+      }
     }
   }
 
@@ -251,7 +255,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
                               title: Text('${row['description'] ?? 'حركة حساب'}'),
                               subtitle: Text('${row['date'] ?? 'رصيد افتتاحي'}'),
                               trailing: Text(
-                                '${AccountingCalculations.balanceLabel((row['balance'] as num?)?.round() ?? 0)}',
+                                AccountingCalculations.balanceLabel((row['balance'] as num?)?.round() ?? 0),
                                 style: const TextStyle(fontWeight: FontWeight.w800),
                               ),
                             ),
