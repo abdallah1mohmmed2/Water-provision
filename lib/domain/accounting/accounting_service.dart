@@ -1765,6 +1765,13 @@ class AccountingService {
     String? referenceNumber,
     String? notes,
   }) => database.transaction((tx) async {
+    if (referenceNumber?.trim().isNotEmpty == true) {
+      final prior = await tx.query('payments', columns: ['id','amount'], where: "worker_id=? AND reference_number=? AND status='posted'", whereArgs: [workerId, referenceNumber!.trim()], limit: 1);
+      if (prior.isNotEmpty) {
+        if ((prior.first['amount'] as num).toInt() != amount) throw StateError('رقم سند الصرف مستخدم بمبلغ مختلف');
+        return (prior.first['id'] as num).toInt();
+      }
+    }
     final id = await _paymentInTx(
       tx,
       workerId: workerId,
