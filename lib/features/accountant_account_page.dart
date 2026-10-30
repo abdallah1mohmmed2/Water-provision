@@ -221,7 +221,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
       Row(children:[Expanded(child:FilledButton.icon(onPressed:loadReport,icon:const Icon(Icons.search),label:const Text('عرض التقرير'))),const SizedBox(width:8),Expanded(child:OutlinedButton.icon(onPressed:pdf,icon:const Icon(Icons.picture_as_pdf),label:const Text('تصدير PDF')))]),
       Text('عدد السجلات: ${reportRows.length}',style:const TextStyle(fontWeight:FontWeight.w800)),
       if(reportRows.isEmpty)const Card(child:Padding(padding:EdgeInsets.all(18),child:Text('لا توجد بيانات مطابقة')))
-      else Card(clipBehavior:Clip.antiAlias,child:SingleChildScrollView(scrollDirection:Axis.horizontal,child:DataTable(columns:keys.map((k)=>DataColumn(label:Text(k))).toList(),rows:reportRows.take(100).map((r)=>DataRow(cells:keys.map((k)=>DataCell(ConstrainedBox(constraints:const BoxConstraints(maxWidth:145),child:Text('${r[k]??''}',overflow:TextOverflow.ellipsis)))).toList())).toList()))),
+      else Card(clipBehavior:Clip.antiAlias,child:SingleChildScrollView(scrollDirection:Axis.horizontal,child:DataTable(columns:keys.map((k)=>DataColumn(label:Text(k))).toList(),rows:reportRows.take(100).map((r)=>DataRow(cells:keys.map((k)=>DataCell(ConstrainedBox(constraints:BoxConstraints(maxWidth:145),child:Text('${r[k]??''}',overflow:TextOverflow.ellipsis)))).toList())).toList()))),
       if(reportRows.length>100)const Text('يعرض الجدول أول 100 سجل؛ PDF يتبع التقرير والفلاتر المحددة.'),
     ]);
   }
