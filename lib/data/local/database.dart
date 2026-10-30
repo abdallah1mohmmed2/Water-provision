@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 20,
+      version: 21,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -227,6 +227,16 @@ class AppDatabase {
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_accounts_station_name ON general_accounts(station_id,name)');
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_account_transactions_account_date ON general_account_transactions(account_id,date,id)');
     }
+    if (oldV < 21) {
+      // ربط مستخدم التطبيق بسجل عامل موجود ليكون المحاسب مستخدمًا وعاملًا في الوقت نفسه.
+      // إضافة العمود لا تغيّر أي سجل عامل أو حركة مالية سابقة.
+      final userCols = await d.rawQuery('PRAGMA table_info(app_users)');
+      if (!userCols.any((x) => x['name'] == 'accountant_worker_id')) {
+        await d.execute(
+          'ALTER TABLE app_users ADD COLUMN accountant_worker_id INTEGER REFERENCES workers(id)',
+        );
+      }
+    }
   }
 
   Future<void> _migrateV15(Database d) async {
@@ -399,7 +409,7 @@ class AppDatabase {
 
   Future<void> _createHelpers(Database d) async {
     await d.execute(
-      'CREATE TABLE IF NOT EXISTS app_users (id INTEGER PRIMARY KEY, station_id INTEGER, name TEXT NOT NULL, phone TEXT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS app_users (id INTEGER PRIMARY KEY, station_id INTEGER, name TEXT NOT NULL, phone TEXT, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, accountant_worker_id INTEGER REFERENCES workers(id), created_at TEXT NOT NULL)',
     );
     await d.execute(
       'CREATE TABLE IF NOT EXISTS notification_templates (key TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, updated_at TEXT NOT NULL)',
