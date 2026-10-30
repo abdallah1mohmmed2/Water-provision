@@ -13,6 +13,7 @@ import 'package:saqia_station/data/repositories/repositories.dart';
 import 'package:saqia_station/domain/accounting/accounting_service.dart';
 import 'package:saqia_station/domain/accounting/calculations.dart';
 import 'package:saqia_station/services/admin_service.dart';
+import 'package:saqia_station/services/local_beneficiary_auth_service.dart';
 import 'package:saqia_station/services/backup_service.dart';
 import 'package:saqia_station/services/report_service.dart';
 
@@ -1648,6 +1649,69 @@ void main() {
       (irrigationsBefore.single['count'] as num).toInt(),
     );
     expect((version.single.values.single as num).toInt(), 20);
+  });
+
+  test('إنشاء دخول المستفيد محصور بالمدير واسم المستخدم فريد داخل المحطة', () async {
+    final auth = LocalBeneficiaryAuthService(database: db);
+    final now = DateTime.now().toIso8601String();
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final firstBeneficiary = await db.insert('beneficiaries', {
+      'station_id': 1,
+      'name': 'مستفيد دخول أول $suffix',
+      'status': 'active',
+      'created_at': now,
+      'updated_at': now,
+    });
+    final secondBeneficiary = await db.insert('beneficiaries', {
+      'station_id': 1,
+      'name': 'مستفيد دخول ثان $suffix',
+      'status': 'active',
+      'created_at': now,
+      'updated_at': now,
+    });
+    final accountantId = await db.insert('app_users', {
+      'station_id': 1,
+      'name': 'محاسب اختبار دخول $suffix',
+      'username': 'auth_accountant_$suffix',
+      'password_hash': 'test-only',
+      'role': 'accountant',
+      'active': 1,
+      'created_at': now,
+    });
+
+    await expectLater(
+      auth.createCredentials(
+        beneficiaryId: firstBeneficiary,
+        username: 'station.user.$suffix',
+        password: 'strong-test-password-123',
+        managerId: accountantId,
+      ),
+      throwsStateError,
+    );
+
+    await auth.createCredentials(
+      beneficiaryId: firstBeneficiary,
+      username: 'station.user.$suffix',
+      password: 'strong-test-password-123',
+      managerId: 1,
+    );
+
+    await expectLater(
+      auth.createCredentials(
+        beneficiaryId: secondBeneficiary,
+        username: 'STATION.USER.$suffix',
+        password: 'another-strong-password-123',
+        managerId: 1,
+      ),
+      throwsA(anything),
+    );
+
+    final saved = await db.query(
+      'SELECT beneficiary_id,username_normalized FROM beneficiary_credentials WHERE station_id=1',
+    );
+    expect(saved, hasLength(1));
+    expect((saved.single['beneficiary_id'] as num).toInt(), firstBeneficiary);
+    expect(saved.single['username_normalized'], 'station.user.$suffix');
   });
 
   test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {
