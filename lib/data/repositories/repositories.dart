@@ -617,63 +617,68 @@ class StationRepository {
       );
 
   /// إنشاء طلب حجز من بوابة المستفيد بعد التحقق من ارتباطه بحساب دخول نشط.
-  Future<int> createBeneficiaryBooking(int beneficiaryId, String notes) async {
-    final owners = await db.rawQuery(
-      '''SELECT b.id
-         FROM beneficiaries b
-         JOIN beneficiary_credentials c ON c.beneficiary_id=b.id
-         WHERE b.id=? AND b.status='active' AND c.active=1
-         LIMIT 1''',
-      [beneficiaryId],
-    );
-    if (owners.isEmpty) throw StateError('الحساب غير نشط أو لم يعد متاحًا');
-    final now = AppClock.now().toIso8601String();
-    final id = await db.insert('booking_requests', {
-      'beneficiary_id': beneficiaryId,
-      'created_at': now,
-      'status': 'new',
-      'notes': notes.trim(),
-    });
-    await db.audit(
-      operation: 'beneficiary_booking_create',
-      table: 'booking_requests',
-      recordId: id,
-      newValues: {'beneficiary_id': beneficiaryId, 'notes': notes.trim()},
-    );
-    return id;
-  }
+  /// إنشاء طلب حجز من بوابة المستفيد بعد التحقق من ارتباطه بحساب دخول نشط.
+  Future<int> createBeneficiaryBooking(int beneficiaryId, String notes) =>
+      db.transaction((tx) async {
+        final owners = await tx.rawQuery(
+          '''SELECT b.id
+             FROM beneficiaries b
+             JOIN beneficiary_credentials c ON c.beneficiary_id=b.id
+             WHERE b.id=? AND b.status='active' AND c.active=1
+             LIMIT 1''',
+          [beneficiaryId],
+        );
+        if (owners.isEmpty) throw StateError('الحساب غير نشط أو لم يعد متاحًا');
+        final now = AppClock.now().toIso8601String();
+        final id = await tx.insert('booking_requests', {
+          'beneficiary_id': beneficiaryId,
+          'created_at': now,
+          'status': 'new',
+          'notes': notes.trim(),
+        });
+        await db.auditTx(
+          tx,
+          operation: 'beneficiary_booking_create',
+          table: 'booking_requests',
+          recordId: id,
+          newValues: {'beneficiary_id': beneficiaryId, 'notes': notes.trim()},
+        );
+        return id;
+      });
 
   /// يسمح للمستفيد بإلغاء طلبه غير المعتمد فقط، مع تقييد التحديث بملكيته.
-  Future<void> cancelBeneficiaryBooking(int bookingId, int beneficiaryId) async {
-    final rows = await db.rawQuery(
-      'SELECT id,status FROM booking_requests WHERE id=? AND beneficiary_id=? LIMIT 1',
-      [bookingId, beneficiaryId],
-    );
-    if (rows.isEmpty) throw StateError('طلب الحجز غير موجود في حسابك');
-    if (!const {'new', 'under_review'}.contains(rows.first['status']?.toString())) {
-      throw StateError('لا يمكن إلغاء الطلب بعد اعتماده أو تحديد موعده');
-    }
-    final now = AppClock.now().toIso8601String();
-    final changed = await db.update(
-      'booking_requests',
-      {
-        'status': 'cancelled',
-        'cancel_reason': 'إلغاء بطلب المستفيد',
-        'reviewed_at': now,
-      },
-      'id=? AND beneficiary_id=? AND status IN (?,?)',
-      [bookingId, beneficiaryId, 'new', 'under_review'],
-    );
-    if (changed == 0) throw StateError('تغيرت حالة الطلب؛ حدّث القائمة وحاول مجددًا');
-    await db.audit(
-      operation: 'beneficiary_booking_cancel',
-      table: 'booking_requests',
-      recordId: bookingId,
-      oldValues: {'status': rows.first['status']},
-      newValues: {'status': 'cancelled', 'beneficiary_id': beneficiaryId},
-      reason: 'إلغاء بطلب المستفيد',
-    );
-  }
+  Future<void> cancelBeneficiaryBooking(int bookingId, int beneficiaryId) =>
+      db.transaction((tx) async {
+        final rows = await tx.rawQuery(
+          'SELECT id,status FROM booking_requests WHERE id=? AND beneficiary_id=? LIMIT 1',
+          [bookingId, beneficiaryId],
+        );
+        if (rows.isEmpty) throw StateError('طلب الحجز غير موجود في حسابك');
+        if (!const {'new', 'under_review'}.contains(rows.first['status']?.toString())) {
+          throw StateError('لا يمكن إلغاء الطلب بعد اعتماده أو تحديد موعده');
+        }
+        final now = AppClock.now().toIso8601String();
+        final changed = await tx.update(
+          'booking_requests',
+          {
+            'status': 'cancelled',
+            'cancel_reason': 'إلغاء بطلب المستفيد',
+            'reviewed_at': now,
+          },
+          where: 'id=? AND beneficiary_id=? AND status IN (?,?)',
+          whereArgs: [bookingId, beneficiaryId, 'new', 'under_review'],
+        );
+        if (changed == 0) throw StateError('تغيرت حالة الطلب؛ حدّث القائمة وحاول مجددًا');
+        await db.auditTx(
+          tx,
+          operation: 'beneficiary_booking_cancel',
+          table: 'booking_requests',
+          recordId: bookingId,
+          oldValues: {'status': rows.first['status']},
+          newValues: {'status': 'cancelled', 'beneficiary_id': beneficiaryId},
+          reason: 'إلغاء بطلب المستفيد',
+        );
+      });
 
   /// يحدّث قراءة إشعار يخص المستفيد المحدد فقط.
   Future<void> markBeneficiaryNotificationRead(int notificationId, int beneficiaryId) async {
