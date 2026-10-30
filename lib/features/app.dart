@@ -22,6 +22,7 @@ import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
 import '../services/message_template_service.dart';
 import 'general_accounts_page.dart';
+import 'beneficiary_portal.dart';
 
 const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
 
@@ -605,6 +606,20 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
                         label: const Text('إعدادات التأمين'),
                       ),
                       const SizedBox(height: 4),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: busy ? null : () => Navigator.push(
+                            c,
+                            MaterialPageRoute<void>(
+                              builder: (_) => const BeneficiaryLoginPage(),
+                            ),
+                          ),
+                          icon: const Icon(Icons.person_outline_rounded),
+                          label: const Text('دخول المستفيد'),
+                        ),
+                      ),
                       Text('يُحفظ رمز التأمين محليًا على هذا الجهاز ولا يُرسل إلى الخادم.',
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 11, color: Theme.of(c).colorScheme.onSurfaceVariant)),
