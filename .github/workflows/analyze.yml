@@ -22,6 +22,9 @@ jobs:
       - name: Run beneficiary local authentication tests (اختبارات دخول المستفيد)
         run: flutter test test/services/local_beneficiary_auth_service_test.dart
 
+      - name: Run beneficiary portal ownership tests (اختبارات ملكية بوابة المستفيد)
+        run: flutter test test/beneficiary_portal_repository_test.dart
+
       - name: Install Server dependencies (تجهيز الخادم)
         working-directory: ./server
         run: dart pub get
