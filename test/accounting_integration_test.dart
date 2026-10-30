@@ -1597,7 +1597,7 @@ void main() {
     );
   });
 
-  test('ترقية v17 إلى v20 تضيف جداول الاعتمادات وتحافظ على سجلات المحطة', () async {
+  test('ترقية v17 إلى v21 تضيف جداول الاعتمادات وربط المحاسب وتحافظ على سجلات المحطة', () async {
     final opened = await db.db;
     final beneficiariesBefore = await opened.rawQuery(
       'SELECT COUNT(*) count FROM beneficiaries',
@@ -1648,7 +1648,9 @@ void main() {
       (irrigationsAfter.single['count'] as num).toInt(),
       (irrigationsBefore.single['count'] as num).toInt(),
     );
-    expect((version.single.values.single as num).toInt(), 20);
+    expect((version.single.values.single as num).toInt(), 21);
+    final appUserColumns = await upgraded.rawQuery('PRAGMA table_info(app_users)');
+    expect(appUserColumns.map((row) => row['name']), contains('accountant_worker_id'));
   });
 
   test('إنشاء دخول المستفيد محصور بالمدير واسم المستخدم فريد داخل المحطة', () async {
