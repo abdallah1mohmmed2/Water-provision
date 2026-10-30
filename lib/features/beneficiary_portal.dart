@@ -149,7 +149,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     final month = parsed.month.toString().padLeft(2, '0');
     final hour = parsed.hour.toString().padLeft(2, '0');
     final minute = parsed.minute.toString().padLeft(2, '0');
-    return day + '/' + month + '/' + parsed.year.toString() + ' • ' + hour + ':' + minute;
+    return '$day/$month/${parsed.year} • $hour:$minute';
   }
 
   int get _balance => (_beneficiary?['balance'] as num?)?.round() ?? 0;
@@ -164,10 +164,12 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     try {
       final id = await widget.auth.currentBeneficiaryId();
       if (id == null) {
-        if (mounted) setState(() {
-          _loading = false;
-          _error = 'انتهت جلسة الدخول أو تم تعطيل الحساب. سجّل الدخول مرة أخرى.';
-        });
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = 'انتهت جلسة الدخول أو تم تعطيل الحساب. سجّل الدخول مرة أخرى.';
+          });
+        }
         return;
       }
       final values = await Future.wait<dynamic>([
@@ -232,8 +234,11 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إرسال طلب الحجز إلى المحطة')));
       setState(() => _tab = 2);
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
+        );
+      }
     } finally {
       if (mounted) setState(() => _savingBooking = false);
     }
@@ -257,8 +262,11 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       await _repo.cancelBeneficiaryBooking((booking['id'] as num).toInt(), ownerId);
       await _load();
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
+        );
+      }
     }
   }
 
@@ -269,8 +277,11 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       await _repo.markBeneficiaryNotificationRead((notification['id'] as num).toInt(), ownerId);
       await _load();
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))),
+        );
+      }
     }
   }
 
@@ -337,7 +348,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       title: Text((row['description'] ?? 'حركة حساب').toString()),
       subtitle: Text(_date(row['date'])),
       trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-        Text((isDebit ? '+' : '-') + amount.toString() + ' ريال',
+        Text('${isDebit ? '+' : '-'}$amount ريال',
           style: const TextStyle(fontWeight: FontWeight.w800)),
         Text(AccountingCalculations.balanceLabel(balance),
           style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
@@ -354,7 +365,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
           const CircleAvatar(radius: 25, child: Icon(Icons.person_outline_rounded, size: 28)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('مرحبًا، ' + name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            Text('مرحبًا، $name', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             Text((_beneficiary?['phone'] ?? 'حساب المستفيد').toString(),
               style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
           ])),
@@ -382,7 +393,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       Row(children: [
         Expanded(child: _sectionTitle('الإشعارات')),
         TextButton(onPressed: () => setState(() => _tab = 3),
-          child: Text(_unreadCount == 0 ? 'عرض الكل' : 'غير مقروء: ' + _unreadCount.toString())),
+          child: Text(_unreadCount == 0 ? 'عرض الكل' : 'غير مقروء: $_unreadCount')),
       ]),
       if (_notifications.isEmpty)
         const Card(child: Padding(padding: EdgeInsets.all(18), child: Text('لا توجد إشعارات.')))
@@ -427,17 +438,18 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
               Row(children: [
                 const Icon(Icons.event_note_outlined),
                 const SizedBox(width: 8),
-                Expanded(child: Text('طلب رقم ' + (booking['id'] ?? '').toString(),
+                Expanded(child: Text('طلب رقم ${booking['id'] ?? ''}',
                   style: const TextStyle(fontWeight: FontWeight.w800))),
                 Chip(label: Text(_bookingStatus(booking['status']))),
               ]),
               const SizedBox(height: 6),
               Text((booking['notes'] ?? 'دون ملاحظات').toString()),
               const SizedBox(height: 6),
-              Text('تاريخ الطلب: ' + _date(booking['created_at'])),
-              if (booking['scheduled_start'] != null) Text('موعد السقي: ' + _date(booking['scheduled_start'])),
+              Text('تاريخ الطلب: ${_date(booking['created_at'])}'),
+              if (booking['scheduled_start'] != null)
+                Text('موعد السقي: ${_date(booking['scheduled_start'])}'),
               if (booking['cancel_reason'] != null && booking['cancel_reason'].toString().isNotEmpty)
-                Text('ملاحظة الإلغاء: ' + booking['cancel_reason'].toString()),
+                Text('ملاحظة الإلغاء: ${booking['cancel_reason']}'),
               if (booking['status'] == 'new' || booking['status'] == 'under_review')
                 Align(alignment: Alignment.centerLeft,
                   child: TextButton.icon(onPressed: () => _cancelBooking(booking),
@@ -448,7 +460,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
 
   Widget _notificationsTab() => ListView(physics: const AlwaysScrollableScrollPhysics(),
     padding: const EdgeInsets.all(16), children: [
-      _sectionTitle('الإشعارات', subtitle: _unreadCount.toString() + ' إشعار غير مقروء'),
+      _sectionTitle('الإشعارات', subtitle: '$_unreadCount إشعار غير مقروء'),
       if (_notifications.isEmpty)
         const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('لا توجد إشعارات حاليًا.')))
       else
