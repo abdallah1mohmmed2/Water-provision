@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/calculations.dart';
 import '../services/local_beneficiary_auth_service.dart';
+import 'beneficiary_general_accounts_page.dart';
 
 class BeneficiaryLoginPage extends StatefulWidget {
   const BeneficiaryLoginPage({super.key});
@@ -506,8 +507,15 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    const titles = ['الرئيسية', 'حسابي', 'طلباتي', 'الإشعارات', 'بياناتي'];
-    final pages = [_homeTab(), _accountTab(), _bookingsTab(), _notificationsTab(), _profileTab()];
+    const titles = ['الرئيسية', 'حسابي', 'الحسابات العامة', 'طلباتي', 'الإشعارات', 'بياناتي'];
+    final pages = [
+      _homeTab(),
+      _accountTab(),
+      BeneficiaryGeneralAccountsPage(_repo, auth: widget.auth),
+      _bookingsTab(),
+      _notificationsTab(),
+      _profileTab(),
+    ];
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -540,6 +548,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
               destinations: const [
                 NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'الرئيسية'),
                 NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet), label: 'حسابي'),
+                NavigationDestination(icon: Icon(Icons.account_balance_outlined), selectedIcon: Icon(Icons.account_balance), label: 'الحسابات العامة'),
                 NavigationDestination(icon: Icon(Icons.event_note_outlined), selectedIcon: Icon(Icons.event_note), label: 'طلباتي'),
                 NavigationDestination(icon: Icon(Icons.notifications_outlined), selectedIcon: Icon(Icons.notifications), label: 'الإشعارات'),
                 NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'بياناتي'),
