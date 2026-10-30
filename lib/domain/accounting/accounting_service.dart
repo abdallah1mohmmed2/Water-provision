@@ -2658,8 +2658,8 @@ class AccountingService {
     if (amount <= 0) throw ArgumentError('مبلغ الإيداع يجب أن يكون أكبر من صفر');
     if (voucherNumber.trim().isEmpty) throw ArgumentError('رقم سند الإيداع إلزامي');
     final stationId = await _selectedStationIdTx(tx);
-    final prior = await tx.query('accountant_settlements', columns: ['worker_transaction_id','kind','worker_id','amount'], where: 'station_id=? AND voucher_number=?', whereArgs: [stationId, voucherNumber.trim()], limit: 1);
-    if (prior.isNotEmpty) { final row=prior.first; if(row['kind']!='deposit'||(row['worker_id'] as num).toInt()!=workerId||(row['amount'] as num).toInt()!=amount) throw StateError('رقم السند مستخدم مسبقًا لعملية مختلفة'); return (row['worker_transaction_id'] as num).toInt(); }
+    final prior = await tx.query('accountant_settlements', columns: ['worker_transaction_id','kind','worker_id','cashbox_id','amount','source_voucher_reference'], where: 'station_id=? AND voucher_number=?', whereArgs: [stationId, voucherNumber.trim()], limit: 1);
+    if (prior.isNotEmpty) { final row=prior.first; if(row['kind']!='deposit'||(row['worker_id'] as num).toInt()!=workerId||(row['cashbox_id'] as num).toInt()!=cashboxId||(row['amount'] as num).toInt()!=amount||row['source_voucher_reference']!=(sourceVoucherReference?.trim().isNotEmpty==true?sourceVoucherReference!.trim():null)) throw StateError('رقم السند مستخدم مسبقًا لعملية مختلفة'); return (row['worker_transaction_id'] as num).toInt(); }
     final date = AppClock.now();
     await _assertPeriodOpen(tx, date, stationId: stationId);
     final worker = await tx.query('workers', columns: ['id'],
@@ -2689,7 +2689,7 @@ class AccountingService {
         {'account_id': cashAccount, 'debit': amount, 'credit': 0, 'memo': 'نقدية مودعة من المحاسب'},
         {'account_id': workerAccount, 'worker_id': workerId, 'debit': 0, 'credit': amount, 'memo': 'مستحق للمحاسب مقابل الإيداع'},
       ]);
-    await tx.insert('accountant_settlements', {'station_id': stationId, 'worker_id': workerId, 'kind': 'deposit', 'voucher_number': voucherNumber.trim(), 'source_voucher_reference': sourceVoucherReference?.trim(), 'worker_transaction_id': txId, 'journal_entry_id': journalId, 'amount': amount, 'created_at': date.toIso8601String(), 'created_by': userId});
+    await tx.insert('accountant_settlements', {'station_id': stationId, 'worker_id': workerId, 'cashbox_id': cashboxId, 'kind': 'deposit', 'voucher_number': voucherNumber.trim(), 'source_voucher_reference': sourceVoucherReference?.trim().isNotEmpty==true?sourceVoucherReference!.trim():null, 'worker_transaction_id': txId, 'journal_entry_id': journalId, 'amount': amount, 'created_at': date.toIso8601String(), 'created_by': userId});
     await database.auditTx(tx, userId: userId, operation: 'accountant_deposit',
       table: 'worker_transactions', recordId: txId,
       newValues: {'worker_id': workerId, 'cashbox_id': cashboxId, 'amount': amount});
@@ -2705,8 +2705,8 @@ class AccountingService {
     if (amount <= 0) throw ArgumentError('مبلغ التسوية يجب أن يكون أكبر من صفر');
     if (voucherNumber.trim().isEmpty) throw ArgumentError('رقم سند سداد الشريك إلزامي');
     final stationId = await _selectedStationIdTx(tx);
-    final prior = await tx.query('accountant_settlements', columns: ['worker_transaction_id','kind','worker_id','partner_id','amount'], where: 'station_id=? AND voucher_number=?', whereArgs: [stationId, voucherNumber.trim()], limit: 1);
-    if (prior.isNotEmpty) { final row=prior.first; if(row['kind']!='partner_payout'||(row['worker_id'] as num).toInt()!=workerId||(row['partner_id'] as num).toInt()!=partnerId||(row['amount'] as num).toInt()!=amount) throw StateError('رقم السند مستخدم مسبقًا لعملية مختلفة'); return (row['worker_transaction_id'] as num).toInt(); }
+    final prior = await tx.query('accountant_settlements', columns: ['worker_transaction_id','kind','worker_id','partner_id','amount','source_voucher_reference'], where: 'station_id=? AND voucher_number=?', whereArgs: [stationId, voucherNumber.trim()], limit: 1);
+    if (prior.isNotEmpty) { final row=prior.first; if(row['kind']!='partner_payout'||(row['worker_id'] as num).toInt()!=workerId||(row['partner_id'] as num).toInt()!=partnerId||(row['amount'] as num).toInt()!=amount||row['source_voucher_reference']!=(sourceVoucherReference?.trim().isNotEmpty==true?sourceVoucherReference!.trim():null)) throw StateError('رقم السند مستخدم مسبقًا لعملية مختلفة'); return (row['worker_transaction_id'] as num).toInt(); }
     final date = AppClock.now();
     await _assertPeriodOpen(tx, date, stationId: stationId);
     final worker = await tx.query('workers', columns: ['id'],
@@ -2756,7 +2756,7 @@ class AccountingService {
         {'account_id': partnerAccount, 'partner_id': partnerId, 'debit': amount, 'credit': 0, 'memo': 'تخفيض مستحقات الشريك المسددة من المحاسب'},
         {'account_id': workerAccount, 'worker_id': workerId, 'debit': 0, 'credit': amount, 'memo': 'مبلغ دفعه المحاسب نيابة عن المحطة للشريك'},
       ]);
-    await tx.insert('accountant_settlements', {'station_id': stationId, 'worker_id': workerId, 'partner_id': partnerId, 'kind': 'partner_payout', 'voucher_number': voucherNumber.trim(), 'source_voucher_reference': sourceVoucherReference?.trim(), 'worker_transaction_id': workerTxId, 'partner_transaction_id': partnerTxId, 'journal_entry_id': journalId, 'amount': amount, 'created_at': date.toIso8601String(), 'created_by': userId});
+    await tx.insert('accountant_settlements', {'station_id': stationId, 'worker_id': workerId, 'partner_id': partnerId, 'kind': 'partner_payout', 'voucher_number': voucherNumber.trim(), 'source_voucher_reference': sourceVoucherReference?.trim().isNotEmpty==true?sourceVoucherReference!.trim():null, 'worker_transaction_id': workerTxId, 'partner_transaction_id': partnerTxId, 'journal_entry_id': journalId, 'amount': amount, 'created_at': date.toIso8601String(), 'created_by': userId});
     await database.auditTx(tx, userId: userId, operation: 'accountant_partner_payout',
       table: 'worker_transactions', recordId: workerTxId,
       newValues: {'worker_id': workerId, 'partner_id': partnerId, 'amount': amount});
