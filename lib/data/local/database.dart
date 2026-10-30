@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 20,
+      version: 21,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -43,6 +43,7 @@ class AppDatabase {
       if (s.isNotEmpty) await d.execute(s);
     }
     await _createHelpers(d);
+    await _createBeneficiaryGeneralAccountsTables(d);
     await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_period_station_range ON period_closures(station_id,period_start,period_end)');
     await _seed(d);
@@ -227,6 +228,54 @@ class AppDatabase {
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_accounts_station_name ON general_accounts(station_id,name)');
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_account_transactions_account_date ON general_account_transactions(account_id,date,id)');
     }
+  }
+
+    if (oldV < 21) {
+      await _createBeneficiaryGeneralAccountsTables(d);
+    }
+  }
+
+  /// حسابات المستفيد الخاصة مستقلة عن حسابات المحطة العامة.
+  /// كل حساب وحركة يحملان beneficiary_id، ومفتاح الحركة المركب يمنع ربط
+  /// حركة حساب بمستفيد آخر حتى لو عُرف account_id.
+  Future<void> _createBeneficiaryGeneralAccountsTables(Database d) async {
+    await d.execute('''
+      CREATE TABLE IF NOT EXISTS beneficiary_general_accounts (
+        id INTEGER PRIMARY KEY,
+        beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        phone TEXT,
+        address TEXT,
+        opening_balance INTEGER NOT NULL DEFAULT 0,
+        notes TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(id, beneficiary_id)
+      )
+    ''');
+    await d.execute('''
+      CREATE TABLE IF NOT EXISTS beneficiary_general_account_transactions (
+        id INTEGER PRIMARY KEY,
+        beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id) ON DELETE CASCADE,
+        account_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        type TEXT NOT NULL CHECK(type IN ('receipt','payment')),
+        amount INTEGER NOT NULL CHECK(amount > 0),
+        reference_number TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(account_id, beneficiary_id)
+          REFERENCES beneficiary_general_accounts(id, beneficiary_id)
+          ON DELETE CASCADE
+      )
+    ''');
+    await d.execute(
+      'CREATE INDEX IF NOT EXISTS idx_beneficiary_general_accounts_owner_name ON beneficiary_general_accounts(beneficiary_id, active, name)',
+    );
+    await d.execute(
+      'CREATE INDEX IF NOT EXISTS idx_beneficiary_general_transactions_owner_account_date ON beneficiary_general_account_transactions(beneficiary_id, account_id, date, id)',
+    );
   }
 
   Future<void> _migrateV15(Database d) async {
