@@ -2640,6 +2640,101 @@ class AccountingService {
     });
   }
 
+  /// إيداع المحاسب من ماله الخاص في صندوق المحطة: مدين الصندوق / دائن حساب العامل.
+  Future<int> recordAccountantDeposit({
+    required int workerId, required int cashboxId, required int amount,
+    int? userId, String? notes,
+  }) async => database.transaction((tx) async {
+    if (amount <= 0) throw ArgumentError('مبلغ الإيداع يجب أن يكون أكبر من صفر');
+    final stationId = await _selectedStationIdTx(tx);
+    final date = AppClock.now();
+    await _assertPeriodOpen(tx, date, stationId: stationId);
+    final worker = await tx.query('workers', columns: ['id'],
+      where: 'id=? AND station_id=? AND active=1', whereArgs: [workerId, stationId], limit: 1);
+    if (worker.isEmpty) throw StateError('العامل المرتبط بالمحاسب غير نشط أو لا يتبع المحطة');
+    final cashbox = await tx.query('cashboxes', columns: ['id'],
+      where: 'id=? AND station_id=? AND active=1', whereArgs: [cashboxId, stationId], limit: 1);
+    if (cashbox.isEmpty) throw StateError('الصندوق غير موجود أو غير نشط');
+    final updated = await tx.rawUpdate(
+      'UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND active=1',
+      [amount, cashboxId],
+    );
+    if (updated != 1) throw StateError('تعذر تحديث رصيد الصندوق');
+    final workerAccount = await _workerAccountIdTx(tx, workerId);
+    final cashAccount = await _accountIdTx(tx, await _cashboxLedgerCode(tx, cashboxId));
+    final txId = await tx.insert('worker_transactions', {
+      'worker_id': workerId, 'date': date.toIso8601String(),
+      'type': 'accountant_deposit', 'amount': amount, 'cashbox_id': cashboxId,
+      'reference_type': 'accountant_deposit',
+      'notes': notes?.trim().isNotEmpty == true ? notes!.trim() : 'إيداع المحاسب من ماله الخاص في صندوق المحطة',
+      'created_by': userId,
+    });
+    await _entry(tx, description: 'إيداع المحاسب في الصندوق',
+      referenceType: 'accountant_deposit', referenceId: txId,
+      stationId: stationId, date: date, userId: userId,
+      lines: [
+        {'account_id': cashAccount, 'debit': amount, 'credit': 0, 'memo': 'نقدية مودعة من المحاسب'},
+        {'account_id': workerAccount, 'worker_id': workerId, 'debit': 0, 'credit': amount, 'memo': 'مستحق للمحاسب مقابل الإيداع'},
+      ]);
+    await db.auditTx(tx, userId: userId, operation: 'accountant_deposit',
+      table: 'worker_transactions', recordId: txId,
+      newValues: {'worker_id': workerId, 'cashbox_id': cashboxId, 'amount': amount});
+    return txId;
+  });
+
+  /// دفع المحاسب للشريك من ماله الشخصي: مدين مستحقات الشريك / دائن مستحقات المحاسب.
+  Future<int> recordAccountantPartnerPayout({
+    required int workerId, required int partnerId, required int amount,
+    int? userId, String? notes,
+  }) async => database.transaction((tx) async {
+    if (amount <= 0) throw ArgumentError('مبلغ التسوية يجب أن يكون أكبر من صفر');
+    final stationId = await _selectedStationIdTx(tx);
+    final date = AppClock.now();
+    await _assertPeriodOpen(tx, date, stationId: stationId);
+    final worker = await tx.query('workers', columns: ['id'],
+      where: 'id=? AND station_id=? AND active=1', whereArgs: [workerId, stationId], limit: 1);
+    if (worker.isEmpty) throw StateError('العامل المرتبط بالمحاسب غير نشط أو لا يتبع المحطة');
+    final partner = await tx.query('partners', columns: ['id'],
+      where: 'id=? AND station_id=? AND active=1', whereArgs: [partnerId, stationId], limit: 1);
+    if (partner.isEmpty) throw StateError('الشريك غير موجود أو غير نشط');
+    final partnerAccount = await _partnerAccountIdTx(tx, partnerId);
+    final dueRows = await tx.rawQuery(
+      "SELECT COALESCE(SUM(jl.credit-jl.debit),0) balance FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE jl.account_id=? AND je.status='posted'",
+      [partnerAccount]);
+    final partnerDue = (dueRows.first['balance'] as num?)?.round() ?? 0;
+    if (partnerDue < amount) {
+      throw StateError('المبلغ يتجاوز مستحقات الشريك المتبقية (' + (partnerDue < 0 ? '0' : partnerDue.toString()) + ' ريال)');
+    }
+    final workerAccount = await _workerAccountIdTx(tx, workerId);
+    final workerTxId = await tx.insert('worker_transactions', {
+      'worker_id': workerId, 'date': date.toIso8601String(),
+      'type': 'accountant_partner_payout', 'amount': amount,
+      'reference_type': 'accountant_partner_payout',
+      'notes': notes?.trim().isNotEmpty == true ? notes!.trim() : 'دفع المحاسب للشريك من ماله الخاص',
+      'created_by': userId,
+    });
+    final partnerTxId = await tx.insert('partner_transactions', {
+      'partner_id': partnerId, 'date': date.toIso8601String(),
+      'type': 'payment', 'amount': amount,
+      'reference_type': 'accountant_partner_payout', 'reference_id': workerTxId,
+      'notes': notes?.trim().isNotEmpty == true ? notes!.trim() : 'سداد المحاسب للشريك من ماله الخاص',
+      'created_by': userId,
+    });
+    await tx.update('worker_transactions', {'reference_id': partnerTxId},
+      where: 'id=?', whereArgs: [workerTxId]);
+    await _entry(tx, description: 'سداد المحاسب مستحقات الشريك من ماله الخاص',
+      referenceType: 'accountant_partner_payout', referenceId: workerTxId,
+      stationId: stationId, date: date, userId: userId,
+      lines: [
+        {'account_id': partnerAccount, 'partner_id': partnerId, 'debit': amount, 'credit': 0, 'memo': 'تخفيض مستحقات الشريك المسددة من المحاسب'},
+        {'account_id': workerAccount, 'worker_id': workerId, 'debit': 0, 'credit': amount, 'memo': 'مبلغ دفعه المحاسب نيابة عن المحطة للشريك'},
+      ]);
+    await db.auditTx(tx, userId: userId, operation: 'accountant_partner_payout',
+      table: 'worker_transactions', recordId: workerTxId,
+      newValues: {'worker_id': workerId, 'partner_id': partnerId, 'amount': amount});
+    return workerTxId;
+  });
+
   Future<void> createWorkerAccrual({
     required int workerId,
     required int amount,
