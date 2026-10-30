@@ -31,7 +31,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
       final ids=ws.map((x)=>(x['id'] as num).toInt()).toSet();
       final selected=linked!=null&&ids.contains(linked)?linked:(workerId!=null&&ids.contains(workerId)?workerId:null);
       final tx=selected==null?<Map<String,Object?>>[]:await widget.repository.workerTransactions(selected);
-      if(!mounted)return;setState(()=>{workers=ws,cashboxes=cb,methods=pm,workerId=selected,moves=tx,loading=false});
+      if(!mounted)return;setState(() { workers=ws; cashboxes=cb; methods=pm; workerId=selected; moves=tx; loading=false; });
       if(tab==2)await loadReport();
     }catch(e){if(mounted){setState(()=>loading=false);msg('تعذر تحميل الحساب: $e');}}
   }
@@ -126,7 +126,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     Expanded(child:OutlinedButton(onPressed:()=>pickDate(true),child:Text('من: ${dateLabel(from)}'))),
     const SizedBox(width:6),
     Expanded(child:OutlinedButton(onPressed:()=>pickDate(false),child:Text('إلى: ${dateLabel(to)}'))),
-    IconButton(onPressed:()=>setState(()=>{from=null,to=null}),icon:const Icon(Icons.filter_alt_off)),
+    IconButton(onPressed:()=>setState(() { from=null; to=null; }),icon:const Icon(Icons.filter_alt_off)),
   ]);
   Widget accountTab(){
     final rows=moves.where(inPeriod).toList();
