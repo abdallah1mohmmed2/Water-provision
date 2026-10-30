@@ -2676,7 +2676,7 @@ class AccountingService {
         {'account_id': cashAccount, 'debit': amount, 'credit': 0, 'memo': 'نقدية مودعة من المحاسب'},
         {'account_id': workerAccount, 'worker_id': workerId, 'debit': 0, 'credit': amount, 'memo': 'مستحق للمحاسب مقابل الإيداع'},
       ]);
-    await db.auditTx(tx, userId: userId, operation: 'accountant_deposit',
+    await database.auditTx(tx, userId: userId, operation: 'accountant_deposit',
       table: 'worker_transactions', recordId: txId,
       newValues: {'worker_id': workerId, 'cashbox_id': cashboxId, 'amount': amount});
     return txId;
@@ -2738,7 +2738,7 @@ class AccountingService {
         {'account_id': partnerAccount, 'partner_id': partnerId, 'debit': amount, 'credit': 0, 'memo': 'تخفيض مستحقات الشريك المسددة من المحاسب'},
         {'account_id': workerAccount, 'worker_id': workerId, 'debit': 0, 'credit': amount, 'memo': 'مبلغ دفعه المحاسب نيابة عن المحطة للشريك'},
       ]);
-    await db.auditTx(tx, userId: userId, operation: 'accountant_partner_payout',
+    await database.auditTx(tx, userId: userId, operation: 'accountant_partner_payout',
       table: 'worker_transactions', recordId: workerTxId,
       newValues: {'worker_id': workerId, 'partner_id': partnerId, 'amount': amount});
     return workerTxId;
