@@ -12,7 +12,7 @@ class AccountantAccountPage extends StatefulWidget {
   @override State<AccountantAccountPage> createState()=>_AccountantAccountPageState();
 }
 class _AccountantAccountPageState extends State<AccountantAccountPage>{
-  List<Map<String,Object?>> workers=[],moves=[],cashboxes=[],methods=[],reportRows=[];
+  List<Map<String,Object?>> workers=[],moves=[],cashboxes=[],methods=[],partners=[],reportRows=[];
   int? workerId; int tab=0; bool loading=true,saving=false;
   String reportKey='cash_flow'; DateTime? from,to;
   static const reports=<String,String>{'cash_flow':'التدفق النقدي','monthly_financial':'التقرير المالي الشهري','cashboxes':'الصناديق والتحويلات','worker_transactions':'معاملات العمال','journal':'دفتر اليومية','ledger':'دفتر الأستاذ العام','expenses':'المصروفات','payment_log':'سجل المدفوعات'};
@@ -27,11 +27,11 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     if(mounted)setState(()=>loading=true);
     try{
       final linked=await widget.repository.accountantWorkerForUser(widget.userId);
-      final ws=await widget.repository.workers(includeInactive:true),cb=await widget.repository.cashboxes(),pm=await widget.repository.paymentMethods();
+      final ws=await widget.repository.workers(includeInactive:true),cb=await widget.repository.cashboxes(),pm=await widget.repository.paymentMethods(),ps=await widget.repository.partners();
       final ids=ws.map((x)=>(x['id'] as num).toInt()).toSet();
       final selected=linked!=null&&ids.contains(linked)?linked:(workerId!=null&&ids.contains(workerId)?workerId:null);
       final tx=selected==null?<Map<String,Object?>>[]:await widget.repository.workerTransactions(selected);
-      if(!mounted)return;setState(() { workers=ws; cashboxes=cb; methods=pm; workerId=selected; moves=tx; loading=false; });
+      if(!mounted)return;setState(() { workers=ws; cashboxes=cb; methods=pm; partners=ps; workerId=selected; moves=tx; loading=false; });
       if(tab==2)await loadReport();
     }catch(e){if(mounted){setState(()=>loading=false);msg('تعذر تحميل الحساب: $e');}}
   }
@@ -81,6 +81,40 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     if(ok!=true||!mounted)return;setState(()=>saving=true);
     try{await widget.repository.workerTransaction(workerId:workerId!,type:kind,amount:int.parse(amount.text.trim()),cashboxId:kind=='payment'?cb:null,paymentMethodId:kind=='payment'?pm:null,notes:notes.text.trim().isEmpty?null:notes.text.trim(),userId:widget.userId);msg('تم ترحيل الحركة إلى حساب العامل والأستاذ العام');await load();}
     catch(e){msg('تعذر ترحيل الحركة: $e');}finally{if(mounted)setState(()=>saving=false);}
+  }
+  Future<void> depositDialog() async{
+    if(workerId==null||cashboxes.isEmpty){msg('تأكد من ربط المحاسب ووجود صندوق نشط');return;}
+    final amount=TextEditingController(),notes=TextEditingController();
+    int? cb=(cashboxes.first['id'] as num).toInt();
+    final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+      title:const Text('إيداع من مال المحاسب'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        DropdownButtonFormField<int>(value:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('@@{x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق الذي استلم النقدية')),
+        TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ المودع')),
+        TextField(controller:notes,decoration:const InputDecoration(labelText:'البيان')),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,(int.tryParse(amount.text.trim())??0)>0&&cb!=null),child:const Text('تسجيل الإيداع'))],
+    )));
+    if(ok!=true)return;
+    try{await widget.repository.accounting.recordAccountantDeposit(workerId:workerId!,cashboxId:cb!,amount:int.parse(amount.text.trim()),userId:widget.userId,notes:notes.text.trim());msg('سُجل الإيداع: زاد الصندوق وزاد مستحق المحاسب، دون إيراد أو مصروف.');await load();}
+    catch(e){msg('تعذر تسجيل الإيداع: @@e');}
+  }
+  Future<void> partnerPayoutDialog() async{
+    if(workerId==null||partners.isEmpty){msg('لا توجد شراكات نشطة للتسوية');return;}
+    final amount=TextEditingController(),notes=TextEditingController();
+    int? pid=(partners.first['id'] as num).toInt();
+    final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
+      title:const Text('سداد مستحقات شريك من مال المحاسب'),
+      content:Column(mainAxisSize:MainAxisSize.min,children:[
+        DropdownButtonFormField<int>(value:pid,items:partners.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('@@{x['name']}'))).toList(),onChanged:(v)=>refresh(()=>pid=v),decoration:const InputDecoration(labelText:'الشريك المستفيد من السداد')),
+        TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ المدفوع شخصيًا')),
+        TextField(controller:notes,decoration:const InputDecoration(labelText:'البيان / رقم السند')),
+      ]),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,(int.tryParse(amount.text.trim())??0)>0&&pid!=null),child:const Text('تسجيل السداد'))],
+    )));
+    if(ok!=true)return;
+    try{await widget.repository.accounting.recordAccountantPartnerPayout(workerId:workerId!,partnerId:pid!,amount:int.parse(amount.text.trim()),userId:widget.userId,notes:notes.text.trim());msg('سُجل السداد: انخفض مستحق الشريك وزاد مستحق المحاسب، دون حركة صندوق أو تغيير ديون المستفيدين.');await load();}
+    catch(e){msg('تعذر تسجيل السداد: @@e');}
   }
   Future<void> editPay() async{
     final w=worker;if(w==null||!widget.manager)return;
@@ -154,9 +188,17 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
   @override Widget build(BuildContext context)=>Directionality(textDirection:TextDirection.rtl,child:loading?const Center(child:CircularProgressIndicator()):RefreshIndicator(onRefresh:load,child:ListView(padding:const EdgeInsets.all(14),children:[
     Card(color:Theme.of(context).colorScheme.primaryContainer,child:const Padding(padding:EdgeInsets.all(15),child:Row(children:[Icon(Icons.manage_accounts,size:32),SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('حساب المحاسب والتسويات المالية',style:TextStyle(fontWeight:FontWeight.w900,fontSize:17)),Text('المحاسب هو مستخدم التطبيق والعامل نفسه؛ جميع الحركات تمر عبر دفتر العامل والأستاذ العام الحالي.',style:TextStyle(fontSize:12,height:1.45))]))]))),
     linkPanel(),
-    if(worker!=null)...[profile(),const SizedBox(height:8),SegmentedButton<int>(segments:const[ButtonSegment(value:0,label:Text('الحساب'),icon:Icon(Icons.receipt_long)),ButtonSegment(value:1,label:Text('التسويات'),icon:Icon(Icons.swap_horiz)),ButtonSegment(value:2,label:Text('تقارير عامة'),icon:Icon(Icons.analytics_outlined))],selected:{tab},onSelectionChanged:(v){setState(()=>tab=v.first);if(tab==2)loadReport();}),const SizedBox(height:10),
+    if(worker!=null)...[profile(),const SizedBox(height:8),Card(child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('مهام المحاسب داخل التطبيق',style:TextStyle(fontWeight:FontWeight.w900)),const Text('• تسجيل إيداعات النقدية التي يوردها للصندوق.\n• توثيق ما يدفعه للشركاء من ماله الشخصي.\n• متابعة راتبه واستحقاقاته وتسوية ما يُصرف له.\n• متابعة أرصدة الصناديق والعمال والشركاء والتقارير.\n• إصدار كشوف PDF موحدة بالفترة المحددة.',style:TextStyle(height:1.55,fontSize:12))]))),const SizedBox(height:8),SegmentedButton<int>(segments:const[ButtonSegment(value:0,label:Text('الحساب'),icon:Icon(Icons.receipt_long)),ButtonSegment(value:1,label:Text('التسويات'),icon:Icon(Icons.swap_horiz)),ButtonSegment(value:2,label:Text('تقارير عامة'),icon:Icon(Icons.analytics_outlined))],selected:{tab},onSelectionChanged:(v){setState(()=>tab=v.first);if(tab==2)loadReport();}),const SizedBox(height:10),
       if(tab==0)accountTab(),
-      if(tab==1)Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[const Text('تسويات المحاسب',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),const Text('أضف استحقاقًا أو سجّل صرف مستحق. الدفع يخفض ذمة العامل ويخصم من الصندوق عبر آلية الدفع الحالية، ولا ينشئ مصروفًا مزدوجًا.',style:TextStyle(height:1.5)),const SizedBox(height:12),FilledButton.icon(onPressed:saving?null:movement,icon:const Icon(Icons.add_card),label:const Text('إضافة استحقاق أو صرف مستحق')),OutlinedButton.icon(onPressed:pdf,icon:const Icon(Icons.picture_as_pdf),label:const Text('طباعة كشف حساب المحاسب'))]))),
+      if(tab==1)Card(child:Padding(padding:const EdgeInsets.all(16),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+        const Text('تسويات المحاسب',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),
+        const Text('هذه العمليات منفصلة عن الراتب. الإيداع يزيد الصندوق ومستحق المحاسب، والسداد الشخصي للشريك يخفض مستحق الشريك ويزيد مستحق المحاسب دون حركة صندوق. أما صرف مستحق المحاسب فيخصم من صندوق المحطة.',style:TextStyle(height:1.5)),
+        const SizedBox(height:12),
+        FilledButton.icon(onPressed:saving?null:depositDialog,icon:const Icon(Icons.savings_outlined),label:const Text('تسجيل إيداع المحاسب في الصندوق')),
+        FilledButton.icon(onPressed:saving?null:partnerPayoutDialog,icon:const Icon(Icons.handshake_outlined),label:const Text('تسجيل سداد شريك من مال المحاسب')),
+        OutlinedButton.icon(onPressed:saving?null:movement,icon:const Icon(Icons.payments_outlined),label:const Text('استحقاق راتب أو صرف مستحق المحاسب')),
+        OutlinedButton.icon(onPressed:pdf,icon:const Icon(Icons.picture_as_pdf),label:const Text('طباعة كشف حساب المحاسب')),
+      ]))),
       if(tab==2)reportsTab(),
     ],
   ])));
