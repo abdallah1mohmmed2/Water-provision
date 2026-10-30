@@ -3025,6 +3025,10 @@ void main() {
       notes: 'سداد أرباح الشريك من مال المحاسب',
     );
     expect((await svc.partnerBalance(partner))['balance'], 0);
+    final partnerSummary = await repo.partyFinancialSummary('partner', partner);
+    expect(partnerSummary['paid'], 352000);
+    expect(partnerSummary['earnings'], 352000);
+    expect(partnerSummary['balance'], 0);
     expect((await svc.workerBalance(worker))['balance'], 352000);
     expect((await svc.beneficiaryBalance(beneficiary))['balance'], beneficiaryBefore);
     expect(await cashboxBalance(1), cashBefore);
