@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 21,
+      version: 22,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -443,7 +443,7 @@ class AppDatabase {
     );
     await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_beneficiary_credentials_username ON beneficiary_credentials(station_id, username_normalized)');
     await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_beneficiary_credentials_owner ON beneficiary_credentials(station_id, beneficiary_id)');
-    await d.execute("CREATE TABLE IF NOT EXISTS accountant_settlements (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id), worker_id INTEGER NOT NULL REFERENCES workers(id), partner_id INTEGER REFERENCES partners(id), kind TEXT NOT NULL CHECK(kind IN ('deposit','partner_payout')), voucher_number TEXT NOT NULL, source_voucher_reference TEXT, worker_transaction_id INTEGER NOT NULL REFERENCES worker_transactions(id), partner_id INTEGER REFERENCES partners(id), partner_transaction_id INTEGER REFERENCES partner_transactions(id), journal_entry_id INTEGER NOT NULL REFERENCES journal_entries(id), amount INTEGER NOT NULL CHECK(amount>0), created_at TEXT NOT NULL, created_by INTEGER REFERENCES app_users(id), UNIQUE(station_id,voucher_number))");
+    await d.execute("CREATE TABLE IF NOT EXISTS accountant_settlements (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id), worker_id INTEGER NOT NULL REFERENCES workers(id), partner_id INTEGER REFERENCES partners(id), kind TEXT NOT NULL CHECK(kind IN ('deposit','partner_payout')), voucher_number TEXT NOT NULL, source_voucher_reference TEXT, worker_transaction_id INTEGER NOT NULL REFERENCES worker_transactions(id), partner_transaction_id INTEGER REFERENCES partner_transactions(id), journal_entry_id INTEGER NOT NULL REFERENCES journal_entries(id), amount INTEGER NOT NULL CHECK(amount>0), created_at TEXT NOT NULL, created_by INTEGER REFERENCES app_users(id), UNIQUE(station_id,voucher_number))");
     await d.execute('CREATE INDEX IF NOT EXISTS idx_accountant_settlements_worker_date ON accountant_settlements(worker_id,created_at,id)');
   }
 
