@@ -1766,10 +1766,12 @@ class AccountingService {
     String? notes,
   }) => database.transaction((tx) async {
     if (referenceNumber?.trim().isNotEmpty == true) {
-      final prior = await tx.query('payments', columns: ['id','amount'], where: "worker_id=? AND reference_number=? AND status='posted'", whereArgs: [workerId, referenceNumber!.trim()], limit: 1);
+      final prior = await tx.query('payments', columns: ['id','amount','cashbox_id','payment_method_id','status'], where: 'worker_id=? AND reference_number=?', whereArgs: [workerId, referenceNumber!.trim()], limit: 1);
       if (prior.isNotEmpty) {
-        if ((prior.first['amount'] as num).toInt() != amount) throw StateError('رقم سند الصرف مستخدم بمبلغ مختلف');
-        return (prior.first['id'] as num).toInt();
+        final old = prior.first;
+        if (old['status'] != 'posted') throw StateError('سند الصرف سبق إلغاؤه؛ استخدم رقم سند جديد بعد مراجعة الإلغاء');
+        if ((old['amount'] as num).toInt() != amount || (old['cashbox_id'] as num).toInt() != cashboxId || (old['payment_method_id'] as num).toInt() != paymentMethodId) throw StateError('رقم سند الصرف مستخدم مسبقًا بتفاصيل مختلفة');
+        return (old['id'] as num).toInt();
       }
     }
     final id = await _paymentInTx(
