@@ -1609,7 +1609,7 @@ void main() {
     await db.close();
     final upgraded = await db.db;
     final tables = await upgraded.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials')",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials','accountant_settlements')",
     );
     final cashIndex = await upgraded.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_cash_rec_period'",
@@ -1635,6 +1635,7 @@ void main() {
       'general_accounts',
       'general_account_transactions',
       'beneficiary_credentials',
+      'accountant_settlements',
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
@@ -3091,6 +3092,22 @@ void main() {
     expect(workerRows.any((row) => row['type'] == 'accountant_partner_payout'), isTrue);
     final partnerRows = await repo.partnerTransactions(partner);
     expect(partnerRows.any((row) => row['type'] == 'accountant_partner_payout'), isTrue);
+  });
+
+  test('استرداد المحاسب من الصندوق لا يتكرر عند إعادة إرسال رقم السند', () async {
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(name: 'محاسب اختبار الاسترداد', payType: 'fixed', fixedSalary: 1000);
+    await svc.createWorkerAccrual(workerId: worker, amount: 1000, date: DateTime(2052, 1, 1));
+    await db.update('cashboxes', {'current_balance': 10000}, 'id=?', [1]);
+    final before = await cashboxBalance(1);
+    final first = await svc.payWorker(workerId: worker, amount: 1000, paymentMethodId: 1, cashboxId: 1, referenceNumber: 'ACC-REPAY-001');
+    final afterFirst = await cashboxBalance(1);
+    final second = await svc.payWorker(workerId: worker, amount: 1000, paymentMethodId: 1, cashboxId: 1, referenceNumber: 'ACC-REPAY-001');
+    expect(second, first);
+    expect(afterFirst, before - 1000);
+    expect(await cashboxBalance(1), afterFirst);
+    final vouchers = await db.query('payments', where: 'worker_id=? AND reference_number=?', whereArgs: [worker, 'ACC-REPAY-001']);
+    expect(vouchers, hasLength(1));
   });
 
 }
