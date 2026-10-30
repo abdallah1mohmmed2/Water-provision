@@ -74,7 +74,7 @@ class LocalBeneficiaryAuthService {
     final hash = hashPassword(password);
 
     await db.transaction((tx) async {
-      final owners = await tx.query(
+      final owners = await tx.rawQuery(
         'SELECT id, station_id, status FROM beneficiaries WHERE id=? LIMIT 1',
         [beneficiaryId],
       );
@@ -83,7 +83,7 @@ class LocalBeneficiaryAuthService {
       }
       final owner = owners.first;
       final stationId = (owner['station_id'] as num).toInt();
-      final existing = await tx.query(
+      final existing = await tx.rawQuery(
         'SELECT id FROM beneficiary_credentials WHERE station_id=? AND beneficiary_id=? LIMIT 1',
         [stationId, beneficiaryId],
       );
@@ -161,7 +161,7 @@ class LocalBeneficiaryAuthService {
     await _requireManager(managerId);
     final now = AppClock.now().toIso8601String();
     await db.transaction((tx) async {
-      final rows = await tx.query(
+      final rows = await tx.rawQuery(
         'SELECT id FROM beneficiary_credentials WHERE beneficiary_id=? LIMIT 1',
         [beneficiaryId],
       );
