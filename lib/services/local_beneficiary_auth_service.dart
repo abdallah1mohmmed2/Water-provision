@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hashlib/hashlib.dart';
 import 'package:uuid/uuid.dart';
@@ -85,7 +86,7 @@ class LocalBeneficiaryAuthService {
     _validateCredentials(username, password);
     final normalized = _normalizeUsername(username);
     final now = AppClock.now().toIso8601String();
-    final hash = hashPassword(password);
+    final hash = await compute(_hashBeneficiaryPassword, password);
 
     await db.transaction((tx) async {
       await _requireManagerInTransaction(tx, managerId);
@@ -143,7 +144,7 @@ class LocalBeneficiaryAuthService {
     if (newPassword.length < 10 || newPassword.length > 128) {
       throw ArgumentError('كلمة المرور يجب أن تكون بين 10 و128 حرفًا');
     }
-    final hash = hashPassword(newPassword);
+    final hash = await compute(_hashBeneficiaryPassword, newPassword);
     final now = AppClock.now().toIso8601String();
     await db.transaction((tx) async {
       await _requireManagerInTransaction(tx, managerId);
@@ -233,6 +234,7 @@ class LocalBeneficiaryAuthService {
       return false;
     }
 
+    await logout();
     final beneficiaryId = (rows.first['beneficiary_id'] as num).toInt();
     final token = _uuid.v4();
     final tokenHash = sha256.convert(utf8.encode(token)).toString();
@@ -494,7 +496,9 @@ class LocalBeneficiaryAuthService {
       throw ArgumentError('كلمة المرور يجب أن تكون بين 10 و128 حرفًا');
     }
     final normalized = _normalizeUsername(username);
-    final hash = newPassword == null ? null : hashPassword(newPassword);
+    final hash = newPassword == null
+        ? null
+        : await compute(_hashBeneficiaryPassword, newPassword);
     final now = AppClock.now().toIso8601String();
     await db.transaction((tx) async {
       await _requireManagerInTransaction(tx, managerId);
@@ -703,3 +707,6 @@ class LocalBeneficiaryAuthService {
     await _storage.delete(key: _sessionKey);
   }
 }
+
+String _hashBeneficiaryPassword(String password) =>
+    LocalBeneficiaryAuthService.hashPassword(password);
