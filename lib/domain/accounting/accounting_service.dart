@@ -2712,7 +2712,7 @@ class AccountingService {
       partnerDue = (legacy.first['balance'] as num?)?.round() ?? 0;
     }
     if (partnerDue < amount) {
-      throw StateError('المبلغ يتجاوز مستحقات الشريك المتبقية (\${partnerDue < 0 ? 0 : partnerDue} ريال)');
+      throw StateError('المبلغ يتجاوز مستحقات الشريك المتبقية (${partnerDue < 0 ? 0 : partnerDue} ريال)');
     }
     final workerAccount = await _workerAccountIdTx(tx, workerId);
     final workerTxId = await tx.insert('worker_transactions', {
