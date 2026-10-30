@@ -1261,6 +1261,8 @@ class StationRepository {
   }
 
   Future<List<Map<String, Object?>>> workerTransactions(int id) async {
+    final settlementRows = await db.query('accountant_settlements', where: 'worker_id=?', whereArgs: [id]);
+    final settlements = <int, Map<String, Object?>>{for (final x in settlementRows) (x['worker_transaction_id'] as num).toInt(): x};
     final ledgerRows = await _ledgerPartyTransactions(
       accountCode: '2100.W$id',
       partyColumn: null,
@@ -1269,18 +1271,21 @@ class StationRepository {
     );
     if (ledgerRows.isNotEmpty) {
       return ledgerRows.map((row) {
+        final referenceId = (row['reference_id'] as num?)?.toInt();
+        final settlement = referenceId == null ? null : settlements[referenceId];
+        final enriched = {...row, if (settlement != null) 'voucher_number': settlement['voucher_number'], if (settlement != null) 'source_voucher_reference': settlement['source_voucher_reference'], if (settlement != null) 'journal_entry_id': settlement['journal_entry_id']};
         final note = '${row['transaction_notes'] ?? row['notes'] ?? ''}'.trim();
         final isPayment = row['type'] == 'payment' || row['type'] == 'worker_payment';
-        if (!isPayment) return row;
+        if (!isPayment) return enriched;
         if (note.isNotEmpty) {
           return {
-            ...row,
+            ...enriched,
             'type': 'payment_note',
             'notes': note,
             'description': note,
           };
         }
-        return {...row, 'type': 'payment'};
+        return {...enriched, 'type': 'payment'};
       }).toList();
     }
 
@@ -1311,8 +1316,12 @@ class StationRepository {
         _ => 0,
       };
       running += signed;
+      final settlement = settlements[(row['id'] as num).toInt()];
       rows.add({
         ...row,
+        if (settlement != null) 'voucher_number': settlement['voucher_number'],
+        if (settlement != null) 'source_voucher_reference': settlement['source_voucher_reference'],
+        if (settlement != null) 'journal_entry_id': settlement['journal_entry_id'],
         'journal_entry_id': null,
         'journal_line_id': null,
         'type': type == 'payment' && notes.trim().isNotEmpty
