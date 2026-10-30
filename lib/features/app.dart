@@ -4147,6 +4147,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
       'SELECT username_normalized,active FROM beneficiary_credentials WHERE beneficiary_id=? LIMIT 1',
       args: [beneficiaryId],
     );
+    if (!mounted) return;
     final hasAccount = existing.isNotEmpty;
     final username = TextEditingController(
       text: hasAccount ? '${existing.first['username_normalized']}' : '',
@@ -4196,7 +4197,9 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             FilledButton(
               onPressed: () {
                 if (username.text.trim().isEmpty ||
-                    (!hasAccount && password.text.isEmpty)) return;
+                    (!hasAccount && password.text.isEmpty)) {
+                  return;
+                }
                 Navigator.pop(dialogContext, true);
               },
               child: const Text('حفظ'),
