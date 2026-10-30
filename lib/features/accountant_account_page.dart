@@ -66,14 +66,14 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
   }
   Future<void> movement() async{
     final w=worker;if(w==null)return;if((w['active'] as num?)?.toInt()!=1){msg('العامل غير نشط');return;}
-    final amount=TextEditingController(text:worker?['pay_type']=='fixed'?'${worker?['fixed_salary']??0}':''),notes=TextEditingController();String kind=worker?['pay_type']=='fixed'?'salary':'accrual';
+    final amount=TextEditingController(),notes=TextEditingController();String kind='accrual';
     int? cb=cashboxes.isEmpty?null:(cashboxes.first['id'] as num).toInt();
     final cash=methods.where((m)=>m['type']=='cash').toList(),available=cash.isNotEmpty?cash:methods;
     int? pm=available.isEmpty?null:(available.first['id'] as num).toInt();
     final ok=await showDialog<bool>(context:context,builder:(ctx)=>StatefulBuilder(builder:(ctx,refresh)=>AlertDialog(
       title:Text('تسوية حساب ${w['name']}'),
       content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
-        DropdownButtonFormField<String>(value:kind,items:const[DropdownMenuItem(value:'salary',child:Text('ترحيل راتب ثابت')),DropdownMenuItem(value:'accrual',child:Text('إضافة استحقاق آخر')),DropdownMenuItem(value:'payment',child:Text('صرف مستحق للمحاسب'))],onChanged:(v)=>refresh(()=>kind=v??'accrual'),decoration:const InputDecoration(labelText:'نوع الحركة')),
+        DropdownButtonFormField<String>(value:kind,items:const[DropdownMenuItem(value:'accrual',child:Text('إضافة استحقاق آخر')),DropdownMenuItem(value:'payment',child:Text('صرف مستحق للمحاسب'))],onChanged:(v)=>refresh(()=>kind=v??'accrual'),decoration:const InputDecoration(labelText:'نوع الحركة')),
         TextField(controller:amount,keyboardType:TextInputType.number,decoration:const InputDecoration(labelText:'المبلغ بالريال')),
         if(kind=='payment')...[
           DropdownButtonFormField<int>(value:cb,items:cashboxes.map((x)=>DropdownMenuItem<int>(value:(x['id'] as num).toInt(),child:Text('${x['name']}'))).toList(),onChanged:(v)=>refresh(()=>cb=v),decoration:const InputDecoration(labelText:'الصندوق')),
@@ -86,6 +86,16 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     if(ok!=true||!mounted)return;setState(()=>saving=true);
     try{await widget.repository.workerTransaction(workerId:workerId!,type:kind,amount:int.parse(amount.text.trim()),cashboxId:kind=='payment'?cb:null,paymentMethodId:kind=='payment'?pm:null,notes:notes.text.trim().isEmpty?null:notes.text.trim(),userId:widget.userId);msg('تم ترحيل الحركة إلى حساب العامل والأستاذ العام');await load();}
     catch(e){msg('تعذر ترحيل الحركة: $e');}finally{if(mounted)setState(()=>saving=false);}
+  }
+  Future<void> monthlySalary() async{
+    final w=worker;
+    if(w==null||w['pay_type']!='fixed'){msg('طريقة استحقاق المحاسب ليست راتبًا ثابتًا');return;}
+    try{
+      final count=await widget.repository.accounting.accrueMonthlySalaries(
+        month:AppClock.now(),userId:widget.userId,workerId:workerId);
+      msg(count==1?'تم ترحيل راتب المحاسب لهذا الشهر مرة واحدة.': 'راتب هذا الشهر مرحّل مسبقًا أو لا يوجد راتب ثابت.');
+      await load();
+    }catch(e){msg('تعذر ترحيل الراتب الشهري: $e');}
   }
   Future<void> depositDialog() async{
     if(workerId==null||cashboxes.isEmpty){msg('تأكد من ربط المحاسب ووجود صندوق نشط');return;}
@@ -165,7 +175,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
     return Column(children:[
       Card(child:ListTile(leading:const CircleAvatar(child:Icon(Icons.account_balance_wallet_outlined)),title:Text('${w['name']}',style:const TextStyle(fontWeight:FontWeight.w900)),subtitle:Text('${w['phone']??'لا يوجد هاتف'} • $payType • ${active?'نشط':'غير نشط'}'),trailing:widget.manager?IconButton(onPressed:editPay,icon:const Icon(Icons.edit_outlined),tooltip:'تعديل الاستحقاق'):null)),
       Row(children:[metric('الرصيد الحالي','${money(balance)} ريال',Icons.account_balance),metric('له على المحطة','${money(balance>0?balance:0)} ريال',Icons.south_west),metric('عليه للمحطة','${money(balance<0?-balance:0)} ريال',Icons.north_east)]),
-      if('${w['pay_type']}'=='fixed')Card(child:ListTile(title:const Text('الراتب الشهري الثابت'),subtitle:Text('${money(w['fixed_salary'])} ريال • يستخدم ترحيل الرواتب الحالي ومنع التكرار')))
+      if('${w['pay_type']}'=='fixed')Card(child:ListTile(title:const Text('الراتب الشهري الثابت'),subtitle:Text('${money(w['fixed_salary'])} ريال'),trailing:TextButton(onPressed:monthlySalary,child:const Text('ترحيل راتب الشهر'))))
       else if('${w['pay_type']}'=='hourly')Card(child:ListTile(title:const Text('الأجر بالساعة'),subtitle:Text('${money(w['hourly_rate'])} ريال للساعة')))
       else Card(child:ListTile(title:const Text('نسبة الاستحقاق'),subtitle:Text('${w['percentage_rate']??0}% من السقايات المؤهلة'))),
     ]);
@@ -209,6 +219,7 @@ class _AccountantAccountPageState extends State<AccountantAccountPage>{
         const Text('هذه العمليات منفصلة عن الراتب. الإيداع يزيد الصندوق ومستحق المحاسب، والسداد الشخصي للشريك يخفض مستحق الشريك ويزيد مستحق المحاسب دون حركة صندوق. أما صرف مستحق المحاسب فيخصم من صندوق المحطة.',style:TextStyle(height:1.5)),
         const SizedBox(height:12),
         FilledButton.icon(onPressed:saving?null:depositDialog,icon:const Icon(Icons.savings_outlined),label:const Text('تسجيل إيداع المحاسب في الصندوق')),
+        if(worker?['pay_type']=='fixed')OutlinedButton.icon(onPressed:saving?null:monthlySalary,icon:const Icon(Icons.event_repeat),label:const Text('ترحيل راتب المحاسب لهذا الشهر')),
         FilledButton.icon(onPressed:saving?null:partnerPayoutDialog,icon:const Icon(Icons.handshake_outlined),label:const Text('تسجيل سداد شريك من مال المحاسب')),
         OutlinedButton.icon(onPressed:saving?null:movement,icon:const Icon(Icons.payments_outlined),label:const Text('استحقاق راتب أو صرف مستحق المحاسب')),
         OutlinedButton.icon(onPressed:workerPdf,icon:const Icon(Icons.picture_as_pdf),label:const Text('طباعة كشف حساب المحاسب')),
