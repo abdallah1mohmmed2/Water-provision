@@ -1039,6 +1039,73 @@ class StationRepository {
     return db.rawQuery('SELECT e.*,pm.name method_name,c.name cashbox_name FROM expenses e LEFT JOIN payment_methods pm ON pm.id=e.payment_method_id LEFT JOIN cashboxes c ON c.id=e.cashbox_id WHERE $w ORDER BY e.date DESC,e.id DESC',args);
   }
   
+  /// العامل المرتبط بحساب المستخدم الحالي بصفته المحاسب.
+  Future<int?> accountantWorkerForUser(int userId) async {
+    final rows = await db.rawQuery(
+      'SELECT accountant_worker_id FROM app_users WHERE id=? AND active=1 LIMIT 1',
+      [userId],
+    );
+    if (rows.isEmpty) return null;
+    return (rows.first['accountant_worker_id'] as num?)?.toInt();
+  }
+
+  /// يربط المستخدم بسجل عامل موجود دون إنشاء عامل مكرر أو تعديل أي رصيد.
+  Future<void> assignAccountantWorker({
+    required int userId,
+    required int workerId,
+  }) async {
+    await db.transaction((tx) async {
+      final users = await tx.query(
+        'app_users',
+        columns: ['id', 'station_id', 'accountant_worker_id', 'active'],
+        where: 'id=?',
+        whereArgs: [userId],
+        limit: 1,
+      );
+      if (users.isEmpty || users.first['active'] != 1) {
+        throw StateError('حساب المستخدم غير موجود أو غير نشط');
+      }
+      final stationId = (users.first['station_id'] as num?)?.toInt() ??
+          await accounting.currentStationId();
+      final workers = await tx.query(
+        'workers',
+        columns: ['id', 'station_id', 'active', 'name'],
+        where: 'id=? AND station_id=?',
+        whereArgs: [workerId, stationId],
+        limit: 1,
+      );
+      if (workers.isEmpty || workers.first['active'] != 1) {
+        throw StateError('اختر عاملًا نشطًا تابعًا للمحطة الحالية');
+      }
+      final assigned = await tx.query(
+        'app_users',
+        columns: ['id', 'name'],
+        where: 'accountant_worker_id=? AND id<>? AND active=1',
+        whereArgs: [workerId, userId],
+        limit: 1,
+      );
+      if (assigned.isNotEmpty) {
+        throw StateError('هذا العامل مرتبط بالفعل بحساب مستخدم آخر');
+      }
+      final oldWorkerId = (users.first['accountant_worker_id'] as num?)?.toInt();
+      await tx.update(
+        'app_users',
+        {'accountant_worker_id': workerId},
+        where: 'id=?',
+        whereArgs: [userId],
+      );
+      await db.auditTx(
+        tx,
+        userId: userId,
+        operation: 'assign_accountant_worker',
+        table: 'app_users',
+        recordId: userId,
+        oldValues: {'accountant_worker_id': oldWorkerId},
+        newValues: {'accountant_worker_id': workerId},
+      );
+    });
+  }
+
   Future<List<Map<String, Object?>>> workers({bool includeInactive = false, String search = ''}) {
     final args = <Object?>[];
     final clauses = <String>[];
