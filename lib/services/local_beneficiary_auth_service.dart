@@ -293,7 +293,7 @@ class LocalBeneficiaryAuthService {
   }
 
   Future<void> logout() async {
-    final token = await _storage.read(key: _sessionKey);
+    final token = await _storage.read();
     if (token != null && token.isNotEmpty) {
       final tokenHash = crypto.sha256.convert(utf8.encode(token)).toString();
       await db.update(
@@ -303,7 +303,7 @@ class LocalBeneficiaryAuthService {
         [tokenHash],
       );
     }
-    await _storage.delete(key: _sessionKey);
+    await _storage.delete();
   }
 }
 
