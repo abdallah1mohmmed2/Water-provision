@@ -2699,9 +2699,18 @@ class AccountingService {
     if (partner.isEmpty) throw StateError('الشريك غير موجود أو غير نشط');
     final partnerAccount = await _partnerAccountIdTx(tx, partnerId);
     final dueRows = await tx.rawQuery(
-      "SELECT COALESCE(SUM(jl.credit-jl.debit),0) balance FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE jl.account_id=? AND je.status='posted'",
-      [partnerAccount]);
-    final partnerDue = (dueRows.first['balance'] as num?)?.round() ?? 0;
+      "SELECT ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE p.id=? LIMIT 1",
+      [partnerId]);
+    var partnerDue = (dueRows.first['balance'] as num?)?.round() ?? 0;
+    final ledgerCount = await tx.rawQuery(
+      "SELECT COUNT(jl.id) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.status='posted' AND (a.code='2200.P'||? OR (a.code='2200' AND jl.partner_id=?))",
+      [partnerId, partnerId]);
+    if (((ledgerCount.first['n'] as num?)?.toInt() ?? 0) == 0) {
+      final legacy = await tx.rawQuery(
+        "SELECT COALESCE(SUM(CASE WHEN type IN ('share_accrual','opening_balance','contribution','share_adjustment_reversal','payment_reversal') THEN amount WHEN type IN ('payment','irrigation','share_adjustment') THEN -amount WHEN type='irrigation_reversal' AND COALESCE(notes,'') LIKE 'عكس سقاية الشريك%' THEN amount WHEN type='irrigation_reversal' THEN -amount ELSE 0 END),0) balance FROM partner_transactions WHERE partner_id=?",
+        [partnerId]);
+      partnerDue = (legacy.first['balance'] as num?)?.round() ?? 0;
+    }
     if (partnerDue < amount) {
       throw StateError('المبلغ يتجاوز مستحقات الشريك المتبقية (' + (partnerDue < 0 ? '0' : partnerDue.toString()) + ' ريال)');
     }
