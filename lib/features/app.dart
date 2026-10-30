@@ -4191,7 +4191,11 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
         ),
       ),
     );
-    if (ok != true || !mounted) return;
+    if (ok != true || !mounted) {
+      username.dispose();
+      password.dispose();
+      return;
+    }
     try {
       if (!hasAccount) {
         await auth.createCredentials(
