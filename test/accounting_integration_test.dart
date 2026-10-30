@@ -2968,6 +2968,39 @@ void main() {
     );
   });
 
+
+  test('ترحيل راتب المحاسب يخص العامل المحدد فقط ويمنع التكرار للشهر', () async {
+    final repo = StationRepository(db);
+    final accountant = await repo.createWorker(
+      name: 'محاسب راتب محدد',
+      payType: 'fixed',
+      fixedSalary: 2200,
+    );
+    final other = await repo.createWorker(
+      name: 'عامل راتب آخر',
+      payType: 'fixed',
+      fixedSalary: 3300,
+    );
+    final month = DateTime(2051, 7, 1);
+    final count = await svc.accrueMonthlySalaries(
+      month: month,
+      workerId: accountant,
+    );
+    expect(count, 1);
+    final accountantRows = await db.query(
+      "SELECT amount FROM worker_transactions WHERE worker_id=? AND reference_type='monthly_salary' AND reference_id=?",
+      args: [accountant, 205107],
+    );
+    final otherRows = await db.query(
+      "SELECT amount FROM worker_transactions WHERE worker_id=? AND reference_type='monthly_salary' AND reference_id=?",
+      args: [other, 205107],
+    );
+    expect(accountantRows, hasLength(1));
+    expect(accountantRows.single['amount'], 2200);
+    expect(otherRows, isEmpty);
+    expect(await svc.accrueMonthlySalaries(month: month, workerId: accountant), 0);
+  });
+
   test('إيداع المحاسب يزيد الصندوق ومستحقه دون تسجيل إيراد أو مصروف', () async {
     final repo = StationRepository(db);
     final worker = await repo.createWorker(
