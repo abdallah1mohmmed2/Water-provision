@@ -1255,6 +1255,20 @@ class _ShellState extends State<AdminShell> {
                     ],
                   ),
                 ),
+                ListTile(
+                  leading: const Icon(Icons.person_outline_rounded),
+                  title: const Text('بوابة المستفيد'),
+                  subtitle: const Text('الدخول إلى حساب المستفيد'),
+                  onTap: () {
+                    Navigator.pop(c);
+                    Navigator.push(
+                      c,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const BeneficiaryLoginPage(),
+                      ),
+                    );
+                  },
+                ),
               ],
             ),
           ),
