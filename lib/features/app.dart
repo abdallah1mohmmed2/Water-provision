@@ -15,6 +15,7 @@ import '../data/repositories/repositories.dart';
 import '../domain/accounting/calculations.dart';
 import '../services/admin_service.dart';
 import '../services/local_security_service.dart';
+import '../services/local_beneficiary_auth_service.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
 import '../services/official_report_template.dart';
@@ -4119,6 +4120,124 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
     }
   }
 
+  Future<void> manageLogin(Map<String, Object?> x) async {
+    if (!widget.manager) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('إدارة دخول المستفيد متاحة للمدير فقط')),
+      );
+      return;
+    }
+    final beneficiaryId = (x['id'] as num).toInt();
+    final auth = LocalBeneficiaryAuthService();
+    final existing = await widget.r.db.query(
+      'SELECT username_normalized,active FROM beneficiary_credentials WHERE beneficiary_id=? LIMIT 1',
+      args: [beneficiaryId],
+    );
+    final hasAccount = existing.isNotEmpty;
+    final username = TextEditingController(
+      text: hasAccount ? '${existing.first['username_normalized']}' : '',
+    );
+    final password = TextEditingController();
+    var active = hasAccount && (existing.first['active'] as num).toInt() == 1;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(hasAccount ? 'تعديل دخول المستفيد' : 'إنشاء دخول المستفيد'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('المستفيد: ${x['name'] ?? ''}'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: username,
+                  autocorrect: false,
+                  decoration: const InputDecoration(labelText: 'اسم المستخدم'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: password,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: hasAccount ? 'كلمة مرور جديدة (اختياري)' : 'كلمة المرور المؤقتة',
+                    helperText: '10 أحرف على الأقل',
+                  ),
+                ),
+                if (hasAccount)
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: active,
+                    onChanged: (value) => setDialogState(() => active = value),
+                    title: const Text('السماح بالدخول'),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (username.text.trim().isEmpty ||
+                    (!hasAccount && password.text.isEmpty)) return;
+                Navigator.pop(dialogContext, true);
+              },
+              child: const Text('حفظ'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      if (!hasAccount) {
+        await auth.createCredentials(
+          beneficiaryId: beneficiaryId,
+          username: username.text,
+          password: password.text,
+          managerId: widget.userId,
+        );
+      } else {
+        await auth.updateUsername(
+          beneficiaryId: beneficiaryId,
+          username: username.text,
+          managerId: widget.userId,
+        );
+        if (password.text.isNotEmpty) {
+          await auth.resetPassword(
+            beneficiaryId: beneficiaryId,
+            newPassword: password.text,
+            managerId: widget.userId,
+          );
+        }
+        final wasActive = (existing.first['active'] as num).toInt() == 1;
+        if (wasActive != active) {
+          await auth.setAccountActive(
+            beneficiaryId: beneficiaryId,
+            active: active,
+            managerId: widget.userId,
+          );
+        }
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم حفظ بيانات دخول المستفيد.')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendlyError(e))),
+        );
+      }
+    } finally {
+      username.dispose();
+      password.dispose();
+    }
+  }
+
   Future<void> remove(Map<String, Object?> x) async {
     if (!widget.manager) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -4273,6 +4392,15 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                       ),
                                       if (widget.manager)
                                         ListTile(
+                                          leading: const Icon(Icons.key_rounded),
+                                          title: const Text('بيانات دخول التطبيق'),
+                                          onTap: () {
+                                            Navigator.pop(bc);
+                                            manageLogin(x);
+                                          },
+                                        ),
+                                      if (widget.manager)
+                                        ListTile(
                                           leading: const Icon(
                                             Icons.delete_outline,
                                             color: Colors.red,
@@ -4315,6 +4443,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                           PopupMenuButton<String>(
                                             onSelected: (v) {
                                               if (v == 'edit') edit(x);
+                                              if (v == 'login' && widget.manager) manageLogin(x);
                                               if (v == 'delete' &&
                                                   widget.manager) {
                                                 remove(x);
@@ -4322,8 +4451,10 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                             },
                                             itemBuilder: (_) => [
   const PopupMenuItem(value: 'edit', child: Text('تعديل بيانات المستفيد')),
-  if (widget.manager)
+  if (widget.manager) ...[
+    const PopupMenuItem(value: 'login', child: Text('بيانات دخول التطبيق')),
     const PopupMenuItem(value: 'delete', child: Text('حذف')),
+  ],
 ],
                                           ),
                                         ],
