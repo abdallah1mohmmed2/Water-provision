@@ -2931,6 +2931,43 @@ void main() {
     expect(after['balance'], 0);
   });
 
+
+  test('ربط مستخدم التطبيق بعامل قائم لا ينشئ عاملًا مكررًا ويمنع الارتباط المزدوج', () async {
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(
+      name: 'عامل مرتبط بالمحاسب',
+      payType: 'fixed',
+      fixedSalary: 1800,
+    );
+    final userId = await db.insert('app_users', {
+      'station_id': 1,
+      'name': 'مستخدم المحاسب',
+      'username': 'accountant_link_test',
+      'password_hash': 'test-hash',
+      'role': 'accountant',
+      'active': 1,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+    final before = await db.query('SELECT COUNT(*) n FROM workers');
+    await repo.assignAccountantWorker(userId: userId, workerId: worker);
+    expect(await repo.accountantWorkerForUser(userId), worker);
+    final after = await db.query('SELECT COUNT(*) n FROM workers');
+    expect(after.single['n'], before.single['n']);
+    final secondUser = await db.insert('app_users', {
+      'station_id': 1,
+      'name': 'مستخدم ثان',
+      'username': 'accountant_link_test_2',
+      'password_hash': 'test-hash',
+      'role': 'accountant',
+      'active': 1,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+    await expectLater(
+      repo.assignAccountantWorker(userId: secondUser, workerId: worker),
+      throwsStateError,
+    );
+  });
+
   test('إيداع المحاسب يزيد الصندوق ومستحقه دون تسجيل إيراد أو مصروف', () async {
     final repo = StationRepository(db);
     final worker = await repo.createWorker(
