@@ -33,7 +33,7 @@ void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-    final path = (await databaseFactory.getDatabasesPath()) + '/saqia_station_v2.db';
+    final path = '${await databaseFactory.getDatabasesPath()}/saqia_station_v2.db';
     await databaseFactory.deleteDatabase(path);
     db = AppDatabase.instance;
     await db.db;
