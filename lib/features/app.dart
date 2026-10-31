@@ -881,6 +881,7 @@ class _ShellState extends State<AdminShell> {
     'النسخ الاحتياطي',
     'قياس الأداء',
     'الحسابات العامة',
+    'بلاغات المستفيدين',
   ];
   AppRole get role => AppRole.values.firstWhere(
     (x) => x.name == widget.role,
@@ -890,7 +891,7 @@ class _ShellState extends State<AdminShell> {
     final s = <int>{0, 2, 4, 5, 15};
     if (systemType == 'diesel') s.add(6);
     if (role == AppRole.manager || role == AppRole.accountant) {
-      s.addAll({1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 19});
+      s.addAll({1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 19, 20});
     }
     if (role == AppRole.manager) {
       s.addAll({16, 17, 18});
@@ -1413,6 +1414,7 @@ class _ShellState extends State<AdminShell> {
     Icons.backup_rounded,
     Icons.speed_rounded,
     Icons.account_balance_wallet_rounded,
+    Icons.report_problem_outlined,
   ][i];
   Widget _page(int i, {Key? key}) {
     final w = switch (i) {
@@ -1488,6 +1490,7 @@ class _ShellState extends State<AdminShell> {
       17 => BackupPage(repo),
       18 => PerformancePage(repo),
       19 => GeneralAccountsPage(repo, userId: widget.userId),
+      20 => BeneficiaryErrorReportsPage(repo: repo, userId: widget.userId),
       _ => DashboardPage(repo, onOpen: go, availableMenu: visible.toList()),
     };
     return KeyedSubtree(key: key, child: w);
@@ -15769,4 +15772,55 @@ class _DebouncedSearchFieldState extends State<DebouncedSearchField> {
         onChanged: _handleChanged,
         decoration: widget.decoration,
       );
+}
+
+class BeneficiaryErrorReportsPage extends StatefulWidget {
+  const BeneficiaryErrorReportsPage({required this.repo, required this.userId, super.key});
+  final StationRepository repo; final int userId;
+  @override State<BeneficiaryErrorReportsPage> createState() => _BeneficiaryErrorReportsPageState();
+}
+
+class _BeneficiaryErrorReportsPageState extends State<BeneficiaryErrorReportsPage> {
+  List<Map<String,Object?>> rows = []; bool loading = true; String filter = 'all';
+  @override void initState() { super.initState(); load(); }
+  Future<void> load() async {
+    setState(() => loading = true);
+    try { rows = await widget.repo.stationBeneficiaryErrorReports(); }
+    catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر تحميل البلاغات: $e'))); }
+    if (mounted) setState(() => loading = false);
+  }
+  String statusLabel(String v) => switch(v) { 'new'=>'جديد','under_review'=>'قيد المراجعة','accepted'=>'مقبول','rejected'=>'مرفوض','resolved'=>'تم الحل',_=>v };
+  Future<void> edit(Map<String,Object?> row) async {
+    final reply = TextEditingController(text: row['admin_reply']?.toString() ?? '');
+    var status = row['status']?.toString() ?? 'new';
+    final result = await showDialog<bool>(context: context, builder: (ctx) => StatefulBuilder(builder: (ctx, setDialogState) => AlertDialog(
+      title: Text('بلاغ ${row['movement_label']} • ${row['beneficiary_name']}'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,crossAxisAlignment: CrossAxisAlignment.start,children: [
+        Text('رقم الحركة: ${row['movement_id']}'), Text('التصنيف: ${row['category']}'), const SizedBox(height: 8), Text('${row['description']}'), const SizedBox(height: 16),
+        DropdownButtonFormField<String>(value: status, isExpanded: true, items: const [
+          DropdownMenuItem(value:'new',child:Text('جديد')), DropdownMenuItem(value:'under_review',child:Text('قيد المراجعة')),
+          DropdownMenuItem(value:'accepted',child:Text('مقبول')), DropdownMenuItem(value:'rejected',child:Text('مرفوض')), DropdownMenuItem(value:'resolved',child:Text('تم الحل')),
+        ], onChanged:(v){if(v!=null)setDialogState(()=>status=v);}, decoration: const InputDecoration(labelText:'حالة البلاغ')),
+        const SizedBox(height:12), TextField(controller:reply,minLines:2,maxLines:5,decoration:const InputDecoration(labelText:'رد الإدارة',border:OutlineInputBorder())),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('إلغاء')),FilledButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('حفظ الرد والحالة'))],
+    )));
+    if(result==true) { try { await widget.repo.updateBeneficiaryErrorReport(reportId:(row['id'] as num).toInt(),userId:widget.userId,status:status,reply:reply.text); await load(); }
+      catch(e) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('تعذر حفظ الرد: $e'))); } }
+    reply.dispose();
+  }
+  @override Widget build(BuildContext context) {
+    final shown = rows.where((r)=>filter=='all'||r['status']==filter).toList();
+    return Directionality(textDirection:TextDirection.rtl,child:Scaffold(
+      appBar:AppBar(title:const Text('بلاغات المستفيدين'),actions:[IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh))]),
+      body:loading?const Center(child:CircularProgressIndicator()):Column(children:[
+        Padding(padding:const EdgeInsets.all(12),child:DropdownButtonFormField<String>(value:filter,decoration:const InputDecoration(labelText:'تصفية الحالة'),
+          items:const [DropdownMenuItem(value:'all',child:Text('كل البلاغات')),DropdownMenuItem(value:'new',child:Text('جديد')),DropdownMenuItem(value:'under_review',child:Text('قيد المراجعة')),DropdownMenuItem(value:'accepted',child:Text('مقبول')),DropdownMenuItem(value:'rejected',child:Text('مرفوض')),DropdownMenuItem(value:'resolved',child:Text('تم الحل'))],
+          onChanged:(v)=>setState(()=>filter=v??'all'))),
+        Expanded(child:shown.isEmpty?const Center(child:Text('لا توجد بلاغات في هذه الحالة')):ListView.builder(itemCount:shown.length,itemBuilder:(ctx,i){final r=shown[i];return Card(margin:const EdgeInsets.symmetric(horizontal:12,vertical:5),child:ListTile(
+          leading:const CircleAvatar(child:Icon(Icons.flag_outlined)), title:Text('${r['beneficiary_name']} • ${r['movement_label']}',style:const TextStyle(fontWeight:FontWeight.bold)),
+          subtitle:Text('${r['category']} • ${statusLabel('${r['status']}')}\n${r['description']}',maxLines:3,overflow:TextOverflow.ellipsis),isThreeLine:true,trailing:const Icon(Icons.chevron_left),onTap:()=>edit(r)));})),
+      ]),
+    ));
+  }
 }
