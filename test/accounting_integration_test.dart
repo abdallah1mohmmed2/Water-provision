@@ -1597,7 +1597,7 @@ void main() {
     );
   });
 
-  test('ترقية v17 إلى v20 تضيف جداول الاعتمادات وتحافظ على سجلات المحطة', () async {
+  test('ترقية v17 إلى v21 تضيف جداول المستفيد الخاصة وتحافظ على سجلات المحطة', () async {
     final opened = await db.db;
     final beneficiariesBefore = await opened.rawQuery(
       'SELECT COUNT(*) count FROM beneficiaries',
@@ -1609,7 +1609,7 @@ void main() {
     await db.close();
     final upgraded = await db.db;
     final tables = await upgraded.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials')",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials','beneficiary_general_accounts','beneficiary_general_account_transactions')",
     );
     final cashIndex = await upgraded.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_cash_rec_period'",
@@ -1623,6 +1623,18 @@ void main() {
     final credentialCount = await upgraded.rawQuery(
       'SELECT COUNT(*) count FROM beneficiary_credentials',
     );
+    final privateAccountIndex = await upgraded.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_beneficiary_general_accounts_owner_name'",
+    );
+    final privateTransactionIndex = await upgraded.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_beneficiary_general_transactions_owner_account_date'",
+    );
+    final privateAccountsCount = await upgraded.rawQuery(
+      'SELECT COUNT(*) count FROM beneficiary_general_accounts',
+    );
+    final privateTransactionsCount = await upgraded.rawQuery(
+      'SELECT COUNT(*) count FROM beneficiary_general_account_transactions',
+    );
     final beneficiariesAfter = await upgraded.rawQuery(
       'SELECT COUNT(*) count FROM beneficiaries',
     );
@@ -1635,9 +1647,15 @@ void main() {
       'general_accounts',
       'general_account_transactions',
       'beneficiary_credentials',
+      'beneficiary_general_accounts',
+      'beneficiary_general_account_transactions',
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
+    expect(privateAccountIndex, isNotEmpty);
+    expect(privateTransactionIndex, isNotEmpty);
+    expect((privateAccountsCount.single['count'] as num).toInt(), 0);
+    expect((privateTransactionsCount.single['count'] as num).toInt(), 0);
     expect(credentialIndexes, hasLength(2));
     expect((credentialCount.single['count'] as num).toInt(), 0);
     expect(
@@ -1648,7 +1666,7 @@ void main() {
       (irrigationsAfter.single['count'] as num).toInt(),
       (irrigationsBefore.single['count'] as num).toInt(),
     );
-    expect((version.single.values.single as num).toInt(), 20);
+    expect((version.single.values.single as num).toInt(), 21);
   });
 
   test('إنشاء دخول المستفيد محصور بالمدير واسم المستخدم فريد داخل المحطة', () async {
