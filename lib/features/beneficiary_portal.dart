@@ -821,7 +821,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     final location = TextEditingController(text: '${current['location'] ?? ''}');
     final jerba = TextEditingController(text: '${current['jerba_number'] ?? ''}');
     final area = TextEditingController(text: '${current['area'] ?? ''}');
-    final notes = TextEditingController(text: '${current['notes'] ?? ''});
+    final notes = TextEditingController(text: '${current['notes'] ?? ''}');
     final formKey = GlobalKey<FormState>();
     final values = await showDialog<Map<String, Object?>>(
       context: context,
@@ -862,7 +862,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     for (final c in [name, phone, address, location, jerba, area, notes]) { c.dispose(); }
     if (values == null) return;
     try {
-      await _repo.updateBeneficiary(ownerId, values, null);
+      await _repo.updateBeneficiaryPersonalProfile(ownerId, values);
       await _load();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث بياناتك بنجاح')));
     } catch (error) {
