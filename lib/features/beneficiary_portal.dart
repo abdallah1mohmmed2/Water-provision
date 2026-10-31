@@ -497,10 +497,10 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         Card(child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(children: [
-            Expanded(child: _metric('عدد السقايات', _irrigations.length.toString(), Icons.water_drop_outlined)),
-            Expanded(child: _metric('إجمالي الدقائق',
+            _metric('عدد السقايات', _irrigations.length.toString(), Icons.water_drop_outlined),
+            _metric('إجمالي الدقائق',
               _irrigations.fold<int>(0, (sum, row) => sum + ((row['minutes'] as num?)?.round() ?? 0)).toString(),
-              Icons.timer_outlined)),
+              Icons.timer_outlined),
           ]),
         )),
         if (_irrigations.isEmpty)
