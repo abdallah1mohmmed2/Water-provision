@@ -138,6 +138,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
   List<Map<String, Object?>> _bookings = [];
   List<Map<String, Object?>> _bookingQueue = [];
   List<Map<String, Object?>> _notifications = [];
+  List<Map<String, Object?>> _errorReports = [];
   int? _beneficiaryId;
   int _tab = 0;
   bool _loading = true;
@@ -203,8 +204,9 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       final bookingQueue = await _repo.activeBookingQueue();
       _diagnosticStage = 'المرحلة 5: تحميل الإشعارات';
       final notifications = await _repo.notifications(beneficiaryId: id);
+      final errorReports = await _repo.beneficiaryErrorReports(id);
       _diagnosticStage = 'المرحلة 6: تجهيز واجهة المستفيد';
-      final values = <dynamic>[details, statement, irrigations, bookings, bookingQueue, notifications];
+      final values = <dynamic>[details, statement, irrigations, bookings, bookingQueue, notifications, errorReports];
       if (!mounted) return;
       setState(() {
         _beneficiaryId = id;
@@ -214,6 +216,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         _bookings = (values[3] as List).cast<Map<String, Object?>>();
         _bookingQueue = (values[4] as List).cast<Map<String, Object?>>();
         _notifications = (values[5] as List).cast<Map<String, Object?>>();
+        _errorReports = (values[6] as List).cast<Map<String, Object?>>();
         _loading = false;
       });
     } catch (error, stackTrace) {
@@ -433,6 +436,40 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     }
   }
 
+  String _reportStatus(Object? value) => switch ('$value') {
+    'new' => 'بلاغ جديد', 'under_review' => 'قيد المراجعة',
+    'accepted' => 'تم قبول البلاغ', 'rejected' => 'تم رفض البلاغ',
+    'resolved' => 'تم الحل', _ => 'غير معروف',
+  };
+
+  Future<void> _reportMovement(Map<String, Object?> row) async {
+    final type = '${row['type'] ?? ''}';
+    final isIrrigation = type == 's';
+    final category = ValueNotifier<String>(isIrrigation ? 'المبلغ غير صحيح' : 'القبض غير صحيح');
+    final description = TextEditingController();
+    final categories = isIrrigation ? ['المبلغ غير صحيح','الوقت غير صحيح','السقاية غير مسجلة أو مكررة','أخرى'] : ['القبض غير صحيح','المبلغ غير صحيح','السند غير مسجل أو مكرر','أخرى'];
+    final accepted = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(isIrrigation ? 'الإبلاغ عن خطأ في السقاية' : 'الإبلاغ عن خطأ في سند القبض'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        ValueListenableBuilder<String>(valueListenable: category, builder: (_, value, __) =>
+          DropdownButtonFormField<String>(value: value, isExpanded: true,
+            items: categories.map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(),
+            onChanged: (v) { if (v != null) category.value = v; }, decoration: const InputDecoration(labelText: 'نوع الخطأ'))),
+        const SizedBox(height: 12), TextField(controller: description, minLines: 2, maxLines: 4, decoration: const InputDecoration(labelText: 'اشرح الخطأ', border: OutlineInputBorder())),
+      ]),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')), FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('إرسال البلاغ'))],
+    ));
+    final categoryValue = category.value; category.dispose();
+    if (accepted != true) { description.dispose(); return; }
+    if (description.text.trim().isEmpty) { description.dispose(); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اكتب وصفاً للخطأ'))); return; }
+    try {
+      final ownerId = await _requireCurrentBeneficiary();
+      await _repo.createBeneficiaryErrorReport(beneficiaryId: ownerId, movementType: isIrrigation ? 'irrigation' : 'payment', movementId: (row['id'] as num).toInt(), category: categoryValue, description: description.text.trim());
+      await _load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إرسال البلاغ إلى إدارة المحطة')));
+    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Bad state: ', '')))); }
+    finally { description.dispose(); }
+  }
   Widget _movementTile(Map<String, Object?> row) {
     final debit = (row['debit'] as num?)?.round() ?? 0;
     final credit = (row['credit'] as num?)?.round() ?? 0;
@@ -441,6 +478,10 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     final isDebit = debit > 0;
     final type = '${row['type'] ?? ''}';
     final hasDocument = type == 's' || type == 'p';
+    final reportType = type == 's' ? 'irrigation' : 'payment';
+    final reportId = (row['id'] as num?)?.toInt() ?? -1;
+    final reports = _errorReports.where((r) => r['movement_type'] == reportType && (r['movement_id'] as num?)?.toInt() == reportId).toList();
+    final report = reports.isEmpty ? null : reports.first;
     return Card(child: ListTile(
       leading: CircleAvatar(child: Icon(isDebit ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded)),
       title: Text((row['description'] ?? 'حركة حساب').toString()),
@@ -452,6 +493,10 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
           Text(AccountingCalculations.balanceLabel(balance),
             style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
         ]),
+        if (hasDocument && report != null)
+          IconButton(tooltip: _reportStatus(report['status']), onPressed: () => showDialog<void>(context: context, builder: (ctx) => AlertDialog(title: Text(_reportStatus(report['status'])), content: Text('التصنيف: ${report['category']}\n${report['description']}\n\nرد الإدارة: ${report['admin_reply'] ?? 'لم ترد الإدارة بعد'}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق'))])), icon: const Icon(Icons.mark_email_read_outlined)),
+        if (hasDocument && report == null)
+          IconButton(tooltip: 'الإبلاغ عن خطأ', onPressed: () => _reportMovement(row), icon: const Icon(Icons.flag_outlined)),
         if (hasDocument)
           IconButton(
             tooltip: type == 's' ? 'طباعة فاتورة السقاية' : 'طباعة سند القبض',
