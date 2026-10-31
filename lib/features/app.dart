@@ -7121,36 +7121,6 @@ class _SessionsState extends State<SessionsPage> {
     }
   }
 
-  Future<void> removeSelectedQueueEntries() async {
-    if (selectedQueueIds.isEmpty) return;
-    final ids = selectedQueueIds.toList();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (d) => AlertDialog(
-        title: const Text('إزالة الأسماء المحددة من الدور'),
-        content: Text('سيتم إخراج ${ids.length} اسم من الدور فقط. لن تُحذف بيانات المستفيدين أو السقايات أو الحسابات. هل تريد المتابعة؟'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('تراجع')),
-          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('إزالة من الدور')),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    if (!await runGuarded(context, () => widget.r.removeQueueEntries(ids, userId: widget.userId))) return;
-    setState(() => selectedQueueIds.clear());
-    await load();
-  }
-
-  Future<void> moveQueueEntry(int index, int delta) async {
-    final target = index + delta;
-    if (target < 0 || target >= q.length) return;
-    final ordered = q.map((x) => (x['id'] as num).toInt()).toList();
-    final item = ordered.removeAt(index);
-    ordered.insert(target, item);
-    if (!await runGuarded(context, () => widget.r.reorderQueueEntries(ordered, userId: widget.userId))) return;
-    await load();
-  }
-
   Future<void> postpone(int id) async {
     final c = TextEditingController();
     final ok = await showDialog<bool>(
@@ -7341,6 +7311,37 @@ class _QueueState extends State<QueueBookingPage> {
     } else {
       load();
     }
+  }
+
+
+  Future<void> removeSelectedQueueEntries() async {
+    if (selectedQueueIds.isEmpty) return;
+    final ids = selectedQueueIds.toList();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('إزالة الأسماء المحددة من الدور'),
+        content: Text('سيتم إخراج ${ids.length} اسم من الدور فقط. لن تُحذف بيانات المستفيدين أو السقايات أو الحسابات. هل تريد المتابعة؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('تراجع')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('إزالة من الدور')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (!await runGuarded(context, () => widget.r.removeQueueEntries(ids, userId: widget.userId))) return;
+    setState(() => selectedQueueIds.clear());
+    await load();
+  }
+
+  Future<void> moveQueueEntry(int index, int delta) async {
+    final target = index + delta;
+    if (target < 0 || target >= q.length) return;
+    final ordered = q.map((x) => (x['id'] as num).toInt()).toList();
+    final item = ordered.removeAt(index);
+    ordered.insert(target, item);
+    if (!await runGuarded(context, () => widget.r.reorderQueueEntries(ordered, userId: widget.userId))) return;
+    await load();
   }
 
   Future<void> _openQuickRequest() async {
