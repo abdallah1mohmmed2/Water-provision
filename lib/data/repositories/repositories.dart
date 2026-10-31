@@ -448,6 +448,84 @@ class StationRepository {
     );
   }
 
+  /// إخفاء إدخالات محددة من الدور دون حذف المستفيد أو أي سجل مالي.
+  Future<void> removeQueueEntries(List<int> entryIds, {int? userId}) async {
+    final ids = entryIds.toSet().toList();
+    if (ids.isEmpty) return;
+    final now = AppClock.now().toIso8601String();
+    await db.transaction((tx) async {
+      for (final id in ids) {
+        final rows = await tx.query(
+          'queue_entries',
+          where: "id=? AND status IN ('waiting','postponed')",
+          whereArgs: [id],
+          limit: 1,
+        );
+        if (rows.isEmpty) continue;
+        final old = rows.first;
+        await tx.update(
+          'queue_entries',
+          {'status': 'cancelled', 'skip_reason': 'إزالة يدوية من الدور', 'updated_at': now},
+          where: 'id=?',
+          whereArgs: [id],
+        );
+        await db.auditTx(
+          tx,
+          userId: userId,
+          operation: 'queue_remove',
+          table: 'queue_entries',
+          recordId: id,
+          oldValues: old,
+          newValues: {'status': 'cancelled', 'skip_reason': 'إزالة يدوية من الدور'},
+          reason: 'إزالة يدوية من الدور دون حذف بيانات المستفيد',
+        );
+      }
+      final rest = await tx.rawQuery(
+        "SELECT id FROM queue_entries WHERE status IN ('waiting','postponed') ORDER BY position,cycle_number,created_at,id",
+      );
+      for (var i = 0; i < rest.length; i++) {
+        await tx.update(
+          'queue_entries',
+          {'position': i + 1, 'updated_at': now},
+          where: 'id=?',
+          whereArgs: [rest[i]['id']],
+        );
+      }
+    });
+  }
+
+  /// حفظ ترتيب يدوي كامل للدور مع رفض أي ترتيب قديم أو ناقص.
+  Future<void> reorderQueueEntries(List<int> orderedIds, {int? userId}) async {
+    final now = AppClock.now().toIso8601String();
+    await db.transaction((tx) async {
+      final rows = await tx.rawQuery(
+        "SELECT id FROM queue_entries WHERE status IN ('waiting','postponed') ORDER BY position,cycle_number,created_at,id",
+      );
+      final current = rows.map((x) => (x['id'] as num).toInt()).toSet();
+      final requested = orderedIds.toSet();
+      if (current.length != orderedIds.length || current.length != requested.length ||
+          !current.containsAll(requested)) {
+        throw StateError('تغيرت قائمة الدور؛ حدّث الشاشة ثم أعد الترتيب');
+      }
+      for (var i = 0; i < orderedIds.length; i++) {
+        await tx.update(
+          'queue_entries',
+          {'position': i + 1, 'updated_at': now},
+          where: 'id=?',
+          whereArgs: [orderedIds[i]],
+        );
+      }
+      await db.auditTx(
+        tx,
+        userId: userId,
+        operation: 'queue_reorder',
+        table: 'queue_entries',
+        newValues: {'ordered_ids': orderedIds},
+        reason: 'إعادة ترتيب الدور يدوياً',
+      );
+    });
+  }
+
   Future<List<Map<String, Object?>>> queue() => db.rawQuery(
     "SELECT q.*,b.name beneficiary_name,b.phone FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE q.status IN ('waiting','postponed') ORDER BY q.position,q.cycle_number,q.created_at",
   );
