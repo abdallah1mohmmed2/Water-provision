@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
+import '../services/report_service.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/calculations.dart';
 import '../services/local_beneficiary_auth_service.dart';
@@ -131,6 +133,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
   late final StationRepository _repo;
   Map<String, Object?>? _beneficiary;
   List<Map<String, Object?>> _statement = [];
+  List<Map<String, Object?>> _irrigations = [];
   List<Map<String, Object?>> _bookings = [];
   List<Map<String, Object?>> _notifications = [];
   int? _beneficiaryId;
@@ -190,19 +193,22 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       final details = await _repo.beneficiaryDetails(id);
       _diagnosticStage = 'المرحلة 3: تحميل كشف الحساب';
       final statement = await _repo.beneficiaryStatement(id);
+      _diagnosticStage = 'المرحلة 3: تحميل تسقيات المستفيد';
+      final irrigations = await _repo.irrigations(beneficiaryId: id);
       _diagnosticStage = 'المرحلة 4: تحميل طلبات الحجز';
       final bookings = await _repo.beneficiaryBookings(id);
       _diagnosticStage = 'المرحلة 5: تحميل الإشعارات';
       final notifications = await _repo.notifications(beneficiaryId: id);
       _diagnosticStage = 'المرحلة 6: تجهيز واجهة المستفيد';
-      final values = <dynamic>[details, statement, bookings, notifications];
+      final values = <dynamic>[details, statement, irrigations, bookings, notifications];
       if (!mounted) return;
       setState(() {
         _beneficiaryId = id;
         _beneficiary = values[0] as Map<String, Object?>;
         _statement = (values[1] as List).cast<Map<String, Object?>>();
-        _bookings = (values[2] as List).cast<Map<String, Object?>>();
-        _notifications = (values[3] as List).cast<Map<String, Object?>>();
+        _irrigations = (values[2] as List).cast<Map<String, Object?>>();
+        _bookings = (values[3] as List).cast<Map<String, Object?>>();
+        _notifications = (values[4] as List).cast<Map<String, Object?>>();
         _loading = false;
       });
     } catch (error, stackTrace) {
@@ -442,6 +448,101 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         for (final row in _statement.reversed) _movementTile(row),
     ]);
 
+  String _irrigationDate(Object? value) {
+    final parsed = DateTime.tryParse(value?.toString() ?? '');
+    if (parsed == null) return '-';
+    return '${parsed.year}/${parsed.month.toString().padLeft(2, '0')}/${parsed.day.toString().padLeft(2, '0')}';
+  }
+
+  String _irrigationTime(Object? value) {
+    final parsed = DateTime.tryParse(value?.toString() ?? '');
+    if (parsed == null) return '-';
+    return '${parsed.hour.toString().padLeft(2, '0')}:${parsed.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _irrigationCloudStatus(Object? value) =>
+      value == 'discounted' ? 'تم خصم الغيم' : 'لا يوجد خصم';
+
+  Future<void> _exportMyIrrigationsPdf() async {
+    try {
+      final ownerId = await _requireCurrentBeneficiary();
+      final rows = await _repo.irrigations(beneficiaryId: ownerId);
+      final bytes = await ReportService(_repo).pdf(
+        'irrigations',
+        beneficiaryId: ownerId,
+        sourceRows: rows,
+      );
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر إنشاء كشف التسقيات: ${error.toString().replaceFirst('Bad state: ', '')}')),
+        );
+      }
+    }
+  }
+
+  Widget _irrigationsTab() {
+    const headers = [
+      'التاريخ', 'من', 'إلى', 'إجمالي الدقائق', 'المدفوع',
+      'القيمة الإجمالية', 'الغيم', 'حالة الخصم',
+    ];
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(children: [
+          Expanded(child: _sectionTitle('تسقياتي',
+            subtitle: 'السقايات المسجلة على حسابك فقط')),
+          IconButton(
+            tooltip: 'تصدير كشف التسقيات PDF',
+            onPressed: _irrigations.isEmpty ? null : _exportMyIrrigationsPdf,
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+          ),
+        ]),
+        Card(child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            Expanded(child: _metric('عدد السقايات', _irrigations.length.toString(), Icons.water_drop_outlined)),
+            Expanded(child: _metric('إجمالي الدقائق',
+              _irrigations.fold<int>(0, (sum, row) => sum + ((row['minutes'] as num?)?.round() ?? 0)).toString(),
+              Icons.timer_outlined)),
+          ]),
+        )),
+        if (_irrigations.isEmpty)
+          const Card(child: Padding(
+            padding: EdgeInsets.all(18),
+            child: Text('لا توجد سقايات مسجلة على حسابك حتى الآن.'),
+          ))
+        else
+          Card(child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              columns: headers.map((label) => DataColumn(
+                label: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+              )).toList(),
+              rows: _irrigations.map((row) => DataRow(cells: [
+                DataCell(Text(_irrigationDate(row['date']))),
+                DataCell(Text(_irrigationTime(row['start_datetime']))),
+                DataCell(Text(_irrigationTime(row['end_datetime']))),
+                DataCell(Text('${row['minutes'] ?? 0} د')),
+                DataCell(Text('${row['paid_amount'] ?? 0}')),
+                DataCell(Text('${row['total_amount'] ?? 0}')),
+                DataCell(Text('${row['cloud_minutes'] ?? 0} د')),
+                DataCell(Text(_irrigationCloudStatus(row['cloud_status']))),
+              ])).toList(),
+            ),
+          )),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: _irrigations.isEmpty ? null : _exportMyIrrigationsPdf,
+          icon: const Icon(Icons.picture_as_pdf_outlined),
+          label: const Text('تصدير كشف التسقيات PDF'),
+        ),
+      ],
+    );
+  }
+
   Widget _bookingsTab() => ListView(physics: const AlwaysScrollableScrollPhysics(),
     padding: const EdgeInsets.all(16), children: [
       Row(children: [
@@ -525,7 +626,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    const titles = ['الرئيسية', 'حسابي', 'الحسابات العامة', 'طلباتي', 'الإشعارات', 'بياناتي'];
+    const titles = ['الرئيسية', 'حسابي', 'الحسابات العامة', 'طلباتي', 'الإشعارات', 'بياناتي', 'تسقياتي'];
     final pages = [
       _homeTab(),
       _accountTab(),
@@ -533,6 +634,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       _bookingsTab(),
       _notificationsTab(),
       _profileTab(),
+      _irrigationsTab(),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -570,6 +672,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
                 NavigationDestination(icon: Icon(Icons.event_note_outlined), selectedIcon: Icon(Icons.event_note), label: 'طلباتي'),
                 NavigationDestination(icon: Icon(Icons.notifications_outlined), selectedIcon: Icon(Icons.notifications), label: 'الإشعارات'),
                 NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'بياناتي'),
+                NavigationDestination(icon: Icon(Icons.water_drop_outlined), selectedIcon: Icon(Icons.water_drop), label: 'تسقياتي'),
               ],
             )
           : null,
