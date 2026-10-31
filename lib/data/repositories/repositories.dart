@@ -694,6 +694,17 @@ class StationRepository {
         [beneficiaryId],
       );
 
+  /// قائمة الحجوزات النشطة المشتركة لعرض ترتيب المستفيدين في بوابة المستفيد.
+  /// لا تُظهر الطلبات المكتملة أو الملغاة، ولا تتضمن بيانات اتصال خاصة.
+  Future<List<Map<String, Object?>>> activeBookingQueue() => db.rawQuery(
+    """SELECT br.id,br.beneficiary_id,br.status,br.created_at,
+              br.scheduled_start,b.name beneficiary_name
+       FROM booking_requests br
+       JOIN beneficiaries b ON b.id=br.beneficiary_id
+       WHERE br.status NOT IN ('completed','cancelled')
+       ORDER BY COALESCE(br.scheduled_start,br.created_at),br.created_at,br.id""",
+  );
+
   /// إنشاء طلب حجز من بوابة المستفيد بعد التحقق من ارتباطه بحساب دخول نشط.
   /// إنشاء طلب حجز من بوابة المستفيد بعد التحقق من ارتباطه بحساب دخول نشط.
   Future<int> createBeneficiaryBooking(int beneficiaryId, String notes) =>
