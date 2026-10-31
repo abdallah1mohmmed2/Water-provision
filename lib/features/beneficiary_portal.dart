@@ -915,12 +915,78 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     }
   }
 
+  Future<void> _showStationSwitcher() async {
+    try {
+      // المرحلة المحلية تعرض المحطة الفعلية المرتبط بها سجل المستفيد.
+      // لا ننشئ مشاريع وهمية ولا نسمح بتبديل station_id قبل وجود عضويات موثقة.
+      final ownerId = await _requireCurrentBeneficiary();
+      final rows = await _repo.rawQuery(
+        '''SELECT s.id, s.name, s.address
+           FROM stations s
+           JOIN beneficiaries b ON b.station_id=s.id
+           WHERE b.id=? AND s.active=1
+           LIMIT 1''',
+        [ownerId],
+      );
+      if (!mounted) return;
+      if (rows.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تعذر تحديد المحطة المرتبط بها حسابك')),
+        );
+        return;
+      }
+      final station = rows.first;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('المحطة / المشروع الحالي'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.water_drop_rounded),
+                  title: Text('${station['name'] ?? 'محطة بدون اسم'}'),
+                  subtitle: Text('المشروع المرتبط بحسابك حاليًا'),
+                  trailing: const Icon(Icons.check_circle, color: Colors.green),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'يمكنك لاحقًا اختيار مشروع آخر مثل البركة أو الثراء إذا كان حسابك مرتبطًا به. '
+                'في النسخة المحلية الحالية، تسجيل الدخول وقاعدة البيانات يعملان على محطة واحدة فقط. '
+                'سيُفعّل التبديل عند ربط Firebase والتحقق من عضويتك في كل مشروع، حتى لا تختلط الحسابات أو تظهر بيانات مشروع غير مصرح به.',
+              ),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('تم'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر عرض المحطة: ${error.toString().replaceFirst('Bad state: ', '')}')),
+        );
+      }
+    }
+  }
+
   Widget _settingsTab() => ListView(padding: const EdgeInsets.all(16), children: [
     _sectionTitle('الإعدادات', subtitle: 'إدارة بياناتك وحماية حسابك'),
     Card(child: Column(children: [
       ListTile(leading: const Icon(Icons.person_outline), title: const Text('البيانات الشخصية'),
         subtitle: const Text('تعديل الاسم والهاتف والعنوان والموقع وغيرها'),
         trailing: const Icon(Icons.chevron_left), onTap: _editMyProfile),
+      const Divider(height: 1),
+      ListTile(leading: const Icon(Icons.business_outlined), title: const Text('تغيير المحطة / المشروع'),
+        subtitle: const Text('عرض المشروع الحالي وتجهيز اختيار مشاريعك الأخرى'),
+        trailing: const Icon(Icons.chevron_left), onTap: _showStationSwitcher),
       const Divider(height: 1),
       ListTile(leading: const Icon(Icons.lock_outline), title: const Text('تغيير كلمة المرور'),
         subtitle: const Text('تأكيد كلمة المرور الحالية قبل التغيير'),
