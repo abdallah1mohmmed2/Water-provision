@@ -136,6 +136,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
   List<Map<String, Object?>> _statement = [];
   List<Map<String, Object?>> _irrigations = [];
   List<Map<String, Object?>> _bookings = [];
+  List<Map<String, Object?>> _bookingQueue = [];
   List<Map<String, Object?>> _notifications = [];
   int? _beneficiaryId;
   int _tab = 0;
@@ -198,10 +199,12 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       final irrigations = await _repo.irrigations(beneficiaryId: id);
       _diagnosticStage = 'المرحلة 4: تحميل طلبات الحجز';
       final bookings = await _repo.beneficiaryBookings(id);
+      _diagnosticStage = 'المرحلة 4: تحميل ترتيب الحجوزات';
+      final bookingQueue = await _repo.activeBookingQueue();
       _diagnosticStage = 'المرحلة 5: تحميل الإشعارات';
       final notifications = await _repo.notifications(beneficiaryId: id);
       _diagnosticStage = 'المرحلة 6: تجهيز واجهة المستفيد';
-      final values = <dynamic>[details, statement, irrigations, bookings, notifications];
+      final values = <dynamic>[details, statement, irrigations, bookings, bookingQueue, notifications];
       if (!mounted) return;
       setState(() {
         _beneficiaryId = id;
@@ -209,7 +212,8 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         _statement = (values[1] as List).cast<Map<String, Object?>>();
         _irrigations = (values[2] as List).cast<Map<String, Object?>>();
         _bookings = (values[3] as List).cast<Map<String, Object?>>();
-        _notifications = (values[4] as List).cast<Map<String, Object?>>();
+        _bookingQueue = (values[4] as List).cast<Map<String, Object?>>();
+        _notifications = (values[5] as List).cast<Map<String, Object?>>();
         _loading = false;
       });
     } catch (error, stackTrace) {
@@ -481,6 +485,10 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         _metric('طلبات الحجز', _bookings.length.toString(), Icons.event_note_outlined),
       ]),
       const SizedBox(height: 10),
+      _bookingQueueOverview(),
+      const SizedBox(height: 10),
+      _allBookedBeneficiaries(),
+      const SizedBox(height: 12),
       FilledButton.icon(onPressed: _savingBooking ? null : _createBooking,
         icon: const Icon(Icons.add_circle_outline),
         label: Text(_savingBooking ? 'جارٍ إرسال الطلب…' : 'طلب حجز سقي')),
@@ -617,6 +625,120 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       ],
     );
   }
+
+  Widget _bookingQueueOverview() {
+    final ownIndex = _bookingQueue.indexWhere(
+      (item) => (item['beneficiary_id'] as num?)?.toInt() == _beneficiaryId,
+    );
+    if (ownIndex < 0) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(children: [
+            const Icon(Icons.info_outline_rounded),
+            const SizedBox(width: 10),
+            Expanded(child: Text(
+              _bookingQueue.isEmpty
+                ? 'لا توجد حجوزات نشطة في قائمة المحطة حاليًا.'
+                : 'لا يوجد لك حجز نشط في قائمة الانتظار حاليًا. عند اعتماد طلبك سيظهر موقعك هنا.',
+            )),
+          ]),
+        ),
+      );
+    }
+    final current = _bookingQueue[ownIndex];
+    final ahead = ownIndex;
+    final behind = _bookingQueue.length - ownIndex - 1;
+    final previous = ownIndex > 0 ? _bookingQueue[ownIndex - 1] : null;
+    final next = ownIndex + 1 < _bookingQueue.length ? _bookingQueue[ownIndex + 1] : null;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            const Icon(Icons.confirmation_number_outlined),
+            const SizedBox(width: 8),
+            const Expanded(child: Text('موقعك في ترتيب الحجوزات',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800))),
+            Chip(label: Text('رقم ${ownIndex + 1} من ${_bookingQueue.length}')),
+          ]),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(child: _metric('أمامك', '$ahead', Icons.people_alt_outlined)),
+            Expanded(child: _metric('خلفك', '$behind', Icons.groups_outlined)),
+          ]),
+          const SizedBox(height: 8),
+          Text('حالة حجزك: ${_bookingStatus(current['status'])}',
+            style: const TextStyle(fontWeight: FontWeight.w700)),
+          if (current['scheduled_start'] != null)
+            Text('موعدك المحدد: ${_date(current['scheduled_start'])}'),
+          if (previous != null)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.person_outline),
+              title: Text('قبلك مباشرة: ${previous['beneficiary_name'] ?? 'مستفيد'}'),
+              subtitle: Text('حالة الحجز: ${_bookingStatus(previous['status'])}'),
+            )
+          else
+            const ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.flag_outlined),
+              title: Text('أنت أول حجز في القائمة'),
+            ),
+          if (next != null)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.person_pin_circle_outlined),
+              title: Text('بعدك مباشرة: ${next['beneficiary_name'] ?? 'مستفيد'}'),
+              subtitle: Text('حالة الحجز: ${_bookingStatus(next['status'])}'),
+            )
+          else
+            const ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.emoji_events_outlined),
+              title: Text('لا يوجد حجز خلفك حاليًا'),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _allBookedBeneficiaries() => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Text('المستفيدون الذين حجزوا',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        if (_bookingQueue.isEmpty)
+          const Text('لا توجد حجوزات نشطة.')
+        else
+          for (var i = 0; i < _bookingQueue.length; i++)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: CircleAvatar(child: Text('${i + 1}')),
+              title: Text(
+                (i == _bookingQueue.indexWhere((item) =>
+                  (item['beneficiary_id'] as num?)?.toInt() == _beneficiaryId))
+                  ? '${_bookingQueue[i]['beneficiary_name'] ?? 'أنت'} (أنت)'
+                  : '${_bookingQueue[i]['beneficiary_name'] ?? 'مستفيد'}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text(
+                '${_bookingStatus(_bookingQueue[i]['status'])}'
+                ' • ${_bookingQueue[i]['scheduled_start'] == null ? 'بانتظار تحديد الموعد' : _date(_bookingQueue[i]['scheduled_start'])}',
+              ),
+              trailing: Text('#${i + 1}'),
+            ),
+      ]),
+    ),
+  );
 
   Widget _bookingsTab() => ListView(physics: const AlwaysScrollableScrollPhysics(),
     padding: const EdgeInsets.all(16), children: [
