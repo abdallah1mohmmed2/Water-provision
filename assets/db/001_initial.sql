@@ -33,3 +33,8 @@ CREATE TABLE general_accounts (id INTEGER PRIMARY KEY, station_id INTEGER NOT NU
 CREATE INDEX idx_general_accounts_station_name ON general_accounts(station_id,name);
 CREATE TABLE general_account_transactions (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL DEFAULT 1 REFERENCES stations(id), account_id INTEGER NOT NULL REFERENCES general_accounts(id), date TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('receipt','payment')), amount INTEGER NOT NULL CHECK(amount > 0), reference_number TEXT, notes TEXT, created_by INTEGER REFERENCES app_users(id), created_at TEXT NOT NULL);
 CREATE INDEX idx_general_account_transactions_account_date ON general_account_transactions(account_id,date,id);
+
+CREATE TABLE beneficiary_error_reports (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id), beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), movement_type TEXT NOT NULL CHECK(movement_type IN ('irrigation','payment')), movement_id INTEGER NOT NULL, category TEXT NOT NULL, description TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','under_review','accepted','rejected','resolved')), admin_reply TEXT, reviewed_by INTEGER REFERENCES app_users(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, replied_at TEXT);
+CREATE INDEX idx_beneficiary_reports_owner ON beneficiary_error_reports(beneficiary_id,created_at DESC);
+CREATE INDEX idx_beneficiary_reports_station_status ON beneficiary_error_reports(station_id,status,created_at DESC);
+CREATE INDEX idx_beneficiary_reports_movement ON beneficiary_error_reports(beneficiary_id,movement_type,movement_id,status);
