@@ -480,8 +480,14 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     final hasDocument = type == 's' || type == 'p';
     final reportType = type == 's' ? 'irrigation' : 'payment';
     final reportId = (row['id'] as num?)?.toInt() ?? -1;
-    final reports = _errorReports.where((r) => r['movement_type'] == reportType && (r['movement_id'] as num?)?.toInt() == reportId).toList();
+    final reports = _errorReports.where((r) => r['movement_type'] == reportType && (r['movement_id'] as num?)?.toInt() == reportId).toList()
+      ..sort((a, b) {
+        final aDate = DateTime.tryParse('${a['created_at'] ?? ''}') ?? DateTime(1970);
+        final bDate = DateTime.tryParse('${b['created_at'] ?? ''}') ?? DateTime(1970);
+        return bDate.compareTo(aDate);
+      });
     final report = reports.isEmpty ? null : reports.first;
+    final reportIsOpen = report != null && const {'new', 'under_review'}.contains(report['status']);
     return Card(child: ListTile(
       leading: CircleAvatar(child: Icon(isDebit ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded)),
       title: Text((row['description'] ?? 'حركة حساب').toString()),
@@ -495,8 +501,8 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         ]),
         if (hasDocument && report != null)
           IconButton(tooltip: _reportStatus(report['status']), onPressed: () => showDialog<void>(context: context, builder: (ctx) => AlertDialog(title: Text(_reportStatus(report['status'])), content: Text('التصنيف: ${report['category']}\n${report['description']}\n\nرد الإدارة: ${report['admin_reply'] ?? 'لم ترد الإدارة بعد'}'), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق'))])), icon: const Icon(Icons.mark_email_read_outlined)),
-        if (hasDocument && report == null)
-          IconButton(tooltip: 'الإبلاغ عن خطأ', onPressed: () => _reportMovement(row), icon: const Icon(Icons.flag_outlined)),
+        if (hasDocument && !reportIsOpen)
+          IconButton(tooltip: report == null ? 'الإبلاغ عن خطأ' : 'إرسال بلاغ جديد بعد إغلاق البلاغ السابق', onPressed: () => _reportMovement(row), icon: const Icon(Icons.flag_outlined)),
         if (hasDocument)
           IconButton(
             tooltip: type == 's' ? 'طباعة فاتورة السقاية' : 'طباعة سند القبض',
