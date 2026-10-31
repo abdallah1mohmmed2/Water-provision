@@ -3565,11 +3565,18 @@ class StationRepository {
     final found = await db.rawQuery('SELECT id FROM beneficiary_error_reports WHERE id=? AND station_id=?', [reportId, stationId]);
     if (found.isEmpty) throw StateError('البلاغ غير موجود في هذه المحطة');
     final now = AppClock.now().toIso8601String();
-    await db.update('beneficiary_error_reports', {
-      'status': status, 'admin_reply': reply.trim().isEmpty ? null : reply.trim(),
-      'reviewed_by': userId, 'updated_at': now,
-      'replied_at': reply.trim().isEmpty ? null : now,
-    }, where: 'id=? AND station_id=?', whereArgs: [reportId, stationId]);
+    await db.update(
+      'beneficiary_error_reports',
+      {
+        'status': status,
+        'admin_reply': reply.trim().isEmpty ? null : reply.trim(),
+        'reviewed_by': userId,
+        'updated_at': now,
+        'replied_at': reply.trim().isEmpty ? null : now,
+      },
+      'id=? AND station_id=?',
+      [reportId, stationId],
+    );
   }
 
   Future<String> _balanceSql() => Future.value(BalanceSql.beneficiary('b'));
