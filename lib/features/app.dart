@@ -7118,6 +7118,36 @@ class _SessionsState extends State<SessionsPage> {
     }
   }
 
+  Future<void> removeSelectedQueueEntries() async {
+    if (selectedQueueIds.isEmpty) return;
+    final ids = selectedQueueIds.toList();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('إزالة الأسماء المحددة من الدور'),
+        content: Text('سيتم إخراج ${ids.length} اسم من الدور فقط. لن تُحذف بيانات المستفيدين أو السقايات أو الحسابات. هل تريد المتابعة؟'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('تراجع')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('إزالة من الدور')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (!await runGuarded(context, () => widget.r.removeQueueEntries(ids, userId: widget.userId))) return;
+    setState(() => selectedQueueIds.clear());
+    await load();
+  }
+
+  Future<void> moveQueueEntry(int index, int delta) async {
+    final target = index + delta;
+    if (target < 0 || target >= q.length) return;
+    final ordered = q.map((x) => (x['id'] as num).toInt()).toList();
+    final item = ordered.removeAt(index);
+    ordered.insert(target, item);
+    if (!await runGuarded(context, () => widget.r.reorderQueueEntries(ordered, userId: widget.userId))) return;
+    await load();
+  }
+
   Future<void> postpone(int id) async {
     final c = TextEditingController();
     final ok = await showDialog<bool>(
@@ -7274,6 +7304,7 @@ class QueueBookingPage extends StatefulWidget {
 
 class _QueueState extends State<QueueBookingPage> {
   List<Map<String, Object?>> q = [], b = [], bs = [];
+  final Set<int> selectedQueueIds = <int>{};
   String? status;
   String queueType = 'circular';
 
@@ -7767,6 +7798,44 @@ class _QueueState extends State<QueueBookingPage> {
             ),
             const SizedBox(height: 12),
           ],
+          if (!isBookingMode) ...[
+            SectionCard(
+              title: 'أدوات إدارة الدور',
+              icon: Icons.tune_rounded,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('حدد اسماً أو عدة أسماء لإخراجها من الدور فقط، أو استخدم الأسهم لتغيير ترتيب الانتظار.'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: q.isEmpty ? null : () => setState(() {
+                          if (selectedQueueIds.length == q.length) {
+                            selectedQueueIds.clear();
+                          } else {
+                            selectedQueueIds
+                              ..clear()
+                              ..addAll(q.map((x) => (x['id'] as num).toInt()));
+                          }
+                        }),
+                        icon: const Icon(Icons.select_all_rounded),
+                        label: Text(selectedQueueIds.length == q.length && q.isNotEmpty ? 'إلغاء تحديد الكل' : 'تحديد الكل'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: selectedQueueIds.isEmpty ? null : removeSelectedQueueEntries,
+                        icon: const Icon(Icons.person_remove_alt_1_rounded),
+                        label: Text('إزالة المحدد (${selectedQueueIds.length})'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           SectionCard(
             title: isBookingMode ? 'الدور الحالي' : 'ترتيب الدور الحالي',
             icon: Icons.format_list_numbered_rounded,
@@ -7787,6 +7856,18 @@ class _QueueState extends State<QueueBookingPage> {
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
+                                    if (!isBookingMode)
+                                      Checkbox(
+                                        value: selectedQueueIds.contains((entries[i]['id'] as num).toInt()),
+                                        onChanged: (checked) => setState(() {
+                                          final id = (entries[i]['id'] as num).toInt();
+                                          if (checked == true) {
+                                            selectedQueueIds.add(id);
+                                          } else {
+                                            selectedQueueIds.remove(id);
+                                          }
+                                        }),
+                                      ),
                                     CircleAvatar(
                                       child: Text(
                                         isBookingMode
@@ -7875,6 +7956,16 @@ class _QueueState extends State<QueueBookingPage> {
                                           tooltip: 'تمت الخدمة',
                                           onPressed: () => completeEntry(entries[i]['id'] as int),
                                           icon: const Icon(Icons.check_circle_outline_rounded),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'تحريك إلى أعلى',
+                                          onPressed: i == 0 ? null : () => moveQueueEntry(i, -1),
+                                          icon: const Icon(Icons.arrow_upward_rounded),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'تحريك إلى أسفل',
+                                          onPressed: i == entries.length - 1 ? null : () => moveQueueEntry(i, 1),
+                                          icon: const Icon(Icons.arrow_downward_rounded),
                                         ),
                                         if (widget.manager)
                                           IconButton(
