@@ -971,7 +971,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       // المرحلة المحلية تعرض المحطة الفعلية المرتبط بها سجل المستفيد.
       // لا ننشئ مشاريع وهمية ولا نسمح بتبديل station_id قبل وجود عضويات موثقة.
       final ownerId = await _requireCurrentBeneficiary();
-      final rows = await _repo.rawQuery(
+      final rows = await _repo.db.rawQuery(
         '''SELECT s.id, s.name, s.address
            FROM stations s
            JOIN beneficiaries b ON b.station_id=s.id
@@ -1026,6 +1026,41 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         );
       }
     }
+  }
+
+  Widget _profileTab() {
+    final person = _beneficiary ?? const <String, Object?>{};
+    Widget detail(String label, Object? value, IconData icon) => ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      subtitle: Text((value == null || value.toString().trim().isEmpty) ? 'غير مسجل' : value.toString()),
+    );
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      children: [
+        _sectionTitle('بياناتي الشخصية', subtitle: 'البيانات المسجلة لدى المحطة'),
+        Card(child: Column(children: [
+          detail('الاسم', person['name'], Icons.person_outline),
+          const Divider(height: 1),
+          detail('رقم الهاتف', person['phone'], Icons.phone_outlined),
+          const Divider(height: 1),
+          detail('العنوان', person['address'], Icons.location_on_outlined),
+          const Divider(height: 1),
+          detail('المنطقة', person['area'], Icons.map_outlined),
+          const Divider(height: 1),
+          detail('الموقع', person['location'], Icons.place_outlined),
+          const Divider(height: 1),
+          detail('رقم الجربة', person['jerba_number'], Icons.tag_outlined),
+        ])),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: _editMyProfile,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('تعديل بياناتي'),
+        ),
+      ],
+    );
   }
 
   Widget _settingsTab() => ListView(padding: const EdgeInsets.all(16), children: [
