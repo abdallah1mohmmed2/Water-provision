@@ -191,6 +191,53 @@ class StationRepository {
     });
   }
 
+  /// Updates only self-service contact/profile fields for a beneficiary.
+  /// This deliberately bypasses the general accounting-aware editor and rejects
+  /// every financial, operational, and status field.
+  Future<void> updateBeneficiaryPersonalProfile(
+    int id,
+    Map<String, Object?> values,
+  ) async {
+    const allowed = <String>{
+      'name', 'phone', 'address', 'location', 'jerba_number', 'area', 'notes',
+    };
+    final forbidden = values.keys.where((key) => !allowed.contains(key));
+    if (forbidden.isNotEmpty) {
+      throw ArgumentError('لا يمكن تعديل هذه البيانات من بوابة المستفيد');
+    }
+    if (values.isEmpty) return;
+    final name = values['name'];
+    if (name != null && name.toString().trim().isEmpty) {
+      throw ArgumentError('الاسم مطلوب');
+    }
+    final normalized = <String, Object?>{
+      ...values,
+      if (values.containsKey('name')) 'name': values['name']?.toString().trim(),
+      'updated_at': AppClock.now().toIso8601String(),
+    };
+    await db.transaction((tx) async {
+      final rows = await tx.query(
+        'beneficiaries',
+        columns: ['id', 'name', 'phone', 'address', 'location', 'jerba_number', 'area', 'notes'],
+        where: 'id=? AND status=?',
+        whereArgs: [id, 'active'],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('المستفيد غير موجود أو غير نشط');
+      final old = rows.first;
+      await tx.update('beneficiaries', normalized, where: 'id=?', whereArgs: [id]);
+      await db.auditTx(
+        tx,
+        userId: null,
+        operation: 'beneficiary_self_profile_updated',
+        table: 'beneficiaries',
+        recordId: id,
+        oldValues: old,
+        newValues: normalized,
+      );
+    });
+  }
+
   Future<void> deleteBeneficiary(int id, int? userId, String reason) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الحذف المنطقي مطلوب');
     final now = AppClock.now().toIso8601String();
