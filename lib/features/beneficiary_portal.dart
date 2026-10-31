@@ -448,12 +448,6 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         for (final row in _statement.reversed) _movementTile(row),
     ]);
 
-  String _irrigationDate(Object? value) {
-    final parsed = DateTime.tryParse(value?.toString() ?? '');
-    if (parsed == null) return '-';
-    return '${parsed.year}/${parsed.month.toString().padLeft(2, '0')}/${parsed.day.toString().padLeft(2, '0')}';
-  }
-
   String _irrigationTime(Object? value) {
     final parsed = DateTime.tryParse(value?.toString() ?? '');
     if (parsed == null) return '-';
@@ -484,7 +478,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
 
   Widget _irrigationsTab() {
     const headers = [
-      'التاريخ', 'من', 'إلى', 'إجمالي الدقائق', 'المدفوع',
+      'الجهة', 'من', 'إلى', 'إجمالي الدقائق', 'المدفوع',
       'القيمة الإجمالية', 'الغيم', 'حالة الخصم',
     ];
     return ListView(
@@ -522,7 +516,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
                 label: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
               )).toList(),
               rows: _irrigations.map((row) => DataRow(cells: [
-                DataCell(Text(_irrigationDate(row['date']))),
+                DataCell(Text((row['party_name'] ?? row['beneficiary_name'] ?? _beneficiary?['name'] ?? '').toString())),
                 DataCell(Text(_irrigationTime(row['start_datetime']))),
                 DataCell(Text(_irrigationTime(row['end_datetime']))),
                 DataCell(Text('${row['minutes'] ?? 0} د')),
