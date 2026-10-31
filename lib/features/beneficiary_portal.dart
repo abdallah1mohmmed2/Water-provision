@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import '../services/report_service.dart';
@@ -394,8 +395,13 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       if (type == 's') {
         // لا نسمح بطباعة فاتورة إلا بعد التأكد أن السقاية تخص صاحب الجلسة.
         final ownRows = await _repo.irrigations(beneficiaryId: ownerId);
-        final ownRow = ownRows.where((item) =>
-          ((item['id'] as num?)?.toInt() ?? -1) == movementId).firstOrNull;
+        Map<String, Object?>? ownRow;
+        for (final item in ownRows) {
+          if (((item['id'] as num?)?.toInt() ?? -1) == movementId) {
+            ownRow = item;
+            break;
+          }
+        }
         if (ownRow == null) throw StateError('السقاية غير موجودة في حسابك');
         bytes = await report.invoicesPdf(rows: [{
           ...ownRow,
