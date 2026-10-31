@@ -228,8 +228,6 @@ class AppDatabase {
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_accounts_station_name ON general_accounts(station_id,name)');
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_account_transactions_account_date ON general_account_transactions(account_id,date,id)');
     }
-  }
-
     if (oldV < 21) {
       await _createBeneficiaryGeneralAccountsTables(d);
     }
