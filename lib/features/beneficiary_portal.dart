@@ -811,33 +811,140 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
           )),
     ]);
 
-  Widget _profileTab() => ListView(physics: const AlwaysScrollableScrollPhysics(),
-    padding: const EdgeInsets.all(16), children: [
-      _sectionTitle('بيانات حسابي'),
-      Card(child: Column(children: [
-        ListTile(leading: const Icon(Icons.person_outline), title: const Text('الاسم'),
-          subtitle: Text((_beneficiary?['name'] ?? 'غير محدد').toString())),
-        const Divider(height: 1),
-        ListTile(leading: const Icon(Icons.phone_outlined), title: const Text('رقم الهاتف'),
-          subtitle: Text((_beneficiary?['phone'] ?? 'غير مسجل').toString())),
-        const Divider(height: 1),
-        ListTile(leading: const Icon(Icons.location_on_outlined), title: const Text('العنوان'),
-          subtitle: Text((_beneficiary?['address'] ?? 'غير مسجل').toString())),
-        const Divider(height: 1),
-        ListTile(leading: const Icon(Icons.place_outlined), title: const Text('الموقع'),
-          subtitle: Text((_beneficiary?['location'] ?? 'غير محدد').toString())),
-        const Divider(height: 1),
-        ListTile(leading: const Icon(Icons.tag_outlined), title: const Text('رقم الجربة'),
-          subtitle: Text((_beneficiary?['jerba_number'] ?? 'غير مسجل').toString())),
-      ])),
-      const SizedBox(height: 12),
-      OutlinedButton.icon(onPressed: _logout, icon: const Icon(Icons.logout_rounded),
-        label: const Text('تسجيل الخروج')),
-    ]);
+
+  Future<void> _editMyProfile() async {
+    final ownerId = await _requireCurrentBeneficiary();
+    final current = _beneficiary ?? <String, Object?>{};
+    final name = TextEditingController(text: '${current['name'] ?? ''}');
+    final phone = TextEditingController(text: '${current['phone'] ?? ''}');
+    final address = TextEditingController(text: '${current['address'] ?? ''}');
+    final location = TextEditingController(text: '${current['location'] ?? ''}');
+    final jerba = TextEditingController(text: '${current['jerba_number'] ?? ''}');
+    final area = TextEditingController(text: '${current['area'] ?? ''}');
+    final notes = TextEditingController(text: '${current['notes'] ?? ''});
+    final formKey = GlobalKey<FormState>();
+    final values = await showDialog<Map<String, Object?>>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تعديل بياناتي'),
+          content: SizedBox(width: 440, child: SingleChildScrollView(
+            child: Form(key: formKey, child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextFormField(controller: name, decoration: const InputDecoration(labelText: 'الاسم'), validator: (v) => v == null || v.trim().isEmpty ? 'الاسم مطلوب' : null),
+              TextFormField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'رقم الهاتف')),
+              TextFormField(controller: address, decoration: const InputDecoration(labelText: 'العنوان')),
+              TextFormField(controller: location, decoration: const InputDecoration(labelText: 'الموقع')),
+              TextFormField(controller: jerba, decoration: const InputDecoration(labelText: 'رقم الجربة')),
+              TextFormField(controller: area, decoration: const InputDecoration(labelText: 'المنطقة')),
+              TextFormField(controller: notes, minLines: 2, maxLines: 3, decoration: const InputDecoration(labelText: 'ملاحظات')),
+            ])),
+          )),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('إلغاء')),
+            FilledButton(onPressed: () {
+              if (formKey.currentState!.validate()) {
+                Navigator.pop(dialogContext, <String, Object?>{
+                  'name': name.text.trim(),
+                  'phone': phone.text.trim().isEmpty ? null : phone.text.trim(),
+                  'address': address.text.trim().isEmpty ? null : address.text.trim(),
+                  'location': location.text.trim().isEmpty ? null : location.text.trim(),
+                  'jerba_number': jerba.text.trim().isEmpty ? null : jerba.text.trim(),
+                  'area': area.text.trim().isEmpty ? null : area.text.trim(),
+                  'notes': notes.text.trim().isEmpty ? null : notes.text.trim(),
+                });
+              }
+            }, child: const Text('حفظ التعديلات')),
+          ],
+        ),
+      ),
+    );
+    for (final c in [name, phone, address, location, jerba, area, notes]) { c.dispose(); }
+    if (values == null) return;
+    try {
+      await _repo.updateBeneficiary(ownerId, values, null);
+      await _load();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث بياناتك بنجاح')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))));
+    }
+  }
+
+  Future<void> _changeMyPassword() async {
+    final oldPassword = TextEditingController();
+    final newPassword = TextEditingController();
+    final confirm = TextEditingController();
+    bool obscure = true;
+    final result = await showDialog<List<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(builder: (context, refresh) =>
+        Directionality(textDirection: TextDirection.rtl, child: AlertDialog(
+          title: const Text('تغيير كلمة المرور'),
+          content: SizedBox(width: 420, child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: oldPassword, obscureText: obscure, decoration: const InputDecoration(labelText: 'كلمة المرور الحالية')),
+            TextField(controller: newPassword, obscureText: obscure, decoration: const InputDecoration(labelText: 'كلمة المرور الجديدة (10 أحرف على الأقل)')),
+            TextField(controller: confirm, obscureText: obscure, decoration: const InputDecoration(labelText: 'تأكيد كلمة المرور الجديدة')),
+            TextButton.icon(onPressed: () => refresh(() => obscure = !obscure),
+              icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+              label: Text(obscure ? 'إظهار كلمات المرور' : 'إخفاء كلمات المرور')),
+          ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('إلغاء')),
+            FilledButton(onPressed: () {
+              if (newPassword.text.length < 10) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('كلمة المرور يجب ألا تقل عن 10 أحرف')));
+                return;
+              }
+              if (newPassword.text != confirm.text) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تأكيد كلمة المرور غير مطابق')));
+                return;
+              }
+              Navigator.pop(dialogContext, [oldPassword.text, newPassword.text]);
+            }, child: const Text('تغيير كلمة المرور')),
+          ],
+        )),
+      ),
+    );
+    oldPassword.dispose(); newPassword.dispose(); confirm.dispose();
+    if (result == null) return;
+    try {
+      await widget.auth.changeCurrentBeneficiaryPassword(currentPassword: result[0], newPassword: result[1]);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تغيير كلمة المرور بنجاح')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Bad state: ', ''))));
+    }
+  }
+
+  Widget _settingsTab() => ListView(padding: const EdgeInsets.all(16), children: [
+    _sectionTitle('الإعدادات', subtitle: 'إدارة بياناتك وحماية حسابك'),
+    Card(child: Column(children: [
+      ListTile(leading: const Icon(Icons.person_outline), title: const Text('البيانات الشخصية'),
+        subtitle: const Text('تعديل الاسم والهاتف والعنوان والموقع وغيرها'),
+        trailing: const Icon(Icons.chevron_left), onTap: _editMyProfile),
+      const Divider(height: 1),
+      ListTile(leading: const Icon(Icons.lock_outline), title: const Text('تغيير كلمة المرور'),
+        subtitle: const Text('تأكيد كلمة المرور الحالية قبل التغيير'),
+        trailing: const Icon(Icons.chevron_left), onTap: _changeMyPassword),
+      const Divider(height: 1),
+      ListTile(leading: const Icon(Icons.logout_rounded), title: const Text('تسجيل الخروج'),
+        subtitle: const Text('إنهاء جلسة الدخول على هذا الجهاز'),
+        trailing: const Icon(Icons.chevron_left), onTap: _logout),
+    ])),
+    const SizedBox(height: 12),
+    Card(child: Column(children: [
+      const ListTile(leading: Icon(Icons.info_outline), title: Text('حول بوابة المستفيد'),
+        subtitle: Text('بوابة لمتابعة الحساب والسقايات والطلبات')),
+      ListTile(leading: const Icon(Icons.refresh_rounded), title: const Text('تحديث البيانات'),
+        trailing: const Icon(Icons.chevron_left), onTap: _load),
+    ])),
+    const SizedBox(height: 8),
+    const Text('تعديل بياناتك الشخصية لا يغيّر الأرصدة أو السقايات أو الحركات المالية.',
+      style: TextStyle(fontSize: 12)),
+  ]);
 
   @override
   Widget build(BuildContext context) {
-    const titles = ['الرئيسية', 'حسابي', 'الحسابات العامة', 'طلباتي', 'الإشعارات', 'بياناتي', 'تسقياتي'];
+    const titles = ['الرئيسية', 'حسابي', 'الحسابات العامة', 'طلباتي', 'الإشعارات', 'بياناتي', 'تسقياتي', 'الإعدادات'];
     final pages = [
       _homeTab(),
       _accountTab(),
@@ -846,6 +953,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       _notificationsTab(),
       _profileTab(),
       _irrigationsTab(),
+      _settingsTab(),
     ];
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -884,6 +992,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
                 NavigationDestination(icon: Icon(Icons.notifications_outlined), selectedIcon: Icon(Icons.notifications), label: 'الإشعارات'),
                 NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'بياناتي'),
                 NavigationDestination(icon: Icon(Icons.water_drop_outlined), selectedIcon: Icon(Icons.water_drop), label: 'تسقياتي'),
+                NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'الإعدادات'),
               ],
             )
           : null,
