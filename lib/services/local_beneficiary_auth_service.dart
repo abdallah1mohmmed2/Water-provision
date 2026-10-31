@@ -241,10 +241,16 @@ class LocalBeneficiaryAuthService {
          LIMIT 1''',
       args: [normalized, stationId],
     );
-    if (rows.isEmpty ||
-        !verifyPassword('${rows.first['password_phc']}', password)) {
-      return false;
-    }
+    if (rows.isEmpty) return false;
+
+    // Argon2 verification is intentionally performed off the UI isolate.
+    // On low-memory/older Android devices a synchronous verification can
+    // block Flutter's frame rendering and make the app appear frozen.
+    final validPassword = await compute(
+      _verifyBeneficiaryPassword,
+      <String>['${rows.first['password_phc']}', password],
+    );
+    if (!validPassword) return false;
 
     await logout();
     final beneficiaryId = (rows.first['beneficiary_id'] as num).toInt();
@@ -309,3 +315,6 @@ class LocalBeneficiaryAuthService {
 
 String _hashBeneficiaryPassword(String password) =>
     LocalBeneficiaryAuthService.hashPassword(password);
+
+bool _verifyBeneficiaryPassword(List<String> values) =>
+    LocalBeneficiaryAuthService.verifyPassword(values[0], values[1]);
