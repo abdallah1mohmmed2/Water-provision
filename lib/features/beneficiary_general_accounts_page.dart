@@ -86,14 +86,21 @@ class _BeneficiaryGeneralAccountsPageState extends State<BeneficiaryGeneralAccou
           orderBy: 'date DESC, id DESC',
         );
       }
-      if (mounted) setState(() {
-        _beneficiaryId = ownerId;
-        _accounts = accounts;
-        _transactions = transactions;
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _beneficiaryId = ownerId;
+          _accounts = accounts;
+          _transactions = transactions;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = 'تعذر تحميل الحسابات العامة: $e'; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = 'تعذر تحميل الحسابات العامة: $e';
+          _loading = false;
+        });
+      }
     }
   }
 
