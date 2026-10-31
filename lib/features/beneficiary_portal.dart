@@ -366,21 +366,89 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     ),
   );
 
+  Future<void> _exportAccountStatementPdf() async {
+    try {
+      final ownerId = await _requireCurrentBeneficiary();
+      final bytes = await ReportService(_repo).pdf(
+        'beneficiary_detailed',
+        beneficiaryId: ownerId,
+      );
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر إنشاء كشف الحساب: ${error.toString().replaceFirst('Bad state: ', '')}')),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportMovementPdf(Map<String, Object?> row) async {
+    try {
+      final ownerId = await _requireCurrentBeneficiary();
+      final type = '${row['type'] ?? ''}';
+      final movementId = (row['id'] as num?)?.toInt() ?? int.tryParse('${row['id'] ?? ''}') ?? 0;
+      if (movementId <= 0) throw StateError('لا يوجد مستند لهذه الحركة');
+      final report = ReportService(_repo);
+      Uint8List bytes;
+      if (type == 's') {
+        // لا نسمح بطباعة فاتورة إلا بعد التأكد أن السقاية تخص صاحب الجلسة.
+        final ownRows = await _repo.irrigations(beneficiaryId: ownerId);
+        final ownRow = ownRows.where((item) =>
+          ((item['id'] as num?)?.toInt() ?? -1) == movementId).firstOrNull;
+        if (ownRow == null) throw StateError('السقاية غير موجودة في حسابك');
+        bytes = await report.invoicesPdf(rows: [{
+          ...ownRow,
+          'invoice_id': movementId,
+          'party_name': _beneficiary?['name'] ?? ownRow['beneficiary_name'] ?? 'المستفيد',
+        }]);
+      } else if (type == 'p') {
+        // سند القبض يقبل فقط دفعة مرتبطة بمعرّف المستفيد الحالي.
+        final payment = await _repo.db.rawQuery(
+          "SELECT id FROM payments WHERE id=? AND beneficiary_id=? AND status='posted' LIMIT 1",
+          [movementId, ownerId],
+        );
+        if (payment.isEmpty) throw StateError('سند القبض غير موجود في حسابك');
+        bytes = await report.paymentReceiptPdf(movementId);
+      } else {
+        throw StateError('لا يتوفر قالب مستند منفصل لهذا النوع من الحركات');
+      }
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر إصدار المستند: ${error.toString().replaceFirst('Bad state: ', '')}')),
+        );
+      }
+    }
+  }
+
   Widget _movementTile(Map<String, Object?> row) {
     final debit = (row['debit'] as num?)?.round() ?? 0;
     final credit = (row['credit'] as num?)?.round() ?? 0;
     final balance = (row['balance'] as num?)?.round() ?? 0;
     final amount = debit > 0 ? debit : credit;
     final isDebit = debit > 0;
+    final type = '${row['type'] ?? ''}';
+    final hasDocument = type == 's' || type == 'p';
     return Card(child: ListTile(
       leading: CircleAvatar(child: Icon(isDebit ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded)),
       title: Text((row['description'] ?? 'حركة حساب').toString()),
       subtitle: Text(_date(row['date'])),
-      trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-        Text('${isDebit ? '+' : '-'}$amount ريال',
-          style: const TextStyle(fontWeight: FontWeight.w800)),
-        Text(AccountingCalculations.balanceLabel(balance),
-          style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Text('${isDebit ? '+' : '-'}$amount ريال',
+            style: const TextStyle(fontWeight: FontWeight.w800)),
+          Text(AccountingCalculations.balanceLabel(balance),
+            style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        ]),
+        if (hasDocument)
+          IconButton(
+            tooltip: type == 's' ? 'طباعة فاتورة السقاية' : 'طباعة سند القبض',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _exportMovementPdf(row),
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+          ),
       ]),
     ));
   }
@@ -441,7 +509,14 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
   Widget _accountTab() => ListView(physics: const AlwaysScrollableScrollPhysics(),
     padding: const EdgeInsets.all(16), children: [
       _balanceCard(),
-      _sectionTitle('كشف الحساب', subtitle: 'الحركات المالية المسجلة على حسابك'),
+      Row(children: [
+        Expanded(child: _sectionTitle('كشف الحساب', subtitle: 'الحركات المالية المسجلة على حسابك')),
+        IconButton(
+          tooltip: 'تصدير كشف الحساب PDF',
+          onPressed: _statement.isEmpty ? null : _exportAccountStatementPdf,
+          icon: const Icon(Icons.picture_as_pdf_outlined),
+        ),
+      ]),
       if (_statement.isEmpty)
         const Card(child: Padding(padding: EdgeInsets.all(18), child: Text('لا توجد حركات مسجلة.')))
       else
