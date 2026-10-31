@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 21,
+      version: 22,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -44,6 +44,7 @@ class AppDatabase {
     }
     await _createHelpers(d);
     await _createBeneficiaryGeneralAccountsTables(d);
+    await _createBeneficiaryErrorReportsTable(d);
     await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_period_station_range ON period_closures(station_id,period_start,period_end)');
     await _seed(d);
@@ -231,6 +232,21 @@ class AppDatabase {
     if (oldV < 21) {
       await _createBeneficiaryGeneralAccountsTables(d);
     }
+    if (oldV < 22) await _createBeneficiaryErrorReportsTable(d);
+  }
+
+  Future<void> _createBeneficiaryErrorReportsTable(Database d) async {
+    await d.execute('''CREATE TABLE IF NOT EXISTS beneficiary_error_reports (
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id),
+      beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id),
+      movement_type TEXT NOT NULL CHECK(movement_type IN ('irrigation','payment')),
+      movement_id INTEGER NOT NULL, category TEXT NOT NULL, description TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','under_review','accepted','rejected','resolved')),
+      admin_reply TEXT, reviewed_by INTEGER REFERENCES app_users(id),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, replied_at TEXT)''');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_beneficiary_reports_owner ON beneficiary_error_reports(beneficiary_id,created_at DESC)');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_beneficiary_reports_station_status ON beneficiary_error_reports(station_id,status,created_at DESC)');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_beneficiary_reports_movement ON beneficiary_error_reports(beneficiary_id,movement_type,movement_id,status)');
   }
 
   /// حسابات المستفيد الخاصة مستقلة عن حسابات المحطة العامة.
