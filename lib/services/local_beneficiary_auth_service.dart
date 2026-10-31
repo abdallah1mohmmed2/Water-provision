@@ -298,6 +298,46 @@ class LocalBeneficiaryAuthService {
     return (rows.first['beneficiary_id'] as num).toInt();
   }
 
+
+  /// Changes the password for the beneficiary authenticated by the current
+  /// protected session. The current session remains valid.
+  Future<void> changeCurrentBeneficiaryPassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final beneficiaryId = await currentBeneficiaryId();
+    if (beneficiaryId == null) throw StateError('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
+    _validatePassword(newPassword);
+    final rows = await db.query(
+      'SELECT id, password_phc FROM beneficiary_credentials WHERE beneficiary_id=? AND active=1 LIMIT 1',
+      args: [beneficiaryId],
+    );
+    if (rows.isEmpty) throw StateError('حساب الدخول غير نشط');
+    final valid = await compute(
+      _verifyBeneficiaryPassword,
+      <String>['${rows.first['password_phc']}', currentPassword],
+    );
+    if (!valid) throw StateError('كلمة المرور الحالية غير صحيحة');
+    final hash = await compute(_hashBeneficiaryPassword, newPassword);
+    await db.transaction((tx) async {
+      final stillCurrent = await currentBeneficiaryId();
+      if (stillCurrent != beneficiaryId) throw StateError('انتهت جلسة الدخول');
+      await tx.update('beneficiary_credentials', {
+        'password_phc': hash,
+        'updated_at': AppClock.now().toIso8601String(),
+      }, where: 'id=? AND beneficiary_id=? AND active=1',
+        whereArgs: [rows.first['id'], beneficiaryId]);
+      await db.auditTx(
+        tx,
+        userId: null,
+        operation: 'beneficiary_self_password_changed',
+        table: 'beneficiary_credentials',
+        recordId: (rows.first['id'] as num).toInt(),
+        newValues: {'beneficiary_id': beneficiaryId, 'password_changed': true},
+      );
+    });
+  }
+
   Future<void> logout() async {
     final token = await _storage.read();
     if (token != null && token.isNotEmpty) {
