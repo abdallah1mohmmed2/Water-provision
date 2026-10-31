@@ -17,6 +17,7 @@ class _BeneficiaryLoginPageState extends State<BeneficiaryLoginPage> {
   bool _busy = false;
   bool _obscurePassword = true;
   String? _error;
+  String _diagnosticStage = 'تهيئة بوابة المستفيد';
 
   @override
   void dispose() {
@@ -167,6 +168,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     if (!mounted) return;
     setState(() { _loading = true; _error = null; });
     try {
+      _diagnosticStage = 'المرحلة 1: قراءة جلسة المستفيد';
       final id = await widget.auth.currentBeneficiaryId();
       if (id == null) {
         if (mounted) {
@@ -177,12 +179,16 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         }
         return;
       }
-      final values = await Future.wait<dynamic>([
-        _repo.beneficiaryDetails(id),
-        _repo.beneficiaryStatement(id),
-        _repo.beneficiaryBookings(id),
-        _repo.notifications(beneficiaryId: id),
-      ]);
+      _diagnosticStage = 'المرحلة 2: تحميل بيانات المستفيد';
+      final details = await _repo.beneficiaryDetails(id);
+      _diagnosticStage = 'المرحلة 3: تحميل كشف الحساب';
+      final statement = await _repo.beneficiaryStatement(id);
+      _diagnosticStage = 'المرحلة 4: تحميل طلبات الحجز';
+      final bookings = await _repo.beneficiaryBookings(id);
+      _diagnosticStage = 'المرحلة 5: تحميل الإشعارات';
+      final notifications = await _repo.notifications(beneficiaryId: id);
+      _diagnosticStage = 'المرحلة 6: تجهيز واجهة المستفيد';
+      final values = <dynamic>[details, statement, bookings, notifications];
       if (!mounted) return;
       setState(() {
         _beneficiaryId = id;
@@ -192,8 +198,13 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
         _notifications = (values[3] as List).cast<Map<String, Object?>>();
         _loading = false;
       });
-    } catch (_) {
-      if (mounted) setState(() { _loading = false; _error = 'تعذر تحميل بيانات الحساب. حاول تحديث الصفحة.'; });
+    } catch (error, stackTrace) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'تعذر تحميل بوابة المستفيد.\\n$_diagnosticStage\\n$error\\n\\n$stackTrace';
+        });
+      }
     }
   }
 
