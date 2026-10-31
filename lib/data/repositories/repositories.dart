@@ -3519,5 +3519,58 @@ class StationRepository {
     return [...rows, overall];
   }
 
+
+  // بلاغات المستفيدين مستقلة عن الحركات والقيود المحاسبية.
+  Future<int> createBeneficiaryErrorReport({
+    required int beneficiaryId, required String movementType,
+    required int movementId, required String category, required String description,
+  }) async {
+    if (!['irrigation', 'payment'].contains(movementType)) throw StateError('نوع الحركة غير صالح');
+    final owner = await db.rawQuery("SELECT station_id FROM beneficiaries WHERE id=? AND status='active' LIMIT 1", [beneficiaryId]);
+    if (owner.isEmpty) throw StateError('حساب المستفيد غير متاح');
+    final stationId = (owner.first['station_id'] as num).toInt();
+    final movement = movementType == 'irrigation'
+      ? await db.rawQuery("SELECT id FROM irrigations WHERE id=? AND beneficiary_id=? AND station_id=? AND status!='cancelled' LIMIT 1", [movementId, beneficiaryId, stationId])
+      : await db.rawQuery("SELECT id FROM payments WHERE id=? AND beneficiary_id=? AND status='posted' LIMIT 1", [movementId, beneficiaryId]);
+    if (movement.isEmpty) throw StateError('الحركة غير موجودة في حسابك');
+    final duplicate = await db.rawQuery("SELECT id FROM beneficiary_error_reports WHERE beneficiary_id=? AND movement_type=? AND movement_id=? AND status IN ('new','under_review') LIMIT 1", [beneficiaryId, movementType, movementId]);
+    if (duplicate.isNotEmpty) throw StateError('لديك بلاغ مفتوح بالفعل لهذه الحركة');
+    final now = AppClock.now().toIso8601String();
+    return db.insert('beneficiary_error_reports', {
+      'station_id': stationId, 'beneficiary_id': beneficiaryId,
+      'movement_type': movementType, 'movement_id': movementId,
+      'category': category.trim(), 'description': description.trim(),
+      'status': 'new', 'created_at': now, 'updated_at': now,
+    });
+  }
+
+  Future<List<Map<String, Object?>>> beneficiaryErrorReports(int beneficiaryId) =>
+      db.query('beneficiary_error_reports', where: 'beneficiary_id=?',
+        whereArgs: [beneficiaryId], orderBy: 'created_at DESC,id DESC');
+
+  Future<List<Map<String, Object?>>> stationBeneficiaryErrorReports() async {
+    final stationId = await accounting.currentStationId();
+    return db.rawQuery("""SELECT r.*,b.name beneficiary_name,
+      CASE WHEN r.movement_type='irrigation' THEN 'سقاية' ELSE 'سند قبض' END movement_label
+      FROM beneficiary_error_reports r JOIN beneficiaries b ON b.id=r.beneficiary_id
+      WHERE r.station_id=? ORDER BY CASE r.status WHEN 'new' THEN 0 WHEN 'under_review' THEN 1 ELSE 2 END,r.created_at DESC,r.id DESC""", [stationId]);
+  }
+
+  Future<void> updateBeneficiaryErrorReport({
+    required int reportId, required int userId, required String status, required String reply,
+  }) async {
+    const allowed = ['new','under_review','accepted','rejected','resolved'];
+    if (!allowed.contains(status)) throw StateError('حالة البلاغ غير صالحة');
+    final stationId = await accounting.currentStationId();
+    final found = await db.rawQuery('SELECT id FROM beneficiary_error_reports WHERE id=? AND station_id=?', [reportId, stationId]);
+    if (found.isEmpty) throw StateError('البلاغ غير موجود في هذه المحطة');
+    final now = AppClock.now().toIso8601String();
+    await db.update('beneficiary_error_reports', {
+      'status': status, 'admin_reply': reply.trim().isEmpty ? null : reply.trim(),
+      'reviewed_by': userId, 'updated_at': now,
+      'replied_at': reply.trim().isEmpty ? null : now,
+    }, where: 'id=? AND station_id=?', whereArgs: [reportId, stationId]);
+  }
+
   Future<String> _balanceSql() => Future.value(BalanceSql.beneficiary('b'));
 }
