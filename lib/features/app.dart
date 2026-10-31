@@ -7286,9 +7286,9 @@ class _QueueState extends State<QueueBookingPage> {
     final queue = mode == 'booking'
         ? <Map<String, Object?>>[]
         : await widget.r.queue();
-    final bookings = mode == 'booking'
-        ? await widget.r.bookings(status)
-        : <Map<String, Object?>>[];
+    // طلبات المستفيدين مستقلة عن نمط الدور؛ يجب أن تبقى مرئية
+    // للإدارة حتى عندما تكون المحطة على وضع الدور الدائري.
+    final bookings = await widget.r.bookings(status);
     if (mounted) {
       setState(() {
         queueType = mode;
@@ -7687,6 +7687,85 @@ class _QueueState extends State<QueueBookingPage> {
               ],
             ),
             const SizedBox(height: 14),
+          ],
+          if (!isBookingMode) ...[
+            SectionCard(
+              title: 'طلبات المستفيدين',
+              icon: Icons.event_note_rounded,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 7,
+                    children: [
+                      _statusChip('كل الطلبات', null),
+                      _statusChip('جديد', 'new'),
+                      _statusChip('قيد المراجعة', 'under_review'),
+                      _statusChip('محدد الموعد', 'scheduled'),
+                      _statusChip('مكتمل', 'completed'),
+                      _statusChip('ملغى', 'cancelled'),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  if (b.isEmpty)
+                    const EmptyView('لا توجد طلبات حجز من المستفيدين')
+                  else
+                    for (final booking in b)
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.event_available_rounded),
+                          title: Text('${booking['beneficiary_name'] ?? 'مستفيد'}'),
+                          subtitle: Text(
+                            '${statusName(booking['status'])} • ${booking['created_at']}'
+                            ' • ${booking['scheduled_start'] ?? 'الموعد غير محدد'}'
+                            '\n${booking['notes'] ?? ''}',
+                          ),
+                          isThreeLine: true,
+                          trailing: Wrap(
+                            spacing: 0,
+                            children: [
+                              IconButton(
+                                tooltip: 'التفاصيل',
+                                onPressed: () => Navigator.push(
+                                  c,
+                                  MaterialPageRoute(
+                                    builder: (_) => RecordDetailsPage(
+                                      widget.r,
+                                      kind: 'booking',
+                                      id: booking['id'] as int,
+                                      title: 'تفاصيل طلب الحجز',
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.info_outline_rounded),
+                              ),
+                              if (!const {'completed', 'cancelled'}
+                                  .contains('${booking['status']}')) ...[
+                                IconButton(
+                                  tooltip: 'مراجعة وتحديد الموعد',
+                                  onPressed: () => review(booking),
+                                  icon: const Icon(Icons.edit_calendar_rounded),
+                                ),
+                                IconButton(
+                                  tooltip: 'تعديل الملاحظات',
+                                  onPressed: () => editBookingNotes(booking),
+                                  icon: const Icon(Icons.edit_note_rounded),
+                                ),
+                                IconButton(
+                                  tooltip: 'إلغاء الحجز',
+                                  onPressed: () => cancelBooking(booking),
+                                  icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
           ],
           SectionCard(
             title: isBookingMode ? 'الدور الحالي' : 'ترتيب الدور الحالي',
