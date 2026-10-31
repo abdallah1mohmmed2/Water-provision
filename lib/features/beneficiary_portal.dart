@@ -158,7 +158,14 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     return '$day/$month/${parsed.year} • $hour:$minute';
   }
 
-  int get _balance => (_beneficiary?['balance'] as num?)?.round() ?? 0;
+  int get _balance {
+    // beneficiaryDetails returns the accounting balance summary map:
+    // {balance, due, credit}; the numeric value is nested under "balance".
+    final summary = _beneficiary?['balance'];
+    final value = summary is Map ? summary['balance'] : summary;
+    if (value is num) return value.round();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
   int get _irrigationCount => _statement.where((row) => row['type'] == 's').length;
   int get _totalMinutes => _statement.fold<int>(0,
     (sum, row) => sum + (row['type'] == 's' ? ((row['minutes'] as num?)?.round() ?? 0) : 0));
