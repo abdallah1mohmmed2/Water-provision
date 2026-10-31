@@ -649,8 +649,6 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     final current = _bookingQueue[ownIndex];
     final ahead = ownIndex;
     final behind = _bookingQueue.length - ownIndex - 1;
-    final previous = ownIndex > 0 ? _bookingQueue[ownIndex - 1] : null;
-    final next = ownIndex + 1 < _bookingQueue.length ? _bookingQueue[ownIndex + 1] : null;
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Padding(
@@ -673,72 +671,88 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
             style: const TextStyle(fontWeight: FontWeight.w700)),
           if (current['scheduled_start'] != null)
             Text('موعدك المحدد: ${_date(current['scheduled_start'])}'),
-          if (previous != null)
-            ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.person_outline),
-              title: Text('قبلك مباشرة: ${previous['beneficiary_name'] ?? 'مستفيد'}'),
-              subtitle: Text('حالة الحجز: ${_bookingStatus(previous['status'])}'),
-            )
-          else
-            const ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.flag_outlined),
-              title: Text('أنت أول حجز في القائمة'),
-            ),
-          if (next != null)
-            ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.person_pin_circle_outlined),
-              title: Text('بعدك مباشرة: ${next['beneficiary_name'] ?? 'مستفيد'}'),
-              subtitle: Text('حالة الحجز: ${_bookingStatus(next['status'])}'),
-            )
-          else
-            const ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.emoji_events_outlined),
-              title: Text('لا يوجد حجز خلفك حاليًا'),
-            ),
+
         ]),
       ),
     );
   }
 
-  Widget _allBookedBeneficiaries() => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(14),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Text('المستفيدون الذين حجزوا',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-        const SizedBox(height: 8),
-        if (_bookingQueue.isEmpty)
-          const Text('لا توجد حجوزات نشطة.')
-        else
-          for (var i = 0; i < _bookingQueue.length; i++)
-            ListTile(
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(child: Text('${i + 1}')),
-              title: Text(
-                (i == _bookingQueue.indexWhere((item) =>
-                  (item['beneficiary_id'] as num?)?.toInt() == _beneficiaryId))
-                  ? '${_bookingQueue[i]['beneficiary_name'] ?? 'أنت'} (أنت)'
-                  : '${_bookingQueue[i]['beneficiary_name'] ?? 'مستفيد'}',
-                style: const TextStyle(fontWeight: FontWeight.w600),
+  Widget _allBookedBeneficiaries() {
+    final ownIndex = _bookingQueue.indexWhere(
+      (item) => (item['beneficiary_id'] as num?)?.toInt() == _beneficiaryId,
+    );
+
+    Widget personTile(int index) {
+      final item = _bookingQueue[index];
+      return ListTile(
+        dense: true,
+        contentPadding: const EdgeInsetsDirectional.only(start: 8),
+        leading: CircleAvatar(child: Text('${index + 1}')),
+        title: Text(item['beneficiary_name']?.toString() ?? 'مستفيد',
+          style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(
+          '${_bookingStatus(item['status'])}'
+          ' • ${item['scheduled_start'] == null ? 'بانتظار تحديد الموعد' : _date(item['scheduled_start'])}',
+        ),
+        trailing: Text('#${index + 1}'),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Text('ترتيب جميع المستفيدين حول موقعك',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          if (_bookingQueue.isEmpty)
+            const Text('لا توجد حجوزات نشطة.')
+          else if (ownIndex < 0) ...[
+            const Text('قائمة الحجوزات النشطة في المحطة:'),
+            for (var i = 0; i < _bookingQueue.length; i++) personTile(i),
+          ] else ...[
+            Row(children: [
+              const Icon(Icons.people_alt_outlined),
+              const SizedBox(width: 6),
+              Text('جميع المستفيدين قبلك ($ownIndex)',
+                style: const TextStyle(fontWeight: FontWeight.w800)),
+            ]),
+            if (ownIndex == 0)
+              const Padding(padding: EdgeInsets.all(10),
+                child: Text('لا يوجد مستفيد قبلك؛ أنت في بداية الترتيب.'))
+            else
+              for (var i = 0; i < ownIndex; i++) personTile(i),
+            const Divider(height: 20),
+            Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(12),
               ),
-              subtitle: Text(
-                '${_bookingStatus(_bookingQueue[i]['status'])}'
-                ' • ${_bookingQueue[i]['scheduled_start'] == null ? 'بانتظار تحديد الموعد' : _date(_bookingQueue[i]['scheduled_start'])}',
+              child: ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.person_pin_circle)),
+                title: Text('${_bookingQueue[ownIndex]['beneficiary_name'] ?? 'أنت'} (أنت)',
+                  style: const TextStyle(fontWeight: FontWeight.w900)),
+                subtitle: Text('موقعك رقم ${ownIndex + 1} من ${_bookingQueue.length}'),
+                trailing: const Icon(Icons.my_location),
               ),
-              trailing: Text('#${i + 1}'),
             ),
-      ]),
-    ),
-  );
+            const Divider(height: 20),
+            Row(children: [
+              const Icon(Icons.groups_outlined),
+              const SizedBox(width: 6),
+              Text('جميع المستفيدين بعدك (${_bookingQueue.length - ownIndex - 1})',
+                style: const TextStyle(fontWeight: FontWeight.w800)),
+            ]),
+            if (ownIndex == _bookingQueue.length - 1)
+              const Padding(padding: EdgeInsets.all(10),
+                child: Text('لا يوجد مستفيد بعدك؛ أنت في نهاية الترتيب.'))
+            else
+              for (var i = ownIndex + 1; i < _bookingQueue.length; i++) personTile(i),
+          ],
+        ]),
+      ),
+    );
+  }
 
   Widget _bookingsTab() => ListView(physics: const AlwaysScrollableScrollPhysics(),
     padding: const EdgeInsets.all(16), children: [
