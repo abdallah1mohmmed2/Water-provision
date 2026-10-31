@@ -1097,7 +1097,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
   @override
   Widget build(BuildContext context) {
     const titles = ['الرئيسية', 'حسابي', 'الحسابات العامة', 'طلباتي', 'الإشعارات', 'بياناتي', 'تسقياتي', 'الإعدادات'];
-    final pages = [
+    final List<Widget> pages = <Widget>[
       _homeTab(),
       _accountTab(),
       BeneficiaryGeneralAccountsPage(_repo, auth: widget.auth),
