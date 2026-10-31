@@ -729,9 +729,11 @@ class ReportService {
       rightHeader2: 'نظام ساقية لإدارة محطة ضخ مياه الري',
       rightHeader3: settings['station_name'] ?? 'محطة ساقية',
       date: dateFormat.format(now),
-      refNumber: 'INV-${DateFormat('yyyyMMdd-HHmmss').format(now)}',
-      attachments: 'عدد الفواتير: ${data.length}',
-      reportTitle: 'تقرير الفواتير',
+      refNumber: data.length == 1
+          ? 'INV-${data.first['invoice_id'] ?? data.first['irrigation_id'] ?? data.first['id'] ?? DateFormat('yyyyMMdd-HHmmss').format(now)}'
+          : 'INV-${DateFormat('yyyyMMdd-HHmmss').format(now)}',
+      attachments: data.length == 1 ? 'فاتورة سقاية منفردة' : 'عدد الفواتير: ${data.length}',
+      reportTitle: data.length == 1 ? 'فاتورة سقاية' : 'تقرير الفواتير',
       summaryBoxes: [
         StatBoxData(
           number: '1',
@@ -811,7 +813,9 @@ class ReportService {
         'المتبقي: ${money(remaining)}',
       ],
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
-      fileName: 'تقرير-الفواتير.pdf',
+      fileName: data.length == 1
+          ? 'فاتورة-سقاية-${data.first['invoice_id'] ?? data.first['irrigation_id'] ?? data.first['id'] ?? 'مستفيد'}.pdf'
+          : 'تقرير-الفواتير.pdf',
       minTableRows: 7,
       pageFormat: PdfPageFormat.a4.landscape,
       preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
