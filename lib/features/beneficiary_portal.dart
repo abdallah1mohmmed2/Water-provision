@@ -17,7 +17,6 @@ class _BeneficiaryLoginPageState extends State<BeneficiaryLoginPage> {
   bool _busy = false;
   bool _obscurePassword = true;
   String? _error;
-  String _diagnosticStage = 'تهيئة بوابة المستفيد';
 
   @override
   void dispose() {
@@ -139,6 +138,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
   bool _loading = true;
   bool _savingBooking = false;
   String? _error;
+  String _diagnosticStage = 'تهيئة بوابة المستفيد';
 
   @override
   void initState() {
