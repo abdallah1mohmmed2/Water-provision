@@ -3743,6 +3743,72 @@ class AccountingService {
     );
   }
 
+  /// يضيف مديونية سابقة غير مسجلة على المستفيد دون حركة نقدية أو إيراد.
+  /// تُرحّل إلى ذمم المستفيدين مقابل الأرصدة المرحلة (3100)، وتدخل في الرصيد الموحد
+  /// عبر carried_balance. كل إضافة لها قيد أستاذ وسجل تدقيق مستقل.
+  Future<int> addBeneficiaryDebt({
+    required int beneficiaryId,
+    required int amount,
+    required DateTime date,
+    required String notes,
+    int? userId,
+  }) async {
+    if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
+    if (notes.trim().isEmpty) throw ArgumentError('بيان المديونية مطلوب');
+    return database.transaction((tx) async {
+      await _assertPeriodOpen(tx, date);
+      final rows = await tx.query(
+        'beneficiaries',
+        columns: ['id', 'name', 'carried_balance', 'status'],
+        where: 'id=?',
+        whereArgs: [beneficiaryId],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('المستفيد غير موجود');
+      final beneficiary = rows.first;
+      final oldCarried = (beneficiary['carried_balance'] as num?)?.round() ?? 0;
+      final newCarried = oldCarried + amount;
+      await tx.update(
+        'beneficiaries',
+        {'carried_balance': newCarried, 'updated_at': AppClock.now().toIso8601String()},
+        where: 'id=?',
+        whereArgs: [beneficiaryId],
+      );
+      final receivable = await _accountIdTx(tx, '1200');
+      final carried = await _accountIdTx(tx, '3100');
+      final entryId = await _entry(
+        tx,
+        description: 'إضافة مديونية سابقة للمستفيد: ${beneficiary['name']}',
+        referenceType: 'beneficiary_manual_debt',
+        referenceId: beneficiaryId,
+        date: date,
+        userId: userId,
+        lines: [
+          {'account_id': receivable, 'beneficiary_id': beneficiaryId, 'debit': amount, 'credit': 0, 'memo': notes.trim()},
+          {'account_id': carried, 'debit': 0, 'credit': amount, 'memo': 'مديونية سابقة غير مسجلة بالتطبيق'},
+        ],
+      );
+      await database.auditTx(
+        tx,
+        userId: userId,
+        operation: 'create',
+        table: 'beneficiary_manual_debt',
+        recordId: entryId,
+        newValues: {
+          'beneficiary_id': beneficiaryId,
+          'amount': amount,
+          'date': date.toIso8601String(),
+          'notes': notes.trim(),
+          'journal_entry_id': entryId,
+          'carried_balance_before': oldCarried,
+          'carried_balance_after': newCarried,
+        },
+        reason: 'إضافة مديونية سابقة مستحقة للمحطة، دون قبض نقدي أو إثبات إيراد جديد',
+      );
+      return entryId;
+    });
+  }
+
   /// يقيّد الفرق بين الأرصدة الافتتاحية/المرحَّلة القديمة والجديدة للمستفيد في الأستاذ:
   /// موجب (عليه) = مدين ذمم المستفيدين / دائن 3000 (أو 3100 للمرحَّل)، والسالب بالعكس.
   /// يُستدعى عند الإنشاء (القديم = 0) وعند التعديل، فلا يتغير رصيد المستفيد دون قيد.
