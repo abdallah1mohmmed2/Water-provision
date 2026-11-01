@@ -3743,9 +3743,9 @@ class AccountingService {
     );
   }
 
-  /// يضيف مديونية سابقة غير مسجلة على المستفيد دون حركة نقدية أو إيراد.
-  /// تُرحّل إلى ذمم المستفيدين مقابل الأرصدة المرحلة (3100)، وتدخل في الرصيد الموحد
-  /// عبر carried_balance. كل إضافة لها قيد أستاذ وسجل تدقيق مستقل.
+  /// يضيف مديونية سابقة غير مسجلة للمستفيد كسند مستقل.
+  /// القيد: مدين ذمم المستفيدين 1200 / دائن الأرصدة المرحلة 3100.
+  /// لا ينشئ حركة صندوق أو إيراداً، ويظهر ضمن الرصيد الموحد وكشف الحساب.
   Future<int> addBeneficiaryDebt({
     required int beneficiaryId,
     required int amount,
@@ -3759,28 +3759,29 @@ class AccountingService {
       await _assertPeriodOpen(tx, date);
       final rows = await tx.query(
         'beneficiaries',
-        columns: ['id', 'name', 'carried_balance', 'status'],
-        where: 'id=?',
+        columns: ['id', 'name', 'status'],
+        where: "id=? AND status='active'",
         whereArgs: [beneficiaryId],
         limit: 1,
       );
-      if (rows.isEmpty) throw StateError('المستفيد غير موجود');
-      final beneficiary = rows.first;
-      final oldCarried = (beneficiary['carried_balance'] as num?)?.round() ?? 0;
-      final newCarried = oldCarried + amount;
-      await tx.update(
-        'beneficiaries',
-        {'carried_balance': newCarried, 'updated_at': AppClock.now().toIso8601String()},
-        where: 'id=?',
-        whereArgs: [beneficiaryId],
-      );
+      if (rows.isEmpty) throw StateError('المستفيد غير موجود أو غير نشط');
+      final now = AppClock.now().toIso8601String();
+      final debtId = await tx.insert('beneficiary_manual_debts', {
+        'beneficiary_id': beneficiaryId,
+        'date': date.toIso8601String(),
+        'amount': amount,
+        'notes': notes.trim(),
+        'status': 'posted',
+        'created_by': userId,
+        'created_at': now,
+      });
       final receivable = await _accountIdTx(tx, '1200');
       final carried = await _accountIdTx(tx, '3100');
       final entryId = await _entry(
         tx,
-        description: 'إضافة مديونية سابقة للمستفيد: ${beneficiary['name']}',
+        description: 'إضافة مديونية سابقة للمستفيد: ${rows.first['name']}',
         referenceType: 'beneficiary_manual_debt',
-        referenceId: beneficiaryId,
+        referenceId: debtId,
         date: date,
         userId: userId,
         lines: [
@@ -3788,24 +3789,72 @@ class AccountingService {
           {'account_id': carried, 'debit': 0, 'credit': amount, 'memo': 'مديونية سابقة غير مسجلة بالتطبيق'},
         ],
       );
+      await tx.update(
+        'beneficiary_manual_debts',
+        {'journal_entry_id': entryId},
+        where: 'id=?',
+        whereArgs: [debtId],
+      );
       await database.auditTx(
         tx,
         userId: userId,
         operation: 'create',
-        table: 'beneficiary_manual_debt',
-        recordId: entryId,
+        table: 'beneficiary_manual_debts',
+        recordId: debtId,
         newValues: {
           'beneficiary_id': beneficiaryId,
           'amount': amount,
           'date': date.toIso8601String(),
           'notes': notes.trim(),
           'journal_entry_id': entryId,
-          'carried_balance_before': oldCarried,
-          'carried_balance_after': newCarried,
         },
-        reason: 'إضافة مديونية سابقة مستحقة للمحطة، دون قبض نقدي أو إثبات إيراد جديد',
+        reason: 'مديونية سابقة مستحقة للمحطة، دون قبض نقدي أو إثبات إيراد جديد',
       );
-      return entryId;
+      return debtId;
+    });
+  }
+
+  /// يلغي سند مديونية سابقاً بعكس قيده مع إبقاء السند الأصلي للتدقيق.
+  Future<void> cancelBeneficiaryDebt(
+    int debtId,
+    int? userId,
+    String reason,
+  ) async {
+    if (reason.trim().isEmpty) throw ArgumentError('سبب الإلغاء مطلوب');
+    await database.transaction((tx) async {
+      final rows = await tx.query(
+        'beneficiary_manual_debts',
+        where: "id=? AND status='posted'",
+        whereArgs: [debtId],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('سند المديونية غير موجود أو ملغى مسبقاً');
+      final debt = rows.first;
+      await _assertPeriodOpen(tx, AppClock.now());
+      final reversed = await _reverseEntriesTx(
+        tx,
+        referenceType: 'beneficiary_manual_debt',
+        referenceId: debtId,
+        reason: reason.trim(),
+        userId: userId,
+      );
+      if (reversed == 0) throw StateError('لم يُعثر على قيد أصلي قابل للعكس');
+      await tx.update(
+        'beneficiary_manual_debts',
+        {'status': 'cancelled'},
+        where: 'id=? AND status=?',
+        whereArgs: [debtId, 'posted'],
+      );
+      await database.auditTx(
+        tx,
+        userId: userId,
+        operation: 'cancel',
+        table: 'beneficiary_manual_debts',
+        recordId: debtId,
+        oldValues: debt,
+        newValues: {'status': 'cancelled'},
+        reason: reason.trim(),
+      );
     });
   }
 
