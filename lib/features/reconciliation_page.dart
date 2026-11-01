@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:pdf/pdf.dart';
+import 'package:pdf/pdf.dart' as pdf;
 import '../core/app_clock.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/reconciliation_service.dart';
@@ -80,9 +80,11 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
         userId: widget.userId,
       );
       await _load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ تسوية الشهر في دفتر التسويات المستقل.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حفظ تسوية الشهر في دفتر التسويات المستقل.')),
+        );
+      }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
@@ -121,7 +123,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
       columns: const [],
       rows: const [],
       cardsOnly: true,
-      pageFormat: PdfPageFormat.a4,
+      pageFormat: pdf.PdfPageFormat.a4,
       fileName: 'reconciliation_${d['month_key']}.pdf',
       printAfterGenerate: true,
     );
