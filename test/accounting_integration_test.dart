@@ -2855,6 +2855,10 @@ void main() {
     );
     final june = await reconciliation.loadMonth(DateTime(2098, 6, 1));
     expect(june['opening_balance'], -300 + 500);
+    final history = (june['history'] as List).cast<Map<String, Object?>>();
+    final april = history.singleWhere((row) => row['month_key'] == '2098-04');
+    expect(april['partner_profit'], 500);
+    expect(april['closing_balance'], 200);
   });
 
 }
