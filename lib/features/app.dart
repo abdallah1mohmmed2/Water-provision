@@ -7747,26 +7747,13 @@ class _QueueState extends State<QueueBookingPage> {
             ),
             const SizedBox(height: 14),
           ],
-          if (pendingBookings.isNotEmpty) ...[
+          if (!isBookingMode || pendingBookings.isNotEmpty) ...[
             SectionCard(
               title: 'طلبات الحجز بانتظار القبول',
               icon: Icons.event_note_rounded,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 7,
-                    children: [
-                      _statusChip('كل الطلبات', null),
-                      _statusChip('جديد', 'new'),
-                      _statusChip('قيد المراجعة', 'under_review'),
-                      _statusChip('محدد الموعد', 'scheduled'),
-                      _statusChip('مكتمل', 'completed'),
-                      _statusChip('ملغى', 'cancelled'),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
                   if (!isBookingMode) ...[
                     Wrap(
                       spacing: 7,
@@ -7783,8 +7770,11 @@ class _QueueState extends State<QueueBookingPage> {
                     ),
                     const SizedBox(height: 10),
                   ],
-                  for (final booking in pendingBookings)
-                    Card(
+                  if (pendingBookings.isEmpty)
+                    const EmptyView('لا توجد طلبات بانتظار القبول')
+                  else
+                    for (final booking in pendingBookings)
+                      Card(
                         child: ListTile(
                           leading: const Icon(Icons.event_available_rounded),
                           title: Text('${booking['beneficiary_name'] ?? 'مستفيد'}'),
