@@ -1385,6 +1385,7 @@ class _ShellState extends State<AdminShell> {
     Icons.backup_rounded,
     Icons.speed_rounded,
     Icons.account_balance_wallet_rounded,
+    Icons.assessment_rounded,
   ][i];
   Widget _page(int i, {Key? key}) {
     final w = switch (i) {
