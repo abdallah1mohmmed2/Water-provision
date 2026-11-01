@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 19,
+      version: 20,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -424,6 +424,12 @@ class AppDatabase {
     );
     await d.execute(
       'CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL, period_end_exclusive TEXT, closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, opening_transfer INTEGER NOT NULL DEFAULT 0, close_journal_entry_id INTEGER, net_profit INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT \'locked\', reconciliation_json TEXT, reopened_at TEXT, reopened_by INTEGER, reopen_reason TEXT, reopen_journal_entry_id INTEGER, notes TEXT)',
+    );
+    await d.execute(
+      "CREATE TABLE IF NOT EXISTS beneficiary_manual_debts (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), date TEXT NOT NULL, amount INTEGER NOT NULL CHECK(amount>0), notes TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'posted' CHECK(status IN ('posted','cancelled')), journal_entry_id INTEGER REFERENCES journal_entries(id), created_by INTEGER REFERENCES app_users(id), created_at TEXT NOT NULL)",
+    );
+    await d.execute(
+      'CREATE INDEX IF NOT EXISTS idx_beneficiary_manual_debts_party_date ON beneficiary_manual_debts(beneficiary_id,date,id)',
     );
     await d.execute(
       'CREATE TABLE IF NOT EXISTS beneficiary_sessions (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), token_hash TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT)',
