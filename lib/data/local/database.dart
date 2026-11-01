@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 21,
+      version: 22,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -430,6 +430,13 @@ class AppDatabase {
     );
     await d.execute(
       'CREATE INDEX IF NOT EXISTS idx_beneficiary_manual_debts_party_date ON beneficiary_manual_debts(beneficiary_id,date,id)',
+    );
+    // دفتر تسويات مستقل عن دفتر الأستاذ والصناديق وسجلات الأطراف الأصلية.
+    await d.execute(
+      "CREATE TABLE IF NOT EXISTS accountant_reconciliation_months (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id), month_key TEXT NOT NULL, opening_balance INTEGER NOT NULL DEFAULT 0, manual_paid INTEGER NOT NULL DEFAULT 0 CHECK(manual_paid>=0), closing_balance INTEGER NOT NULL DEFAULT 0, created_by INTEGER REFERENCES app_users(id), updated_by INTEGER REFERENCES app_users(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(station_id,month_key))",
+    );
+    await d.execute(
+      'CREATE INDEX IF NOT EXISTS idx_accountant_reconciliation_month ON accountant_reconciliation_months(station_id,month_key)',
     );
     final manualDebtCols = await d.rawQuery('PRAGMA table_info(beneficiary_manual_debts)');
     if (!manualDebtCols.any((x) => x['name'] == 'cancelled_at')) {
