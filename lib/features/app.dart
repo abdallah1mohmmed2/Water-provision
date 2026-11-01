@@ -15798,7 +15798,7 @@ class _BeneficiaryErrorReportsPageState extends State<BeneficiaryErrorReportsPag
       title: Text('بلاغ ${row['movement_label']} • ${row['beneficiary_name']}'),
       content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min,crossAxisAlignment: CrossAxisAlignment.start,children: [
         Text('رقم الحركة: ${row['movement_id']}'), Text('التصنيف: ${row['category']}'), const SizedBox(height: 8), Text('${row['description']}'), const SizedBox(height: 16),
-        DropdownButtonFormField<String>(value: status, isExpanded: true, items: const [
+        DropdownButtonFormField<String>(initialValue: status, isExpanded: true, items: const [
           DropdownMenuItem(value:'new',child:Text('جديد')), DropdownMenuItem(value:'under_review',child:Text('قيد المراجعة')),
           DropdownMenuItem(value:'accepted',child:Text('مقبول')), DropdownMenuItem(value:'rejected',child:Text('مرفوض')), DropdownMenuItem(value:'resolved',child:Text('تم الحل')),
         ], onChanged:(v){if(v!=null)setDialogState(()=>status=v);}, decoration: const InputDecoration(labelText:'حالة البلاغ')),
@@ -15815,7 +15815,7 @@ class _BeneficiaryErrorReportsPageState extends State<BeneficiaryErrorReportsPag
     return Directionality(textDirection:TextDirection.rtl,child:Scaffold(
       appBar:AppBar(title:const Text('بلاغات المستفيدين'),actions:[IconButton(onPressed:loading?null:load,icon:const Icon(Icons.refresh))]),
       body:loading?const Center(child:CircularProgressIndicator()):Column(children:[
-        Padding(padding:const EdgeInsets.all(12),child:DropdownButtonFormField<String>(value:filter,decoration:const InputDecoration(labelText:'تصفية الحالة'),
+        Padding(padding:const EdgeInsets.all(12),child:DropdownButtonFormField<String>(initialValue:filter,decoration:const InputDecoration(labelText:'تصفية الحالة'),
           items:const [DropdownMenuItem(value:'all',child:Text('كل البلاغات')),DropdownMenuItem(value:'new',child:Text('جديد')),DropdownMenuItem(value:'under_review',child:Text('قيد المراجعة')),DropdownMenuItem(value:'accepted',child:Text('مقبول')),DropdownMenuItem(value:'rejected',child:Text('مرفوض')),DropdownMenuItem(value:'resolved',child:Text('تم الحل'))],
           onChanged:(v)=>setState(()=>filter=v??'all'))),
         Expanded(child:shown.isEmpty?const Center(child:Text('لا توجد بلاغات في هذه الحالة')):ListView.builder(itemCount:shown.length,itemBuilder:(ctx,i){final r=shown[i];return Card(margin:const EdgeInsets.symmetric(horizontal:12,vertical:5),child:ListTile(
