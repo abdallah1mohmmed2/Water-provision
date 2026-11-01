@@ -12,6 +12,7 @@ import 'package:saqia_station/data/local/database.dart';
 import 'package:saqia_station/data/repositories/repositories.dart';
 import 'package:saqia_station/domain/accounting/accounting_service.dart';
 import 'package:saqia_station/domain/accounting/calculations.dart';
+import 'package:saqia_station/domain/accounting/reconciliation_service.dart';
 import 'package:saqia_station/services/admin_service.dart';
 import 'package:saqia_station/services/backup_service.dart';
 import 'package:saqia_station/services/report_service.dart';
@@ -2815,6 +2816,30 @@ void main() {
     final after = await repo.partyFinancialSummary('worker', worker);
     expect(after['earnings'], 0);
     expect(after['balance'], 0);
+  });
+
+  test('دفتر التسوية مستقل ولا يغيّر الأستاذ أو الصندوق', () async {
+    final reconciliation = ReconciliationService(db);
+    final month = DateTime(2098, 3, 1);
+    final cashBefore = await cashboxBalance(1);
+    final journalBefore = (await db.query('SELECT COUNT(*) n FROM journal_entries')).single['n'];
+    await reconciliation.saveMonth(
+      month: month,
+      openingBalance: 1000,
+      manualPaid: 1300,
+      openingDetails: 'يناير 2098: 400 ريال\\nفبراير 2098: 600 ريال',
+      userId: 1,
+    );
+    final result = await reconciliation.loadMonth(month);
+    expect(result['opening_balance'], 1000);
+    expect(result['manual_paid'], 1300);
+    expect(result['closing_balance'], -300);
+    expect(result['opening_details'], contains('يناير 2098'));
+    expect(await cashboxBalance(1), cashBefore);
+    expect(
+      (await db.query('SELECT COUNT(*) n FROM journal_entries')).single['n'],
+      journalBefore,
+    );
   });
 
 }
