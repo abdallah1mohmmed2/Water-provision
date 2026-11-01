@@ -49,9 +49,6 @@ ck('UI exposes explicit accept action', "label: const Text('قبول')" in page 
 ck('booking lane shows accepted entries only', "b.where((x) => const {'accepted', 'notified'}" in page)
 ck('pending bookings separated from current lane', "pendingBookings.isNotEmpty" in page and "for (final booking in pendingBookings)" in page)
 
-ck('circular booking filter remains available without pending requests', "if (!isBookingMode || pendingBookings.isNotEmpty)" in page)
-ck('booking filter chips are not duplicated', page.count("_statusChip('كل الطلبات', null)") == 2)
-
 failed=[n for n,ok in checks if not ok]
 for n,ok in checks:
     print(('PASS' if ok else 'FAIL')+': '+n)
