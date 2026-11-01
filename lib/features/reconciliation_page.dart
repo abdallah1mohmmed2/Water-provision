@@ -96,7 +96,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
     final closing = _n(d['closing_balance']);
     final boxes = <StatBoxData>[
       StatBoxData(number: '1', title: 'إجمالي أرباح الشركاء لهذا الشهر', value: '${_money(d['partner_profit'])} ريال', isBlueTint: true, isLarge: true),
-      StatBoxData(number: '2', title: 'المتبقي للشركاء من الأشهر السابقة', value: '${_money(_n(d['opening_balance']).abs())} ريال'),
+      StatBoxData(number: '2', title: _n(d['opening_balance']) >= 0 ? 'المتبقي للشركاء من الأشهر السابقة' : 'المتبقي للمحاسب عند الشركاء من الأشهر السابقة', value: '${_money(_n(d['opening_balance']).abs())} ريال'),
       StatBoxData(number: '3', title: 'المسلّم للشركاء عبر سجلات التطبيق', value: '${_money(d['partner_app_paid'])} ريال', isBlueTint: true),
       StatBoxData(number: '4', title: 'المسلّم يدوياً من المحاسب هذا الشهر', value: '${_money(d['manual_paid'])} ريال'),
       StatBoxData(number: '5', title: closing > 0 ? 'المتبقي للشركاء عند المحاسب' : closing < 0 ? 'المتبقي للمحاسب عند الشركاء' : 'حساب الشركاء متوازن', value: '${_money(closing.abs())} ريال', isBlueTint: true, isLarge: true),
@@ -258,7 +258,10 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                             title: Text('${row['month_key']}'),
                             subtitle: Text('المسلّم يدوياً: ${_money(row['manual_paid'])} ريال'),
-                            trailing: Text('${_money((row['closing_balance'] as num?)?.abs())} ريال', style: const TextStyle(fontWeight: FontWeight.w800)),
+                            trailing: Text(
+                              '${_n(row['closing_balance']) > 0 ? 'للشركاء: ' : _n(row['closing_balance']) < 0 ? 'للمحاسب: ' : ''}${_money(_n(row['closing_balance']).abs())} ريال',
+                              style: const TextStyle(fontWeight: FontWeight.w800),
+                            ),
                           ),
                       ],
                       const SizedBox(height: 10),
