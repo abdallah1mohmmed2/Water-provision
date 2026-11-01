@@ -1594,9 +1594,9 @@ class _NeonBottomBar extends StatelessWidget {
       (-1, 'المزيد', Icons.menu_rounded),
     ];
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: Colors.white,
-        border: const Border(top: BorderSide(color: Color(0x142D625A))),
+        border: Border(top: BorderSide(color: Color(0x142D625A))),
         boxShadow: const [BoxShadow(color: Color(0x10233F3B), blurRadius: 18, offset: Offset(0, -4))],
       ),
       child: SafeArea(
