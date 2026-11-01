@@ -106,7 +106,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
       StatBoxData(number: '9', title: 'المتبقي للعمال حتى نهاية الشهر', value: '${_money(d['worker_due'])} ريال', isBlueTint: true),
       StatBoxData(number: '10', title: 'المسلّم للعمال هذا الشهر', value: '${_money(d['worker_paid'])} ريال'),
       StatBoxData(number: '11', title: 'المتبقي للمحطة عند العمال', value: '${_money(d['worker_credit'])} ريال', isBlueTint: true),
-      StatBoxData(number: '11', title: 'إجمالي المصروفات المسجلة', value: '${_money(d['expenses'])} ريال', isBlueTint: true),
+      StatBoxData(number: '12', title: 'إجمالي المصروفات المسجلة', value: '${_money(d['expenses'])} ريال', isBlueTint: true),
     ];
     final settings = await widget.repo.settings();
     await OfficialReportTemplate.preview(
