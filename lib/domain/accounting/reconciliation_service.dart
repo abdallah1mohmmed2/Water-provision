@@ -43,14 +43,24 @@ class ReconciliationService {
       "SELECT COALESCE(SUM(amount),0) value FROM payments WHERE status='posted' AND partner_id IN (SELECT id FROM partners WHERE station_id=?) AND date>=? AND date<?",
       [stationId, startText, endText],
     );
+    final legacyPartnerPaid = await scalar(
+      "SELECT COALESCE(SUM(pt.amount),0) value FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id LEFT JOIN payments pay ON pay.id=pt.reference_id WHERE p.station_id=? AND pt.type='payment' AND pt.date>=? AND pt.date<? AND pay.id IS NULL",
+      [stationId, startText, endText],
+    );
+    final partnerPaidTotal = partnerPaid + legacyPartnerPaid;
     final beneficiaryPaid = await scalar(
       "SELECT COALESCE(SUM(amount),0) value FROM payments WHERE status='posted' AND beneficiary_id IN (SELECT id FROM beneficiaries WHERE station_id=?) AND date>=? AND date<?",
       [stationId, startText, endText],
     );
-    final workerPaid = await scalar(
+    final workerPaidFromPayments = await scalar(
       "SELECT COALESCE(SUM(amount),0) value FROM payments WHERE status='posted' AND worker_id IN (SELECT id FROM workers WHERE station_id=?) AND date>=? AND date<?",
       [stationId, startText, endText],
     );
+    final legacyWorkerPaid = await scalar(
+      "SELECT COALESCE(SUM(wt.amount),0) value FROM worker_transactions wt JOIN workers w ON w.id=wt.worker_id LEFT JOIN payments pay ON pay.id=wt.reference_id WHERE w.station_id=? AND wt.type='payment' AND wt.date>=? AND wt.date<? AND pay.id IS NULL",
+      [stationId, startText, endText],
+    );
+    final workerPaid = workerPaidFromPayments + legacyWorkerPaid;
     final recordedExpenses = await scalar(
       "SELECT COALESCE(SUM(amount),0) value FROM expenses WHERE status='posted' AND category!='workers' AND date>=? AND date<? AND (worker_id IN (SELECT id FROM workers WHERE station_id=?) OR partner_id IN (SELECT id FROM partners WHERE station_id=?) OR (worker_id IS NULL AND partner_id IS NULL))",
       [startText, endText, stationId, stationId],
@@ -103,7 +113,7 @@ class ReconciliationService {
       'station_id': stationId,
       'month_key': key,
       'partner_profit': profit,
-      'partner_app_paid': partnerPaid,
+      'partner_app_paid': partnerPaidTotal,
       'opening_balance': opening,
       'manual_paid': manualPaid,
       'opening_details': saved['opening_details'] ?? '',
