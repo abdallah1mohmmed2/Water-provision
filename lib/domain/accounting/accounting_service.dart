@@ -3942,6 +3942,7 @@ class AccountingService {
     'period_closures',
     'beneficiary_auth_codes',
     'beneficiary_sessions',
+    'beneficiary_manual_debts',
     'notification_templates',
   ];
 
@@ -3952,6 +3953,7 @@ class AccountingService {
     'period_closures',
     'beneficiary_auth_codes',
     'beneficiary_sessions',
+    'beneficiary_manual_debts',
     'notification_templates',
     'general_accounts',
     'general_account_transactions',
