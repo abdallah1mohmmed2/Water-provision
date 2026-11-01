@@ -2827,7 +2827,7 @@ void main() {
       month: month,
       openingBalance: 1000,
       manualPaid: 1300,
-      openingDetails: 'يناير 2098: 400 ريال\\nفبراير 2098: 600 ريال',
+      openingDetails: 'يناير 2098: 400 ريال\nفبراير 2098: 600 ريال',
       userId: 1,
     );
     final result = await reconciliation.loadMonth(month);
