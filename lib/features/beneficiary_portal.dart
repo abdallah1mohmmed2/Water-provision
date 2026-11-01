@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import '../services/report_service.dart';
 import '../data/repositories/repositories.dart';
+import '../domain/accounting/calculations.dart';
 import '../services/local_beneficiary_auth_service.dart';
 import 'beneficiary_general_accounts_page.dart';
 

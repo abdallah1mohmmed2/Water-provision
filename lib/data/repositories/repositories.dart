@@ -835,7 +835,7 @@ class StationRepository {
                 br.scheduled_start,b.name beneficiary_name
          FROM booking_requests br
          JOIN beneficiaries b ON b.id=br.beneficiary_id
-         WHERE br.status NOT IN ('completed','cancelled')
+         WHERE br.status IN ('accepted','notified')
          ORDER BY COALESCE(br.scheduled_start,br.created_at),br.created_at,br.id""",
     );
   }
@@ -1051,7 +1051,6 @@ class StationRepository {
       );
       if (booking.isEmpty ||
           ![
-            'scheduled',
             'accepted',
             'notified',
           ].contains('${booking.first['status']}')) {

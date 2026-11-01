@@ -4795,7 +4795,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
 
   // ---- الدور/الحجز/الجلسة: تخص المستفيد المختار فقط ----
   bool get canLink => partyType == 'beneficiary' && bid != null;
-  static const _openBookingStatuses = ['scheduled', 'accepted', 'notified'];
+  static const _openBookingStatuses = ['accepted', 'notified'];
   List<Map<String, Object?>> get linkQueue => !canLink
       ? const []
       : queue.where((x) => x['beneficiary_id'] == bid).toList();
@@ -6974,7 +6974,9 @@ class _SessionsState extends State<SessionsPage> {
     int? p = ps.isEmpty ? null : ps.first['id'] as int;
     int? queueId;
     int? bookId;
-    final bookings = await widget.r.bookings('scheduled');
+    final bookings = (await widget.r.bookings())
+        .where((x) => const {'accepted', 'notified'}.contains('${x['status']}'))
+        .toList();
     if (!mounted) return;
 
     final ok = await showDialog<bool>(
