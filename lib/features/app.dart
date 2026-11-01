@@ -3124,6 +3124,27 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     ),
   );
 
+  Future<void> cancelManualDebt(Map<String, Object?> row) async {
+    final reason = await askReason(
+      context,
+      'إلغاء المديونية السابقة',
+      message: 'سيُعكس القيد المحاسبي ويُزال أثر المديونية من رصيد المستفيد. ${money(row['debit'])}',
+    );
+    if (reason == null || !mounted) return;
+    final id = (row['id'] as num?)?.toInt();
+    if (id == null) return;
+    if (!await runGuarded(
+      context,
+      () => widget.r.accounting.cancelBeneficiaryDebt(id, null, reason),
+    )) return;
+    await load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم إلغاء المديونية وعكس قيدها')),
+      );
+    }
+  }
+
   Widget historyView(BuildContext c) {
     if (history.isEmpty) {
       return Container(
@@ -3146,12 +3167,25 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     return Column(
       children: [
         for (int i = 0; i < shown; i++)
-          _TimelineItem(
-            first: i == 0,
-            last: i == shown - 1,
-            title: _historyTitle(history[i]),
-            subtitle: _historySub(history[i]),
-            amount: _historyAmount(history[i]),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: _TimelineItem(
+                  first: i == 0,
+                  last: i == shown - 1,
+                  title: _historyTitle(history[i]),
+                  subtitle: _historySub(history[i]),
+                  amount: _historyAmount(history[i]),
+                ),
+              ),
+              if (widget.kind == 'beneficiary' && history[i]['type'] == 'manual_debt')
+                IconButton(
+                  tooltip: 'إلغاء المديونية بعكس القيد',
+                  onPressed: () => cancelManualDebt(history[i]),
+                  icon: const Icon(Icons.undo_rounded, color: Colors.red),
+                ),
+            ],
           ),
         if (history.length > maxItems)
           Padding(
@@ -10855,6 +10889,7 @@ String _refLabel(Object? type, Object? id) {
     'partner' => 'حصة شريك',
     'beneficiary_opening' => 'رصيد افتتاحي لمستفيد',
     'beneficiary_carried' => 'رصيد مرحّل لمستفيد',
+    'beneficiary_manual_debt' => 'إضافة مديونية سابقة لمستفيد',
     'worker_opening' => 'رصيد افتتاحي لعامل',
     'partner_opening' => 'رصيد افتتاحي لشريك',
     'reversal' => 'قيد عكسي',
