@@ -201,6 +201,9 @@ class ReconciliationService {
       final firstMonth = DateTime(int.parse(firstParts[0]), int.parse(firstParts[1]), 1);
       final monthlyTotals = await _partnerMonthlyTotals(stationId, firstMonth, start);
       var carry = (savedRows.first['opening_balance'] as num?)?.round() ?? 0;
+      // عند اختيار نفس أول شهر محفوظ، يكون افتتاحه اليدوي هو افتتاح الشهر الحالي.
+      // لا توجد أشهر سابقة لإعادة المرور عليها في هذه الحالة.
+      opening = carry;
       var cursor = firstMonth;
       while (cursor.isBefore(start)) {
         final cursorKey = monthKey(cursor);
