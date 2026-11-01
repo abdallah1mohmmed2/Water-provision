@@ -8320,6 +8320,73 @@ class _PaymentsState extends State<PaymentsPage> {
     }
   }
 
+  Future<void> addBeneficiaryDebt() async {
+    if (bs.isEmpty) {
+      msg('لا يوجد مستفيدون متاحون');
+      return;
+    }
+    int? beneficiaryId = bs.first['id'] as int;
+    final amount = TextEditingController();
+    final notes = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (d, setDialogState) => FormDialog(
+          title: 'إضافة مديونية سابقة',
+          children: [
+            DropdownButtonFormField<int>(
+              initialValue: beneficiaryId,
+              items: [
+                for (final b in bs)
+                  DropdownMenuItem(value: b['id'] as int, child: Text('${b['name']}')),
+              ],
+              onChanged: (v) => setDialogState(() => beneficiaryId = v),
+              decoration: const InputDecoration(labelText: 'المستفيد'),
+            ),
+            TextField(
+              controller: amount,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'مبلغ المديونية *'),
+            ),
+            TextField(
+              controller: notes,
+              minLines: 2,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'البيان / سبب المديونية *',
+                hintText: 'مثال: رصيد مستحق للمحطة من فترة سابقة',
+              ),
+            ),
+            const Text(
+              'تُضاف إلى رصيد المستفيد الموحد، ولا تزيد الصندوق أو الإيرادات.',
+            ),
+          ],
+          onSave: () => Navigator.pop(
+            d,
+            beneficiaryId != null &&
+                (int.tryParse(amount.text) ?? 0) > 0 &&
+                notes.text.trim().isNotEmpty,
+          ),
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (!await runGuarded(
+      context,
+      () => widget.r.accounting.addBeneficiaryDebt(
+        beneficiaryId: beneficiaryId!,
+        amount: int.parse(amount.text),
+        date: AppClock.now(),
+        notes: notes.text.trim(),
+        userId: widget.userId,
+      ),
+    )) {
+      return;
+    }
+    msg('تمت إضافة المديونية إلى حساب المستفيد دون حركة نقدية');
+    await load();
+  }
+
   Future<void> cancelPay(Map<String, Object?> x) async {
     final reason = await askReason(
       context,
@@ -8352,6 +8419,12 @@ class _PaymentsState extends State<PaymentsPage> {
     title: 'المدفوعات',
     subtitle: 'قبض المستفيدين ودفع مستحقات العمال والشركاء',
     actions: [
+      if (target == 'beneficiary')
+        OutlinedButton.icon(
+          onPressed: addBeneficiaryDebt,
+          icon: const Icon(Icons.note_add_outlined),
+          label: const Text('إضافة مديونية'),
+        ),
       FilledButton.icon(
         onPressed: add,
         icon: const Icon(Icons.add_card),
