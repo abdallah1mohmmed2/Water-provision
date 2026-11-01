@@ -29,11 +29,10 @@ class ReconciliationService {
 
     final profit = await scalar('''
       SELECT COALESCE(SUM(CASE
-        WHEN pt.type IN ('share_accrual','contribution') THEN pt.amount
-        WHEN pt.type IN ('share_adjustment','irrigation') THEN -pt.amount
+        WHEN pt.type='share_accrual' THEN pt.amount
+        WHEN pt.type='share_adjustment' THEN -pt.amount
         WHEN pt.type='share_adjustment_reversal' THEN pt.amount
         WHEN pt.type='irrigation_reversal' AND COALESCE(pt.notes,'') LIKE 'عكس نصيب الشريك%' THEN -pt.amount
-        WHEN pt.type='irrigation_reversal' AND COALESCE(pt.notes,'') LIKE 'عكس سقاية الشريك%' THEN pt.amount
         ELSE 0 END),0) value
       FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id
       WHERE p.station_id=? AND pt.date>=? AND pt.date<?
