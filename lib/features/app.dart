@@ -3140,7 +3140,9 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     if (!await runGuarded(
       context,
       () => widget.r.accounting.cancelBeneficiaryDebt(id, null, reason),
-    )) return;
+    )) {
+      return;
+    }
     await load();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
