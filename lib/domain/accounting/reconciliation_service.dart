@@ -52,7 +52,7 @@ class ReconciliationService {
       [stationId, startText, endText],
     );
     final recordedExpenses = await scalar(
-      "SELECT COALESCE(SUM(amount),0) value FROM expenses WHERE status='posted' AND date>=? AND date<? AND (worker_id IN (SELECT id FROM workers WHERE station_id=?) OR partner_id IN (SELECT id FROM partners WHERE station_id=?) OR (worker_id IS NULL AND partner_id IS NULL))",
+      "SELECT COALESCE(SUM(amount),0) value FROM expenses WHERE status='posted' AND category!='workers' AND date>=? AND date<? AND (worker_id IN (SELECT id FROM workers WHERE station_id=?) OR partner_id IN (SELECT id FROM partners WHERE station_id=?) OR (worker_id IS NULL AND partner_id IS NULL))",
       [startText, endText, stationId, stationId],
     );
     // أجور العمال تُرحّل في الأستاذ على 5000 ولا تُسجّل في جدول expenses
