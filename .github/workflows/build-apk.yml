@@ -28,6 +28,12 @@ jobs:
       - name: جلب الحزم والمكتبات
         run: flutter pub get
 
+      - name: تحليل Flutter
+        run: flutter analyze
+
+      - name: اختبارات Flutter
+        run: flutter test
+
       - name: بناء تطبيق الأندرويد (النسخة النهائية)
         run: flutter build apk --release
 
