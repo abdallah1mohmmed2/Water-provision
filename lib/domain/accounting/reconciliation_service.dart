@@ -161,7 +161,9 @@ class ReconciliationService {
       )
     ''', [endText, stationId]);
     final workerRows = await database.rawQuery('''
-      SELECT COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END),0) due
+      SELECT
+        COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END),0) due,
+        COALESCE(SUM(CASE WHEN balance<0 THEN -balance ELSE 0 END),0) credit
       FROM (
         SELECT w.id,
           COALESCE((
@@ -249,6 +251,7 @@ class ReconciliationService {
       'beneficiary_credit': (beneficiaryRows.first['credit'] as num?)?.round() ?? 0,
       'beneficiary_paid': beneficiaryPaid,
       'worker_due': (workerRows.first['due'] as num?)?.round() ?? 0,
+      'worker_credit': (workerRows.first['credit'] as num?)?.round() ?? 0,
       'worker_paid': workerPaid,
       'expenses': expenses,
       'has_previous': hasPrevious,
