@@ -2840,6 +2840,21 @@ void main() {
       (await db.query('SELECT COUNT(*) n FROM journal_entries')).single['n'],
       journalBefore,
     );
+
+    // أرباح شهر غير محفوظ بين تسويتين يجب أن تدخل في الرصيد المرحّل للشهر التالي.
+    final repo = StationRepository(db);
+    final partner = await repo.createPartner(
+      name: 'شريك اختبار ترحيل الأشهر المتجاوزة',
+      mode: 'shares',
+      shares: 1,
+    );
+    await svc.createPartnerShare(
+      partnerId: partner,
+      amount: 500,
+      date: DateTime(2098, 4, 10),
+    );
+    final june = await reconciliation.loadMonth(DateTime(2098, 6, 1));
+    expect(june['opening_balance'], -300 + 500);
   });
 
 }
