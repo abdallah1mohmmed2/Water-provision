@@ -96,7 +96,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
     final closing = _n(d['closing_balance']);
     final boxes = <StatBoxData>[
       StatBoxData(number: '1', title: 'إجمالي أرباح الشركاء لهذا الشهر', value: '${_money(d['partner_profit'])} ريال', isBlueTint: true, isLarge: true),
-      StatBoxData(number: '2', title: 'المتبقي للشركاء من الأشهر السابقة', value: '${_money(d['opening_balance'])} ريال'),
+      StatBoxData(number: '2', title: 'المتبقي للشركاء من الأشهر السابقة', value: '${_money(_n(d['opening_balance']).abs())} ريال'),
       StatBoxData(number: '3', title: 'المسلّم للشركاء عبر سجلات التطبيق', value: '${_money(d['partner_app_paid'])} ريال', isBlueTint: true),
       StatBoxData(number: '4', title: 'المسلّم يدوياً من المحاسب هذا الشهر', value: '${_money(d['manual_paid'])} ريال'),
       StatBoxData(number: '5', title: closing > 0 ? 'المتبقي للشركاء عند المحاسب' : closing < 0 ? 'المتبقي للمحاسب عند الشركاء' : 'حساب الشركاء متوازن', value: '${_money(closing.abs())} ريال', isBlueTint: true, isLarge: true),
@@ -197,6 +197,8 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                             const Text('تسليمات المحاسب اليدوية للشركاء', style: TextStyle(fontWeight: FontWeight.w900)),
                             const SizedBox(height: 8),
                             TextField(controller: manualPaid, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المسلّم خلال هذا الشهر', suffixText: 'ريال', border: OutlineInputBorder())),
+                            const SizedBox(height: 5),
+                            const Text('أدخل هنا ما سلّمه المحاسب خارج سجلات المدفوعات؛ المبالغ المسجلة في التطبيق محسوبة تلقائياً أعلاه.', style: TextStyle(fontSize: 11, color: Colors.black54)),
                             if (!hasPrevious) ...[
                               const SizedBox(height: 14),
                               const Text('الرصيد الافتتاحي عند أول استخدام', style: TextStyle(fontWeight: FontWeight.w800)),
