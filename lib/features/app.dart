@@ -7462,7 +7462,6 @@ class _QueueState extends State<QueueBookingPage> {
                     value: 'scheduled',
                     child: Text('محدد الموعد'),
                   ),
-                  DropdownMenuItem(value: 'accepted', child: Text('مقبول')),
                   DropdownMenuItem(value: 'cancelled', child: Text('ملغى')),
                 ],
                 onChanged: (v) => s(() => st = v!),
@@ -7534,6 +7533,25 @@ class _QueueState extends State<QueueBookingPage> {
       return;
     }
     await load();
+  }
+
+  Future<void> acceptBooking(Map<String, Object?> x) async {
+    if (!mounted) return;
+    if (!await runGuarded(
+      context,
+      () => widget.r.acceptBookingToQueue(
+        x['id'] as int,
+        reviewer: widget.userId,
+      ),
+    )) {
+      return;
+    }
+    await load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم قبول الحجز ونقل المستفيد إلى الدور')),
+      );
+    }
   }
 
   Future<void> cancelBooking(Map<String, Object?> x) async {
@@ -7683,7 +7701,12 @@ class _QueueState extends State<QueueBookingPage> {
       );
     }
     final modeTitle = isBookingMode ? 'حجز' : 'دور دائري';
-    final entries = isBookingMode ? b : q;
+    final entries = isBookingMode
+        ? b.where((x) => const {'accepted', 'notified'}
+            .contains('${x['status']}')).toList()
+        : q;
+    final pendingBookings = b.where((x) =>
+        const {'new', 'under_review', 'scheduled'}.contains('${x['status']}'));
     return PageFrame(
       title: 'إدارة الدور',
       subtitle: 'مسار واحد للدور، يتغير أسلوبه حسب إعداد المحطة: $modeTitle',
@@ -7717,15 +7740,16 @@ class _QueueState extends State<QueueBookingPage> {
                 _statusChip('جديد', 'new'),
                 _statusChip('قيد المراجعة', 'under_review'),
                 _statusChip('محدد الموعد', 'scheduled'),
+                _statusChip('مقبول', 'accepted'),
                 _statusChip('مكتمل', 'completed'),
                 _statusChip('ملغى', 'cancelled'),
               ],
             ),
             const SizedBox(height: 14),
           ],
-          if (!isBookingMode) ...[
+          if (pendingBookings.isNotEmpty) ...[
             SectionCard(
-              title: 'طلبات المستفيدين',
+              title: 'طلبات الحجز بانتظار القبول',
               icon: Icons.event_note_rounded,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -7743,11 +7767,24 @@ class _QueueState extends State<QueueBookingPage> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  if (b.isEmpty)
-                    const EmptyView('لا توجد طلبات حجز من المستفيدين')
-                  else
-                    for (final booking in b)
-                      Card(
+                  if (!isBookingMode) ...[
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children: [
+                        _statusChip('كل الطلبات', null),
+                        _statusChip('جديد', 'new'),
+                        _statusChip('قيد المراجعة', 'under_review'),
+                        _statusChip('محدد الموعد', 'scheduled'),
+                        _statusChip('مقبول', 'accepted'),
+                        _statusChip('مكتمل', 'completed'),
+                        _statusChip('ملغى', 'cancelled'),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  for (final booking in pendingBookings)
+                    Card(
                         child: ListTile(
                           leading: const Icon(Icons.event_available_rounded),
                           title: Text('${booking['beneficiary_name'] ?? 'مستفيد'}'),
@@ -7774,6 +7811,11 @@ class _QueueState extends State<QueueBookingPage> {
                                   ),
                                 ),
                                 icon: const Icon(Icons.info_outline_rounded),
+                              ),
+                              FilledButton.tonalIcon(
+                                onPressed: () => acceptBooking(booking),
+                                icon: const Icon(Icons.check_circle_outline_rounded),
+                                label: const Text('قبول'),
                               ),
                               if (!const {'completed', 'cancelled'}
                                   .contains('${booking['status']}')) ...[
@@ -7992,7 +8034,7 @@ class _QueueState extends State<QueueBookingPage> {
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: Text(
-                'طلبات الحجز هنا هي مرحلة طلب الدور نفسها، وعند قبولها/تحديد موعدها تبقى في نفس المسار دون إنشاء قائمة طابور ثانية للمستخدم.',
+                'تظهر هنا الحجوزات المقبولة فقط ضمن ترتيب الدور. الطلبات الجديدة تبقى في قائمة انتظار القبول حتى يعتمدها المسؤول.',
                 style: Theme.of(c).textTheme.bodySmall,
               ),
             ),

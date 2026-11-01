@@ -38,6 +38,17 @@ ck('sessions derive pump from selected setting', "selected_pump_id" in ss)
 ck('accounting persists booking linkage', "'booking_id': bookingId," in r or "booking_id" in s)
 ck('accounting persists queue linkage', "'queue_entry_id': queueId," in r or "queue_entry_id" in s)
 
+
+# Booking acceptance transition checks.
+accept = r[r.index('Future<void> acceptBookingToQueue'):r.index('Future<void> updateBookingNotes')]
+ck('booking acceptance is transactional', 'db.transaction((tx) async' in accept)
+ck('circular acceptance inserts queue entry', "tx.insert('queue_entries'" in accept and "mode != 'booking'" in accept)
+ck('acceptance marks booking accepted', "'status': 'accepted'" in accept)
+ck('acceptance prevents duplicate active queue entries', "existing.isEmpty" in accept and "status IN ('waiting','postponed')" in accept)
+ck('UI exposes explicit accept action', "label: const Text('قبول')" in page and "acceptBooking(booking)" in page)
+ck('booking lane shows accepted entries only', "b.where((x) => const {'accepted', 'notified'}" in page)
+ck('pending bookings separated from current lane', "pendingBookings.isNotEmpty" in page and "for (final booking in pendingBookings)" in page)
+
 failed=[n for n,ok in checks if not ok]
 for n,ok in checks:
     print(('PASS' if ok else 'FAIL')+': '+n)

@@ -733,6 +733,89 @@ class StationRepository {
     "SELECT br.*,b.name beneficiary_name,b.phone FROM booking_requests br JOIN beneficiaries b ON b.id=br.beneficiary_id ${status == null ? '' : 'WHERE br.status=?'} ORDER BY br.created_at",
     status == null ? [] : [status],
   );
+  /// قبول طلب الحجز ونقله إلى مسار الدور الحالي دون إنشاء دور مكرر.
+  Future<void> acceptBookingToQueue(int id, {int? reviewer}) =>
+      db.transaction((tx) async {
+        final rows = await tx.query(
+          'booking_requests',
+          where: 'id=?',
+          whereArgs: [id],
+          limit: 1,
+        );
+        if (rows.isEmpty) throw StateError('طلب الحجز غير موجود');
+        final booking = rows.first;
+        final oldStatus = '${booking['status']}';
+        if (!const {'new', 'under_review', 'scheduled'}.contains(oldStatus)) {
+          if (const {'accepted', 'notified'}.contains(oldStatus)) {
+            throw StateError('تم قبول هذا الحجز مسبقًا');
+          }
+          throw StateError('لا يمكن قبول حجز مكتمل أو ملغى');
+        }
+        final beneficiaryId = (booking['beneficiary_id'] as num).toInt();
+        final modeRows = await tx.query(
+          'settings',
+          columns: ['value'],
+          where: 'key=?',
+          whereArgs: ['queue_type'],
+          limit: 1,
+        );
+        final mode = modeRows.isEmpty ? 'circular' : '${modeRows.first['value']}';
+        final now = AppClock.now().toIso8601String();
+        int? queueId;
+        if (mode != 'booking') {
+          final existing = await tx.query(
+            'queue_entries',
+            columns: ['id'],
+            where: "beneficiary_id=? AND status IN ('waiting','postponed')",
+            whereArgs: [beneficiaryId],
+            limit: 1,
+          );
+          if (existing.isEmpty) {
+            final maxRows = await tx.rawQuery(
+              "SELECT COALESCE(MAX(position),0)+1 position FROM queue_entries WHERE status IN ('waiting','postponed')",
+            );
+            final position = (maxRows.first['position'] as num).toInt();
+            queueId = await tx.insert('queue_entries', {
+              'beneficiary_id': beneficiaryId,
+              'position': position,
+              'cycle_number': 1,
+              'status': 'waiting',
+              'created_at': now,
+              'updated_at': now,
+            });
+            await db.auditTx(
+              tx,
+              userId: reviewer,
+              operation: 'booking_accept_enqueue',
+              table: 'queue_entries',
+              recordId: queueId,
+              newValues: {'beneficiary_id': beneficiaryId, 'position': position, 'booking_id': id},
+              reason: 'إضافة المستفيد إلى الدور بعد قبول الحجز',
+            );
+          }
+        }
+        await tx.update(
+          'booking_requests',
+          {'status': 'accepted', 'reviewed_by': reviewer, 'reviewed_at': now},
+          where: 'id=?',
+          whereArgs: [id],
+        );
+        await db.auditTx(
+          tx,
+          userId: reviewer,
+          operation: 'booking_accept',
+          table: 'booking_requests',
+          recordId: id,
+          oldValues: {'status': oldStatus},
+          newValues: {
+            'status': 'accepted',
+            'beneficiary_id': beneficiaryId,
+            if (queueId != null) 'queue_entry_id': queueId,
+          },
+          reason: 'قبول طلب الحجز ونقل المستفيد إلى الدور',
+        );
+      });
+
 
   /// بيانات الحجوزات للمستفيد الحالي فقط؛ لا تُرجع حجوزات بقية المستفيدين.
   Future<List<Map<String, Object?>>> beneficiaryBookings(int beneficiaryId) =>
