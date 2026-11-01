@@ -433,11 +433,15 @@ class AppDatabase {
     );
     // دفتر تسويات مستقل عن دفتر الأستاذ والصناديق وسجلات الأطراف الأصلية.
     await d.execute(
-      "CREATE TABLE IF NOT EXISTS accountant_reconciliation_months (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id), month_key TEXT NOT NULL, opening_balance INTEGER NOT NULL DEFAULT 0, manual_paid INTEGER NOT NULL DEFAULT 0 CHECK(manual_paid>=0), closing_balance INTEGER NOT NULL DEFAULT 0, created_by INTEGER REFERENCES app_users(id), updated_by INTEGER REFERENCES app_users(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(station_id,month_key))",
+      "CREATE TABLE IF NOT EXISTS accountant_reconciliation_months (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id), month_key TEXT NOT NULL, opening_balance INTEGER NOT NULL DEFAULT 0, opening_details TEXT, manual_paid INTEGER NOT NULL DEFAULT 0 CHECK(manual_paid>=0), closing_balance INTEGER NOT NULL DEFAULT 0, created_by INTEGER REFERENCES app_users(id), updated_by INTEGER REFERENCES app_users(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(station_id,month_key))",
     );
     await d.execute(
       'CREATE INDEX IF NOT EXISTS idx_accountant_reconciliation_month ON accountant_reconciliation_months(station_id,month_key)',
     );
+    final reconciliationCols = await d.rawQuery('PRAGMA table_info(accountant_reconciliation_months)');
+    if (!reconciliationCols.any((x) => x['name'] == 'opening_details')) {
+      await d.execute('ALTER TABLE accountant_reconciliation_months ADD COLUMN opening_details TEXT');
+    }
     final manualDebtCols = await d.rawQuery('PRAGMA table_info(beneficiary_manual_debts)');
     if (!manualDebtCols.any((x) => x['name'] == 'cancelled_at')) {
       await d.execute('ALTER TABLE beneficiary_manual_debts ADD COLUMN cancelled_at TEXT');
