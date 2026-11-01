@@ -195,8 +195,9 @@ class ReconciliationService {
     final summary = await loadMonth(month);
     final stationId = (summary['station_id'] as num).toInt();
     final key = monthKey(month);
-    final effectiveOpening =
-        (summary['opening_balance'] as num?)?.round() ?? openingBalance;
+    final effectiveOpening = summary['has_previous'] == true
+        ? (summary['opening_balance'] as num?)?.round() ?? openingBalance
+        : openingBalance;
     final closing = effectiveOpening +
         ((summary['partner_profit'] as num?)?.round() ?? 0) -
         ((summary['partner_app_paid'] as num?)?.round() ?? 0) -
