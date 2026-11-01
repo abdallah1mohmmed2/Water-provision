@@ -34,6 +34,16 @@ class SaqiaTheme {
     );
     return ThemeData(
       useMaterial3: true,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: FadeUpwardsPageTransitionsBuilder(),
+        },
+      ),
       fontFamily: 'NotoNaskhArabic',
       colorScheme: scheme,
       scaffoldBackgroundColor: const Color(0xfff7f7f1),
@@ -50,10 +60,14 @@ class SaqiaTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        elevation: 0,
+        elevation: 2,
+        shadowColor: const Color(0x18233F3B),
         margin: EdgeInsets.zero,
         color: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: const BorderSide(color: Color(0x142D625A), width: .8),
+        ),
         surfaceTintColor: Colors.white,
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -113,6 +127,16 @@ class SaqiaTheme {
     );
     return ThemeData(
       useMaterial3: true,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: FadeUpwardsPageTransitionsBuilder(),
+        },
+      ),
       fontFamily: 'NotoNaskhArabic',
       colorScheme: scheme,
       brightness: Brightness.dark,
@@ -123,10 +147,14 @@ class SaqiaTheme {
         elevation: 0,
       ),
       cardTheme: CardThemeData(
-        elevation: 0,
+        elevation: 1,
+        shadowColor: Colors.black.withValues(alpha: .24),
         margin: EdgeInsets.zero,
         color: const Color(0xff1c2522),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(22),
+          side: BorderSide(color: Colors.white.withValues(alpha: .07)),
+        ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,

@@ -343,45 +343,101 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
   };
 
   Widget _sectionTitle(String title, {String? subtitle}) => Padding(
-    padding: const EdgeInsets.only(top: 8, bottom: 12),
+    padding: const EdgeInsets.only(top: 12, bottom: 12),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(title, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+      Row(children: [
+        Container(width: 4, height: 21,
+          decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary, borderRadius: BorderRadius.circular(8))),
+        const SizedBox(width: 9),
+        Expanded(child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900))),
+      ]),
       if (subtitle != null) ...[
-        const SizedBox(height: 3),
-        Text(subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        const SizedBox(height: 5),
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 13),
+          child: Text(subtitle, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        ),
       ],
     ]),
   );
 
   Widget _metric(String label, String value, IconData icon) => Expanded(
-    child: Card(child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 10),
-      child: Column(children: [
-        Icon(icon, size: 22, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(height: 8),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-        const SizedBox(height: 4),
-        Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11)),
-      ]),
-    )),
-  );
-
-  Widget _balanceCard() => Card(
-    clipBehavior: Clip.antiAlias,
-    child: Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('رصيد حسابك الحالي', style: TextStyle(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 8),
-        Text(_beneficiaryBalanceLabel(_balance),
-          style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
-            color: _balance == 0 ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurface)),
-        const SizedBox(height: 5),
-        Text('يتم احتساب الرصيد من الحركات المسجلة في حسابك',
-          style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-      ]),
+    child: TweenAnimationBuilder<double>(
+      tween: Tween(begin: MediaQuery.of(context).disableAnimations ? 1 : .92, end: 1),
+      duration: MediaQuery.of(context).disableAnimations ? Duration.zero : const Duration(milliseconds: 340),
+      curve: Curves.easeOutBack,
+      builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          child: Column(children: [
+            Container(
+              width: 40, height: 40,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: .10),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Icon(icon, size: 21, color: Theme.of(context).colorScheme.primary),
+            ),
+            const SizedBox(height: 9),
+            AnimatedSwitcher(duration: const Duration(milliseconds: 220),
+              child: Text(value, key: ValueKey(value),
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17))),
+            const SizedBox(height: 4),
+            Text(label, textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+          ]),
+        ),
+      ),
     ),
   );
+
+  Widget _balanceCard() {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: AlignmentDirectional.topStart,
+            end: AlignmentDirectional.bottomEnd,
+            colors: [scheme.primary.withValues(alpha: .075), scheme.surface, scheme.secondary.withValues(alpha: .045)],
+          ),
+        ),
+        padding: const EdgeInsets.all(19),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              width: 38, height: 38,
+              decoration: BoxDecoration(color: scheme.primary.withValues(alpha: .11), borderRadius: BorderRadius.circular(12)),
+              child: Icon(Icons.account_balance_wallet_rounded, color: scheme.primary, size: 21),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(child: Text('رصيد حسابك الحالي', style: TextStyle(fontWeight: FontWeight.w800))),
+            Icon(Icons.trending_up_rounded, color: scheme.primary.withValues(alpha: .7)),
+          ]),
+          const SizedBox(height: 12),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(begin: const Offset(0, .18), end: Offset.zero).animate(animation),
+                child: child,
+              ),
+            ),
+            child: Text(_beneficiaryBalanceLabel(_balance), key: ValueKey(_balance),
+              style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
+                color: _balance == 0 ? scheme.primary : scheme.onSurface)),
+          ),
+          const SizedBox(height: 5),
+          Text('يتم احتساب الرصيد من الحركات المسجلة في حسابك',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+        ]),
+      ),
+    );
+  }
 
   Future<void> _exportAccountStatementPdf() async {
     try {
@@ -523,21 +579,61 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     ));
   }
 
+  Widget _welcomeCard(String name) {
+    final scheme = Theme.of(context).colorScheme;
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: reduceMotion ? 1 : .94, end: 1),
+      duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: Transform.translate(
+          offset: Offset(0, (1 - value) * 16),
+          child: Transform.scale(scale: value, child: child),
+        ),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: AlignmentDirectional.topStart,
+            end: AlignmentDirectional.bottomEnd,
+            colors: [scheme.primary, Color.lerp(scheme.primary, scheme.secondary, .38)!],
+          ),
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [BoxShadow(color: scheme.primary.withValues(alpha: .18), blurRadius: 22, offset: const Offset(0, 9))],
+        ),
+        child: Row(children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('بوابة المستفيد', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 7),
+            Text('مرحبًا، $name', maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 5),
+            Text((_beneficiary?['phone'] ?? 'تابع حسابك وطلبات السقي بسهولة').toString(),
+              style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          ])),
+          const SizedBox(width: 12),
+          Container(
+            width: 58, height: 58,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .14),
+              borderRadius: BorderRadius.circular(19),
+              border: Border.all(color: Colors.white.withValues(alpha: .25)),
+            ),
+            child: const Icon(Icons.water_drop_rounded, color: Colors.white, size: 31),
+          ),
+        ]),
+      ),
+    );
+  }
+
   Widget _homeTab() {
     final name = (_beneficiary?['name'] ?? 'المستفيد').toString();
     return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: const EdgeInsets.all(16), children: [
-      Card(child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Row(children: [
-          const CircleAvatar(radius: 25, child: Icon(Icons.person_outline_rounded, size: 28)),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('مرحبًا، $name', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            Text((_beneficiary?['phone'] ?? 'حساب المستفيد').toString(),
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-          ])),
-        ]),
-      )),
+      _welcomeCard(name),
+      const SizedBox(height: 13),
       _balanceCard(),
       Row(children: [
         _metric('السقايات', _irrigationCount.toString(), Icons.water_drop_outlined),

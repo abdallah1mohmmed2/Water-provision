@@ -1502,81 +1502,72 @@ class _DashboardCircularMenu extends StatelessWidget {
   final ValueChanged<int> onOpen;
   const _DashboardCircularMenu({required this.availableMenu, required this.onOpen});
 
-  // اختصارات ثابتة داخل البطاقة؛ لا نكرر وظائف الزر العائم.
   static const _items = <(int, String, IconData, Color)>[
-    (1, 'المستفيدون', Icons.people_alt_rounded, Color(0xFF39FFB6)),
-    (10, 'العمال', Icons.engineering_rounded, Color(0xFF00E5FF)),
-    (11, 'الشركاء', Icons.handshake_rounded, Color(0xFF39FFB6)),
-    (7, 'المدفوعات', Icons.payments_rounded, Color(0xFF00E5FF)),
-    (8, 'الصناديق', Icons.account_balance_rounded, Color(0xFF39FFB6)),
-    (14, 'التقارير', Icons.analytics_rounded, Color(0xFF00E5FF)),
-    (17, 'النسخ الاحتياطي', Icons.backup_rounded, Color(0xFF39FFB6)),
-    (12, 'دفتر اليومية', Icons.menu_book_rounded, Color(0xFF00E5FF)),
-    (13, 'دفتر الأستاذ', Icons.account_tree_rounded, Color(0xFF39FFB6)),
+    (1, 'المستفيدون', Icons.people_alt_rounded, Color(0xFF16858B)),
+    (10, 'العمال', Icons.engineering_rounded, Color(0xFF2B9874)),
+    (11, 'الشركاء', Icons.handshake_rounded, Color(0xFF16858B)),
+    (7, 'المدفوعات', Icons.payments_rounded, Color(0xFF2B9874)),
+    (8, 'الصناديق', Icons.account_balance_rounded, Color(0xFF16858B)),
+    (14, 'التقارير', Icons.analytics_rounded, Color(0xFF2B9874)),
+    (17, 'النسخ الاحتياطي', Icons.backup_rounded, Color(0xFF16858B)),
+    (12, 'دفتر اليومية', Icons.menu_book_rounded, Color(0xFF2B9874)),
+    (13, 'دفتر الأستاذ', Icons.account_tree_rounded, Color(0xFF16858B)),
   ];
 
   @override
   Widget build(BuildContext context) {
     final items = _items.where((item) => availableMenu.contains(item.$1)).toList();
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 16, 12, 14),
+      padding: const EdgeInsets.fromLTRB(14, 17, 14, 16),
       decoration: BoxDecoration(
-        color: const Color(0xFF08111F),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: .30)),
-        boxShadow: [
-          BoxShadow(color: const Color(0xFF00E5FF).withValues(alpha: .08), blurRadius: 26, spreadRadius: 1),
-          BoxShadow(color: const Color(0xFF39FFB6).withValues(alpha: .05), blurRadius: 38),
-        ],
+        color: const Color(0xFFFCFEFD),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFF16858B).withValues(alpha: .14)),
+        boxShadow: const [BoxShadow(color: Color(0x10233F3B), blurRadius: 22, offset: Offset(0, 8))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Row(children: [
-            Icon(Icons.bolt_rounded, color: Color(0xFF39FFB6)),
-            SizedBox(width: 8),
-            Expanded(child: Text('العمليات السريعة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17))),
+            Icon(Icons.bolt_rounded, color: Color(0xFF2B9874)),
+            SizedBox(width: 9),
+            Expanded(child: Text('العمليات السريعة', style: TextStyle(color: Color(0xFF173B3C), fontWeight: FontWeight.w900, fontSize: 17))),
+            Text('وصول مباشر', style: TextStyle(color: Color(0xFF718487), fontSize: 11)),
           ]),
-          const SizedBox(height: 14),
+          const SizedBox(height: 15),
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: items.length,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-              childAspectRatio: 1.02,
+              crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.02,
             ),
             itemBuilder: (context, index) {
               final item = items[index];
               return Material(
-                color: const Color(0xFF111F30),
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(18),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(18),
                   onTap: () => onOpen(item.$1),
-                  child: Container(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: item.$4.withValues(alpha: .68)),
-                      boxShadow: [BoxShadow(color: item.$4.withValues(alpha: .08), blurRadius: 10)],
+                      border: Border.all(color: item.$4.withValues(alpha: .22)),
+                      boxShadow: const [BoxShadow(color: Color(0x0B233F3B), blurRadius: 12, offset: Offset(0, 3))],
                     ),
                     padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(item.$3, color: item.$4, size: 27),
-                        const SizedBox(height: 7),
-                        Text(
-                          item.$2,
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
-                        ),
-                      ],
-                    ),
+                    child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Container(
+                        width: 43, height: 43,
+                        decoration: BoxDecoration(color: item.$4.withValues(alpha: .10), borderRadius: BorderRadius.circular(14)),
+                        child: Icon(item.$3, color: item.$4, size: 24),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(item.$2, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Color(0xFF244447), fontSize: 10, fontWeight: FontWeight.w800)),
+                    ]),
                   ),
                 ),
               );
@@ -1587,7 +1578,6 @@ class _DashboardCircularMenu extends StatelessWidget {
     );
   }
 }
-
 class _NeonBottomBar extends StatelessWidget {
   final int currentIndex;
   final bool isManager, canFinance;
@@ -1605,9 +1595,9 @@ class _NeonBottomBar extends StatelessWidget {
     ];
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF08111F),
-        border: Border(top: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: .25))),
-        boxShadow: [BoxShadow(color: const Color(0xFF00E5FF).withValues(alpha: .07), blurRadius: 18, offset: const Offset(0, -4))],
+        color: Colors.white,
+        border: const Border(top: BorderSide(color: Color(0x142D625A))),
+        boxShadow: const [BoxShadow(color: Color(0x10233F3B), blurRadius: 18, offset: Offset(0, -4))],
       ),
       child: SafeArea(
         top: false,
@@ -1620,10 +1610,10 @@ class _NeonBottomBar extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 2),
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(item.$3, color: currentIndex == item.$1 ? const Color(0xFF39FFB6) : const Color(0xFF8296AA), size: 22),
+                      Icon(item.$3, color: currentIndex == item.$1 ? const Color(0xFF16858B) : const Color(0xFF829196), size: 22),
                       const SizedBox(height: 3),
                       Text(item.$2, maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: currentIndex == item.$1 ? const Color(0xFF39FFB6) : const Color(0xFFB5C3D1), fontSize: 10, fontWeight: currentIndex == item.$1 ? FontWeight.w900 : FontWeight.w600)),
+                        style: TextStyle(color: currentIndex == item.$1 ? const Color(0xFF16858B) : const Color(0xFF718184), fontSize: 10, fontWeight: currentIndex == item.$1 ? FontWeight.w900 : FontWeight.w600)),
                     ]),
                   ),
                 ),
@@ -2095,70 +2085,65 @@ class _DashboardState extends State<DashboardPage> {
       ('تقرير الفواتير', 'invoices', Icons.receipt_long_rounded),
       ('تقرير المستفيدين', 'beneficiary_statement', Icons.people_alt_rounded),
     ];
-    const cyan = Color(0xFF00E5FF);
-    const neon = Color(0xFF39FFB6);
+    const primary = Color(0xFF16858B);
+    const secondary = Color(0xFF2B9874);
     return Container(
       constraints: const BoxConstraints(minHeight: 320),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
-        color: const Color(0xFF101E2E),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: cyan.withValues(alpha: .30)),
-        boxShadow: [
-          BoxShadow(color: cyan.withValues(alpha: .06), blurRadius: 20),
-        ],
+        border: Border.all(color: primary.withValues(alpha: .13)),
+        boxShadow: const [BoxShadow(color: Color(0x10233F3B), blurRadius: 20, offset: Offset(0, 7))],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(children: [
-            const Icon(Icons.assessment_rounded, color: neon),
-            const SizedBox(width: 8),
-            const Expanded(
-              child: Text(
-                'التقارير المهمة',
-                style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900),
-              ),
-            ),
-            Text('5 تقارير', style: TextStyle(color: cyan.withValues(alpha: .8), fontSize: 10)),
-          ]),
-          const SizedBox(height: 8),
-          Text(
-            'افتح التقرير المطلوب مباشرة أو اطبعه بصيغة PDF.',
-            style: TextStyle(color: Colors.white.withValues(alpha: .60), fontSize: 11),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          Container(
+            width: 39, height: 39,
+            decoration: BoxDecoration(color: primary.withValues(alpha: .10), borderRadius: BorderRadius.circular(13)),
+            child: const Icon(Icons.assessment_rounded, color: primary),
           ),
-          const SizedBox(height: 10),
-          for (final item in items)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Material(
-                color: const Color(0xFF0B1725),
-                borderRadius: BorderRadius.circular(14),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () => _openDashboardReport(item.$2),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
-                    child: Row(children: [
-                      Icon(item.$3, color: item.$2 == 'partner_profit_distribution' ? neon : cyan, size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          item.$1,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
-                        ),
+          const SizedBox(width: 10),
+          const Expanded(child: Text('التقارير المهمة',
+            style: TextStyle(color: Color(0xFF173B3C), fontSize: 17, fontWeight: FontWeight.w900))),
+          Text('5 تقارير', style: TextStyle(color: primary.withValues(alpha: .85), fontSize: 11)),
+        ]),
+        const SizedBox(height: 8),
+        const Text('افتح التقرير المطلوب مباشرة أو اطبعه بصيغة PDF.',
+          style: TextStyle(color: Color(0xFF718487), fontSize: 11)),
+        const SizedBox(height: 13),
+        for (final item in items)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Material(
+              color: const Color(0xFFF5F9F8),
+              borderRadius: BorderRadius.circular(15),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(15),
+                onTap: () => _openDashboardReport(item.$2),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                  child: Row(children: [
+                    Container(
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(
+                        color: (item.$2 == 'partner_profit_distribution' ? secondary : primary).withValues(alpha: .10),
+                        borderRadius: BorderRadius.circular(11),
                       ),
-                      Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withValues(alpha: .55), size: 15),
-                    ]),
-                  ),
+                      child: Icon(item.$3, color: item.$2 == 'partner_profit_distribution' ? secondary : primary, size: 20),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(child: Text(item.$1,
+                      style: const TextStyle(color: Color(0xFF244447), fontWeight: FontWeight.w800, fontSize: 12))),
+                    const Icon(Icons.arrow_forward_ios_rounded, color: Color(0xFF829196), size: 14),
+                  ]),
                 ),
               ),
             ),
-        ],
-      ),
+          ),
+      ]),
     );
   }
-
   Widget card(String title, String value, IconData icon, Color color) =>
       Container(
         width: 205,
@@ -2193,11 +2178,12 @@ class _DashboardState extends State<DashboardPage> {
       );
     }
     final remaining = (d?['remaining'] as num?)?.round() ?? 0;
-    const bg = Color(0xFF080F1B);
-    const panel = Color(0xFF101E2E);
-    const cyan = Color(0xFF00E5FF);
-    const neon = Color(0xFF39FFB6);
-    const muted = Color(0xFF8CA3B8);
+    const bg = Color(0xFFF3F7F6);
+    const panel = Colors.white;
+    const cyan = Color(0xFF16858B);
+    const neon = Color(0xFF2B9874);
+    const muted = Color(0xFF718487);
+    const ink = Color(0xFF173B3C);
 
     Widget statCard(String title, String value, IconData icon, Color color) {
       return Container(
@@ -2221,7 +2207,7 @@ class _DashboardState extends State<DashboardPage> {
               style: const TextStyle(color: muted, fontSize: 11, fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
             Text(value, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900)),
+              style: const TextStyle(color: ink, fontSize: 19, fontWeight: FontWeight.w900)),
           ],
         ),
       );
@@ -2244,7 +2230,7 @@ class _DashboardState extends State<DashboardPage> {
             child: Icon(icon, color: color)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+            Text(title, style: const TextStyle(color: ink, fontWeight: FontWeight.w900)),
             const SizedBox(height: 5),
             Text(subtitle, style: const TextStyle(color: muted, fontSize: 11, height: 1.45)),
           ])),
@@ -2272,7 +2258,7 @@ class _DashboardState extends State<DashboardPage> {
                     gradient: const LinearGradient(
                       begin: AlignmentDirectional.topStart,
                       end: AlignmentDirectional.bottomEnd,
-                      colors: [Color(0xFF123047), Color(0xFF10251F), Color(0xFF101E2E)],
+                      colors: [Color(0xFF12666C), Color(0xFF1C806C), Color(0xFF214E5A)],
                     ),
                     borderRadius: BorderRadius.circular(25),
                     border: Border.all(color: cyan.withValues(alpha: .38)),
@@ -6441,33 +6427,48 @@ class SectionCard extends StatelessWidget {
     required this.child,
     super.key,
   });
+
   @override
-  Widget build(BuildContext c) => Card(
-    margin: const EdgeInsets.only(bottom: 12),
-    child: Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+  Widget build(BuildContext c) {
+    final scheme = Theme.of(c).colorScheme;
+    final reduceMotion = MediaQuery.of(c).disableAnimations;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: reduceMotion ? 1 : .96, end: 1),
+      duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 360),
+      curve: Curves.easeOutCubic,
+      builder: (context, progress, content) => Opacity(
+        opacity: progress,
+        child: Transform.translate(
+          offset: Offset(0, (1 - progress) * 12),
+          child: Transform.scale(scale: progress, child: content),
+        ),
+      ),
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 14),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, color: Theme.of(c).colorScheme.primary),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
+              Row(children: [
+                Container(
+                  width: 38, height: 38,
+                  decoration: BoxDecoration(color: scheme.primary.withValues(alpha: .10), borderRadius: BorderRadius.circular(13)),
+                  child: Icon(icon, color: scheme.primary, size: 21),
                 ),
-              ),
+                const SizedBox(width: 11),
+                Expanded(child: Text(title,
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900))),
+              ]),
+              const SizedBox(height: 16),
+              child,
             ],
           ),
-          const SizedBox(height: 14),
-          child,
-        ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class FormDialog extends StatelessWidget {
