@@ -328,6 +328,8 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     'scheduled' => 'تم تحديد الموعد',
     'accepted' => 'مقبول',
     'notified' => 'تم إشعارك',
+    'waiting' => 'في الانتظار',
+    'postponed' => 'مؤجل',
     'completed' => 'مكتمل',
     'cancelled' => 'ملغى',
     _ => 'غير محدد',
@@ -690,8 +692,8 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
             const SizedBox(width: 10),
             Expanded(child: Text(
               _bookingQueue.isEmpty
-                ? 'لا توجد حجوزات نشطة في قائمة المحطة حاليًا.'
-                : 'لا يوجد لك حجز نشط في قائمة الانتظار حاليًا. عند اعتماد طلبك سيظهر موقعك هنا.',
+                ? 'لا يوجد مستفيدون في الدور الحالي بالمحطة.'
+                : 'اسمك غير موجود حاليًا في الدور النشط. سيظهر ترتيبك هنا عند إضافتك إلى الدور.',
             )),
           ]),
         ),
@@ -708,7 +710,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
           Row(children: [
             const Icon(Icons.confirmation_number_outlined),
             const SizedBox(width: 8),
-            const Expanded(child: Text('موقعك في ترتيب الحجوزات',
+            const Expanded(child: Text('موقعك في ترتيب الدور',
               style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800))),
             Chip(label: Text('رقم ${ownIndex + 1} من ${_bookingQueue.length}')),
           ]),
@@ -718,7 +720,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
             Expanded(child: _metric('خلفك', '$behind', Icons.groups_outlined)),
           ]),
           const SizedBox(height: 8),
-          Text('حالة حجزك: ${_bookingStatus(current['status'])}',
+          Text('حالتك في الدور: ${_bookingStatus(current['status'])}',
             style: const TextStyle(fontWeight: FontWeight.w700)),
           if (current['scheduled_start'] != null)
             Text('موعدك المحدد: ${_date(current['scheduled_start'])}'),
@@ -743,7 +745,9 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
           style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(
           '${_bookingStatus(item['status'])}'
-          ' • ${item['scheduled_start'] == null ? 'بانتظار تحديد الموعد' : _date(item['scheduled_start'])}',
+          ' • ${item['scheduled_start'] == null
+              ? (item['status'] == 'waiting' || item['status'] == 'postponed' ? 'ضمن الدور الحالي' : 'بانتظار تحديد الموعد')
+              : _date(item['scheduled_start'])}',
         ),
         trailing: Text('#${index + 1}'),
       );
@@ -753,13 +757,13 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          const Text('ترتيب جميع المستفيدين حول موقعك',
+          const Text('ترتيب جميع المستفيدين حول موقعك في الدور',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           if (_bookingQueue.isEmpty)
-            const Text('لا توجد حجوزات نشطة.')
+            const Text('لا يوجد مستفيدون في الدور حاليًا.')
           else if (ownIndex < 0) ...[
-            const Text('قائمة الحجوزات النشطة في المحطة:'),
+            const Text('قائمة الانتظار الحالية في المحطة:'),
             for (var i = 0; i < _bookingQueue.length; i++) personTile(i),
           ] else ...[
             Row(children: [
