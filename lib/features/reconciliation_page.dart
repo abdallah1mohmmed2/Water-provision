@@ -258,8 +258,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                             title: Text('${row['month_key']}'),
                             subtitle: Text(
-                              'افتتاحي: ${_money(row['opening_balance'])} | أرباح: ${_money(row['partner_profit'])} | مسلّم بالتطبيق: ${_money(row['partner_app_paid'])} | يدوي: ${_money(row['manual_paid'])} ريال'
-                              '${'${row['opening_details'] ?? ''}'.trim().isEmpty ? '' : '\\nتفصيل الافتتاحي: ${row['opening_details']}'}',
+                              _historySubtitle(row),
                               maxLines: 3,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -275,6 +274,12 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                   ),
       ),
     );
+  }
+
+  String _historySubtitle(Map<String, Object?> row) {
+    final details = '${row['opening_details'] ?? ''}'.trim();
+    return 'افتتاحي: ${_money(row['opening_balance'])} | أرباح: ${_money(row['partner_profit'])} | مسلّم بالتطبيق: ${_money(row['partner_app_paid'])} | يدوي: ${_money(row['manual_paid'])} ريال'
+        '${details.isEmpty ? '' : '\\nتفصيل الافتتاحي: $details'}';
   }
 
   Widget _sectionTitle(String text) => Padding(
