@@ -19,6 +19,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
   late DateTime month;
   final manualPaid = TextEditingController();
   final openingAmount = TextEditingController();
+  final openingDetails = TextEditingController();
   final service = ReconciliationService();
   Map<String, Object?>? data;
   bool loading = true;
@@ -38,6 +39,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
   void dispose() {
     manualPaid.dispose();
     openingAmount.dispose();
+    openingDetails.dispose();
     super.dispose();
   }
 
@@ -53,6 +55,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
       final opening = _n(result['opening_balance']);
       openingIsPartnerDue = opening >= 0;
       openingAmount.text = opening.abs().toString();
+      openingDetails.text = '${result['opening_details'] ?? ''}';
       setState(() => loading = false);
     } catch (e) {
       if (mounted) setState(() { error = '$e'; loading = false; });
@@ -73,6 +76,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
         month: month,
         openingBalance: openingIsPartnerDue ? opening : -opening,
         manualPaid: paid,
+        openingDetails: openingDetails.text,
         userId: widget.userId,
       );
       await _load();
@@ -207,6 +211,17 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                               ),
                               const SizedBox(height: 8),
                               TextField(controller: openingAmount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'قيمة الرصيد الافتتاحي', suffixText: 'ريال', border: OutlineInputBorder())),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: openingDetails,
+                                minLines: 2,
+                                maxLines: 4,
+                                decoration: const InputDecoration(
+                                  labelText: 'تفصيل الأشهر التي يتكون منها الرصيد السابق',
+                                  hintText: 'مثال: أغسطس 2026: 50,000 ريال\\nسبتمبر 2026: 25,000 ريال',
+                                  border: OutlineInputBorder(),
+                                ),
+                              ),
                             ],
                             const SizedBox(height: 12),
                             FilledButton.icon(onPressed: saving ? null : _save, icon: saving ? const SizedBox(width: 18,height: 18,child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_rounded), label: Text(saving ? 'جارٍ الحفظ…' : 'حفظ تسوية الشهر')),
