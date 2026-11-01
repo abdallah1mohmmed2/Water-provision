@@ -45,6 +45,59 @@ class ReconciliationService {
     return {'profit': profit, 'paid': recordedPaid + legacyPaid};
   }
 
+  Future<Map<String, Map<String, int>>> _partnerMonthlyTotals(
+    int stationId,
+    DateTime start,
+    DateTime end,
+  ) async {
+    final from = start.toIso8601String();
+    final to = end.toIso8601String();
+    final totals = <String, Map<String, int>>{};
+    void addRows(List<Map<String, Object?>> rows, String field) {
+      for (final row in rows) {
+        final key = '${row['month'] ?? ''}';
+        if (key.isEmpty) continue;
+        final item = totals.putIfAbsent(key, () => {'profit': 0, 'paid': 0});
+        item[field] = (item[field] ?? 0) + ((row['amount'] as num?)?.round() ?? 0);
+      }
+    }
+
+    final profitRows = await database.rawQuery('''
+      SELECT substr(pt.date,1,7) month,
+        COALESCE(SUM(CASE
+          WHEN pt.type='share_accrual' THEN pt.amount
+          WHEN pt.type='share_adjustment' THEN -pt.amount
+          WHEN pt.type='share_adjustment_reversal' THEN pt.amount
+          WHEN pt.type='irrigation_reversal' AND COALESCE(pt.notes,'') LIKE 'عكس نصيب الشريك%' THEN -pt.amount
+          ELSE 0 END),0) amount
+      FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id
+      WHERE p.station_id=? AND pt.date>=? AND pt.date<?
+      GROUP BY substr(pt.date,1,7)
+    ''', [stationId, from, to]);
+    addRows(profitRows, 'profit');
+
+    final paymentRows = await database.rawQuery('''
+      SELECT substr(date,1,7) month,COALESCE(SUM(amount),0) amount
+      FROM payments
+      WHERE status='posted' AND partner_id IN (SELECT id FROM partners WHERE station_id=?)
+        AND date>=? AND date<?
+      GROUP BY substr(date,1,7)
+    ''', [stationId, from, to]);
+    addRows(paymentRows, 'paid');
+
+    final legacyPaymentRows = await database.rawQuery('''
+      SELECT substr(pt.date,1,7) month,COALESCE(SUM(pt.amount),0) amount
+      FROM partner_transactions pt
+      JOIN partners p ON p.id=pt.partner_id
+      LEFT JOIN payments pay ON pay.id=pt.reference_id
+      WHERE p.station_id=? AND pt.type='payment' AND pt.date>=? AND pt.date<?
+        AND pay.id IS NULL
+      GROUP BY substr(pt.date,1,7)
+    ''', [stationId, from, to]);
+    addRows(legacyPaymentRows, 'paid');
+    return totals;
+  }
+
   Future<Map<String, Object?>> loadMonth(DateTime month) async {
     final start = DateTime(month.year, month.month, 1);
     final end = DateTime(month.year, month.month + 1, 1);
@@ -105,59 +158,53 @@ class ReconciliationService {
       whereArgs: [stationId, key],
       orderBy: 'month_key ASC',
     );
-    var lastClosing = 0;
-    DateTime? lastSavedMonth;
-    var hasSavedBefore = false;
-    var currentSaved = false;
+    final savedByMonth = <String, Map<String, Object?>>{
+      for (final row in savedRows) '${row['month_key']}': row,
+    };
     var opening = 0;
     var manualPaid = 0;
     var openingDetails = '';
+    var currentSaved = false;
+    var hasPrevious = false;
     final history = <Map<String, Object?>>[];
 
-    // أعد بناء سلسلة الرصيد من أول شهر تسوية محفوظ. بهذه الطريقة تدخل أرباح
-    // ومدفوعات الأشهر غير المحفوظة حتى لو سُجلت بعد حفظ شهر لاحق.
-    for (final row in savedRows) {
-      final parts = '${row['month_key']}'.split('-');
-      if (parts.length != 2) continue;
-      final rowMonth = DateTime(int.parse(parts[0]), int.parse(parts[1]), 1);
-      final rowEnd = DateTime(rowMonth.year, rowMonth.month + 1, 1);
-      var rowOpening = (row['opening_balance'] as num?)?.round() ?? 0;
-      if (lastSavedMonth != null) {
-        final gapStart = DateTime(lastSavedMonth.year, lastSavedMonth.month + 1, 1);
-        final gap = await _partnerTotals(stationId, gapStart, rowMonth);
-        rowOpening = lastClosing + (gap['profit'] ?? 0) - (gap['paid'] ?? 0);
-        hasSavedBefore = true;
+    if (savedRows.isNotEmpty) {
+      final firstParts = '${savedRows.first['month_key']}'.split('-');
+      final firstMonth = DateTime(int.parse(firstParts[0]), int.parse(firstParts[1]), 1);
+      final monthlyTotals = await _partnerMonthlyTotals(stationId, firstMonth, start);
+      var carry = (savedRows.first['opening_balance'] as num?)?.round() ?? 0;
+      var cursor = firstMonth;
+      while (cursor.isBefore(start)) {
+        final cursorKey = monthKey(cursor);
+        final nextMonth = DateTime(cursor.year, cursor.month + 1, 1);
+        final totals = monthlyTotals[cursorKey] ?? const <String, int>{};
+        final savedRow = savedByMonth[cursorKey];
+        final monthManualPaid = (savedRow?['manual_paid'] as num?)?.round() ?? 0;
+        final monthOpening = carry;
+        final monthClosing = monthOpening +
+            (totals['profit'] ?? 0) -
+            (totals['paid'] ?? 0) -
+            monthManualPaid;
+        history.add({
+          'month_key': cursorKey,
+          'opening_balance': monthOpening,
+          'partner_profit': totals['profit'] ?? 0,
+          'partner_app_paid': totals['paid'] ?? 0,
+          'manual_paid': monthManualPaid,
+          'closing_balance': monthClosing,
+          'opening_details': savedRow?['opening_details'] ?? '',
+        });
+        carry = monthClosing;
+        cursor = nextMonth;
       }
-      final rowTotals = await _partnerTotals(stationId, rowMonth, rowEnd);
-      final rowManualPaid = (row['manual_paid'] as num?)?.round() ?? 0;
-      final rowClosing = rowOpening +
-          (rowTotals['profit'] ?? 0) -
-          (rowTotals['paid'] ?? 0) -
-          rowManualPaid;
-      final calculated = <String, Object?>{
-        ...row,
-        'opening_balance': rowOpening,
-        'partner_profit': rowTotals['profit'] ?? 0,
-        'partner_app_paid': rowTotals['paid'] ?? 0,
-        'closing_balance': rowClosing,
-      };
-      if ('${row['month_key']}' == key) {
+      opening = carry;
+      hasPrevious = firstMonth.isBefore(start);
+      final currentRow = savedByMonth[key];
+      if (currentRow != null) {
         currentSaved = true;
-        opening = rowOpening;
-        manualPaid = rowManualPaid;
-        openingDetails = '${row['opening_details'] ?? ''}';
-      } else {
-        history.insert(0, calculated);
+        manualPaid = (currentRow['manual_paid'] as num?)?.round() ?? 0;
+        openingDetails = '${currentRow['opening_details'] ?? ''}';
       }
-      lastClosing = rowClosing;
-      lastSavedMonth = rowMonth;
-    }
-
-    if (!currentSaved && lastSavedMonth != null) {
-      final gapStart = DateTime(lastSavedMonth.year, lastSavedMonth.month + 1, 1);
-      final gap = await _partnerTotals(stationId, gapStart, start);
-      opening = lastClosing + (gap['profit'] ?? 0) - (gap['paid'] ?? 0);
-      hasSavedBefore = true;
     }
     final closing = opening +
         (partnerTotals['profit'] ?? 0) -
@@ -178,9 +225,9 @@ class ReconciliationService {
       'worker_due': (workerRows.first['due'] as num?)?.round() ?? 0,
       'worker_paid': workerPaid,
       'expenses': expenses,
-      'has_previous': hasSavedBefore,
+      'has_previous': hasPrevious,
       'has_saved': currentSaved,
-      'history': history,
+      'history': history.reversed.toList(),
     };
   }
 
