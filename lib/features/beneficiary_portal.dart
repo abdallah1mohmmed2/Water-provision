@@ -172,6 +172,14 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
     if (value is num) return value.round();
     return int.tryParse(value?.toString() ?? '') ?? 0;
   }
+
+  // رصيد المستفيد يُعرض بصيغة المخاطب: الموجب عليه = عليك،
+  // والسالب له = لك. لا نغيّر دلالة الرصيد المحاسبية المخزنة.
+  String _beneficiaryBalanceLabel(int balance) => balance > 0
+      ? 'عليك ${balance.abs()} ريال'
+      : balance < 0
+      ? 'لك ${balance.abs()} ريال'
+      : 'متوازن';
   int get _irrigationCount => _statement.where((row) => row['type'] == 's').length;
   int get _totalMinutes => _statement.fold<int>(0,
     (sum, row) => sum + (row['type'] == 's' ? ((row['minutes'] as num?)?.round() ?? 0) : 0));
@@ -366,7 +374,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('رصيد حسابك الحالي', style: TextStyle(fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        Text(AccountingCalculations.balanceLabel(_balance),
+        Text(_beneficiaryBalanceLabel(_balance),
           style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900,
             color: _balance == 0 ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onSurface)),
         const SizedBox(height: 5),
@@ -496,9 +504,9 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       subtitle: Text(_date(row['date'])),
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
         Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text('${isDebit ? '+' : '-'}$amount ريال',
+          Text('${isDebit ? 'عليك' : 'لك'} $amount ريال',
             style: const TextStyle(fontWeight: FontWeight.w800)),
-          Text(AccountingCalculations.balanceLabel(balance),
+          Text(_beneficiaryBalanceLabel(balance),
             style: TextStyle(fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
         ]),
         if (hasDocument && report != null)
