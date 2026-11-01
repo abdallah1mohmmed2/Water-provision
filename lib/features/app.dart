@@ -2045,17 +2045,20 @@ class _DashboardState extends State<DashboardPage> {
     required bool selected,
     required VoidCallback onTap,
   }) {
-    const cyan = Color(0xFF00E5FF);
-    const neon = Color(0xFF39FFB6);
+    const primary = Color(0xFF16858B);
+    const secondary = Color(0xFF2B9874);
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
+      duration: const Duration(milliseconds: 220),
       decoration: BoxDecoration(
-        color: selected ? cyan.withValues(alpha: .14) : const Color(0xFF101E2E),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: (selected ? neon : cyan).withValues(alpha: selected ? .8 : .3)),
+        color: selected ? primary.withValues(alpha: .09) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: (selected ? secondary : primary).withValues(alpha: selected ? .45 : .14)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0A233F3B), blurRadius: 10, offset: Offset(0, 3)),
+        ],
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
@@ -2063,11 +2066,11 @@ class _DashboardState extends State<DashboardPage> {
             Icon(
               selected ? Icons.radio_button_checked_rounded : Icons.circle_outlined,
               size: 13,
-              color: selected ? neon : cyan,
+              color: selected ? secondary : primary,
             ),
             const SizedBox(width: 7),
             Text(label, style: TextStyle(
-              color: Colors.white,
+              color: const Color(0xFF244447),
               fontSize: 11,
               fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
             )),
@@ -2286,7 +2289,7 @@ class _DashboardState extends State<DashboardPage> {
                 ),
                 const SizedBox(height: 20),
                 const Row(children: [
-                  Expanded(child: Text('ملخص التشغيل', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900))),
+                  Expanded(child: Text('ملخص التشغيل', style: TextStyle(color: ink, fontSize: 17, fontWeight: FontWeight.w900))),
                   Icon(Icons.swipe_rounded, color: cyan, size: 18),
                   SizedBox(width: 5),
                   Text('اسحب', style: TextStyle(color: muted, fontSize: 10)),
@@ -2370,7 +2373,7 @@ class _DashboardState extends State<DashboardPage> {
                     Text(
                       'اسحب يمينًا أو يسارًا للتبديل بين القائمة والتقارير',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white.withValues(alpha: .55), fontSize: 10),
+                      style: TextStyle(color: muted, fontSize: 10),
                     ),
                   ],
                 ),
@@ -2378,7 +2381,7 @@ class _DashboardState extends State<DashboardPage> {
                 Row(children: [
                   Container(width: 4, height: 22, decoration: BoxDecoration(color: neon, borderRadius: BorderRadius.circular(4))),
                   const SizedBox(width: 9),
-                  const Text('حالة التشغيل', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
+                  const Text('حالة التشغيل', style: TextStyle(color: ink, fontSize: 17, fontWeight: FontWeight.w900)),
                 ]),
                 const SizedBox(height: 11),
                 statusPanel(
