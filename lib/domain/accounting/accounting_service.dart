@@ -3841,7 +3841,11 @@ class AccountingService {
       if (reversed == 0) throw StateError('لم يُعثر على قيد أصلي قابل للعكس');
       await tx.update(
         'beneficiary_manual_debts',
-        {'status': 'cancelled'},
+        {
+          'status': 'cancelled',
+          'cancelled_at': AppClock.now().toIso8601String(),
+          'cancel_reason': reason.trim(),
+        },
         where: 'id=? AND status=?',
         whereArgs: [debtId, 'posted'],
       );
