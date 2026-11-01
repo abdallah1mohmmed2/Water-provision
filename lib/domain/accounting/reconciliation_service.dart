@@ -142,14 +142,41 @@ class ReconciliationService {
     );
     final expenses = recordedExpenses + workerEntitlements;
 
-    final beneficiaryRows = await database.rawQuery(
-      "SELECT COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END),0) due, COALESCE(SUM(CASE WHEN balance<0 THEN -balance ELSE 0 END),0) credit FROM (SELECT (${BalanceSql.beneficiary('b')}) balance FROM beneficiaries b WHERE b.station_id=?)",
-      [stationId],
-    );
-    final workerRows = await database.rawQuery(
-      "SELECT COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END),0) due FROM (SELECT (${BalanceSql.workerPersonal('w')}) balance FROM workers w WHERE w.station_id=?)",
-      [stationId],
-    );
+    // أرصدة الأطراف تُحسب حتى نهاية الشهر المختار، لا حتى تاريخ اليوم،
+    // حتى تبقى تقارير الأشهر التاريخية صحيحة عند الرجوع إليها.
+    final beneficiaryRows = await database.rawQuery('''
+      SELECT
+        COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END),0) due,
+        COALESCE(SUM(CASE WHEN balance<0 THEN -balance ELSE 0 END),0) credit
+      FROM (
+        SELECT b.id,
+          COALESCE((
+            SELECT SUM(jl.debit-jl.credit)
+            FROM journal_lines jl
+            JOIN journal_entries je ON je.id=jl.journal_entry_id
+            JOIN accounts a ON a.id=jl.account_id
+            WHERE je.status='posted' AND je.date<? AND a.code='1200'
+              AND jl.beneficiary_id=b.id
+          ),0) balance
+        FROM beneficiaries b WHERE b.station_id=?
+      )
+    ''', [endText, stationId]);
+    final workerRows = await database.rawQuery('''
+      SELECT COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END),0) due
+      FROM (
+        SELECT w.id,
+          COALESCE((
+            SELECT SUM(jl.credit-jl.debit)
+            FROM journal_lines jl
+            JOIN journal_entries je ON je.id=jl.journal_entry_id
+            JOIN accounts a ON a.id=jl.account_id
+            WHERE je.status='posted' AND je.date<? AND (
+              a.code=('2100.W'||w.id) OR (a.code='2100' AND jl.worker_id=w.id)
+            )
+          ),0) balance
+        FROM workers w WHERE w.station_id=?
+      )
+    ''', [endText, stationId]);
 
     final key = monthKey(start);
     final savedRows = await database.query(
