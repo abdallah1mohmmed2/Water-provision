@@ -257,7 +257,12 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                           ListTile(
                             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
                             title: Text('${row['month_key']}'),
-                            subtitle: Text('المسلّم يدوياً: ${_money(row['manual_paid'])} ريال'),
+                            subtitle: Text(
+                              'افتتاحي: ${_money(row['opening_balance'])} | أرباح: ${_money(row['partner_profit'])} | مسلّم بالتطبيق: ${_money(row['partner_app_paid'])} | يدوي: ${_money(row['manual_paid'])} ريال'
+                              '${'${row['opening_details'] ?? ''}'.trim().isEmpty ? '' : '\\nتفصيل الافتتاحي: ${row['opening_details']}'}',
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             trailing: Text(
                               '${_n(row['closing_balance']) > 0 ? 'للشركاء: ' : _n(row['closing_balance']) < 0 ? 'للمحاسب: ' : ''}${_money(_n(row['closing_balance']).abs())} ريال',
                               style: const TextStyle(fontWeight: FontWeight.w800),
