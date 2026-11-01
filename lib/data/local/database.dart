@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 20,
+      version: 21,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -431,6 +431,13 @@ class AppDatabase {
     await d.execute(
       'CREATE INDEX IF NOT EXISTS idx_beneficiary_manual_debts_party_date ON beneficiary_manual_debts(beneficiary_id,date,id)',
     );
+    final manualDebtCols = await d.rawQuery('PRAGMA table_info(beneficiary_manual_debts)');
+    if (!manualDebtCols.any((x) => x['name'] == 'cancelled_at')) {
+      await d.execute('ALTER TABLE beneficiary_manual_debts ADD COLUMN cancelled_at TEXT');
+    }
+    if (!manualDebtCols.any((x) => x['name'] == 'cancel_reason')) {
+      await d.execute('ALTER TABLE beneficiary_manual_debts ADD COLUMN cancel_reason TEXT');
+    }
     await d.execute(
       'CREATE TABLE IF NOT EXISTS beneficiary_sessions (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), token_hash TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT)',
     );
