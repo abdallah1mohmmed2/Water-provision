@@ -187,7 +187,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                       _sectionTitle('أولاً: حساب الشركاء'),
                       _card('إجمالي أرباح الشركاء لهذا الشهر', d?['partner_profit'], Icons.groups_rounded, Colors.teal),
                       _card('المسلّم للشركاء من خلال سجلات التطبيق', d?['partner_app_paid'], Icons.payments_rounded, Colors.blue),
-                      _card('المتبقي للشركاء من الأشهر السابقة', d?['opening_balance'] is num ? _n(d?['opening_balance']).abs() : 0, Icons.history_rounded, Colors.deepOrange, suffix: _n(d?['opening_balance']) < 0 ? 'ريال (للشركاء على المحاسب)' : 'ريال (للمحاسب للشركاء)'),
+                      _card(_n(d?['opening_balance']) < 0 ? 'المتبقي للمحاسب عند الشركاء من الأشهر السابقة' : 'المتبقي للشركاء عند المحاسب من الأشهر السابقة', _n(d?['opening_balance']).abs(), Icons.history_rounded, Colors.deepOrange, suffix: _n(d?['opening_balance']) < 0 ? 'ريال (على الشركاء للمحاسب)' : 'ريال (على المحاسب للشركاء)'),
                       Card(
                         elevation: 0,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
