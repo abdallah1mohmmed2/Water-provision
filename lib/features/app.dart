@@ -3179,7 +3179,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                   amount: _historyAmount(history[i]),
                 ),
               ),
-              if (widget.kind == 'beneficiary' && history[i]['type'] == 'manual_debt')
+              if (widget.kind == 'beneficiary' && history[i]['type'] == 'manual_debt' && history[i]['status'] == 'posted')
                 IconButton(
                   tooltip: 'إلغاء المديونية بعكس القيد',
                   onPressed: () => cancelManualDebt(history[i]),
@@ -10890,6 +10890,7 @@ String _refLabel(Object? type, Object? id) {
     'beneficiary_opening' => 'رصيد افتتاحي لمستفيد',
     'beneficiary_carried' => 'رصيد مرحّل لمستفيد',
     'beneficiary_manual_debt' => 'إضافة مديونية سابقة لمستفيد',
+    'manual_debt_reversal' => 'إلغاء مديونية سابقة',
     'worker_opening' => 'رصيد افتتاحي لعامل',
     'partner_opening' => 'رصيد افتتاحي لشريك',
     'reversal' => 'قيد عكسي',
