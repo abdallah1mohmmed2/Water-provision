@@ -152,57 +152,69 @@ class ReconciliationService {
       whereArgs: [stationId, key],
       limit: 1,
     );
-    final values = <String, Object?>{
-      'station_id': stationId,
-      'month_key': key,
-      'opening_balance': effectiveOpening,
-      'manual_paid': manualPaid,
-      'opening_details': openingDetails.trim(),
-      'closing_balance': closing,
-      'updated_by': userId,
-      'updated_at': now,
-    };
-    if (existing.isEmpty) {
-      values['created_by'] = userId;
-      values['created_at'] = now;
-      await database.insert('accountant_reconciliation_months', values);
-    } else {
-      await database.update(
-        'accountant_reconciliation_months',
-        values,
-        where: 'id=?',
-        whereArgs: [existing.first['id']],
-      );
-    }
 
-    // عند تعديل شهر قديم نعيد احتساب الأشهر اللاحقة بالترتيب حتى لا تبقى
-    // أرصدة مرحّلة قديمة وغير متوافقة مع التسوية المعدّلة.
+    // احسب تسويات الأشهر اللاحقة أولاً، ثم احفظ السلسلة كاملة في معاملة واحدة.
     final futureRows = await database.query(
       'accountant_reconciliation_months',
       where: 'station_id=? AND month_key>?',
       whereArgs: [stationId, key],
       orderBy: 'month_key ASC',
     );
+    final futureUpdates = <Map<String, Object?>>[];
+    var carry = closing;
     for (final row in futureRows) {
       final parts = '${row['month_key']}'.split('-');
       if (parts.length != 2) continue;
       final futureMonth = DateTime(int.parse(parts[0]), int.parse(parts[1]), 1);
       final future = await loadMonth(futureMonth);
-      final futureOpening = (future['opening_balance'] as num?)?.round() ?? 0;
       final futureProfit = (future['partner_profit'] as num?)?.round() ?? 0;
       final futureAppPaid = (future['partner_app_paid'] as num?)?.round() ?? 0;
       final futureManualPaid = (future['manual_paid'] as num?)?.round() ?? 0;
-      await database.update(
-        'accountant_reconciliation_months',
-        {
-          'opening_balance': futureOpening,
-          'closing_balance': futureOpening + futureProfit - futureAppPaid - futureManualPaid,
-          'updated_by': userId,
-          'updated_at': AppClock.now().toIso8601String(),
-        },
-        where: 'id=?',
-        whereArgs: [row['id']],
-      );
+      final futureClosing = carry + futureProfit - futureAppPaid - futureManualPaid;
+      futureUpdates.add({
+        'id': row['id'],
+        'opening_balance': carry,
+        'closing_balance': futureClosing,
+      });
+      carry = futureClosing;
     }
+
+    await database.transaction((tx) async {
+      final values = <String, Object?>{
+        'station_id': stationId,
+        'month_key': key,
+        'opening_balance': effectiveOpening,
+        'opening_details': openingDetails.trim(),
+        'manual_paid': manualPaid,
+        'closing_balance': closing,
+        'updated_by': userId,
+        'updated_at': now,
+      };
+      if (existing.isEmpty) {
+        values['created_by'] = userId;
+        values['created_at'] = now;
+        await tx.insert('accountant_reconciliation_months', values);
+      } else {
+        await tx.update(
+          'accountant_reconciliation_months',
+          values,
+          where: 'id=?',
+          whereArgs: [existing.first['id']],
+        );
+      }
+      for (final update in futureUpdates) {
+        await tx.update(
+          'accountant_reconciliation_months',
+          {
+            'opening_balance': update['opening_balance'],
+            'closing_balance': update['closing_balance'],
+            'updated_by': userId,
+            'updated_at': now,
+          },
+          where: 'id=?',
+          whereArgs: [update['id']],
+        );
+      }
+    });
   }
 }
