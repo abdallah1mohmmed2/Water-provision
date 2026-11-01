@@ -10,43 +10,18 @@ class ReconciliationService {
   String monthKey(DateTime month) =>
       '${month.year}-${month.month.toString().padLeft(2, '0')}';
 
-  Future<Map<String, Object?>> loadMonth(DateTime month) async {
-    final start = DateTime(month.year, month.month, 1);
-    final end = DateTime(month.year, month.month + 1, 1);
+  Future<Map<String, int>> _partnerTotals(
+    int stationId,
+    DateTime start,
+    DateTime end,
+  ) async {
     final startText = start.toIso8601String();
     final endText = end.toIso8601String();
-    final stationRows = await database.rawQuery(
-      "SELECT station_id FROM pumps WHERE id=(SELECT CAST(value AS INTEGER) FROM settings WHERE key='selected_pump_id' LIMIT 1) LIMIT 1",
-    );
-    final stationId = stationRows.isEmpty
-        ? 1
-        : (stationRows.first['station_id'] as num?)?.toInt() ?? 1;
-
-    Future<int> scalar(String sql, [List<Object?> args = const []]) async {
+    Future<int> scalar(String sql, List<Object?> args) async {
       final rows = await database.rawQuery(sql, args);
       return (rows.first['value'] as num?)?.round() ?? 0;
     }
-
-    final profit = await scalar('''
-      SELECT COALESCE(SUM(CASE
-        WHEN pt.type='share_accrual' THEN pt.amount
-        WHEN pt.type='share_adjustment' THEN -pt.amount
-        WHEN pt.type='share_adjustment_reversal' THEN pt.amount
-        WHEN pt.type='irrigation_reversal' AND COALESCE(pt.notes,'') LIKE 'عكس نصيب الشريك%' THEN -pt.amount
-        ELSE 0 END),0) value
-      FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id
-      WHERE p.station_id=? AND pt.date>=? AND pt.date<?
-    ''', [stationId, startText, endText]);
-
-    final partnerPaid = await scalar(
-      "SELECT COALESCE(SUM(amount),0) value FROM payments WHERE status='posted' AND partner_id IN (SELECT id FROM partners WHERE station_id=?) AND date>=? AND date<?",
-      [stationId, startText, endText],
-    );
-    final legacyPartnerPaid = await scalar(
-      "SELECT COALESCE(SUM(pt.amount),0) value FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id LEFT JOIN payments pay ON pay.id=pt.reference_id WHERE p.station_id=? AND pt.type='payment' AND pt.date>=? AND pt.date<? AND pay.id IS NULL",
-      [stationId, startText, endText],
-    );
-    final partnerPaidTotal = partnerPaid + legacyPartnerPaid;
+    final partnerTotals = await _partnerTotals(stationId, start, end);
     final beneficiaryPaid = await scalar(
       "SELECT COALESCE(SUM(amount),0) value FROM payments WHERE status='posted' AND beneficiary_id IN (SELECT id FROM beneficiaries WHERE station_id=?) AND date>=? AND date<?",
       [stationId, startText, endText],
@@ -96,9 +71,23 @@ class ReconciliationService {
     );
     final saved = savedRows.isEmpty ? <String, Object?>{} : savedRows.first;
     final previous = previousRows.isEmpty ? null : previousRows.first;
-    final opening = previous != null
-        ? ((previous['closing_balance'] as num?)?.round() ?? 0)
-        : ((saved['opening_balance'] as num?)?.round() ?? 0);
+    var opening = (saved['opening_balance'] as num?)?.round() ?? 0;
+    if (previous != null) {
+      final previousParts = '${previous['month_key']}'.split('-');
+      var carry = (previous['closing_balance'] as num?)?.round() ?? 0;
+      if (previousParts.length == 2) {
+        final previousEnd = DateTime(
+          int.parse(previousParts[0]),
+          int.parse(previousParts[1]) + 1,
+          1,
+        );
+        if (previousEnd.isBefore(start)) {
+          final gapTotals = await _partnerTotals(stationId, previousEnd, start);
+          carry += (gapTotals['profit'] ?? 0) - (gapTotals['paid'] ?? 0);
+        }
+      }
+      opening = carry;
+    }
     final manualPaid = (saved['manual_paid'] as num?)?.round() ?? 0;
     final closing = opening + profit - partnerPaid - manualPaid;
     final history = await database.query(
@@ -111,8 +100,8 @@ class ReconciliationService {
     return {
       'station_id': stationId,
       'month_key': key,
-      'partner_profit': profit,
-      'partner_app_paid': partnerPaidTotal,
+      'partner_profit': partnerTotals['profit'],
+      'partner_app_paid': partnerTotals['paid'],
       'opening_balance': opening,
       'manual_paid': manualPaid,
       'opening_details': saved['opening_details'] ?? '',
@@ -147,9 +136,7 @@ class ReconciliationService {
       orderBy: 'month_key DESC',
       limit: 1,
     );
-    final effectiveOpening = previous.isNotEmpty
-        ? (previous.first['closing_balance'] as num).round()
-        : openingBalance;
+    final effectiveOpening = (summary['opening_balance'] as num?)?.round() ?? openingBalance;
     final closing = effectiveOpening +
         ((summary['partner_profit'] as num?)?.round() ?? 0) -
         ((summary['partner_app_paid'] as num?)?.round() ?? 0) -
@@ -162,7 +149,8 @@ class ReconciliationService {
       limit: 1,
     );
 
-    // احسب تسويات الأشهر اللاحقة أولاً، ثم احفظ السلسلة كاملة في معاملة واحدة.
+    // احسب تسويات الأشهر اللاحقة أولاً، مع إدخال أرباح ومدفوعات الأشهر
+    // التي لم تُحفظ لها تسوية مستقلة بين شهرين محفوظين.
     final futureRows = await database.query(
       'accountant_reconciliation_months',
       where: 'station_id=? AND month_key>?',
@@ -171,21 +159,28 @@ class ReconciliationService {
     );
     final futureUpdates = <Map<String, Object?>>[];
     var carry = closing;
+    var cursor = DateTime(month.year, month.month + 1, 1);
     for (final row in futureRows) {
       final parts = '${row['month_key']}'.split('-');
       if (parts.length != 2) continue;
       final futureMonth = DateTime(int.parse(parts[0]), int.parse(parts[1]), 1);
-      final future = await loadMonth(futureMonth);
-      final futureProfit = (future['partner_profit'] as num?)?.round() ?? 0;
-      final futureAppPaid = (future['partner_app_paid'] as num?)?.round() ?? 0;
-      final futureManualPaid = (future['manual_paid'] as num?)?.round() ?? 0;
-      final futureClosing = carry + futureProfit - futureAppPaid - futureManualPaid;
+      final gapTotals = await _partnerTotals(stationId, cursor, futureMonth);
+      final futureOpening = carry +
+          (gapTotals['profit'] ?? 0) - (gapTotals['paid'] ?? 0);
+      final futureEnd = DateTime(futureMonth.year, futureMonth.month + 1, 1);
+      final futureTotals = await _partnerTotals(stationId, futureMonth, futureEnd);
+      final futureManualPaid = (row['manual_paid'] as num?)?.round() ?? 0;
+      final futureClosing = futureOpening +
+          (futureTotals['profit'] ?? 0) -
+          (futureTotals['paid'] ?? 0) -
+          futureManualPaid;
       futureUpdates.add({
         'id': row['id'],
-        'opening_balance': carry,
+        'opening_balance': futureOpening,
         'closing_balance': futureClosing,
       });
       carry = futureClosing;
+      cursor = futureEnd;
     }
 
     await database.transaction((tx) async {
