@@ -22,6 +22,7 @@ import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
 import '../services/message_template_service.dart';
 import 'general_accounts_page.dart';
+import 'reconciliation_page.dart';
 
 const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
 
@@ -865,6 +866,7 @@ class _ShellState extends State<AdminShell> {
     'النسخ الاحتياطي',
     'قياس الأداء',
     'الحسابات العامة',
+    'التسوية الشهرية',
   ];
   AppRole get role => AppRole.values.firstWhere(
     (x) => x.name == widget.role,
@@ -874,7 +876,7 @@ class _ShellState extends State<AdminShell> {
     final s = <int>{0, 2, 4, 5, 15};
     if (systemType == 'diesel') s.add(6);
     if (role == AppRole.manager || role == AppRole.accountant) {
-      s.addAll({1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 19});
+      s.addAll({1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 19, 20});
     }
     if (role == AppRole.manager) {
       s.addAll({16, 17, 18});
@@ -1458,6 +1460,7 @@ class _ShellState extends State<AdminShell> {
       17 => BackupPage(repo),
       18 => PerformancePage(repo),
       19 => GeneralAccountsPage(repo, userId: widget.userId),
+      20 => ReconciliationPage(repo, userId: widget.userId),
       _ => DashboardPage(repo, onOpen: go, availableMenu: visible.toList()),
     };
     return KeyedSubtree(key: key, child: w);
