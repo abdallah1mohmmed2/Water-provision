@@ -14,6 +14,7 @@ class BalanceSql {
   static String beneficiary([String alias = 'b']) {
     final a = alias;
     return "$a.opening_balance+$a.carried_balance"
+        "+COALESCE((SELECT SUM(md.amount) FROM beneficiary_manual_debts md WHERE md.beneficiary_id=$a.id AND md.status='posted'),0)"
         "+COALESCE((SELECT SUM(i.total_amount) FROM irrigations i WHERE i.beneficiary_id=$a.id AND i.status!='cancelled'),0)"
         "+COALESCE((SELECT SUM(d.amount) FROM diesel_movements d WHERE d.beneficiary_id=$a.id AND d.kind='advance' AND d.irrigation_id IS NULL),0)"
         "-COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.beneficiary_id=$a.id AND p.status='posted'),0)"
