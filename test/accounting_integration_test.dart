@@ -968,6 +968,10 @@ void main() {
       args: [debtId],
     )).single;
     expect(row['status'], 'cancelled');
+    final afterCancelStatement = await repo.beneficiaryStatement(b);
+    expect(afterCancelStatement.any((x) => x['type'] == 'manual_debt' && x['status'] == 'cancelled'), isTrue);
+    expect(afterCancelStatement.any((x) => x['type'] == 'manual_debt_reversal'), isTrue);
+    expect(afterCancelStatement.last['balance'], -10000);
     await expectLater(
       svc.cancelBeneficiaryDebt(debtId, 1, 'محاولة إلغاء مكرر'),
       throwsA(isA<StateError>()),
