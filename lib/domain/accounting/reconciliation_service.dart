@@ -99,6 +99,7 @@ class ReconciliationService {
       'partner_app_paid': partnerPaid,
       'opening_balance': opening,
       'manual_paid': manualPaid,
+      'opening_details': saved['opening_details'] ?? '',
       'closing_balance': closing,
       'beneficiary_due': (beneficiaryRows.first['due'] as num?)?.round() ?? 0,
       'beneficiary_credit': (beneficiaryRows.first['credit'] as num?)?.round() ?? 0,
@@ -116,6 +117,7 @@ class ReconciliationService {
     required DateTime month,
     required int openingBalance,
     required int manualPaid,
+    required String openingDetails,
     required int userId,
   }) async {
     if (manualPaid < 0) throw ArgumentError('المبلغ المسلّم لا يمكن أن يكون سالباً');
@@ -148,6 +150,7 @@ class ReconciliationService {
       'month_key': key,
       'opening_balance': effectiveOpening,
       'manual_paid': manualPaid,
+      'opening_details': openingDetails.trim(),
       'closing_balance': closing,
       'updated_by': userId,
       'updated_at': now,
@@ -162,6 +165,36 @@ class ReconciliationService {
         values,
         where: 'id=?',
         whereArgs: [existing.first['id']],
+      );
+    }
+
+    // عند تعديل شهر قديم نعيد احتساب الأشهر اللاحقة بالترتيب حتى لا تبقى
+    // أرصدة مرحّلة قديمة وغير متوافقة مع التسوية المعدّلة.
+    final futureRows = await database.query(
+      'accountant_reconciliation_months',
+      where: 'station_id=? AND month_key>?',
+      whereArgs: [stationId, key],
+      orderBy: 'month_key ASC',
+    );
+    for (final row in futureRows) {
+      final parts = '${row['month_key']}'.split('-');
+      if (parts.length != 2) continue;
+      final futureMonth = DateTime(int.parse(parts[0]), int.parse(parts[1]), 1);
+      final future = await loadMonth(futureMonth);
+      final futureOpening = (future['opening_balance'] as num?)?.round() ?? 0;
+      final futureProfit = (future['partner_profit'] as num?)?.round() ?? 0;
+      final futureAppPaid = (future['partner_app_paid'] as num?)?.round() ?? 0;
+      final futureManualPaid = (future['manual_paid'] as num?)?.round() ?? 0;
+      await database.update(
+        'accountant_reconciliation_months',
+        {
+          'opening_balance': futureOpening,
+          'closing_balance': futureOpening + futureProfit - futureAppPaid - futureManualPaid,
+          'updated_by': userId,
+          'updated_at': AppClock.now().toIso8601String(),
+        },
+        where: 'id=?',
+        whereArgs: [row['id']],
       );
     }
   }
