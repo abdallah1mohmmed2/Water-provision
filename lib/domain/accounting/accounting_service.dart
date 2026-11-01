@@ -3942,6 +3942,7 @@ class AccountingService {
     'backup_records',
     'sync_queue',
     'app_users',
+    'accountant_reconciliation_months',
     'cash_reconciliations',
     'period_closures',
     'beneficiary_auth_codes',
@@ -3961,6 +3962,7 @@ class AccountingService {
     'notification_templates',
     'general_accounts',
     'general_account_transactions',
+    'accountant_reconciliation_months',
   ];
 
   Future<String> exportStateJson() async {
