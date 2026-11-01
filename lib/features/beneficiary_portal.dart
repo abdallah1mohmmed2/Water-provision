@@ -452,7 +452,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
       title: Text(isIrrigation ? 'الإبلاغ عن خطأ في السقاية' : 'الإبلاغ عن خطأ في سند القبض'),
       content: Column(mainAxisSize: MainAxisSize.min, children: [
         ValueListenableBuilder<String>(valueListenable: category, builder: (_, value, __) =>
-          DropdownButtonFormField<String>(value: value, isExpanded: true,
+          DropdownButtonFormField<String>(initialValue: value, isExpanded: true,
             items: categories.map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(),
             onChanged: (v) { if (v != null) category.value = v; }, decoration: const InputDecoration(labelText: 'نوع الخطأ'))),
         const SizedBox(height: 12), TextField(controller: description, minLines: 2, maxLines: 4, decoration: const InputDecoration(labelText: 'اشرح الخطأ', border: OutlineInputBorder())),
@@ -865,6 +865,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
 
   Future<void> _editMyProfile() async {
     final ownerId = await _requireCurrentBeneficiary();
+    if (!mounted) return;
     final current = _beneficiary ?? <String, Object?>{};
     final name = TextEditingController(text: '${current['name'] ?? ''}');
     final phone = TextEditingController(text: '${current['phone'] ?? ''}');
@@ -999,7 +1000,7 @@ class _BeneficiaryHomePageState extends State<BeneficiaryHomePage> {
                 child: ListTile(
                   leading: const Icon(Icons.water_drop_rounded),
                   title: Text('${station['name'] ?? 'محطة بدون اسم'}'),
-                  subtitle: Text('المشروع المرتبط بحسابك حاليًا'),
+                  subtitle: const Text('المشروع المرتبط بحسابك حاليًا'),
                   trailing: const Icon(Icons.check_circle, color: Colors.green),
                 ),
               ),
