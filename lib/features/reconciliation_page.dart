@@ -43,8 +43,6 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
 
   int _n(Object? value) => value is num ? value.round() : int.tryParse('$value') ?? 0;
   String _money(Object? value) => NumberFormat('#,##0').format(_n(value));
-  String _monthLabel(DateTime value) => DateFormat('MMMM yyyy', 'en').format(value);
-
   Future<void> _load() async {
     setState(() { loading = true; error = null; });
     try {
