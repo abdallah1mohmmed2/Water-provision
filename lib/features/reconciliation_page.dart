@@ -220,7 +220,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                                 maxLines: 4,
                                 decoration: const InputDecoration(
                                   labelText: 'تفصيل الأشهر التي يتكون منها الرصيد السابق',
-                                  hintText: 'مثال: أغسطس 2026: 50,000 ريال\\nسبتمبر 2026: 25,000 ريال',
+                                  hintText: 'مثال: أغسطس 2026: 50,000 ريال\nسبتمبر 2026: 25,000 ريال',
                                   border: OutlineInputBorder(),
                                 ),
                               ),
