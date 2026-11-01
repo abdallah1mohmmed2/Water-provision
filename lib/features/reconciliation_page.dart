@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart' as pdf;
@@ -155,7 +156,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
     final closing = _n(d?['closing_balance']);
     final hasPrevious = d?['has_previous'] == true;
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: ui.TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('التسوية الشهرية'),
