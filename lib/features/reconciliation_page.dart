@@ -279,7 +279,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
   String _historySubtitle(Map<String, Object?> row) {
     final details = '${row['opening_details'] ?? ''}'.trim();
     return 'افتتاحي: ${_money(row['opening_balance'])} | أرباح: ${_money(row['partner_profit'])} | مسلّم بالتطبيق: ${_money(row['partner_app_paid'])} | يدوي: ${_money(row['manual_paid'])} ريال'
-        '${details.isEmpty ? '' : '\\nتفصيل الافتتاحي: $details'}';
+        '${details.isEmpty ? '' : '\nتفصيل الافتتاحي: $details'}';
   }
 
   Widget _sectionTitle(String text) => Padding(
