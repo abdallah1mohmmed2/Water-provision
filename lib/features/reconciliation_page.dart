@@ -105,6 +105,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
       StatBoxData(number: '8', title: 'المبالغ التي للمستفيدين', value: '${_money(d['beneficiary_credit'])} ريال'),
       StatBoxData(number: '9', title: 'المتبقي للعمال حتى نهاية الشهر', value: '${_money(d['worker_due'])} ريال', isBlueTint: true),
       StatBoxData(number: '10', title: 'المسلّم للعمال هذا الشهر', value: '${_money(d['worker_paid'])} ريال'),
+      StatBoxData(number: '11', title: 'المتبقي للمحطة عند العمال', value: '${_money(d['worker_credit'])} ريال', isBlueTint: true),
       StatBoxData(number: '11', title: 'إجمالي المصروفات المسجلة', value: '${_money(d['expenses'])} ريال', isBlueTint: true),
     ];
     final settings = await widget.repo.settings();
@@ -247,6 +248,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                       _card('الأرصدة التي للمستفيدين حتى نهاية الشهر', d?['beneficiary_credit'], Icons.account_balance_wallet_rounded, Colors.blue),
                       _sectionTitle('ثالثاً: حساب العمال'),
                       _card('المتبقي للعمال حتى نهاية الشهر', d?['worker_due'], Icons.engineering_rounded, Colors.deepOrange),
+                      _card('المتبقي للمحطة عند العمال حتى نهاية الشهر', d?['worker_credit'], Icons.account_balance_wallet_rounded, Colors.blue),
                       _card('إجمالي المسلّم للعمال هذا الشهر', d?['worker_paid'], Icons.payments_rounded, Colors.teal),
                       _sectionTitle('رابعاً: المصروفات'),
                       _card('إجمالي المصروفات المسجلة لهذا الشهر', d?['expenses'], Icons.receipt_rounded, Colors.indigo),
