@@ -924,6 +924,56 @@ void main() {
     }
   });
 
+  test('مديونية المستفيد السابقة: رصيد موحد، لا نقد ولا إيراد، وتُلغى بعكس القيد', () async {
+    final repo = StationRepository(db);
+    final b = await repo.createBeneficiary(name: 'مستفيد مديونية سابقة');
+    final cashBefore = await cashboxBalance(1);
+    final revenueBefore = await accountNet('4000');
+    final receivableBefore = await accountNet('1200');
+    final carriedBefore = await accountNet('3100');
+    final debtId = await svc.addBeneficiaryDebt(
+      beneficiaryId: b,
+      amount: 25000,
+      date: DateTime.now(),
+      notes: 'رصيد مديونية سابق للمحطة',
+      userId: 1,
+    );
+    expect(await cashboxBalance(1), cashBefore);
+    expect(await accountNet('4000'), revenueBefore);
+    expect(await accountNet('1200'), receivableBefore + 25000);
+    expect(await accountNet('3100'), carriedBefore - 25000);
+    expect((await svc.beneficiaryBalance(b))['balance'], 25000);
+    final statement = await repo.beneficiaryStatement(b);
+    final debtRow = statement.singleWhere((row) => row['type'] == 'manual_debt');
+    expect(debtRow['id'], debtId);
+    expect(debtRow['debit'], 25000);
+    expect(debtRow['credit'], 0);
+    expect(statement.last['balance'], 25000);
+
+    // دفعة لاحقة تخصم من الرصيد الموحد، دون إنشاء رصيد مقدم منفصل.
+    await svc.receivePayment(
+      beneficiaryId: b,
+      amount: 10000,
+      paymentMethodId: 1,
+      cashboxId: 1,
+    );
+    expect((await svc.beneficiaryBalance(b))['balance'], 15000);
+
+    await svc.cancelBeneficiaryDebt(debtId, 1, 'إدخال المديونية على المستفيد الخطأ');
+    expect((await svc.beneficiaryBalance(b))['balance'], -10000);
+    expect(await cashboxBalance(1), cashBefore + 10000);
+    expect(await accountNet('4000'), revenueBefore);
+    final row = (await db.query(
+      'SELECT status FROM beneficiary_manual_debts WHERE id=?',
+      args: [debtId],
+    )).single;
+    expect(row['status'], 'cancelled');
+    await expectLater(
+      svc.cancelBeneficiaryDebt(debtId, 1, 'محاولة إلغاء مكرر'),
+      throwsA(isA<StateError>()),
+    );
+  });
+
   test('تثبيت جديد: عمود snoozed_until موجود ويعمل تأجيل الإشعار', () async {
     final repo = StationRepository(db);
     final id = await db.insert('notifications', {
