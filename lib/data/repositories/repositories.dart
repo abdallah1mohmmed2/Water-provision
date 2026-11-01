@@ -291,8 +291,8 @@ class StationRepository {
       "SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.cloud_minutes,i.chargeable_minutes,i.total_amount,i.paid_amount,'s' type,i.total_amount debit,0 credit,0 lah,i.total_amount alayh,'سقاية' description,'posted' status,i.notes notes FROM irrigations i WHERE i.beneficiary_id=? AND i.status!='cancelled' "
       "UNION ALL SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,'p',0,p.amount,p.amount,0,'دفعة','posted',p.notes FROM payments p WHERE p.beneficiary_id=? AND p.status='posted' "
       "UNION ALL SELECT d.id,d.date,d.date,d.date,'diesel_advance',0,0,0,0,0,'a',d.amount,0,0,d.amount,'سلفة ديزل','posted',d.notes FROM diesel_movements d WHERE d.beneficiary_id=? AND d.kind='advance' AND d.irrigation_id IS NULL "
-      "UNION ALL SELECT md.id,md.date,md.date,md.date,'manual_debt',0,0,0,0,0,'m',md.amount,0,0,md.amount,'إضافة مديونية',md.status,md.notes FROM beneficiary_manual_debts md WHERE md.beneficiary_id=? "
-      "UNION ALL SELECT -md.id,md.cancelled_at,md.cancelled_at,md.cancelled_at,'manual_debt_reversal',0,0,0,0,0,'m',0,md.amount,md.amount,0,'إلغاء مديونية','cancelled',md.cancel_reason FROM beneficiary_manual_debts md WHERE md.beneficiary_id=? AND md.status='cancelled' AND md.cancelled_at IS NOT NULL "
+      "UNION ALL SELECT md.id,md.date,md.date,md.date,'manual_debt',0,0,0,0,0,'manual_debt',md.amount,0,0,md.amount,'إضافة مديونية',md.status,md.notes FROM beneficiary_manual_debts md WHERE md.beneficiary_id=? "
+      "UNION ALL SELECT -md.id,md.cancelled_at,md.cancelled_at,md.cancelled_at,'manual_debt_reversal',0,0,0,0,0,'manual_debt_reversal',0,md.amount,md.amount,0,'إلغاء مديونية','cancelled',md.cancel_reason FROM beneficiary_manual_debts md WHERE md.beneficiary_id=? AND md.status='cancelled' AND md.cancelled_at IS NOT NULL "
       "${creditDelivery ? "UNION ALL SELECT d.id,d.date,d.date,d.date,'diesel_delivery',0,0,0,0,0,'d',0,d.amount,d.amount,0,'تسليم ديزل','posted',d.notes FROM diesel_movements d WHERE d.beneficiary_id=? AND d.kind='delivery' " : ''}"
       "ORDER BY date,id",
       [id, id, id, id, id, if (creditDelivery) id],
