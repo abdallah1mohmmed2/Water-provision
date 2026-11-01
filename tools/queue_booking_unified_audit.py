@@ -55,6 +55,14 @@ ck('session start requires accepted booking', "'scheduled'," not in r[r.index('F
 ck('irrigation booking link excludes unaccepted requests', "static const _openBookingStatuses = ['accepted', 'notified'];" in page)
 ck('session booking selector only offers accepted requests', "const {'accepted', 'notified'}.contains('${x['status']}')" in page)
 
+
+ck('circular booking filter remains available without pending requests', "if (!isBookingMode || pendingBookings.isNotEmpty)" in page)
+ck('booking filter chips are not duplicated', page.count("_statusChip('كل الطلبات', null)") == 2)
+ck('beneficiary booking queue excludes unaccepted requests', "WHERE br.status IN ('accepted','notified')" in r)
+ck('session start requires accepted booking', "'scheduled'," not in r[r.index('Future<int> startSession'):r.index('Future<void> stopSession')])
+ck('irrigation booking link excludes unaccepted requests', "static const _openBookingStatuses = ['accepted', 'notified'];" in page)
+ck('session booking selector only offers accepted requests', "const {'accepted', 'notified'}.contains('${x['status']}')" in page)
+
 failed=[n for n,ok in checks if not ok]
 for n,ok in checks:
     print(('PASS' if ok else 'FAIL')+': '+n)
