@@ -51,10 +51,17 @@ class ReconciliationService {
       "SELECT COALESCE(SUM(amount),0) value FROM payments WHERE status='posted' AND worker_id IN (SELECT id FROM workers WHERE station_id=?) AND date>=? AND date<?",
       [stationId, startText, endText],
     );
-    final expenses = await scalar(
+    final recordedExpenses = await scalar(
       "SELECT COALESCE(SUM(amount),0) value FROM expenses WHERE status='posted' AND date>=? AND date<? AND (worker_id IN (SELECT id FROM workers WHERE station_id=?) OR partner_id IN (SELECT id FROM partners WHERE station_id=?) OR (worker_id IS NULL AND partner_id IS NULL))",
       [startText, endText, stationId, stationId],
     );
+    // أجور العمال تُرحّل في الأستاذ على 5000 ولا تُسجّل في جدول expenses
+    // حتى لا تُحسب مرتين؛ نضمّها هنا إلى إجمالي المصروفات الإحصائي.
+    final workerEntitlements = await scalar(
+      "SELECT COALESCE(SUM(jl.debit-jl.credit),0) value FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND a.code='5000' AND je.date>=? AND je.date<?",
+      [stationId, startText, endText],
+    );
+    final expenses = recordedExpenses + workerEntitlements;
     final beneficiaryRows = await database.rawQuery(
       "SELECT COALESCE(SUM(CASE WHEN balance>0 THEN balance ELSE 0 END),0) due, COALESCE(SUM(CASE WHEN balance<0 THEN -balance ELSE 0 END),0) credit FROM (SELECT (${BalanceSql.beneficiary('b')}) balance FROM beneficiaries b WHERE b.station_id=?)",
       [stationId],
