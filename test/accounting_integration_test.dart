@@ -2962,8 +2962,8 @@ void main() {
     );
     await repo.createPartner(
       name: 'شريك كشف أرباح ثان $suffix',
-      mode: 'percentage',
-      percentage: 25,
+      mode: 'shares',
+      shares: 3,
     );
     final rows = await repo.report(
       'partner_profit_statement',
