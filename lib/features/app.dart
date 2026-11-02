@@ -10160,13 +10160,6 @@ class _WorkersState extends State<WorkersPage> {
       'view_account': 'عرض كشف الحساب',
       'view_payments': 'عرض المستحقات والمدفوعات',
       'view_reports': 'عرض التقارير وملفات PDF',
-      'view_schedule': 'عرض جدول العمل',
-      'view_notifications': 'عرض الإشعارات',
-      'submit_complaints': 'إرسال الشكاوى والبلاغات',
-      'request_leave': 'طلب إجازة أو غياب',
-      'start_irrigation': 'بدء عملية سقاية',
-      'manage_queue': 'إدارة الدور',
-      'view_beneficiaries': 'عرض بيانات المستفيدين',
     };
     final ok = await showDialog<bool>(
       context: context,
