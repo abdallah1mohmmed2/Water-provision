@@ -3034,6 +3034,130 @@ void main() {
   });
 
 
+  test('تفاصيل استحقاق السقاية والتسوية والمصروف مع عزل ملكية الشريك', () async {
+    await useSolar6000();
+    final repo = StationRepository(db);
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final first = await repo.createPartner(
+      name: 'شريك تفاصيل أول $suffix',
+      mode: 'shares',
+      shares: 2,
+    );
+    final second = await repo.createPartner(
+      name: 'شريك تفاصيل ثان $suffix',
+      mode: 'shares',
+      shares: 3,
+    );
+    final start = DateTime(2048, 6, 10, 8);
+    final irrigationId = await irrigationFor(partnerId: first, start: start);
+
+    // استحقاق مرتبط بالسقاية وتسوية مستقلة؛ سجلات المصدر لا تُعدّل أثناء القراءة.
+    final accrualId = await db.insert('partner_transactions', {
+      'partner_id': first,
+      'date': start.toIso8601String(),
+      'type': 'share_accrual',
+      'amount': 2400,
+      'ownership_snapshot': 2,
+      'reference_type': 'irrigation_profit',
+      'reference_id': irrigationId,
+      'notes': 'استحقاق حصة الشريك من السقاية للاختبار',
+    });
+    final settlementId = await db.insert('partner_transactions', {
+      'partner_id': first,
+      'date': start.add(const Duration(days: 1)).toIso8601String(),
+      'type': 'share_adjustment',
+      'amount': 300,
+      'reference_type': 'manual_adjustment',
+      'reference_id': null,
+      'notes': 'تسوية حصة الشريك للاختبار',
+    });
+
+    final expenseId = await svc.addExpense(
+      category: 'maintenance',
+      title: 'مصروف خاص بالشريك للاختبار',
+      amount: 700,
+      date: start.add(const Duration(days: 2)),
+      paymentMethodId: 1,
+      cashboxId: 1,
+      partnerId: first,
+      notes: 'مصروف مرتبط بالشريك الأول',
+    );
+    final otherExpenseId = await svc.addExpense(
+      category: 'maintenance',
+      title: 'مصروف خاص بالشريك الآخر للاختبار',
+      amount: 900,
+      date: start.add(const Duration(days: 3)),
+      paymentMethodId: 1,
+      cashboxId: 1,
+      partnerId: second,
+      notes: 'مصروف مرتبط بالشريك الثاني',
+    );
+
+    Future<Map<String, Object?>?> expenseFor(int id, int partnerId) async {
+      final rows = await db.rawQuery('''
+        SELECT e.id, e.partner_id, e.date, e.title, e.category, e.amount, e.notes,
+               pm.name method_name, c.name cashbox_name
+        FROM expenses e
+        LEFT JOIN payment_methods pm ON pm.id=e.payment_method_id
+        LEFT JOIN cashboxes c ON c.id=e.cashbox_id
+        WHERE e.id=? AND e.partner_id=? AND e.status='posted'
+        LIMIT 1
+      ''', [id, partnerId]);
+      return rows.isEmpty ? null : rows.single;
+    }
+
+    Future<Map<String, Object?>?> partnerTransactionFor(int id, int partnerId) async {
+      final rows = await db.rawQuery(
+        'SELECT * FROM partner_transactions WHERE id=? AND partner_id=? LIMIT 1',
+        [id, partnerId],
+      );
+      return rows.isEmpty ? null : rows.single;
+    }
+
+    Future<Map<String, Object?>?> irrigationForPartner(int id, int partnerId) async {
+      final rows = await db.rawQuery('''
+        SELECT i.id, i.partner_id, i.station_id, i.date, i.start_datetime,
+               i.minutes, i.cloud_minutes, i.chargeable_minutes, i.total_amount,
+               p.name pump_name
+        FROM irrigations i LEFT JOIN pumps p ON p.id=i.pump_id
+        WHERE i.id=? AND i.partner_id=? AND i.station_id=? AND i.status!='cancelled'
+        LIMIT 1
+      ''', [id, partnerId, 1]);
+      return rows.isEmpty ? null : rows.single;
+    }
+
+    final ownAccrual = await partnerTransactionFor(accrualId, first);
+    final ownSettlement = await partnerTransactionFor(settlementId, first);
+    expect(ownAccrual?['reference_type'], 'irrigation_profit');
+    expect(ownAccrual?['reference_id'], irrigationId);
+    expect(ownSettlement?['type'], 'share_adjustment');
+    expect(ownSettlement?['notes'], 'تسوية حصة الشريك للاختبار');
+    expect(await partnerTransactionFor(accrualId, second), isNull);
+    expect(await partnerTransactionFor(settlementId, second), isNull);
+
+    final ownIrrigation = await irrigationForPartner(irrigationId, first);
+    expect(ownIrrigation?['id'], irrigationId);
+    expect(await irrigationForPartner(irrigationId, second), isNull);
+
+    final ownExpense = await expenseFor(expenseId, first);
+    expect(ownExpense?['title'], 'مصروف خاص بالشريك للاختبار');
+    expect(await expenseFor(expenseId, second), isNull);
+    expect(await expenseFor(otherExpenseId, first), isNull);
+    expect((await expenseFor(otherExpenseId, second))?['partner_id'], second);
+
+    // التحقق من أن القراءة لم تغيّر أي قيمة مالية أو حالة ترحيل.
+    final unchanged = await db.query(
+      'SELECT amount,status FROM expenses WHERE id=?',
+      args: [expenseId],
+    );
+    expect(unchanged.single['amount'], 700);
+    expect(unchanged.single['status'], 'posted');
+    expect((await db.query(
+      'SELECT amount,type FROM partner_transactions WHERE id=?',
+      args: [accrualId],
+    )).single, {'amount': 2400, 'type': 'share_accrual'});
+  });
+
 }
 
 class _MemoryBeneficiarySessionStorage implements BeneficiarySessionStorage {
