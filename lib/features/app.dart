@@ -10131,7 +10131,13 @@ class _WorkersState extends State<WorkersPage> {
     }
     final workerId = (worker['id'] as num).toInt();
     final auth = LocalWorkerAuthService(database: widget.r.db);
-    final existing = await auth.credentials(workerId);
+    Map<String, Object?>? existing;
+    try {
+      existing = await auth.credentials(workerId);
+    } catch (e) {
+      if (mounted) msg(friendlyError(e));
+      return;
+    }
     if (!mounted) return;
     final username = TextEditingController(
       text: existing?['username_normalized']?.toString() ?? '',
