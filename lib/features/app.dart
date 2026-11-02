@@ -1613,7 +1613,7 @@ class _NeonBottomBar extends StatelessWidget {
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: Color(0x142D625A))),
-        boxShadow: const [BoxShadow(color: Color(0x10233F3B), blurRadius: 18, offset: Offset(0, -4))],
+        boxShadow: [BoxShadow(color: Color(0x10233F3B), blurRadius: 18, offset: Offset(0, -4))],
       ),
       child: SafeArea(
         top: false,
@@ -2386,7 +2386,7 @@ class _DashboardState extends State<DashboardPage> {
                       ],
                     ),
                     const SizedBox(height: 3),
-                    Text(
+                    const Text(
                       'اسحب يمينًا أو يسارًا للتبديل بين القائمة والتقارير',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: muted, fontSize: 10),
@@ -10667,6 +10667,7 @@ class _PartnersState extends State<PartnersPage> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
       return;
     }
+    if (!mounted) return;
     final username = TextEditingController(text: '${existing?['username_normalized'] ?? ''}');
     final password = TextEditingController();
     var active = (existing?['active'] as num?)?.toInt() != 0;
@@ -10693,6 +10694,11 @@ class _PartnersState extends State<PartnersPage> {
         ),
       ),
     );
+    if (!mounted) {
+      username.dispose();
+      password.dispose();
+      return;
+    }
     if (saved == true) {
       final ok = await runGuarded(context, () async {
         if (existing == null) {
