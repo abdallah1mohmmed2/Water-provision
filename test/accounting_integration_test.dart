@@ -3084,6 +3084,17 @@ void main() {
     await auth.updateCredentials(
       workerId: workerId,
       username: username,
+      active: true,
+      managerId: 1,
+      permissions: const ['view_dashboard'],
+    );
+    // تقليص الصلاحيات يبطل الجلسة الحالية حتى لا تبقى شاشة قديمة مفتوحة.
+    expect(await auth.currentWorkerId(), isNull);
+    expect(await auth.login(username, password), isTrue);
+    expect(await auth.hasPermission('view_account'), isFalse);
+    await auth.updateCredentials(
+      workerId: workerId,
+      username: username,
       active: false,
       managerId: 1,
       permissions: const ['view_dashboard'],
