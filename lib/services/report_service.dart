@@ -39,6 +39,7 @@ class ReportService {
     'worker_transactions': 'معاملات العمال',
     'partner_accounts': 'حسابات الشركاء',
     'partner_profit_distribution': 'صافي أرباح وتوزيعات الشركاء',
+    'partner_profit_statement': 'كشف أرباح الشريك',
   };
 
   static const reportColumns = <String, List<String>>{
@@ -58,6 +59,7 @@ class ReportService {
   'worker_transactions': ['date', 'description', 'lah', 'alayh', 'balance'],
   'partner_accounts': ['date', 'description', 'lah', 'alayh', 'balance'],
   'partner_profit_distribution': ['name', 'mode', 'basis', 'direct_amount', 'share_amount', 'gross_amount', 'partner_expenses', 'net_amount'],
+  'partner_profit_statement': ['name', 'mode', 'basis', 'direct_amount', 'share_amount', 'gross_amount', 'partner_expenses', 'net_amount'],
   'beneficiary_stats': ['name', 'irrigations', 'minutes', 'total'],
   'needy': ['name', 'balance'],
   'diesel_inventory': ['date', 'kind', 'liters', 'amount', 'beneficiary_name'],
