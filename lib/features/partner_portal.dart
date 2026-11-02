@@ -114,6 +114,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
   List<Map<String, Object?>> _transactions = [], _irrigations = [];
   int _tab = 0, _offset = 0, _stationInvoiceCount = 0, _stationMinutes = 0;
   Timer? _searchDebounce;
+  int _irrigationGeneration = 0;
   bool _loading = true, _loadingMore = false, _hasMore = true;
   String _search = '';
   DateTime? _from, _to;
@@ -172,7 +173,8 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
   }
 
   Future<void> _loadIrrigations({bool reset = false}) async {
-    if (_partnerId == null || _loadingMore || (!reset && !_hasMore)) return;
+    if (_partnerId == null || (!reset && (_loadingMore || !_hasMore))) return;
+    final generation = ++_irrigationGeneration;
     if (mounted) setState(() { if (reset) { _offset = 0; _hasMore = true; _irrigations = []; } _loadingMore = true; });
     try {
       final args = <Object?>[];
@@ -188,9 +190,8 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
       args.add(_pageSize);
       args.add(_offset);
       final rows = await _repo.rawQuery('''
-        SELECT i.id, i.date, i.start_datetime, i.end_datetime, i.minutes,
-          COALESCE(i.cloud_minutes,0) cloud_minutes, i.chargeable_minutes,
-          i.total_amount, i.paid_amount, i.system_type, i.status, i.notes,
+        SELECT i.*,
+          COALESCE(i.cloud_minutes,0) cloud_minutes,
           COALESCE(b.name,w.name,p.name,'غير محدد') party_name, pm.name pump_name
         FROM irrigations i
         LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id
@@ -200,7 +201,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         WHERE ${where.join(' AND ')}
         ORDER BY i.start_datetime DESC, i.id DESC LIMIT ? OFFSET ?
       ''', args);
-      if (!mounted) return;
+      if (!mounted || generation != _irrigationGeneration) return;
       setState(() {
         _irrigations = reset ? rows : [..._irrigations, ...rows];
         _offset += rows.length;
@@ -208,7 +209,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         _loadingMore = false;
       });
     } catch (e) {
-      if (mounted) setState(() { _loadingMore = false; _error = 'تعذر تحميل سقايات المحطة: $e'; });
+      if (mounted && generation == _irrigationGeneration) setState(() { _loadingMore = false; _error = 'تعذر تحميل سقايات المحطة: $e'; });
     }
   }
 
@@ -248,7 +249,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
                 Navigator.pop(context);
                 await ReportService(_repo).printPdf('invoices', sourceRows: [row], systemType: 'all');
               },
-              icon: const Icon(Icons.picture_as_pdf), label: const Text('طباعة تقرير الفواتير')),
+              icon: const Icon(Icons.picture_as_pdf), label: const Text('طباعة الفاتورة')),
             ),
           ]),
         )),
