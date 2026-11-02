@@ -737,6 +737,149 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
     ]),
   );
 
+  Future<void> _showPartnerExpenseDetails(Map<String, Object?> row) async {
+    final expenseId = _asInt(row['reference_id']);
+    if (_partnerId == null || expenseId <= 0) return;
+    final matches = await _repo.db.rawQuery('''
+      SELECT e.id, e.date, e.title, e.category, e.amount, e.notes,
+             pm.name method_name, c.name cashbox_name
+      FROM expenses e
+      LEFT JOIN payment_methods pm ON pm.id=e.payment_method_id
+      LEFT JOIN cashboxes c ON c.id=e.cashbox_id
+      WHERE e.id=? AND e.partner_id=? AND e.status='posted'
+      LIMIT 1
+    ''', [expenseId, _partnerId]);
+    if (!mounted) return;
+    if (matches.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('لم يتم العثور على مصروف مرحّل مرتبط بحسابك.')),
+      );
+      return;
+    }
+    final expense = matches.first;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تفاصيل المصروف الخاص بالشريك'),
+          content: SingleChildScrollView(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _paymentDetailLine('رقم المصروف', expense['id']),
+              _paymentDetailLine('التاريخ', _date(expense['date'])),
+              _paymentDetailLine('العنوان', expense['title']),
+              _paymentDetailLine('التصنيف', expense['category']),
+              _paymentDetailLine('المبلغ', '${_money(expense['amount'])} ريال'),
+              _paymentDetailLine('طريقة الدفع', expense['method_name'] ?? 'غير محددة'),
+              _paymentDetailLine('الصندوق', expense['cashbox_name'] ?? 'غير محدد'),
+              if ('${expense['notes'] ?? ''}'.trim().isNotEmpty)
+                _paymentDetailLine('البيان', expense['notes']),
+              const SizedBox(height: 8),
+              const Text('تفاصيل للعرض فقط؛ لا يمكن تعديل المصروف أو القيد من بوابة الشريك.',
+                style: TextStyle(fontSize: 12)),
+            ],
+          )),
+          actions: [TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('إغلاق'),
+          )],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPartnerAccrualDetails(Map<String, Object?> row) async {
+    if (_partnerId == null) return;
+    Map<String, Object?>? transaction;
+    final referenceType = '${row['reference_type'] ?? ''}';
+    final referenceId = _asInt(row['reference_id']);
+
+    // في الأستاذ يشير مرجع partner إلى سجل الحركة الفرعي؛ أما المصدر القديم
+    // فيحمل reference_type/reference_id الأصليين مباشرة.
+    if (referenceType == 'partner' && referenceId > 0) {
+      final matches = await _repo.db.rawQuery(
+        'SELECT * FROM partner_transactions WHERE id=? AND partner_id=? LIMIT 1',
+        [referenceId, _partnerId],
+      );
+      if (matches.isNotEmpty) transaction = matches.first;
+    }
+
+    final sourceType = '${transaction?['reference_type'] ?? referenceType}';
+    final sourceId = transaction == null
+        ? referenceId
+        : _asInt(transaction['reference_id']);
+    Map<String, Object?>? irrigation;
+    if (sourceType == 'irrigation_profit' && sourceId > 0) {
+      final matches = await _repo.db.rawQuery('''
+        SELECT i.id, i.date, i.start_datetime, i.end_datetime, i.minutes,
+               i.cloud_minutes, i.chargeable_minutes, i.total_amount,
+               i.status, pm.name pump_name
+        FROM irrigations i LEFT JOIN pumps pm ON pm.id=i.pump_id
+        WHERE i.id=? AND i.partner_id=? AND i.station_id=? AND i.status!='cancelled'
+        LIMIT 1
+      ''', [sourceId, _partnerId, widget.auth.stationId]);
+      if (matches.isNotEmpty) irrigation = matches.first;
+    }
+    if (!mounted) return;
+    final tx = transaction;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تفاصيل الاستحقاق / التسوية'),
+          content: SingleChildScrollView(child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _paymentDetailLine('نوع الحركة', row['description'] ?? row['type']),
+              _paymentDetailLine('التاريخ', _date(row['date'])),
+              _paymentDetailLine('المبلغ', '${_money(row['amount'])} ريال'),
+              if (tx != null) ...[
+                _paymentDetailLine('رقم الحركة', tx['id']),
+                if (tx['ownership_snapshot'] != null)
+                  _paymentDetailLine('أساس الحصة وقت الترحيل', tx['ownership_snapshot']),
+                if ('${tx['notes'] ?? ''}'.trim().isNotEmpty)
+                  _paymentDetailLine('البيان', tx['notes']),
+              ],
+              if (irrigation != null) ...[
+                const Divider(),
+                const Text('السقاية المرتبطة', style: TextStyle(fontWeight: FontWeight.w900)),
+                _paymentDetailLine('رقم الفاتورة', irrigation['id']),
+                _paymentDetailLine('المضخة', irrigation['pump_name'] ?? 'غير محددة'),
+                _paymentDetailLine('بداية السقاية', _date(irrigation['start_datetime'])),
+                _paymentDetailLine('المدة', '${irrigation['minutes']} دقيقة'),
+                _paymentDetailLine('خصم الغيم', '${irrigation['cloud_minutes']} دقيقة'),
+                _paymentDetailLine('الدقائق المحتسبة', '${irrigation['chargeable_minutes']} دقيقة'),
+                _paymentDetailLine('إجمالي الفاتورة', '${_money(irrigation['total_amount'])} ريال'),
+              ],
+              const SizedBox(height: 8),
+              const Text('عرض توضيحي فقط. لا يتم تعديل الاستحقاق أو التسوية أو أي قيد محاسبي.',
+                style: TextStyle(fontSize: 12)),
+            ],
+          )),
+          actions: [TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('إغلاق'),
+          )],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showTransactionDetails(Map<String, Object?> row) async {
+    final referenceType = '${row['reference_type'] ?? ''}';
+    if (row['type'] == 'payment' || referenceType == 'payment') {
+      await _showPaymentDetails(row);
+    } else if (referenceType == 'expense' || referenceType == 'petty_expense') {
+      await _showPartnerExpenseDetails(row);
+    } else {
+      await _showPartnerAccrualDetails(row);
+    }
+  }
+
   Widget _transactionTile(Map<String, Object?> row) {
     final signed = _asInt(row['signed_amount']);
     final amount = _asInt(row['amount']);
@@ -749,14 +892,10 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
       subtitle: Text('${_date(row['date'])} • رصيد ${_partyBalance(_asInt(row['balance']))}'),
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
         Text('${isCredit ? '+' : '-'}${_money(amount)}', style: TextStyle(fontWeight: FontWeight.w900, color: isCredit ? Colors.green : Colors.orange)),
-        if (row['type'] == 'payment' || row['reference_type'] == 'payment') ...[
-          const SizedBox(width: 4),
-          const Icon(Icons.chevron_left, size: 20),
-        ],
+        const SizedBox(width: 4),
+        const Icon(Icons.chevron_left, size: 20),
       ]),
-      onTap: row['type'] == 'payment' || row['reference_type'] == 'payment'
-          ? () => _showPaymentDetails(row)
-          : null,
+      onTap: () => _showTransactionDetails(row),
     ));
   }
 
