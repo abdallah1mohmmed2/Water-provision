@@ -203,16 +203,15 @@ class LocalWorkerAuthService {
       if (hash != null) values['password_phc'] = hash;
       await tx.update('worker_credentials', values, where: 'id=?', whereArgs: [credentialId]);
 
-      final wasActive = (rows.first['active'] as num?)?.toInt() == 1;
-      final revoke = hash != null || (wasActive && !active);
-      if (revoke) {
-        await tx.update(
-          'worker_sessions',
-          {'revoked_at': now},
-          where: 'worker_id=? AND revoked_at IS NULL',
-          whereArgs: [workerId],
-        );
-      }
+      // Any manager-side credential or permission change requires a fresh
+      // login so a worker cannot keep using a screen after a permission is removed.
+      const revoke = true;
+      await tx.update(
+        'worker_sessions',
+        {'revoked_at': now},
+        where: 'worker_id=? AND revoked_at IS NULL',
+        whereArgs: [workerId],
+      );
       await db.auditTx(
         tx,
         userId: managerId,
