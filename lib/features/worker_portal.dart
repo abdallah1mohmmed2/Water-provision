@@ -138,6 +138,15 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       if(permissions.contains('view_reports'))IconButton(icon:const Icon(Icons.picture_as_pdf),onPressed:()async{try{await ReportService(repo).printPdf('worker_transactions',workerId:id);}catch(e){if(mounted)message('تعذر إنشاء PDF: $e');}})]),
     for(final row in ledger)tile(row),if(ledger.isEmpty)const Text('لا توجد حركات مسجلة.')
   ]);
+  Widget paymentsPage(){
+    final rows=ledger.where((row)=>const ['payment','payment_note','worker_payment'].contains('${row['type']}')).toList();
+    return ListView(padding:const EdgeInsets.all(16),children:[
+      const Text('مدفوعاتي',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
+      const SizedBox(height:8),
+      for(final row in rows)tile(row),
+      if(rows.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Text('لا توجد دفعات مسجلة لك حتى الآن.'))
+    ]);
+  }
   Widget irrigationPage()=>ListView(padding:const EdgeInsets.all(16),children:[
     const Text('سجل استحقاقات السقايات',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
     for(final row in irrigations)Card(elevation:0,child:ListTile(leading:const CircleAvatar(child:Icon(Icons.water_drop)),
@@ -152,7 +161,8 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
     final tabs=<({String title,IconData icon,Widget page})>[
       if(permissions.contains('view_dashboard'))(title:'الرئيسية',icon:Icons.home,page:home()),
       if(permissions.contains('view_irrigations'))(title:'السقايات',icon:Icons.water_drop,page:irrigationPage()),
-      if(permissions.contains('view_account'))(title:'حسابي',icon:Icons.account_balance_wallet,page:account())
+      if(permissions.contains('view_account'))(title:'حسابي',icon:Icons.account_balance_wallet,page:account()),
+      if(permissions.contains('view_payments'))(title:'مدفوعاتي',icon:Icons.payments,page:paymentsPage())
     ];
     if(tabs.isEmpty)return Scaffold(appBar:AppBar(title:const Text('بوابة العامل'),actions:[IconButton(onPressed:logout,icon:const Icon(Icons.logout))]),body:const Center(child:Text('لم يمنحك المدير صلاحية عرض الشاشات.')));
     final index=tab.clamp(0,tabs.length-1);
