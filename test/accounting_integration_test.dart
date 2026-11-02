@@ -14,6 +14,7 @@ import 'package:saqia_station/domain/accounting/accounting_service.dart';
 import 'package:saqia_station/domain/accounting/calculations.dart';
 import 'package:saqia_station/services/admin_service.dart';
 import 'package:saqia_station/services/local_beneficiary_auth_service.dart';
+import 'package:saqia_station/services/local_partner_auth_service.dart';
 import 'package:saqia_station/services/backup_service.dart';
 import 'package:saqia_station/services/report_service.dart';
 
@@ -1597,7 +1598,7 @@ void main() {
     );
   });
 
-  test('ترقية v17 إلى v21 تضيف جداول المستفيد الخاصة وتحافظ على سجلات المحطة', () async {
+  test('ترقية v17 إلى v23 تضيف جداول الدخول الخاصة وتحافظ على سجلات المحطة', () async {
     final opened = await db.db;
     final beneficiariesBefore = await opened.rawQuery(
       'SELECT COUNT(*) count FROM beneficiaries',
@@ -1609,7 +1610,7 @@ void main() {
     await db.close();
     final upgraded = await db.db;
     final tables = await upgraded.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials','beneficiary_general_accounts','beneficiary_general_account_transactions')",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials','beneficiary_general_accounts','beneficiary_general_account_transactions','partner_credentials','partner_sessions')",
     );
     final cashIndex = await upgraded.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_cash_rec_period'",
@@ -1649,6 +1650,8 @@ void main() {
       'beneficiary_credentials',
       'beneficiary_general_accounts',
       'beneficiary_general_account_transactions',
+      'partner_credentials',
+      'partner_sessions',
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
@@ -1666,7 +1669,7 @@ void main() {
       (irrigationsAfter.single['count'] as num).toInt(),
       (irrigationsBefore.single['count'] as num).toInt(),
     );
-    expect((version.single.values.single as num).toInt(), 21);
+    expect((version.single.values.single as num).toInt(), 23);
   });
 
   test('إنشاء دخول المستفيد محصور بالمدير واسم المستخدم فريد داخل المحطة', () async {
@@ -2949,6 +2952,35 @@ void main() {
     expect(after['balance'], 0);
   });
 
+  test('دخول الشريك ينشئ جلسة مستقلة ولا يخلط هوية الشريك بحساب المستفيد', () async {
+    final repo = StationRepository(db);
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final partnerId = await repo.createPartner(
+      name: 'شريك اختبار الدخول $suffix',
+      mode: 'shares',
+      shares: 1,
+    );
+    final storage = _MemoryPartnerSessionStorage();
+    final auth = LocalPartnerAuthService(database: db, sessionStorage: storage);
+    final username = 'partner_$suffix';
+    const password = 'Partner-Test-2026!';
+    await auth.createCredentials(
+      partnerId: partnerId,
+      username: username,
+      password: password,
+      managerId: 1,
+    );
+    expect(await auth.login(username, 'wrong-password'), isFalse);
+    expect(await auth.currentPartnerId(), isNull);
+    expect(await auth.login(username, password), isTrue);
+    expect(await auth.currentPartnerId(), partnerId);
+    expect(storage.value, isNotNull);
+    await auth.logout();
+    expect(await auth.currentPartnerId(), isNull);
+    expect(storage.value, isNull);
+  });
+
+
 }
 
 class _MemoryBeneficiarySessionStorage implements BeneficiarySessionStorage {
@@ -2966,4 +2998,14 @@ class _MemoryBeneficiarySessionStorage implements BeneficiarySessionStorage {
   Future<void> delete() async {
     value = null;
   }
+}
+
+class _MemoryPartnerSessionStorage implements PartnerSessionStorage {
+  String? value;
+  @override
+  Future<String?> read() async => value;
+  @override
+  Future<void> write(String token) async { value = token; }
+  @override
+  Future<void> delete() async { value = null; }
 }
