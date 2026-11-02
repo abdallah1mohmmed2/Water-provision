@@ -247,7 +247,14 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
             SizedBox(width: double.infinity, child: OutlinedButton.icon(
               onPressed: () async {
                 Navigator.pop(context);
-                await ReportService(_repo).printPdf('invoices', sourceRows: [row], systemType: 'all');
+                final invoiceDate = DateTime.tryParse('${row['date'] ?? row['start_datetime']}');
+                await ReportService(_repo).printPdf(
+                  'invoices',
+                  from: invoiceDate,
+                  to: invoiceDate,
+                  sourceRows: [row],
+                  systemType: 'all',
+                );
               },
               icon: const Icon(Icons.picture_as_pdf), label: const Text('طباعة الفاتورة')),
             ),
