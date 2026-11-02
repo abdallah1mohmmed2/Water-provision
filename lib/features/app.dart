@@ -16,6 +16,7 @@ import '../domain/accounting/calculations.dart';
 import '../services/admin_service.dart';
 import '../services/local_security_service.dart';
 import '../services/local_beneficiary_auth_service.dart';
+import '../services/local_partner_auth_service.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
 import '../services/official_report_template.dart';
@@ -10640,6 +10641,64 @@ class _PartnersState extends State<PartnersPage> {
     }
   }
 
+  Future<void> manageCredentials(Map<String, Object?> partner) async {
+    if (!widget.manager) return;
+    final partnerId = (partner['id'] as num).toInt();
+    final auth = LocalPartnerAuthService(database: widget.r.db);
+    Map<String, Object?>? existing;
+    try {
+      existing = await auth.credentials(partnerId);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+      return;
+    }
+    final username = TextEditingController(text: '${existing?['username_normalized'] ?? ''}');
+    final password = TextEditingController();
+    var active = (existing?['active'] as num?)?.toInt() != 0;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(existing == null ? 'إنشاء دخول الشريك' : 'إدارة دخول الشريك'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('الشريك: ${partner['name']}'),
+            const SizedBox(height: 12),
+            TextField(controller: username, autocorrect: false,
+              decoration: const InputDecoration(labelText: 'اسم المستخدم')),
+            TextField(controller: password, obscureText: true,
+              decoration: InputDecoration(labelText: existing == null ? 'كلمة المرور (10 أحرف على الأقل)' : 'كلمة مرور جديدة (اختياري)')),
+            if (existing != null)
+              SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('الحساب نشط'),
+                value: active, onChanged: (v) => setDialogState(() => active = v)),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('حفظ')),
+          ],
+        ),
+      ),
+    );
+    if (saved == true) {
+      final ok = await runGuarded(context, () async {
+        if (existing == null) {
+          await auth.createCredentials(partnerId: partnerId, username: username.text,
+            password: password.text, managerId: widget.userId);
+        } else {
+          await auth.updateCredentials(partnerId: partnerId, username: username.text,
+            newPassword: password.text.trim().isEmpty ? null : password.text,
+            active: active, managerId: widget.userId);
+        }
+      });
+      if (ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(existing == null ? 'تم إنشاء بيانات دخول الشريك' : 'تم تحديث بيانات دخول الشريك')),
+        );
+      }
+    }
+    username.dispose();
+    password.dispose();
+  }
+
   Future<void> share(Map<String, Object?> x) async {
     final amount = TextEditingController();
     final isPercentage = '${x['ownership_mode']}' == 'percentage';
@@ -11067,12 +11126,17 @@ class _PartnersState extends State<PartnersPage> {
                                                   if (v == 'edit') {
                                                     editPartner(x);
                                                   }
+                                                  if (v == 'credentials') {
+                                                    manageCredentials(x);
+                                                  }
                                                   if (v == 'delete') {
                                                     deletePartner(x);
                                                   }
                                                 },
                                                 itemBuilder: (_) => [
   const PopupMenuItem(value: 'edit', child: Text('تعديل بيانات الشريك')),
+  if (widget.manager)
+    const PopupMenuItem(value: 'credentials', child: Text('بيانات دخول تطبيق الشريك')),
   if (widget.manager)
     const PopupMenuItem(value: 'delete', child: Text('حذف')),
 ],
