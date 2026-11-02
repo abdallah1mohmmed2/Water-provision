@@ -320,9 +320,12 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(title: Text(_tab == 0 ? 'الرئيسية' : _tab == 1 ? 'حركة المحطة' : _tab == 2 ? 'حسابي المالي' : _tab == 3 ? 'أرباحي' : 'ملفي الشخصي'),
-          actions: [IconButton(tooltip: 'تحديث', onPressed: _load, icon: const Icon(Icons.refresh_rounded))]),
+          actions: [IconButton(tooltip: 'تحديث', onPressed: _tab == 3 ? _loadProfitStatement : _load, icon: const Icon(Icons.refresh_rounded))]),
         body: IndexedStack(index: _tab, children: pages),
-        bottomNavigationBar: NavigationBar(selectedIndex: _tab, onDestinationSelected: (v) => setState(() => _tab = v),
+        bottomNavigationBar: NavigationBar(selectedIndex: _tab, onDestinationSelected: (v) {
+          setState(() => _tab = v);
+          if (v == 3 && _profitStatement == null) _loadProfitStatement();
+        },
           destinations: const [
             NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'الرئيسية'),
             NavigationDestination(icon: Icon(Icons.water_drop_outlined), selectedIcon: Icon(Icons.water_drop), label: 'المحطة'),
