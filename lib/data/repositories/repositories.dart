@@ -3443,6 +3443,29 @@ class StationRepository {
           rows.addAll(profitSummaryRows);
           return rows;
         }
+      case 'partner_profit_statement':
+        {
+          if (partnerId == null) {
+            throw ArgumentError('يجب تحديد الشريك لإنشاء كشف أرباحه');
+          }
+          final partnerRows = await report(
+            'partner_profit_distribution',
+            from: from,
+            to: to,
+            partnerId: partnerId,
+          );
+          // لا نعيد أي مجاميع عامة للمحطة في كشف الشريك الفردي.
+          const privateFields = [
+            'id', 'name', 'mode', 'basis', 'direct_amount',
+            'share_amount', 'gross_amount', 'partner_expenses', 'net_amount',
+          ];
+          return partnerRows
+              .map((row) => <String, Object?>{
+                    for (final field in privateFields)
+                      if (row.containsKey(field)) field: row[field],
+                  })
+              .toList();
+        }
       case 'partner_profit_distribution':
         {
           final effectiveFrom = from ?? DateTime(2020, 1, 1);
@@ -3547,7 +3570,9 @@ class StationRepository {
                 expensesByPartner.containsKey(id) ||
                 postedShareByPartner.containsKey(id);
           }).toList();
-          return reportPartners.map((p) {
+          return reportPartners
+              .where((p) => partnerId == null || (p['id'] as num).toInt() == partnerId)
+              .map((p) {
             final id = (p['id'] as num).toInt();
             final isActive = (p['active'] as num?)?.toInt() == 1;
             final shareOfRemaining = hasPostedDistribution
