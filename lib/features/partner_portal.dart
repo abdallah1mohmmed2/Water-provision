@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import '../data/repositories/repositories.dart';
 import '../services/local_partner_auth_service.dart';
 import '../services/report_service.dart';
@@ -146,7 +146,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         return;
       }
       final values = await Future.wait([
-        _repo.rawQuery('SELECT * FROM partners WHERE id=? AND station_id=? LIMIT 1', [id, widget.auth.stationId]),
+        _repo.db.rawQuery('SELECT * FROM partners WHERE id=? AND station_id=? LIMIT 1', [id, widget.auth.stationId]),
         _repo.partyFinancialSummary('partner', id),
         _repo.partnerTransactions(id),
         _repo.rawQuery(
@@ -304,12 +304,14 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    if (_error != null && _partner == null) return Scaffold(body: Center(child: Padding(
-      padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.error_outline, size: 42), const SizedBox(height: 12), Text(_error!, textAlign: TextAlign.center),
-        const SizedBox(height: 14), FilledButton(onPressed: _load, child: const Text('إعادة المحاولة')),
-      ]),
-    )));
+    if (_error != null && _partner == null) {
+      return Scaffold(body: Center(child: Padding(
+        padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.error_outline, size: 42), const SizedBox(height: 12), Text(_error!, textAlign: TextAlign.center),
+          const SizedBox(height: 14), FilledButton(onPressed: _load, child: const Text('إعادة المحاولة')),
+        ]),
+      )));
+    }
     final pages = [_dashboard(), _stationActivity(), _myAccount(), _profile()];
     return Directionality(
       textDirection: TextDirection.rtl,
