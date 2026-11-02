@@ -122,6 +122,11 @@ class LocalPartnerAuthService {
     final hash = newPassword == null ? null : await compute(_hashPartnerPassword, newPassword);
     final now = AppClock.now().toIso8601String();
     await db.transaction((tx) async {
+      final managers = await tx.rawQuery(
+        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
+        [managerId, 'manager'],
+      );
+      if (managers.isEmpty) throw StateError('هذه العملية متاحة لمدير نشط فقط');
       final rows = await tx.rawQuery(
         'SELECT id, active FROM partner_credentials WHERE partner_id=? AND station_id=? LIMIT 1',
         [partnerId, stationId],
@@ -148,6 +153,7 @@ class LocalPartnerAuthService {
   }
 
   Future<bool> login(String username, String password) async {
+    await logout();
     final rows = await db.rawQuery(
       '''SELECT c.partner_id, c.password_phc FROM partner_credentials c
          JOIN partners p ON p.id=c.partner_id AND p.station_id=c.station_id
@@ -157,7 +163,6 @@ class LocalPartnerAuthService {
     if (rows.isEmpty) return false;
     final valid = await compute(_verifyPartnerPassword, <String>['${rows.first['password_phc']}', password]);
     if (!valid) return false;
-    await logout();
     final partnerId = (rows.first['partner_id'] as num).toInt();
     final token = _uuid.v4();
     final tokenHash = crypto.sha256.convert(utf8.encode(token)).toString();
@@ -184,7 +189,8 @@ class LocalPartnerAuthService {
          JOIN partner_credentials c ON c.partner_id=s.partner_id
          JOIN partners p ON p.id=s.partner_id
          WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?
-           AND c.active=1 AND p.active=1 AND p.station_id=? LIMIT 1''',
+           AND c.active=1 AND p.active=1 AND c.station_id=p.station_id
+           AND p.station_id=? LIMIT 1''',
       [tokenHash, AppClock.now().toIso8601String(), stationId],
     );
     if (rows.isEmpty) { await _storage.delete(); return null; }
