@@ -2952,6 +2952,31 @@ void main() {
     expect(after['balance'], 0);
   });
 
+  test('كشف حساب الشريك في التطبيق يعيد حساب الشريك المحدد فقط', () async {
+    final repo = StationRepository(db);
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final first = await repo.createPartner(
+      name: 'شريك كشف الحساب الأول $suffix',
+      mode: 'shares',
+      shares: 1,
+    );
+    final second = await repo.createPartner(
+      name: 'شريك كشف الحساب الثاني $suffix',
+      mode: 'shares',
+      shares: 2,
+    );
+    final rows = await repo.report(
+      'partner_accounts',
+      partnerId: first,
+      from: DateTime(2020, 1, 1),
+      to: DateTime.now(),
+    );
+    expect(rows, isNotEmpty);
+    expect(rows.every((row) => (row['partner_id'] as num?)?.toInt() == first), isTrue);
+    expect(rows.any((row) => (row['partner_id'] as num?)?.toInt() == second), isFalse);
+    expect(rows.any((row) => row['type'] == 'opening_balance'), isTrue);
+  });
+
   test('كشف أرباح الشريك يعرض بياناته فقط ولا يكشف إجماليات المحطة', () async {
     final repo = StationRepository(db);
     final suffix = DateTime.now().microsecondsSinceEpoch;
