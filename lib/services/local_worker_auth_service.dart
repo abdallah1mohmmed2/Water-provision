@@ -53,13 +53,6 @@ class LocalWorkerAuthService {
     'view_account',
     'view_payments',
     'view_reports',
-    'view_schedule',
-    'view_notifications',
-    'submit_complaints',
-    'request_leave',
-    'start_irrigation',
-    'manage_queue',
-    'view_beneficiaries',
   };
 
   String _normalize(String value) => value.trim().toLowerCase();
@@ -81,6 +74,9 @@ class LocalWorkerAuthService {
     final unknown = selected.difference(allowedPermissions);
     if (unknown.isNotEmpty) {
       throw ArgumentError('صلاحيات غير معروفة: ${unknown.join('، ')}');
+    }
+    if (selected.contains('view_reports') && !selected.contains('view_account')) {
+      throw ArgumentError('صلاحية التقارير تتطلب صلاحية عرض كشف الحساب');
     }
     return selected.toList()..sort();
   }
