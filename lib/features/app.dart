@@ -17,6 +17,7 @@ import '../services/admin_service.dart';
 import '../services/local_security_service.dart';
 import '../services/local_beneficiary_auth_service.dart';
 import '../services/local_partner_auth_service.dart';
+import '../services/local_worker_auth_service.dart';
 import 'partner_portal.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
@@ -10105,6 +10106,152 @@ class _WorkersState extends State<WorkersPage> {
     }
   }
 
+  Future<void> manageWorkerLogin(Map<String, Object?> worker) async {
+    if (!widget.manager) {
+      msg('إدارة حسابات دخول العمال متاحة للمدير فقط');
+      return;
+    }
+    final workerId = (worker['id'] as num).toInt();
+    final auth = LocalWorkerAuthService(database: widget.r.db);
+    final existing = await auth.credentials(workerId);
+    if (!mounted) return;
+    final username = TextEditingController(
+      text: existing?['username_normalized']?.toString() ?? '',
+    );
+    final password = TextEditingController();
+    var active = (existing?['active'] as num?)?.toInt() != 0;
+    final selected = <String>{
+      if (existing == null) ...[
+        'view_dashboard', 'view_irrigations', 'view_account',
+        'view_payments', 'view_reports',
+      ] else ...[
+        try {
+          ...(jsonDecode('${existing['permissions_json']}') as List).whereType<String>(),
+        } catch (_) {}
+      ],
+    };
+    const labels = <String, String>{
+      'view_dashboard': 'عرض الرئيسية',
+      'view_irrigations': 'عرض سجل السقايات',
+      'view_account': 'عرض كشف الحساب',
+      'view_payments': 'عرض المستحقات والمدفوعات',
+      'view_reports': 'عرض التقارير وملفات PDF',
+      'view_schedule': 'عرض جدول العمل',
+      'view_notifications': 'عرض الإشعارات',
+      'submit_complaints': 'إرسال الشكاوى والبلاغات',
+      'request_leave': 'طلب إجازة أو غياب',
+      'start_irrigation': 'بدء عملية سقاية',
+      'manage_queue': 'إدارة الدور',
+      'view_beneficiaries': 'عرض بيانات المستفيدين',
+    };
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          scrollable: true,
+          title: Text(existing == null ? 'إنشاء حساب العامل' : 'إدارة حساب العامل'),
+          content: SizedBox(
+            width: 440,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('العامل: ${worker['name'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: username,
+                  autocorrect: false,
+                  decoration: const InputDecoration(
+                    labelText: 'اسم المستخدم',
+                    helperText: '3 إلى 40 حرفًا أو رقمًا أو . _ -',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: password,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: existing == null ? 'كلمة المرور' : 'كلمة مرور جديدة (اختياري)',
+                    helperText: '10 أحرف على الأقل',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('الحساب نشط'),
+                  value: active,
+                  onChanged: (v) => setDialogState(() => active = v),
+                ),
+                const Divider(),
+                const Text('الصلاحيات الممنوحة', style: TextStyle(fontWeight: FontWeight.w900)),
+                const Text('الصلاحيات المالية للقراءة فقط؛ لا تسمح هذه القائمة بتعديل الأرصدة أو اعتماد المدفوعات.'),
+                for (final entry in labels.entries)
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: Text(entry.value),
+                    value: selected.contains(entry.key),
+                    onChanged: (v) => setDialogState(() {
+                      if (v == true) {
+                        selected.add(entry.key);
+                      } else {
+                        selected.remove(entry.key);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: username.text.trim().isEmpty ||
+                  (existing == null && password.text.length < 10) ||
+                  (password.text.isNotEmpty && password.text.length < 10)
+                  ? null
+                  : () => Navigator.pop(dialogContext, true),
+              child: Text(existing == null ? 'إنشاء الحساب' : 'حفظ التغييرات'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) {
+      username.dispose();
+      password.dispose();
+      return;
+    }
+    final saved = await runGuarded(context, () async {
+      if (existing == null) {
+        await auth.createCredentials(
+          workerId: workerId,
+          username: username.text,
+          password: password.text,
+          managerId: widget.userId,
+          permissions: selected,
+        );
+      } else {
+        await auth.updateCredentials(
+          workerId: workerId,
+          username: username.text,
+          newPassword: password.text.isEmpty ? null : password.text,
+          active: active,
+          managerId: widget.userId,
+          permissions: selected,
+        );
+      }
+    });
+    username.dispose();
+    password.dispose();
+    if (saved && mounted) {
+      msg('تم حفظ بيانات دخول العامل وصلاحياته');
+    }
+  }
+
   void workerActions(Map<String, Object?> x) {
     showModalBottomSheet(
       context: context,
@@ -10121,6 +10268,15 @@ class _WorkersState extends State<WorkersPage> {
                 editWorker(x);
               },
             ),
+            if (widget.manager)
+              ListTile(
+                leading: const Icon(Icons.manage_accounts_outlined),
+                title: const Text('حساب دخول العامل والصلاحيات'),
+                onTap: () {
+                  Navigator.pop(c);
+                  manageWorkerLogin(x);
+                },
+              ),
             if (widget.manager)
               ListTile(
               leading: const Icon(Icons.delete_outline, color: Colors.red),
