@@ -15,7 +15,7 @@ class _WorkerLoginPageState extends State<WorkerLoginPage>{
   bool busy=false,hide=true;String? error;
   @override void dispose(){user.dispose();pass.dispose();super.dispose();}
   Future<void> login() async{
-    if(busy)return;setState(()=>{busy=true,error=null});
+    if(busy)return;setState(() { busy=true; error=null; });
     try{
       final ok=await auth.login(user.text,pass.text);
       if(!mounted)return;
@@ -71,8 +71,8 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
           ORDER BY wt.date DESC,wt.id DESC LIMIT 100""",[wid])
       ]);
       if(!mounted)return;final workers=x[0] as List<Map<String,Object?>>;if(workers.isEmpty)throw StateError('العامل غير موجود أو غير نشط.');
-      setState(()=>{id=wid,worker=workers.first,summary=x[1] as Map<String,Object?>,ledger=(x[2] as List).cast<Map<String,Object?>>(),permissions=x[3] as Set<String>,irrigations=(x[4] as List).cast<Map<String,Object?>>(),loading=false,error=null});
-    }catch(e){if(mounted)setState(()=>{loading=false,error='$e'});}
+      setState(() { id=wid; worker=workers.first; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=x[3] as Set<String>; irrigations=(x[4] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
+    }catch(e){if(mounted)setState(() { loading=false; error='$e'; });}
   }
   void message(String s)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));
   Future<void> logout()async{await widget.auth.logout();if(!mounted)return;Navigator.pushAndRemoveUntil(context,MaterialPageRoute<void>(builder:(_)=>const WorkerLoginPage()),(_)=>false);}
