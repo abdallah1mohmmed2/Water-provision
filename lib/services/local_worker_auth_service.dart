@@ -224,7 +224,7 @@ class LocalWorkerAuthService {
         },
       );
     });
-    if (hash != null || !active) await currentWorkerId();
+    await currentWorkerId();
   }
 
   Future<bool> login(String username, String password) async {
