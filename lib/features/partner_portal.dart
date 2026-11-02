@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../data/repositories/repositories.dart';
@@ -111,7 +112,8 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
   int? _partnerId;
   Map<String, Object?>? _partner, _summary;
   List<Map<String, Object?>> _transactions = [], _irrigations = [];
-  int _tab = 0, _offset = 0;
+  int _tab = 0, _offset = 0, _stationInvoiceCount = 0, _stationMinutes = 0;
+  Timer? _searchDebounce;
   bool _loading = true, _loadingMore = false, _hasMore = true;
   String _search = '';
   DateTime? _from, _to;
@@ -130,6 +132,9 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
   @override
   void initState() { super.initState(); _load(); }
 
+  @override
+  void dispose() { _searchDebounce?.cancel(); super.dispose(); }
+
   Future<void> _load() async {
     if (!mounted) return;
     setState(() { _loading = true; _error = null; });
@@ -143,6 +148,10 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         _repo.rawQuery('SELECT * FROM partners WHERE id=? AND station_id=? LIMIT 1', [id, widget.auth.stationId]),
         _repo.partyFinancialSummary('partner', id),
         _repo.partnerTransactions(id),
+        _repo.rawQuery(
+          "SELECT COUNT(*) invoice_count, COALESCE(SUM(minutes),0) total_minutes FROM irrigations WHERE station_id=? AND status!='cancelled'",
+          [widget.auth.stationId],
+        ),
       ]);
       if (!mounted) return;
       if ((values[0] as List).isEmpty) throw StateError('الشريك المرتبط بالجلسة غير موجود');
@@ -151,6 +160,9 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         _partner = (values[0] as List).first as Map<String, Object?>;
         _summary = values[1] as Map<String, Object?>;
         _transactions = (values[2] as List).cast<Map<String, Object?>>();
+        final stationTotals = (values[3] as List).first as Map<String, Object?>;
+        _stationInvoiceCount = _asInt(stationTotals['invoice_count']);
+        _stationMinutes = _asInt(stationTotals['total_minutes']);
         _loading = false;
       });
       await _loadIrrigations(reset: true);
@@ -234,10 +246,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
             SizedBox(width: double.infinity, child: OutlinedButton.icon(
               onPressed: () async {
                 Navigator.pop(context);
-                await ReportService(_repo).printPdf('invoices',
-                  from: DateTime.tryParse('${row['date']}'),
-                  to: DateTime.tryParse('${row['date']}'),
-                  systemType: 'all');
+                await ReportService(_repo).printPdf('invoices', sourceRows: [row], systemType: 'all');
               },
               icon: const Icon(Icons.picture_as_pdf), label: const Text('طباعة تقرير الفواتير')),
             ),
@@ -334,8 +343,9 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         children: [
           _stat('إجمالي الاستحقاقات', earnings, Icons.trending_up_rounded),
           _stat('المبالغ المستلمة', paid, Icons.payments_outlined),
-          _stat('دقائق السقايات', minutes, Icons.timer_outlined, suffix: 'دقيقة'),
-          _stat('عدد فواتير المحطة', _irrigations.length, Icons.receipt_long_outlined, suffix: 'في الصفحة'),
+          _stat('دقائق سقايات حصتك', minutes, Icons.timer_outlined, suffix: 'دقيقة'),
+          _stat('دقائق المحطة', _stationMinutes, Icons.av_timer_rounded, suffix: 'دقيقة'),
+          _stat('فواتير المحطة', _stationInvoiceCount, Icons.receipt_long_outlined, suffix: 'فاتورة'),
         ]),
       const SizedBox(height: 18),
       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -360,10 +370,14 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
   Widget _stationActivity() => Column(children: [
     Padding(padding: const EdgeInsets.fromLTRB(12, 12, 12, 4), child: Row(children: [
       Expanded(child: TextField(decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'ابحث برقم الفاتورة أو اسم المستفيد أو المضخة', border: OutlineInputBorder(), isDense: true),
-        onChanged: (v) { _search = v; _loadIrrigations(reset: true); })),
+        onChanged: (v) {
+          _search = v;
+          _searchDebounce?.cancel();
+          _searchDebounce = Timer(const Duration(milliseconds: 350), () => _loadIrrigations(reset: true));
+        })),
       const SizedBox(width: 8),
       IconButton(tooltip: 'تصفية التاريخ', onPressed: _filterDates, icon: const Icon(Icons.date_range)),
-      IconButton(tooltip: 'إزالة الفلاتر', onPressed: () { setState(() { _from = null; _to = null; _search = ''; }); _loadIrrigations(reset: true); }, icon: const Icon(Icons.filter_alt_off)),
+      IconButton(tooltip: 'إزالة الفلاتر', onPressed: () { _searchDebounce?.cancel(); setState(() { _from = null; _to = null; _search = ''; }); _loadIrrigations(reset: true); }, icon: const Icon(Icons.filter_alt_off)),
     ])),
     Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4), child: Row(children: [
       Expanded(child: Text(_from == null ? 'جميع التواريخ' : 'من ${DateFormat('yyyy/MM/dd').format(_from!)} إلى ${DateFormat('yyyy/MM/dd').format(_to!)}',
