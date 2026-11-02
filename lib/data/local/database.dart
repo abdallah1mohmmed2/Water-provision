@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 23,
+      version: 24,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -46,6 +46,7 @@ class AppDatabase {
     await _createBeneficiaryGeneralAccountsTables(d);
     await _createBeneficiaryErrorReportsTable(d);
     await _createPartnerAuthTables(d);
+    await _createWorkerAuthTables(d);
     await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_period_station_range ON period_closures(station_id,period_start,period_end)');
     await _seed(d);
@@ -235,6 +236,7 @@ class AppDatabase {
     }
     if (oldV < 22) await _createBeneficiaryErrorReportsTable(d);
     if (oldV < 23) await _createPartnerAuthTables(d);
+    if (oldV < 24) await _createWorkerAuthTables(d);
   }
 
   /// بيانات دخول الشركاء منفصلة عن بيانات دخول المستفيدين، مع جلسات مستقلة.
@@ -254,6 +256,27 @@ class AppDatabase {
     )''');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_partner_sessions_token ON partner_sessions(token_hash)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_partner_sessions_owner ON partner_sessions(partner_id,revoked_at,expires_at)');
+  }
+
+  /// حسابات دخول العمال مستقلة عن حسابات الشركاء والمستفيدين.
+  /// تحفظ الصلاحيات كقائمة مفاتيح معتمدة، وتبقى الجلسات مرتبطة بالعامل نفسه.
+  Future<void> _createWorkerAuthTables(Database d) async {
+    await d.execute('''CREATE TABLE IF NOT EXISTS worker_credentials (
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id),
+      worker_id INTEGER NOT NULL REFERENCES workers(id),
+      username_normalized TEXT NOT NULL, password_phc TEXT NOT NULL,
+      permissions_json TEXT NOT NULL DEFAULT '[]',
+      active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      created_by INTEGER REFERENCES app_users(id), updated_by INTEGER REFERENCES app_users(id),
+      UNIQUE(station_id, worker_id), UNIQUE(station_id, username_normalized)
+    )''');
+    await d.execute('''CREATE TABLE IF NOT EXISTS worker_sessions (
+      id INTEGER PRIMARY KEY, worker_id INTEGER NOT NULL REFERENCES workers(id),
+      token_hash TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL, revoked_at TEXT
+    )''');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_worker_sessions_token ON worker_sessions(token_hash)');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_worker_sessions_owner ON worker_sessions(worker_id,revoked_at,expires_at)');
   }
 
   Future<void> _createBeneficiaryErrorReportsTable(Database d) async {
