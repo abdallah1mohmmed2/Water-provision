@@ -1,0 +1,47 @@
+name: Partner Feature Validation
+
+on:
+  push:
+    branches:
+      - feature/partner-in-app
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-build:
+    name: Analyze, test, and build partner release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout partner feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/partner-in-app
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Flutter Analyze
+        run: flutter analyze
+
+      - name: Flutter Tests
+        run: flutter test
+
+      - name: Build Android release APK
+        run: flutter build apk --release
+
+      - name: Upload partner release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: partner-feature-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
