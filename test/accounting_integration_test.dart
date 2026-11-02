@@ -2952,6 +2952,31 @@ void main() {
     expect(after['balance'], 0);
   });
 
+  test('كشف أرباح الشريك يعرض بياناته فقط ولا يكشف إجماليات المحطة', () async {
+    final repo = StationRepository(db);
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final firstPartner = await repo.createPartner(
+      name: 'شريك كشف أرباح أول $suffix',
+      mode: 'shares',
+      shares: 2,
+    );
+    await repo.createPartner(
+      name: 'شريك كشف أرباح ثان $suffix',
+      mode: 'percentage',
+      percentage: 25,
+    );
+    final rows = await repo.report(
+      'partner_profit_statement',
+      from: DateTime(2020, 1, 1),
+      to: DateTime.now(),
+      partnerId: firstPartner,
+    );
+    expect(rows, hasLength(1));
+    expect((rows.single['id'] as num).toInt(), firstPartner);
+    expect(rows.single.containsKey('period_revenue'), isFalse);
+    expect(rows.single.containsKey('distributable_profit'), isFalse);
+  });
+
   test('دخول الشريك ينشئ جلسة مستقلة ولا يخلط هوية الشريك بحساب المستفيد', () async {
     final repo = StationRepository(db);
     final suffix = DateTime.now().microsecondsSinceEpoch;
