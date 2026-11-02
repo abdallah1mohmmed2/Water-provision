@@ -2975,6 +2975,9 @@ void main() {
     expect(await auth.login(username, password), isTrue);
     expect(await auth.currentPartnerId(), partnerId);
     expect(storage.value, isNotNull);
+    // محاولة دخول فاشلة لا تترك جلسة الشريك السابق مفتوحة.
+    expect(await auth.login(username, 'wrong-password'), isFalse);
+    expect(await auth.currentPartnerId(), isNull);
     await auth.logout();
     expect(await auth.currentPartnerId(), isNull);
     expect(storage.value, isNull);
