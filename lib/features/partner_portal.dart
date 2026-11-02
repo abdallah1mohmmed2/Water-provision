@@ -113,6 +113,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
   Map<String, Object?>? _partner, _summary, _profitStatement;
   List<Map<String, Object?>> _transactions = [], _irrigations = [];
   int _tab = 0, _offset = 0, _stationInvoiceCount = 0, _stationMinutes = 0;
+  DateTime? _accountFrom, _accountTo;
   late DateTime _profitFrom = DateTime(DateTime.now().year, DateTime.now().month, 1);
   late DateTime _profitTo = DateTime.now();
   Timer? _searchDebounce;
@@ -571,6 +572,56 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
     ),
   );
 
+  List<Map<String, Object?>> get _visibleAccountTransactions {
+    final start = _accountFrom == null
+        ? null
+        : DateTime(_accountFrom!.year, _accountFrom!.month, _accountFrom!.day);
+    final end = _accountTo == null
+        ? null
+        : DateTime(_accountTo!.year, _accountTo!.month, _accountTo!.day).add(const Duration(days: 1));
+    return _transactions.where((row) {
+      final date = DateTime.tryParse('${row['date'] ?? ''}');
+      if (date == null) return start == null && end == null;
+      if (start != null && date.isBefore(start)) return false;
+      if (end != null && !date.isBefore(end)) return false;
+      return true;
+    }).toList();
+  }
+
+  int get _accountOpeningBalance {
+    if (_accountFrom == null) return 0;
+    final start = DateTime(_accountFrom!.year, _accountFrom!.month, _accountFrom!.day);
+    return _transactions.fold<int>(0, (sum, row) {
+      final date = DateTime.tryParse('${row['date'] ?? ''}');
+      if (date == null || !date.isBefore(start)) return sum;
+      return sum + _asInt(row['signed_amount']);
+    });
+  }
+
+  Future<void> _filterAccountDates() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      initialDateRange: _accountFrom == null && _accountTo == null
+          ? null
+          : DateTimeRange(
+              start: _accountFrom ?? _accountTo!,
+              end: _accountTo ?? _accountFrom!,
+            ),
+      helpText: 'تحديد فترة كشف الحساب',
+    );
+    if (picked == null) return;
+    setState(() {
+      _accountFrom = picked.start;
+      _accountTo = picked.end;
+    });
+  }
+
+  void _clearAccountDates() {
+    setState(() { _accountFrom = null; _accountTo = null; });
+  }
+
   Widget _myAccount() {
     final balance = _asInt(_summary?['balance']);
     return Column(children: [
@@ -578,15 +629,36 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         leading: const CircleAvatar(child: Icon(Icons.account_balance_wallet)),
         title: const Text('الرصيد الشخصي الحالي'),
         subtitle: Text(_partyBalance(balance), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
-        trailing: IconButton(tooltip: 'كشف PDF', onPressed: () => ReportService(_repo).printPdf('partner_accounts', partnerId: _partnerId),
+        trailing: IconButton(tooltip: 'كشف PDF', onPressed: () => ReportService(_repo).printPdf(
+          'partner_accounts', partnerId: _partnerId, from: _accountFrom, to: _accountTo),
           icon: const Icon(Icons.picture_as_pdf)),
       )),
       Padding(padding: const EdgeInsets.symmetric(horizontal: 14), child: Row(children: [
         Expanded(child: _stat('الاستحقاقات', _asInt(_summary?['earnings']), Icons.trending_up)),
         Expanded(child: _stat('المستلم', _asInt(_summary?['paid']), Icons.payments)),
       ])),
-      Expanded(child: _transactions.isEmpty ? const Center(child: Text('لا توجد حركات مالية')) :
-        ListView.builder(itemCount: _transactions.length, itemBuilder: (context, index) => _transactionTile(_transactions[_transactions.length - 1 - index]))),
+      Padding(padding: const EdgeInsets.fromLTRB(12, 4, 12, 8), child: Row(children: [
+        Expanded(child: OutlinedButton.icon(
+          onPressed: _filterAccountDates,
+          icon: const Icon(Icons.date_range),
+          label: Text(_accountFrom == null && _accountTo == null
+            ? 'كل الفترات'
+            : '${_accountFrom == null ? 'البداية' : DateFormat('yyyy/MM/dd').format(_accountFrom!)} — ${_accountTo == null ? 'النهاية' : DateFormat('yyyy/MM/dd').format(_accountTo!)}'),
+        )),
+        if (_accountFrom != null || _accountTo != null)
+          IconButton(tooltip: 'إلغاء التصفية', onPressed: _clearAccountDates, icon: const Icon(Icons.filter_alt_off)),
+      ])),
+      if (_accountFrom != null)
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
+          child: Align(alignment: Alignment.centerRight,
+            child: Text('الرصيد المرحّل قبل الفترة: ${_partyBalance(_accountOpeningBalance)}',
+              style: const TextStyle(fontWeight: FontWeight.w700)))),
+      Expanded(child: _visibleAccountTransactions.isEmpty
+        ? const Center(child: Text('لا توجد حركات مالية في الفترة المحددة'))
+        : ListView.builder(
+            itemCount: _visibleAccountTransactions.length,
+            itemBuilder: (context, index) => _transactionTile(_visibleAccountTransactions[index]),
+          )),
     ]);
   }
 
