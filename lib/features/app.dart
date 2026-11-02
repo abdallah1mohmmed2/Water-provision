@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import '../core/app_clock.dart';
 import '../core/app_prefs.dart';
 import '../core/period_ranges.dart';
@@ -4177,12 +4178,14 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                 TextField(
                   controller: username,
                   autocorrect: false,
+                  onChanged: (_) => setDialogState(() {}),
                   decoration: const InputDecoration(labelText: 'اسم المستخدم'),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: password,
                   obscureText: true,
+                  onChanged: (_) => setDialogState(() {}),
                   decoration: InputDecoration(
                     labelText: hasAccount ? 'كلمة مرور جديدة (اختياري)' : 'كلمة المرور المؤقتة',
                     helperText: '10 أحرف على الأقل',
@@ -10124,12 +10127,18 @@ class _WorkersState extends State<WorkersPage> {
       if (existing == null) ...[
         'view_dashboard', 'view_irrigations', 'view_account',
         'view_payments', 'view_reports',
-      ] else ...[
-        try {
-          ...(jsonDecode('${existing['permissions_json']}') as List).whereType<String>(),
-        } catch (_) {}
       ],
     };
+    if (existing != null) {
+      try {
+        final savedPermissions = jsonDecode('${existing['permissions_json']}');
+        if (savedPermissions is List) {
+          selected.addAll(savedPermissions.whereType<String>());
+        }
+      } catch (_) {
+        selected.clear();
+      }
+    }
     const labels = <String, String>{
       'view_dashboard': 'عرض الرئيسية',
       'view_irrigations': 'عرض سجل السقايات',
