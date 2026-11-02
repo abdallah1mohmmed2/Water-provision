@@ -10170,6 +10170,7 @@ class _WorkersState extends State<WorkersPage> {
                 TextField(
                   controller: username,
                   autocorrect: false,
+                  onChanged: (_) => setDialogState(() {}),
                   decoration: const InputDecoration(
                     labelText: 'اسم المستخدم',
                     helperText: '3 إلى 40 حرفًا أو رقمًا أو . _ -',
@@ -10179,6 +10180,7 @@ class _WorkersState extends State<WorkersPage> {
                 TextField(
                   controller: password,
                   obscureText: true,
+                  onChanged: (_) => setDialogState(() {}),
                   decoration: InputDecoration(
                     labelText: existing == null ? 'كلمة المرور' : 'كلمة مرور جديدة (اختياري)',
                     helperText: '10 أحرف على الأقل',
