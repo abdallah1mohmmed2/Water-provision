@@ -51,7 +51,7 @@ class WorkerHomePage extends StatefulWidget{
 class _WorkerHomePageState extends State<WorkerHomePage>{
   late final repo=StationRepository(widget.auth.db);
   int? id;Map<String,Object?>? worker,summary;
-  List<Map<String,Object?>> ledger=[],irrigations=[];Set<String> permissions={};
+  List<Map<String,Object?>> ledger=[],irrigations=[],payments=[];Set<String> permissions={};
   bool loading=true;String? error;int tab=0;
   int n(Object? v)=>v is num?v.round():int.tryParse('$v')??0;
   String money(Object? v)=>NumberFormat('#,##0').format(n(v));
@@ -63,8 +63,11 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       final wid=await widget.auth.currentWorkerId();
       if(wid==null)throw StateError('انتهت جلسة الدخول.');
       final granted=await widget.auth.currentPermissions();
+      final workerColumns=granted.contains('view_account')
+          ? 'id,name,pay_type,fixed_salary,hourly_rate,percentage_rate'
+          : 'id,name';
       final x=await Future.wait([
-        repo.db.rawQuery('SELECT id,name,pay_type,fixed_salary,hourly_rate,percentage_rate FROM workers WHERE id=? AND station_id=? AND active=1 LIMIT 1',[wid,widget.auth.stationId]),
+        repo.db.rawQuery('SELECT $workerColumns FROM workers WHERE id=? AND station_id=? AND active=1 LIMIT 1',[wid,widget.auth.stationId]),
         granted.contains('view_account') ? repo.partyFinancialSummary('worker',wid) : Future.value(<String,Object?>{}),
         granted.contains('view_account') ? repo.workerTransactions(wid) : Future.value(<Map<String,Object?>>[]),
         granted.contains('view_irrigations') ? repo.db.rawQuery("""SELECT wt.id,wt.date,wt.amount,wt.hours,wt.notes,wt.reference_id irrigation_id,i.start_datetime,COALESCE(b.name,p.name,'غير محدد') party_name
@@ -72,11 +75,15 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
           LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id LEFT JOIN partners p ON p.id=i.partner_id
           WHERE wt.worker_id=? AND wt.type='irrigation' AND COALESCE(wt.notes,'') LIKE 'استحقاق%'
           ORDER BY wt.date DESC,wt.id DESC LIMIT 100""",[wid]) : Future.value(<Map<String,Object?>>[]),
+        granted.contains('view_payments') ? repo.db.rawQuery('''SELECT p.id,p.date,p.amount,p.reference_number,p.notes,pm.name payment_method_name,c.name cashbox_name
+          FROM payments p LEFT JOIN payment_methods pm ON pm.id=p.payment_method_id
+          LEFT JOIN cashboxes c ON c.id=p.cashbox_id
+          WHERE p.worker_id=? AND p.status='posted' ORDER BY p.date DESC,p.id DESC''',[wid]) : Future.value(<Map<String,Object?>>[]),
       ]);
       if(!mounted)return;
       final workers=x[0] as List<Map<String,Object?>>;
       if(workers.isEmpty)throw StateError('العامل غير موجود أو غير نشط.');
-      setState(() { id=wid; worker=workers.first; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
+      setState(() { id=wid; worker=workers.first; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
     }catch(e){if(mounted)setState(() { loading=false; error='$e'; });}
   }
   void message(String s)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));
@@ -138,15 +145,17 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       if(permissions.contains('view_reports'))IconButton(icon:const Icon(Icons.picture_as_pdf),onPressed:()async{try{await ReportService(repo).printPdf('worker_transactions',workerId:id);}catch(e){if(mounted)message('تعذر إنشاء PDF: $e');}})]),
     for(final row in ledger)tile(row),if(ledger.isEmpty)const Text('لا توجد حركات مسجلة.')
   ]);
-  Widget paymentsPage(){
-    final rows=ledger.where((row)=>const ['payment','payment_note','worker_payment'].contains('${row['type']}')).toList();
-    return ListView(padding:const EdgeInsets.all(16),children:[
-      const Text('مدفوعاتي',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
-      const SizedBox(height:8),
-      for(final row in rows)tile(row),
-      if(rows.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Text('لا توجد دفعات مسجلة لك حتى الآن.'))
-    ]);
-  }
+  Widget paymentsPage()=>ListView(padding:const EdgeInsets.all(16),children:[
+    const Text('مدفوعاتي',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
+    const SizedBox(height:8),
+    for(final row in payments)Card(elevation:0,child:ListTile(
+      leading:const CircleAvatar(child:Icon(Icons.payments_outlined)),
+      title:Text('${money(row['amount'])} ريال',style:const TextStyle(fontWeight:FontWeight.w900)),
+      subtitle:Text('${date(row['date'])} • ${row['payment_method_name']??'طريقة غير محددة'}\nسند: ${row['reference_number']??row['id']}'),
+      isThreeLine:true,
+    )),
+    if(payments.isEmpty)const Padding(padding:EdgeInsets.all(24),child:Text('لا توجد دفعات مسجلة لك حتى الآن.'))
+  ]);
   Widget irrigationPage()=>ListView(padding:const EdgeInsets.all(16),children:[
     const Text('سجل استحقاقات السقايات',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
     for(final row in irrigations)Card(elevation:0,child:ListTile(leading:const CircleAvatar(child:Icon(Icons.water_drop)),
