@@ -320,6 +320,9 @@ class LocalWorkerAuthService {
     required String currentPassword,
     required String newPassword,
   }) async {
+    final token = await _storage.read();
+    if (token == null || token.isEmpty) throw StateError('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
+    final tokenHash = crypto.sha256.convert(utf8.encode(token)).toString();
     final workerId = await currentWorkerId();
     if (workerId == null) throw StateError('انتهت جلسة الدخول. سجّل الدخول مرة أخرى.');
     _validatePassword(newPassword);
@@ -338,9 +341,9 @@ class LocalWorkerAuthService {
       final stillCurrent = await tx.rawQuery(
         '''SELECT s.worker_id FROM worker_sessions s
            JOIN worker_credentials c ON c.worker_id=s.worker_id
-           WHERE s.worker_id=? AND s.revoked_at IS NULL AND s.expires_at>?
-             AND c.active=1 LIMIT 1''',
-        [workerId, AppClock.now().toIso8601String()],
+           WHERE s.token_hash=? AND s.worker_id=? AND s.revoked_at IS NULL
+             AND s.expires_at>? AND c.active=1 LIMIT 1''',
+        [tokenHash, workerId, AppClock.now().toIso8601String()],
       );
       if (stillCurrent.isEmpty) throw StateError('انتهت جلسة الدخول');
       await tx.update(
