@@ -110,12 +110,15 @@ class PartnerHomePage extends StatefulWidget {
 class _PartnerHomePageState extends State<PartnerHomePage> {
   late final StationRepository _repo = StationRepository(widget.auth.db);
   int? _partnerId;
-  Map<String, Object?>? _partner, _summary;
+  Map<String, Object?>? _partner, _summary, _profitStatement;
   List<Map<String, Object?>> _transactions = [], _irrigations = [];
   int _tab = 0, _offset = 0, _stationInvoiceCount = 0, _stationMinutes = 0;
+  late DateTime _profitFrom = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  late DateTime _profitTo = DateTime.now();
   Timer? _searchDebounce;
   int _irrigationGeneration = 0;
-  bool _loading = true, _loadingMore = false, _hasMore = true;
+  bool _loading = true, _loadingMore = false, _hasMore = true, _profitLoading = false;
+  String? _profitError;
   String _search = '';
   DateTime? _from, _to;
   String? _error;
@@ -312,11 +315,11 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         ]),
       )));
     }
-    final pages = [_dashboard(), _stationActivity(), _myAccount(), _profile()];
+    final pages = [_dashboard(), _stationActivity(), _myAccount(), _myProfits(), _profile()];
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(title: Text(_tab == 0 ? 'الرئيسية' : _tab == 1 ? 'حركة المحطة' : _tab == 2 ? 'حسابي المالي' : 'ملفي الشخصي'),
+        appBar: AppBar(title: Text(_tab == 0 ? 'الرئيسية' : _tab == 1 ? 'حركة المحطة' : _tab == 2 ? 'حسابي المالي' : _tab == 3 ? 'أرباحي' : 'ملفي الشخصي'),
           actions: [IconButton(tooltip: 'تحديث', onPressed: _load, icon: const Icon(Icons.refresh_rounded))]),
         body: IndexedStack(index: _tab, children: pages),
         bottomNavigationBar: NavigationBar(selectedIndex: _tab, onDestinationSelected: (v) => setState(() => _tab = v),
@@ -324,6 +327,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
             NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'الرئيسية'),
             NavigationDestination(icon: Icon(Icons.water_drop_outlined), selectedIcon: Icon(Icons.water_drop), label: 'المحطة'),
             NavigationDestination(icon: Icon(Icons.account_balance_wallet_outlined), selectedIcon: Icon(Icons.account_balance_wallet), label: 'حسابي'),
+            NavigationDestination(icon: Icon(Icons.pie_chart_outline), selectedIcon: Icon(Icons.pie_chart), label: 'أرباحي'),
             NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'ملفي'),
           ]),
       ),
@@ -413,6 +417,143 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         }),
       )),
   ]);
+
+  Future<void> _loadProfitStatement() async {
+    if (_partnerId == null || _profitLoading) return;
+    setState(() { _profitLoading = true; _profitError = null; });
+    try {
+      final rows = await _repo.report(
+        'partner_profit_statement',
+        from: _profitFrom,
+        to: _profitTo,
+        partnerId: _partnerId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _profitStatement = rows.isEmpty ? null : rows.first;
+        _profitLoading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() { _profitLoading = false; _profitError = 'تعذر تحميل كشف الأرباح: $e'; });
+    }
+  }
+
+  Future<void> _filterProfitDates() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      initialDateRange: DateTimeRange(start: _profitFrom, end: _profitTo),
+      helpText: 'تحديد فترة كشف الأرباح',
+    );
+    if (picked == null) return;
+    setState(() { _profitFrom = picked.start; _profitTo = picked.end; });
+    await _loadProfitStatement();
+  }
+
+  Future<void> _printProfitStatement() async {
+    if (_partnerId == null) return;
+    try {
+      await ReportService(_repo).printPdf(
+        'partner_profit_statement',
+        partnerId: _partnerId,
+        from: _profitFrom,
+        to: _profitTo,
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذر إنشاء كشف PDF: $e')),
+      );
+    }
+  }
+
+  Widget _myProfits() {
+    final row = _profitStatement;
+    final money = (Object? value) => '${_money(value)} ريال';
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+        child: Row(children: [
+          Expanded(child: OutlinedButton.icon(
+            onPressed: _filterProfitDates,
+            icon: const Icon(Icons.date_range),
+            label: Text('${DateFormat('yyyy/MM/dd').format(_profitFrom)} — ${DateFormat('yyyy/MM/dd').format(_profitTo)}'),
+          )),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'تحديث كشف الأرباح',
+            onPressed: _loadProfitStatement,
+            icon: const Icon(Icons.refresh),
+          ),
+        ]),
+      ),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        child: SizedBox(width: double.infinity, child: FilledButton.tonalIcon(
+          onPressed: row == null || _profitLoading ? null : _printProfitStatement,
+          icon: const Icon(Icons.picture_as_pdf_outlined),
+          label: const Text('طباعة كشف أرباحي PDF'),
+        )),
+      ),
+      if (_profitLoading) const Expanded(child: Center(child: CircularProgressIndicator()))
+      else if (_profitError != null) Expanded(child: Center(child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(_profitError!, textAlign: TextAlign.center),
+          const SizedBox(height: 12),
+          FilledButton(onPressed: _loadProfitStatement, child: const Text('إعادة المحاولة')),
+        ]),
+      )))
+      else if (row == null) const Expanded(child: Center(child: Text('لا توجد بيانات أرباح لهذه الفترة')))
+      else Expanded(child: ListView(padding: const EdgeInsets.all(12), children: [
+        Card(
+          color: Theme.of(context).colorScheme.primaryContainer,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('صافي استحقاقك خلال الفترة', style: TextStyle(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(money(row['net_amount']), style: TextStyle(
+                fontSize: 27, fontWeight: FontWeight.w900,
+                color: Theme.of(context).colorScheme.onPrimaryContainer,
+              )),
+              const SizedBox(height: 5),
+              Text('بعد خصم المصروفات الخاصة بك'),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 10),
+        _profitLine('استحقاقك المباشر من السقايات', row['direct_amount']),
+        _profitLine('نصيبك من الأرباح الموزعة', row['share_amount']),
+        _profitLine('إجمالي الاستحقاق قبل المصروفات', row['gross_amount']),
+        _profitLine('المصروفات الخاصة بك', row['partner_expenses']),
+        _profitLine('صافي استحقاقك', row['net_amount'], emphasize: true),
+        const SizedBox(height: 12),
+        Card(child: ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: const Text('طريقة احتساب الاستحقاق'),
+          subtitle: Text(row['mode'] == 'percentage'
+            ? 'نسبة الملكية المعتمدة: ${row['basis']}%'
+            : 'عدد الحصص المعتمد: ${row['basis']}'),
+        )),
+        const Padding(
+          padding: EdgeInsets.all(8),
+          child: Text('هذا الكشف للعرض فقط. لا ينشئ تسوية أو قيداً محاسبياً ولا يغيّر أرصدة المحطة.',
+            textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+        ),
+      ])),
+    ]);
+  }
+
+  Widget _profitLine(String title, Object? amount, {bool emphasize = false}) => Card(
+    child: ListTile(
+      title: Text(title, style: TextStyle(fontWeight: emphasize ? FontWeight.w900 : FontWeight.w600)),
+      trailing: Text('${_money(amount)} ريال', style: TextStyle(
+        fontWeight: FontWeight.w900,
+        color: emphasize ? Theme.of(context).colorScheme.primary : null,
+      )),
+    ),
+  );
 
   Widget _myAccount() {
     final balance = _asInt(_summary?['balance']);
