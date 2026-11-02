@@ -15,6 +15,7 @@ import 'package:saqia_station/domain/accounting/calculations.dart';
 import 'package:saqia_station/services/admin_service.dart';
 import 'package:saqia_station/services/local_beneficiary_auth_service.dart';
 import 'package:saqia_station/services/local_partner_auth_service.dart';
+import 'package:saqia_station/services/local_worker_auth_service.dart';
 import 'package:saqia_station/services/backup_service.dart';
 import 'package:saqia_station/services/report_service.dart';
 
@@ -3034,6 +3035,111 @@ void main() {
   });
 
 
+  test('دخول العامل مستقل ويعزل الهوية والصلاحيات ويُبطل الجلسة عند التعطيل', () async {
+    final repo = StationRepository(db);
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final workerId = await repo.createWorker(
+      name: 'عامل اختبار دخول $suffix',
+      payType: 'hourly',
+      hourlyRate: 1500,
+    );
+    final storage = _MemoryWorkerSessionStorage();
+    final auth = LocalWorkerAuthService(
+      database: db,
+      sessionStorage: storage,
+      stationId: 1,
+    );
+    final username = 'worker_$suffix';
+    const password = 'Worker-Test-2026!';
+
+    await auth.createCredentials(
+      workerId: workerId,
+      username: username,
+      password: password,
+      managerId: 1,
+      permissions: const ['view_dashboard', 'view_irrigations', 'view_account'],
+    );
+
+    final saved = await db.query(
+      'SELECT password_phc,permissions_json FROM worker_credentials WHERE worker_id=?',
+      args: [workerId],
+    );
+    expect(saved.single['password_phc'].toString(), contains('argon2id'));
+    expect(saved.single['password_phc'], isNot(password));
+    expect(await auth.login(username.toUpperCase(), 'wrong-password'), isFalse);
+    expect(await auth.currentWorkerId(), isNull);
+
+    expect(await auth.login(username, password), isTrue);
+    expect(await auth.currentWorkerId(), workerId);
+    expect(await auth.hasPermission('view_account'), isTrue);
+    expect(await auth.hasPermission('manage_queue'), isFalse);
+    expect(await auth.hasPermission('payments'), isFalse);
+    expect(await auth.hasPermission('unknown_capability'), isFalse);
+
+    // أي محاولة دخول جديدة تنهي الجلسة السابقة حتى لو كانت كلمة المرور خاطئة.
+    expect(await auth.login(username, 'wrong-password'), isFalse);
+    expect(await auth.currentWorkerId(), isNull);
+
+    expect(await auth.login(username, password), isTrue);
+    await auth.updateCredentials(
+      workerId: workerId,
+      username: username,
+      active: false,
+      managerId: 1,
+      permissions: const ['view_dashboard'],
+    );
+    expect(await auth.currentWorkerId(), isNull);
+    expect(await auth.login(username, password), isFalse);
+    expect(storage.value, isNull);
+  });
+
+  test('لا يستطيع المحاسب إنشاء حساب دخول للعامل ولا تُقبل صلاحية غير معروفة', () async {
+    final repo = StationRepository(db);
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final workerId = await repo.createWorker(
+      name: 'عامل رفض الصلاحية $suffix',
+      payType: 'fixed',
+      fixedSalary: 1000,
+    );
+    final now = DateTime.now().toIso8601String();
+    final accountantId = await db.insert('app_users', {
+      'station_id': 1,
+      'name': 'محاسب عامل اختبار $suffix',
+      'username': 'worker_accountant_$suffix',
+      'password_hash': 'test-only',
+      'role': 'accountant',
+      'active': 1,
+      'created_at': now,
+    });
+    final auth = LocalWorkerAuthService(
+      database: db,
+      sessionStorage: _MemoryWorkerSessionStorage(),
+    );
+    await expectLater(
+      auth.createCredentials(
+        workerId: workerId,
+        username: 'worker_test_$suffix',
+        password: 'Worker-Test-2026!',
+        managerId: accountantId,
+      ),
+      throwsStateError,
+    );
+    await expectLater(
+      auth.createCredentials(
+        workerId: workerId,
+        username: 'worker_test_$suffix',
+        password: 'Worker-Test-2026!',
+        managerId: 1,
+        permissions: const ['view_dashboard', 'edit_station_ledger'],
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      await db.query('SELECT id FROM worker_credentials WHERE worker_id=?', args: [workerId]),
+      isEmpty,
+    );
+  });
+
   test('تفاصيل استحقاق السقاية والتسوية والمصروف مع عزل ملكية الشريك', () async {
     await useSolar6000();
     final repo = StationRepository(db);
@@ -3175,6 +3281,16 @@ class _MemoryBeneficiarySessionStorage implements BeneficiarySessionStorage {
   Future<void> delete() async {
     value = null;
   }
+}
+
+class _MemoryWorkerSessionStorage implements WorkerSessionStorage {
+  String? value;
+  @override
+  Future<String?> read() async => value;
+  @override
+  Future<void> write(String token) async { value = token; }
+  @override
+  Future<void> delete() async { value = null; }
 }
 
 class _MemoryPartnerSessionStorage implements PartnerSessionStorage {
