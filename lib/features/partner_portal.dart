@@ -149,7 +149,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         _repo.db.rawQuery('SELECT * FROM partners WHERE id=? AND station_id=? LIMIT 1', [id, widget.auth.stationId]),
         _repo.partyFinancialSummary('partner', id),
         _repo.partnerTransactions(id),
-        _repo.rawQuery(
+        _repo.db.rawQuery(
           "SELECT COUNT(*) invoice_count, COALESCE(SUM(minutes),0) total_minutes FROM irrigations WHERE station_id=? AND status!='cancelled'",
           [widget.auth.stationId],
         ),
@@ -189,7 +189,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
       }
       args.add(_pageSize);
       args.add(_offset);
-      final rows = await _repo.rawQuery('''
+      final rows = await _repo.db.rawQuery('''
         SELECT i.*,
           COALESCE(i.cloud_minutes,0) cloud_minutes,
           COALESCE(b.name,w.name,p.name,'غير محدد') party_name, pm.name pump_name
