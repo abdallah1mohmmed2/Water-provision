@@ -422,7 +422,9 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
   ]);
 
   Future<void> _loadProfitStatement() async {
-    if (_partnerId == null || _profitLoading) return;
+    if (_partnerId == null || _profitLoading) {
+      return;
+    }
     setState(() { _profitLoading = true; _profitError = null; });
     try {
       final rows = await _repo.report(
@@ -437,7 +439,12 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         _profitLoading = false;
       });
     } catch (e) {
-      if (mounted) setState(() { _profitLoading = false; _profitError = 'تعذر تحميل كشف الأرباح: $e'; });
+      if (mounted) {
+        setState(() {
+          _profitLoading = false;
+          _profitError = 'تعذر تحميل كشف الأرباح: $e';
+        });
+      }
     }
   }
 
@@ -449,7 +456,9 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
       initialDateRange: DateTimeRange(start: _profitFrom, end: _profitTo),
       helpText: 'تحديد فترة كشف الأرباح',
     );
-    if (picked == null) return;
+    if (picked == null) {
+      return;
+    }
     setState(() { _profitFrom = picked.start; _profitTo = picked.end; });
     await _loadProfitStatement();
   }
@@ -466,9 +475,11 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         to: _profitTo,
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر إنشاء كشف PDF: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر إنشاء كشف PDF: $e')),
+        );
+      }
     }
   }
 
