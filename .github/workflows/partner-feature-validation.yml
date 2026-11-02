@@ -33,6 +33,33 @@ jobs:
       - name: Flutter Tests
         run: flutter test
 
+      - name: Prepare Android NDK with download retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          fi
+          if [ -z "${SDKMANAGER:-}" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "Android sdkmanager was not found under $SDK_ROOT"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          for attempt in 1 2 3; do
+            if "$SDKMANAGER" --install "ndk;28.2.13676358"; then
+              break
+            fi
+            rm -rf "$SDK_ROOT/ndk/28.2.13676358"
+            if [ "$attempt" -eq 3 ]; then
+              echo "NDK 28.2.13676358 installation failed after 3 attempts"
+              exit 1
+            fi
+            sleep "$((attempt * 15))"
+          done
+          test -f "$SDK_ROOT/ndk/28.2.13676358/source.properties"
+
       - name: Build Android release APK
         run: flutter build apk --release
 
