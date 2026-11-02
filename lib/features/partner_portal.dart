@@ -455,7 +455,9 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
   }
 
   Future<void> _printProfitStatement() async {
-    if (_partnerId == null) return;
+    if (_partnerId == null) {
+      return;
+    }
     try {
       await ReportService(_repo).printPdf(
         'partner_profit_statement',
@@ -472,7 +474,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
 
   Widget _myProfits() {
     final row = _profitStatement;
-    final money = (Object? value) => '${_money(value)} ريال';
+    String money(Object? value) => '${_money(value)} ريال';
     return Column(children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
@@ -521,7 +523,7 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
                 color: Theme.of(context).colorScheme.onPrimaryContainer,
               )),
               const SizedBox(height: 5),
-              Text('بعد خصم المصروفات الخاصة بك'),
+              const Text('بعد خصم المصروفات الخاصة بك'),
             ]),
           ),
         ),
