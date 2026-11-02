@@ -662,6 +662,81 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
     ]);
   }
 
+  Future<void> _showPaymentDetails(Map<String, Object?> row) async {
+    final paymentId = _asInt(row['reference_id']);
+    if (_partnerId == null || paymentId <= 0) return;
+    try {
+      // لا نثق بمرجع الحركة وحده؛ نتحقق من ملكية السند للشريك الحالي
+      // ومن أن السند مرحّل قبل عرض أي تفاصيل.
+      final matches = await _repo.db.rawQuery('''
+        SELECT p.id, p.date, p.amount, p.reference_number, p.notes,
+               pm.name method_name, pm.type method_type,
+               c.name cashbox_name
+        FROM payments p
+        JOIN payment_methods pm ON pm.id=p.payment_method_id
+        JOIN cashboxes c ON c.id=p.cashbox_id
+        WHERE p.id=? AND p.partner_id=? AND p.status='posted'
+        LIMIT 1
+      ''', [paymentId, _partnerId]);
+      if (!mounted) return;
+      if (matches.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تعذر العثور على سند تسديد مرتبط بهذا الحساب.')),
+        );
+        return;
+      }
+      final payment = matches.first;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Row(children: [
+              Icon(Icons.receipt_long_outlined),
+              SizedBox(width: 9),
+              Expanded(child: Text('تفاصيل سند التسديد')),
+            ]),
+            content: SingleChildScrollView(child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _paymentDetailLine('رقم السند', payment['reference_number'] ?? 'غير محدد'),
+                _paymentDetailLine('التاريخ', _date(payment['date'])),
+                _paymentDetailLine('المبلغ', '${_money(payment['amount'])} ريال'),
+                _paymentDetailLine('طريقة الدفع', payment['method_name'] ?? 'غير محددة'),
+                _paymentDetailLine('الصندوق', payment['cashbox_name'] ?? 'غير محدد'),
+                if ('${payment['notes'] ?? ''}'.trim().isNotEmpty)
+                  _paymentDetailLine('البيان', payment['notes']),
+                const SizedBox(height: 8),
+                const Text('هذه بيانات للعرض فقط ولا يمكن تعديل السند من بوابة الشريك.',
+                  style: TextStyle(fontSize: 12)),
+              ],
+            )),
+            actions: [TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('إغلاق'),
+            )],
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر تحميل تفاصيل السند: $e')),
+        );
+      }
+    }
+  }
+
+  Widget _paymentDetailLine(String label, Object? value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SizedBox(width: 105, child: Text(label,
+        style: const TextStyle(fontWeight: FontWeight.w700))),
+      Expanded(child: Text('$value')),
+    ]),
+  );
+
   Widget _transactionTile(Map<String, Object?> row) {
     final signed = _asInt(row['signed_amount']);
     final amount = _asInt(row['amount']);
@@ -672,7 +747,16 @@ class _PartnerHomePageState extends State<PartnerHomePage> {
         child: Icon(isCredit ? Icons.arrow_downward : Icons.arrow_upward, color: isCredit ? Colors.green : Colors.orange)),
       title: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: Text('${_date(row['date'])} • رصيد ${_partyBalance(_asInt(row['balance']))}'),
-      trailing: Text('${isCredit ? '+' : '-'}${_money(amount)}', style: TextStyle(fontWeight: FontWeight.w900, color: isCredit ? Colors.green : Colors.orange)),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text('${isCredit ? '+' : '-'}${_money(amount)}', style: TextStyle(fontWeight: FontWeight.w900, color: isCredit ? Colors.green : Colors.orange)),
+        if (row['type'] == 'payment' || row['reference_type'] == 'payment') ...[
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_left, size: 20),
+        ],
+      ]),
+      onTap: row['type'] == 'payment' || row['reference_type'] == 'payment'
+          ? () => _showPaymentDetails(row)
+          : null,
     ));
   }
 
