@@ -67,7 +67,7 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
         repo.db.rawQuery("""SELECT wt.id,wt.date,wt.amount,wt.hours,wt.notes,wt.reference_id irrigation_id,i.start_datetime,COALESCE(b.name,p.name,'غير محدد') party_name
           FROM worker_transactions wt LEFT JOIN irrigations i ON wt.reference_type='irrigation' AND i.id=wt.reference_id
           LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id LEFT JOIN partners p ON p.id=i.partner_id
-          WHERE wt.worker_id=? AND wt.type='irrigation' AND COALESCE(wt.notes,'') NOT LIKE 'خصم قيمة سقاية%'
+          WHERE wt.worker_id=? AND wt.type='irrigation' AND COALESCE(wt.notes,'') LIKE 'استحقاق%'
           ORDER BY wt.date DESC,wt.id DESC LIMIT 100""",[wid])
       ]);
       if(!mounted)return;final workers=x[0] as List<Map<String,Object?>>;if(workers.isEmpty)throw StateError('العامل غير موجود أو غير نشط.');
@@ -95,7 +95,7 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
   Widget metric(String title,String value,IconData icon)=>Expanded(child:Card(elevation:0,child:Padding(padding:const EdgeInsets.all(13),child:Column(children:[Icon(icon),const SizedBox(height:6),Text(value,style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900)),Text(title,style:const TextStyle(fontSize:11))]))));
   Widget home(){
     final w=worker!,s=summary??{};final balance=n(s['balance']);
-    final pay=switch('${w['pay_type']}'){'fixed'=>'راتب ثابت: ${money(w['fixed_salary'])} ريال','hourly'=>'أجر الساعة: ${money(w['hourly_rate'])} ريال','percentage'=>'النسبة: ${w['percentage_rate']}%',_=>'الأجر غير محدد'};
+    final pay=switch('${w['pay_type']}'){'fixed'=>'راتب ثابت: ${money(w['fixed_salary'])} ريال','hourly'=>'أجر الساعة: ${money(w['hourly_rate'])} ريال','percentage'=>'النسبة: ${w['percentage_rate']}% من قيمة السقاية المحتسبة',_=>'الأجر غير محدد'};
     return ListView(padding:const EdgeInsets.all(16),children:[
       Card(color:Theme.of(context).colorScheme.primaryContainer,child:Padding(padding:const EdgeInsets.all(20),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Text('مرحباً، ${w['name']}',style:const TextStyle(fontWeight:FontWeight.w700)),const SizedBox(height:8),
