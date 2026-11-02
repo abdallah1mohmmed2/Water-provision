@@ -17,6 +17,7 @@ import '../services/admin_service.dart';
 import '../services/local_security_service.dart';
 import '../services/local_beneficiary_auth_service.dart';
 import '../services/local_partner_auth_service.dart';
+import 'partner_portal.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
 import '../services/official_report_template.dart';
@@ -620,6 +621,20 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
                           ),
                           icon: const Icon(Icons.person_outline_rounded),
                           label: const Text('دخول المستفيد'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: busy ? null : () => Navigator.push(
+                            c,
+                            MaterialPageRoute<void>(
+                              builder: (_) => const PartnerLoginPage(),
+                            ),
+                          ),
+                          icon: const Icon(Icons.handshake_outlined),
+                          label: const Text('دخول الشريك'),
                         ),
                       ),
                       Text('يُحفظ رمز التأمين محليًا على هذا الجهاز ولا يُرسل إلى الخادم.',
