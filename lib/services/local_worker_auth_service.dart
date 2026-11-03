@@ -58,6 +58,7 @@ class LocalWorkerAuthService {
     'edit_profile',
     'view_complaints',
     'submit_complaints',
+    'view_notifications',
   };
 
   String _normalize(String value) => value.trim().toLowerCase();
@@ -409,6 +410,103 @@ class LocalWorkerAuthService {
         recordId: (rows.first['id'] as num).toInt(),
         newValues: {'worker_id': workerId, 'password_changed': true},
       );
+    });
+  }
+
+  /// إشعارات العامل مرتبطة بالجلسة الحالية ولا يمكن استعراض إشعارات عامل آخر.
+  Future<List<Map<String, Object?>>> currentWorkerNotifications() async {
+    final token = await _storage.read();
+    if (token == null || token.isEmpty) throw StateError('انتهت جلسة الدخول.');
+    final tokenHash = crypto.sha256.convert(utf8.encode(token)).toString();
+    return db.transaction((tx) async {
+      final rows = await tx.rawQuery(
+        '''SELECT s.worker_id,c.permissions_json FROM worker_sessions s
+           JOIN worker_credentials c ON c.worker_id=s.worker_id
+           JOIN workers w ON w.id=s.worker_id
+           WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?
+             AND c.active=1 AND w.active=1 AND c.station_id=w.station_id
+             AND w.station_id=? LIMIT 1''',
+        [tokenHash, AppClock.now().toIso8601String(), stationId],
+      );
+      if (rows.isEmpty) throw StateError('انتهت جلسة الدخول.');
+      final permissions = jsonDecode('${rows.first['permissions_json']}');
+      if (permissions is! List || !permissions.contains('view_notifications')) {
+        throw StateError('لا تملك صلاحية عرض الإشعارات.');
+      }
+      return tx.rawQuery(
+        '''SELECT id,type,title,body,read_at,created_at FROM worker_notifications
+           WHERE station_id=? AND worker_id=?
+           ORDER BY created_at DESC,id DESC LIMIT 100''',
+        [stationId, rows.first['worker_id']],
+      );
+    });
+  }
+
+  Future<void> markCurrentWorkerNotificationRead(int notificationId) async {
+    final token = await _storage.read();
+    if (token == null || token.isEmpty) throw StateError('انتهت جلسة الدخول.');
+    final tokenHash = crypto.sha256.convert(utf8.encode(token)).toString();
+    await db.transaction((tx) async {
+      final rows = await tx.rawQuery(
+        '''SELECT s.worker_id,c.permissions_json FROM worker_sessions s
+           JOIN worker_credentials c ON c.worker_id=s.worker_id
+           JOIN workers w ON w.id=s.worker_id
+           WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?
+             AND c.active=1 AND w.active=1 AND c.station_id=w.station_id
+             AND w.station_id=? LIMIT 1''',
+        [tokenHash, AppClock.now().toIso8601String(), stationId],
+      );
+      if (rows.isEmpty) throw StateError('انتهت جلسة الدخول.');
+      final permissions = jsonDecode('${rows.first['permissions_json']}');
+      if (permissions is! List || !permissions.contains('view_notifications')) {
+        throw StateError('لا تملك صلاحية عرض الإشعارات.');
+      }
+      final changed = await tx.update(
+        'worker_notifications',
+        {'read_at': AppClock.now().toIso8601String()},
+        where: 'id=? AND station_id=? AND worker_id=?',
+        whereArgs: [notificationId, stationId, rows.first['worker_id']],
+      );
+      if (changed == 0) throw StateError('الإشعار غير موجود ضمن إشعارات حسابك.');
+    });
+  }
+
+  /// إرسال إشعار إداري لعامل واحد؛ التحقق من المدير والعامل داخل معاملة واحدة.
+  Future<int> sendWorkerNotification({
+    required int managerId,
+    required int workerId,
+    required String title,
+    required String body,
+    String type = 'admin_message',
+  }) async {
+    final cleanTitle = title.trim();
+    final cleanBody = body.trim();
+    if (cleanTitle.isEmpty || cleanTitle.length > 120 || cleanBody.isEmpty || cleanBody.length > 2000) {
+      throw ArgumentError('عنوان الإشعار ومحتواه مطلوبان وبحدود الطول المسموح.');
+    }
+    return db.transaction((tx) async {
+      final managers = await tx.rawQuery(
+        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
+        [managerId, 'manager'],
+      );
+      if (managers.isEmpty) throw StateError('إرسال إشعارات العمال متاح للمدير النشط فقط.');
+      final workers = await tx.rawQuery(
+        'SELECT id FROM workers WHERE id=? AND station_id=? AND active=1 LIMIT 1',
+        [workerId, stationId],
+      );
+      if (workers.isEmpty) throw StateError('العامل غير موجود أو غير نشط في هذه المحطة.');
+      final id = await tx.insert('worker_notifications', {
+        'station_id': stationId,
+        'worker_id': workerId,
+        'type': type,
+        'title': cleanTitle,
+        'body': cleanBody,
+        'created_at': AppClock.now().toIso8601String(),
+      });
+      await db.auditTx(tx, userId: managerId,
+        operation: 'worker_notification_sent', table: 'worker_notifications',
+        recordId: id, newValues: {'worker_id': workerId, 'title': cleanTitle, 'type': type});
+      return id;
     });
   }
 
