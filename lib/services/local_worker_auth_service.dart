@@ -486,8 +486,8 @@ class LocalWorkerAuthService {
     }
     return db.transaction((tx) async {
       final managers = await tx.rawQuery(
-        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
-        [managerId, 'manager'],
+        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 AND station_id=? LIMIT 1',
+        [managerId, 'manager', stationId],
       );
       if (managers.isEmpty) throw StateError('إرسال إشعارات العمال متاح للمدير النشط فقط.');
       final workers = await tx.rawQuery(
@@ -597,8 +597,8 @@ class LocalWorkerAuthService {
     int? workerId,
   }) async {
     final managers = await db.rawQuery(
-      'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
-      [managerId, 'manager'],
+      'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 AND station_id=? LIMIT 1',
+      [managerId, 'manager', stationId],
     );
     if (managers.isEmpty) throw StateError('عرض بلاغات العمال متاح للمدير النشط فقط.');
     return db.rawQuery(
@@ -624,8 +624,8 @@ class LocalWorkerAuthService {
     if (cleanReply.length > 3000) throw ArgumentError('الرد أطول من الحد المسموح.');
     await db.transaction((tx) async {
       final managers = await tx.rawQuery(
-        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
-        [managerId, 'manager'],
+        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 AND station_id=? LIMIT 1',
+        [managerId, 'manager', stationId],
       );
       if (managers.isEmpty) throw StateError('تحديث البلاغات متاح للمدير النشط فقط.');
       final reports = await tx.query('worker_reports',
