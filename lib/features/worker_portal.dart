@@ -121,10 +121,13 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
   int? id;Map<String,Object?>? worker,summary;
   List<Map<String,Object?>> ledger=[],irrigations=[],payments=[];Set<String> permissions={};
   bool loading=true;String? error;int tab=0;
+  final profileName = TextEditingController();
+  final profilePhone = TextEditingController();
   int n(Object? v)=>v is num?v.round():int.tryParse('$v')??0;
   String money(Object? v)=>NumberFormat('#,##0').format(n(v));
   String date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':DateFormat('yyyy/MM/dd • hh:mm a','en').format(d);}
   @override void initState(){super.initState();load();}
+  @override void dispose(){profileName.dispose();profilePhone.dispose();super.dispose();}
   Future<void> load() async{
     if(mounted)setState(()=>loading=true);
     try{
@@ -155,7 +158,7 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       if(!mounted)return;
       final workers=x[0] as List<Map<String,Object?>>;
       if(workers.isEmpty)throw StateError('العامل غير موجود أو غير نشط.');
-      setState(() { id=wid; worker=workers.first; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
+      setState(() { id=wid; worker=workers.first; profileName.text='\u0024{workers.first['name'] ?? ''}'; profilePhone.text='\u0024{workers.first['phone'] ?? ''}'; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
     }catch(e){if(mounted)setState(() { loading=false; error='$e'; });}
   }
   void message(String s)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));
@@ -213,10 +216,7 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
     ]);
   }
   Widget profilePage() {
-    final w = worker!;
-    final name = TextEditingController(text: '${w['name'] ?? ''}');
-    final phone = TextEditingController(text: '${w['phone'] ?? ''}');
-    return StatefulBuilder(builder: (context, refresh) => ListView(
+    return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         const Text('ملفي الشخصي', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
@@ -225,10 +225,10 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
           children: [
             const CircleAvatar(radius: 34, child: Icon(Icons.person, size: 36)),
             const SizedBox(height: 12),
-            TextField(controller: name, readOnly: !permissions.contains('edit_profile'),
+            TextField(controller: profileName, readOnly: !permissions.contains('edit_profile'),
               decoration: const InputDecoration(labelText: 'الاسم')),
             const SizedBox(height: 10),
-            TextField(controller: phone, readOnly: !permissions.contains('edit_profile'),
+            TextField(controller: profilePhone, readOnly: !permissions.contains('edit_profile'),
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(labelText: 'رقم الهاتف')),
             if (!permissions.contains('edit_profile'))
@@ -239,7 +239,7 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
               FilledButton.icon(
                 onPressed: () async {
                   try {
-                    await widget.auth.updateCurrentProfile(name: name.text, phone: phone.text);
+                    await widget.auth.updateCurrentProfile(name: profileName.text, phone: profilePhone.text);
                     if (!mounted) return;
                     message('تم تحديث الملف الشخصي');
                     await load();
@@ -252,7 +252,7 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
           ],
         ))),
       ],
-    ));
+    );
   }
 
   Widget account()=>ListView(padding:const EdgeInsets.all(16),children:[
