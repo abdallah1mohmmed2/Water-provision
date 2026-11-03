@@ -1995,6 +1995,12 @@ class _DashboardState extends State<DashboardPage> {
           ),
         );
         return;
+      case 'debts':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => DebtsReportPage(widget.r)),
+        );
+        return;
       case 'beneficiary_statement':
         try {
           final rows = await widget.r.report('beneficiary_statement');
@@ -2065,6 +2071,7 @@ class _DashboardState extends State<DashboardPage> {
       ('تقرير العمال', 'worker_transactions', Icons.engineering_rounded),
       ('تقرير الفواتير', 'invoices', Icons.receipt_long_rounded),
       ('تقرير المستفيدين', 'beneficiary_statement', Icons.people_alt_rounded),
+      ('تقرير المديونيات', 'debts', Icons.account_balance_wallet_rounded),
     ];
     const cyan = Color(0xFF00E5FF);
     const neon = Color(0xFF39FFB6);
@@ -2091,7 +2098,7 @@ class _DashboardState extends State<DashboardPage> {
                 style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900),
               ),
             ),
-            Text('5 تقارير', style: TextStyle(color: cyan.withValues(alpha: .8), fontSize: 10)),
+            Text('6 تقارير', style: TextStyle(color: cyan.withValues(alpha: .8), fontSize: 10)),
           ]),
           const SizedBox(height: 8),
           Text(
