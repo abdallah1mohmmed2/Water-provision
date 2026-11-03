@@ -3814,6 +3814,90 @@ class AccountingService {
     });
   }
 
+  /// إضافة مديونية سابقة من مركز المدفوعات دون أي حركة صندوق.
+  /// للمستفيد: المبلغ عليه للمحطة؛ للعامل والشريك: المبلغ مستحق لهما على المحطة.
+  Future<int> addPreviousPartyDebt({
+    required String partyType,
+    required int partyId,
+    required int amount,
+    required DateTime date,
+    required String notes,
+    int? userId,
+  }) async {
+    if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
+    if (notes.trim().isEmpty) throw ArgumentError('بيان المديونية مطلوب');
+    if (partyType == 'beneficiary') {
+      return addBeneficiaryDebt(
+        beneficiaryId: partyId,
+        amount: amount,
+        date: date,
+        notes: notes,
+        userId: userId,
+      );
+    }
+    if (partyType != 'worker' && partyType != 'partner') {
+      throw ArgumentError('نوع الطرف غير صالح لإضافة المديونية');
+    }
+    return database.transaction((tx) async {
+      await _assertPeriodOpen(tx, date);
+      final isWorker = partyType == 'worker';
+      final table = isWorker ? 'workers' : 'partners';
+      final partyRows = await tx.query(
+        table,
+        columns: ['id', 'name'],
+        where: 'id=?',
+        whereArgs: [partyId],
+        limit: 1,
+      );
+      if (partyRows.isEmpty) throw StateError('الطرف المحدد غير موجود');
+      final name = '${partyRows.first['name'] ?? ''}';
+      final partyAccount = isWorker
+          ? await _workerAccountIdTx(tx, partyId)
+          : await _partnerAccountIdTx(tx, partyId);
+      final openingEquity = await _accountIdTx(tx, '3000');
+      final entryId = await _entry(
+        tx,
+        description: 'مديونية سابقة مستحقة لـ${isWorker ? 'العامل' : 'الشريك'} $name',
+        referenceType: isWorker ? 'worker_opening' : 'partner_opening',
+        referenceId: partyId,
+        date: date,
+        userId: userId,
+        lines: [
+          {
+            'account_id': partyAccount,
+            if (isWorker) 'worker_id': partyId else 'partner_id': partyId,
+            'debit': 0,
+            'credit': amount,
+            'memo': notes.trim(),
+          },
+          {
+            'account_id': openingEquity,
+            'debit': amount,
+            'credit': 0,
+            'memo': 'مقابل مديونية سابقة',
+          },
+        ],
+      );
+      await database.auditTx(
+        tx,
+        userId: userId,
+        operation: 'create',
+        table: 'journal_entries',
+        recordId: entryId,
+        newValues: {
+          'party_type': partyType,
+          'party_id': partyId,
+          'amount': amount,
+          'date': date.toIso8601String(),
+          'notes': notes.trim(),
+          'reference_type': isWorker ? 'worker_opening' : 'partner_opening',
+        },
+        reason: 'إضافة مديونية سابقة دون حركة نقدية',
+      );
+      return entryId;
+    });
+  }
+
   /// يلغي سند مديونية سابقاً بعكس قيده مع إبقاء السند الأصلي للتدقيق.
   Future<void> cancelBeneficiaryDebt(
     int debtId,
