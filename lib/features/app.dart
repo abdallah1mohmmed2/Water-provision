@@ -10354,16 +10354,22 @@ class _WorkersState extends State<WorkersPage> {
               ListTile(
                 leading: const Icon(Icons.support_agent_outlined),
                 title: const Text('بلاغات العامل والرد عليها'),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(c);
-                  Navigator.push(context, MaterialPageRoute<void>(
-                    builder: (_) => WorkerReportsAdminPage(
-                      managerId: widget.userId,
-                      workerId: (x['id'] as num).toInt(),
-                      stationId: 1,
-                      workerName: x['name']?.toString() ?? 'العامل',
-                    ),
-                  ));
+                  try {
+                    final stationId = await widget.r.accounting.currentStationId();
+                    if (!mounted) return;
+                    Navigator.push(context, MaterialPageRoute<void>(
+                      builder: (_) => WorkerReportsAdminPage(
+                        managerId: widget.userId,
+                        workerId: (x['id'] as num).toInt(),
+                        stationId: stationId,
+                        workerName: x['name']?.toString() ?? 'العامل',
+                      ),
+                    ));
+                  } catch (e) {
+                    if (mounted) msg('تعذر فتح البلاغات: $e');
+                  }
                 },
               ),
             if (widget.manager)
