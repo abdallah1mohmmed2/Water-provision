@@ -6467,6 +6467,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
         from: from,
         to: DateTime(now.year, now.month, now.day),
         beneficiaryId: bid,
+        systemType: _activeSystemType,
         sourceRows: reportRows.where((x) => filteredRows.any((v) => v['id'] == x['id'])).toList(),
       );
     } catch (e) {
@@ -6483,7 +6484,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final now = AppClock.now();
     final allPeriod = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}
         .contains(reportPeriodController.text.trim().toLowerCase());
-    final from = allPeriod ? null : _reportStart(reportPeriodController.text, now);
+    final from = _activeFrom;
     if (!allPeriod && from == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('حدد فترة صحيحة قبل إنشاء ملف PDF.')),
@@ -6497,6 +6498,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
         from: from,
         to: to,
         beneficiaryId: bid,
+        systemType: _activeSystemType,
       );
       if (reportRows.isEmpty) {
         if (!mounted) return;
@@ -6510,7 +6512,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
         from: from,
         to: to,
         beneficiaryId: bid,
-        sourceRows: reportRows,
+        sourceRows: reportRows.where((x) => filteredRows.any((v) => v['id'] == x['id'])).toList(),
       );
       if (bytes.isEmpty) throw StateError('ملف PDF الناتج فارغ.');
       await Printing.sharePdf(
