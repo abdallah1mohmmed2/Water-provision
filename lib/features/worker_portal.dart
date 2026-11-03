@@ -119,7 +119,7 @@ class WorkerHomePage extends StatefulWidget{
 class _WorkerHomePageState extends State<WorkerHomePage>{
   late final repo=StationRepository(widget.auth.db);
   int? id;Map<String,Object?>? worker,summary;
-  List<Map<String,Object?>> ledger=[],irrigations=[],payments=[];Set<String> permissions={};
+  List<Map<String,Object?>> ledger=[],irrigations=[],payments=[],assignments=[];Set<String> permissions={};
   bool loading=true;String? error;int tab=0;
   final profileName = TextEditingController();
   final profilePhone = TextEditingController();
@@ -154,11 +154,17 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
           FROM payments p LEFT JOIN payment_methods pm ON pm.id=p.payment_method_id
           LEFT JOIN cashboxes c ON c.id=p.cashbox_id
           WHERE p.worker_id=? AND p.status='posted' ORDER BY p.date DESC,p.id DESC''',[wid]) : Future.value(<Map<String,Object?>>[]),
+        granted.contains('view_assignments') ? repo.db.rawQuery('''SELECT i.id,i.date,i.start_datetime,i.minutes,i.status,i.system_type,
+          COALESCE(b.name,p.name,'غير محدد') party_name
+          FROM irrigations i LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id
+          LEFT JOIN partners p ON p.id=i.partner_id
+          WHERE i.operator_worker_id=? AND i.station_id=?
+          ORDER BY i.start_datetime DESC,i.id DESC LIMIT 200''',[wid,widget.auth.stationId]) : Future.value(<Map<String,Object?>>[]),
       ]);
       if(!mounted)return;
       final workers=x[0] as List<Map<String,Object?>>;
       if(workers.isEmpty)throw StateError('العامل غير موجود أو غير نشط.');
-      setState(() { id=wid; worker=workers.first; profileName.text='\u0024{workers.first['name'] ?? ''}'; profilePhone.text='\u0024{workers.first['phone'] ?? ''}'; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
+      setState(() { id=wid; worker=workers.first; profileName.text='\u0024{workers.first['name'] ?? ''}'; profilePhone.text='\u0024{workers.first['phone'] ?? ''}'; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); assignments=(x[5] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
     }catch(e){if(mounted)setState(() { loading=false; error='$e'; });}
   }
   void message(String s)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));
@@ -215,6 +221,18 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       ]
     ]);
   }
+  Widget assignmentsPage()=>ListView(padding:const EdgeInsets.all(16),children:[
+    const Text('تكليفاتي',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
+    const SizedBox(height:8),
+    const Text('السقايات المسندة إليك كمشغّل من إدارة المحطة.'),
+    for(final row in assignments) Card(elevation:0,child:ListTile(
+      leading:const CircleAvatar(child:Icon(Icons.assignment_outlined)),
+      title:Text('تكليف #${row['id']} • ${row['party_name']??'—'}'),
+      subtitle:Text('${date(row['start_datetime']??row['date'])} • ${row['minutes']??0} دقيقة • ${row['system_type']??'—'}'),
+      trailing:Text('${row['status']??'—'}'),
+    )),
+    if(assignments.isEmpty)const Padding(padding:EdgeInsets.all(20),child:Text('لا توجد تكليفات مسجلة لك حتى الآن.')),
+  ]);
   Widget profilePage() {
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -287,6 +305,7 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       if(permissions.contains('view_irrigations'))(title:'السقايات',icon:Icons.water_drop,page:irrigationPage()),
       if(permissions.contains('view_account'))(title:'حسابي',icon:Icons.account_balance_wallet,page:account()),
       if(permissions.contains('view_payments'))(title:'مدفوعاتي',icon:Icons.payments,page:paymentsPage()),
+      if(permissions.contains('view_assignments'))(title:'تكليفاتي',icon:Icons.assignment,page:assignmentsPage()),
       if(permissions.contains('view_profile'))(title:'ملفي',icon:Icons.person,page:profilePage())
     ];
     if(tabs.isEmpty)return Scaffold(appBar:AppBar(title:const Text('بوابة العامل'),actions:[IconButton(onPressed:logout,icon:const Icon(Icons.logout))]),body:const Center(child:Text('لم يمنحك المدير صلاحية عرض الشاشات.')));
