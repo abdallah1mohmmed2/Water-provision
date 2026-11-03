@@ -10166,6 +10166,7 @@ class _WorkersState extends State<WorkersPage> {
       'view_account': 'عرض كشف الحساب',
       'view_payments': 'عرض المستحقات والمدفوعات',
       'view_reports': 'عرض التقارير وملفات PDF',
+      'view_assignments': 'عرض التكليفات المسندة للعامل',
       'view_profile': 'عرض الملف الشخصي',
       'edit_profile': 'السماح بتعديل الملف الشخصي',
     };
