@@ -86,6 +86,9 @@ class LocalWorkerAuthService {
     if (selected.contains('edit_profile') && !selected.contains('view_profile')) {
       throw ArgumentError('صلاحية تعديل الملف الشخصي تتطلب صلاحية عرضه');
     }
+    if (selected.contains('submit_complaints') && !selected.contains('view_complaints')) {
+      throw ArgumentError('إرسال البلاغات يتطلب صلاحية عرض ومتابعة البلاغات');
+    }
     return selected.toList()..sort();
   }
 
