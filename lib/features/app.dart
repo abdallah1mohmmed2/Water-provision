@@ -6414,7 +6414,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final now = AppClock.now();
     final allPeriod = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}
         .contains(reportPeriodController.text.trim().toLowerCase());
-    final from = allPeriod ? null : _reportStart(reportPeriodController.text, now);
+    final from = _activeFrom;
     if (!allPeriod && from == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -6434,6 +6434,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
         from: from,
         to: DateTime(now.year, now.month, now.day),
         beneficiaryId: bid,
+        systemType: _activeSystemType,
       );
 
       // أظهر عدد الصفوف الراجعة من SQLite قبل دخول مرحلة بناء PDF.
@@ -6466,7 +6467,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
         from: from,
         to: DateTime(now.year, now.month, now.day),
         beneficiaryId: bid,
-        sourceRows: reportRows,
+        sourceRows: reportRows.where((x) => filteredRows.any((v) => v['id'] == x['id'])).toList(),
       );
     } catch (e) {
       if (!mounted) return;
