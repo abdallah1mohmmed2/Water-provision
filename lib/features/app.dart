@@ -21,6 +21,7 @@ import '../services/local_partner_auth_service.dart';
 import '../services/local_worker_auth_service.dart';
 import 'partner_portal.dart';
 import 'worker_portal.dart';
+import 'worker_reports_admin_page.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
 import '../services/official_report_template.dart';
@@ -10169,6 +10170,8 @@ class _WorkersState extends State<WorkersPage> {
       'view_assignments': 'عرض التكليفات المسندة للعامل',
       'view_profile': 'عرض الملف الشخصي',
       'edit_profile': 'السماح بتعديل الملف الشخصي',
+      'view_complaints': 'عرض ومتابعة البلاغات والردود',
+      'submit_complaints': 'إرسال بلاغات وشكاوى للإدارة',
     };
     final ok = await showDialog<bool>(
       context: context,
@@ -10224,9 +10227,11 @@ class _WorkersState extends State<WorkersPage> {
                       if (v == true) {
                         selected.add(entry.key);
                         if (entry.key == 'edit_profile') selected.add('view_profile');
+                        if (entry.key == 'submit_complaints') selected.add('view_complaints');
                       } else {
                         selected.remove(entry.key);
                         if (entry.key == 'view_profile') selected.remove('edit_profile');
+                        if (entry.key == 'view_complaints') selected.remove('submit_complaints');
                       }
                     }),
                   ),
@@ -10305,6 +10310,22 @@ class _WorkersState extends State<WorkersPage> {
                 onTap: () {
                   Navigator.pop(c);
                   manageWorkerLogin(x);
+                },
+              ),
+            if (widget.manager)
+              ListTile(
+                leading: const Icon(Icons.support_agent_outlined),
+                title: const Text('بلاغات العامل والرد عليها'),
+                onTap: () {
+                  Navigator.pop(c);
+                  Navigator.push(context, MaterialPageRoute<void>(
+                    builder: (_) => WorkerReportsAdminPage(
+                      managerId: widget.userId,
+                      workerId: (x['id'] as num).toInt(),
+                      stationId: 1,
+                      workerName: x['name']?.toString() ?? 'العامل',
+                    ),
+                  ));
                 },
               ),
             if (widget.manager)
