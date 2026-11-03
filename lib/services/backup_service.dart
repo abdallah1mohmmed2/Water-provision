@@ -17,6 +17,12 @@ class BackupService {
     return p.join(dir, 'saqia_station_v2.db');
   }
 
+  String _backupTimestamp(DateTime value) {
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${value.year}-${two(value.month)}-${two(value.day)}_'
+        '${two(value.hour)}-${two(value.minute)}-${two(value.second)}';
+  }
+
   Future<File> createDatabaseBackup() async {
     final source = File(await databasePath());
     if (!await source.exists()) throw StateError('ملف قاعدة البيانات غير موجود');
@@ -31,7 +37,8 @@ class BackupService {
     await accounting.database.close();
 
     final dir = await getTemporaryDirectory();
-    final name = 'نسخة_ساقية_${DateTime.now().millisecondsSinceEpoch}.db';
+    final createdAt = DateTime.now();
+    final name = 'نسخة_المنظومة_${_backupTimestamp(createdAt)}.db';
     final target = File(p.join(dir.path, name));
     try {
       await source.copy(target.path);
@@ -82,7 +89,7 @@ class BackupService {
     // URI/مسارًا لا يمكن فتحه كملف عادي بعد اختيار موقع عبر SAF.
     await _recordBackup(
       path,
-      'نسخة SQLite حُفظت عبر نافذة الحفظ الأصلية بعد التحقق من محتواها قبل الحفظ',
+      'نسخة المنظومة: ${p.basename(path)}. نسخة SQLite حُفظت عبر نافذة الحفظ الأصلية بعد التحقق من محتواها قبل الحفظ',
     );
     return path;
   }
@@ -95,8 +102,8 @@ class BackupService {
         name: p.basename(file.path),
         mimeType: 'application/octet-stream',
       ),
-    ], text: 'نسخة احتياطية لقاعدة بيانات ساقية');
-    await _recordBackup(file.path, 'نسخة SQLite مكتملة ومتحقق منها ومُرسلة إلى المشاركة');
+    ], text: 'نسخة احتياطية للمنظومة: ${p.basename(file.path)}');
+    await _recordBackup(file.path, 'نسخة المنظومة: ${p.basename(file.path)}. نسخة SQLite مكتملة ومتحقق منها ومُرسلة إلى المشاركة');
   }
 
   Future<Uint8List> buildPortableJsonBackup() async =>
