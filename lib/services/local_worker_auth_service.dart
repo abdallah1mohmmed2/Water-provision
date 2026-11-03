@@ -53,6 +53,8 @@ class LocalWorkerAuthService {
     'view_account',
     'view_payments',
     'view_reports',
+    'view_profile',
+    'edit_profile',
   };
 
   String _normalize(String value) => value.trim().toLowerCase();
@@ -77,6 +79,9 @@ class LocalWorkerAuthService {
     }
     if (selected.contains('view_reports') && !selected.contains('view_account')) {
       throw ArgumentError('صلاحية التقارير تتطلب صلاحية عرض كشف الحساب');
+    }
+    if (selected.contains('edit_profile') && !selected.contains('view_profile')) {
+      throw ArgumentError('صلاحية تعديل الملف الشخصي تتطلب صلاحية عرضه');
     }
     return selected.toList()..sort();
   }
@@ -309,6 +314,46 @@ class LocalWorkerAuthService {
   Future<bool> hasPermission(String permission) async {
     if (!allowedPermissions.contains(permission)) return false;
     return (await currentPermissions()).contains(permission);
+  }
+
+  /// يسمح للعامل بتعديل بياناته التعريفية فقط؛ لا يقبل أي حقل وظيفي أو مالي.
+  Future<void> updateCurrentProfile({
+    required String name,
+    required String phone,
+  }) async {
+    final token = await _storage.read();
+    if (token == null || token.isEmpty) throw StateError('انتهت جلسة الدخول.');
+    final tokenHash = crypto.sha256.convert(utf8.encode(token)).toString();
+    final workerId = await currentWorkerId();
+    if (workerId == null) throw StateError('انتهت جلسة الدخول.');
+    final cleanName = name.trim();
+    final cleanPhone = phone.trim();
+    if (cleanName.isEmpty) throw ArgumentError('اسم العامل مطلوب');
+    await db.transaction((tx) async {
+      final rows = await tx.rawQuery(
+        '''SELECT s.worker_id FROM worker_sessions s
+           JOIN worker_credentials c ON c.worker_id=s.worker_id
+           JOIN workers w ON w.id=s.worker_id
+           WHERE s.token_hash=? AND s.worker_id=? AND s.revoked_at IS NULL
+             AND s.expires_at>? AND c.active=1 AND w.active=1
+             AND c.station_id=w.station_id AND w.station_id=? LIMIT 1''',
+        [tokenHash, workerId, AppClock.now().toIso8601String(), stationId],
+      );
+      if (rows.isEmpty) throw StateError('انتهت جلسة الدخول.');
+      final old = await tx.query(
+        'workers',
+        columns: ['id','name','phone'],
+        where: 'id=? AND station_id=? AND active=1',
+        whereArgs: [workerId, stationId],
+        limit: 1,
+      );
+      if (old.isEmpty) throw StateError('العامل غير موجود أو غير نشط');
+      await tx.update('workers', {'name': cleanName, 'phone': cleanPhone},
+        where: 'id=? AND station_id=?', whereArgs: [workerId, stationId]);
+      await db.auditTx(tx, operation: 'worker_self_profile_updated',
+        table: 'workers', recordId: workerId, oldValues: old.first,
+        newValues: {'name': cleanName, 'phone': cleanPhone});
+    });
   }
 
   Future<void> changeCurrentPassword({
