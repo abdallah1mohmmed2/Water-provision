@@ -1670,7 +1670,7 @@ void main() {
       (irrigationsAfter.single['count'] as num).toInt(),
       (irrigationsBefore.single['count'] as num).toInt(),
     );
-    expect((version.single.values.single as num).toInt(), 24);
+    expect((version.single.values.single as num).toInt(), 25);
   });
 
   test('إنشاء دخول المستفيد محصور بالمدير واسم المستخدم فريد داخل المحطة', () async {
