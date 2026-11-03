@@ -10147,7 +10147,7 @@ class _WorkersState extends State<WorkersPage> {
     final selected = <String>{
       if (existing == null) ...[
         'view_dashboard', 'view_irrigations', 'view_account',
-        'view_payments', 'view_reports',
+        'view_payments', 'view_reports', 'view_profile',
       ],
     };
     if (existing != null) {
@@ -10166,6 +10166,8 @@ class _WorkersState extends State<WorkersPage> {
       'view_account': 'عرض كشف الحساب',
       'view_payments': 'عرض المستحقات والمدفوعات',
       'view_reports': 'عرض التقارير وملفات PDF',
+      'view_profile': 'عرض الملف الشخصي',
+      'edit_profile': 'السماح بتعديل الملف الشخصي',
     };
     final ok = await showDialog<bool>(
       context: context,
