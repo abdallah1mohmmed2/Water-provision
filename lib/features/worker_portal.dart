@@ -119,7 +119,7 @@ class WorkerHomePage extends StatefulWidget{
 class _WorkerHomePageState extends State<WorkerHomePage>{
   late final repo=StationRepository(widget.auth.db);
   int? id;Map<String,Object?>? worker,summary;
-  List<Map<String,Object?>> ledger=[],irrigations=[],payments=[],assignments=[];Set<String> permissions={};
+  List<Map<String,Object?>> ledger=[],irrigations=[],payments=[],assignments=[],complaints=[];Set<String> permissions={};
   bool loading=true;String? error;int tab=0;
   final profileName = TextEditingController();
   final profilePhone = TextEditingController();
@@ -160,11 +160,12 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
           LEFT JOIN partners p ON p.id=i.partner_id
           WHERE i.operator_worker_id=? AND i.station_id=?
           ORDER BY i.start_datetime DESC,i.id DESC LIMIT 200''',[wid,widget.auth.stationId]) : Future.value(<Map<String,Object?>>[]),
+        granted.contains('view_complaints') ? widget.auth.currentWorkerReports() : Future.value(<Map<String,Object?>>[]),
       ]);
       if(!mounted)return;
       final workers=x[0] as List<Map<String,Object?>>;
       if(workers.isEmpty)throw StateError('العامل غير موجود أو غير نشط.');
-      setState(() { id=wid; worker=workers.first; profileName.text=workers.first['name']?.toString() ?? ''; profilePhone.text=workers.first['phone']?.toString() ?? ''; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); assignments=(x[5] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
+      setState(() { id=wid; worker=workers.first; profileName.text=workers.first['name']?.toString() ?? ''; profilePhone.text=workers.first['phone']?.toString() ?? ''; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); assignments=(x[5] as List).cast<Map<String,Object?>>(); complaints=(x[6] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
     }catch(e){if(mounted)setState(() { loading=false; error='$e'; });}
   }
   void message(String s)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));
@@ -273,6 +274,75 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
     );
   }
 
+  Future<void> createComplaint() async {
+    final subject = TextEditingController();
+    final description = TextEditingController();
+    var category = 'operational';
+    final sent = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('إرسال بلاغ للإدارة'),
+          content: SizedBox(width: 440, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            DropdownButtonFormField<String>(
+              value: category, decoration: const InputDecoration(labelText: 'نوع البلاغ'),
+              items: const [
+                DropdownMenuItem(value: 'operational', child: Text('مشكلة تشغيلية')),
+                DropdownMenuItem(value: 'schedule', child: Text('جدول العمل والتكليف')),
+                DropdownMenuItem(value: 'payment', child: Text('استفسار عن مستحقات')),
+                DropdownMenuItem(value: 'safety', child: Text('سلامة ومعدات')),
+                DropdownMenuItem(value: 'other', child: Text('أخرى')),
+              ],
+              onChanged: (value) { if (value != null) setDialogState(() => category = value); },
+            ),
+            const SizedBox(height: 10),
+            TextField(controller: subject, maxLength: 120, decoration: const InputDecoration(labelText: 'عنوان البلاغ')),
+            TextField(controller: description, minLines: 4, maxLines: 7, maxLength: 3000, decoration: const InputDecoration(labelText: 'التفاصيل')),
+          ]))),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+            FilledButton(onPressed: subject.text.trim().length < 4 || description.text.trim().length < 10 ? null : () => Navigator.pop(dialogContext, true), child: const Text('إرسال')),
+          ],
+        ),
+      ),
+    ) ?? false;
+    if (sent && mounted) {
+      try {
+        await widget.auth.submitCurrentWorkerReport(category: category, subject: subject.text, description: description.text);
+        message('تم إرسال البلاغ للإدارة');
+        await load();
+      } catch (e) { message('$e'); }
+    }
+    subject.dispose(); description.dispose();
+  }
+
+  String reportStatusLabel(Object? value) => switch ('$value') {
+    'new' => 'جديد', 'under_review' => 'قيد المراجعة', 'accepted' => 'مقبول',
+    'rejected' => 'مرفوض', 'resolved' => 'تمت المعالجة', _ => 'غير محدد',
+  };
+
+  Widget complaintsPage() => ListView(padding: const EdgeInsets.all(16), children: [
+    Row(children: [
+      const Expanded(child: Text('بلاغاتي وشكاواي', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
+      if (permissions.contains('submit_complaints')) FilledButton.icon(onPressed: createComplaint, icon: const Icon(Icons.add), label: const Text('بلاغ جديد')),
+    ]),
+    const SizedBox(height: 8), const Text('تابع حالة البلاغ ورد الإدارة من هنا.'),
+    for (final report in complaints) Card(child: ExpansionTile(
+      leading: CircleAvatar(child: Icon(report['status'] == 'resolved' ? Icons.check_circle_outline : Icons.support_agent)),
+      title: Text('${report['subject']}', maxLines: 2, overflow: TextOverflow.ellipsis),
+      subtitle: Text('${report['category']} • ${date(report['created_at'])} • ${reportStatusLabel(report['status'])}'),
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      children: [
+        Align(alignment: Alignment.centerRight, child: Text('${report['description']}')),
+        if ('${report['admin_reply'] ?? ''}'.trim().isNotEmpty) ...[
+          const Divider(),
+          const Align(alignment: Alignment.centerRight, child: Text('رد الإدارة', style: TextStyle(fontWeight: FontWeight.w900))),
+          Align(alignment: Alignment.centerRight, child: Text('${report['admin_reply']}')),
+        ],
+      ],
+    )),
+    if (complaints.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('لا توجد بلاغات سابقة.')),
+  ]);
   Widget account()=>ListView(padding:const EdgeInsets.all(16),children:[
     Row(children:[const Expanded(child:Text('كشف حسابي',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900))),
       if(permissions.contains('view_reports'))IconButton(icon:const Icon(Icons.picture_as_pdf),onPressed:()async{try{await ReportService(repo).printPdf('worker_transactions',workerId:id);}catch(e){if(mounted)message('تعذر إنشاء PDF: $e');}})]),
@@ -306,7 +376,8 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       if(permissions.contains('view_account'))(title:'حسابي',icon:Icons.account_balance_wallet,page:account()),
       if(permissions.contains('view_payments'))(title:'مدفوعاتي',icon:Icons.payments,page:paymentsPage()),
       if(permissions.contains('view_assignments'))(title:'تكليفاتي',icon:Icons.assignment,page:assignmentsPage()),
-      if(permissions.contains('view_profile'))(title:'ملفي',icon:Icons.person,page:profilePage())
+      if(permissions.contains('view_profile'))(title:'ملفي',icon:Icons.person,page:profilePage()),
+      if(permissions.contains('view_complaints'))(title:'بلاغاتي',icon:Icons.support_agent,page:complaintsPage())
     ];
     if(tabs.isEmpty)return Scaffold(appBar:AppBar(title:const Text('بوابة العامل'),actions:[IconButton(onPressed:logout,icon:const Icon(Icons.logout))]),body:const Center(child:Text('لم يمنحك المدير صلاحية عرض الشاشات.')));
     final index=tab.clamp(0,tabs.length-1);
