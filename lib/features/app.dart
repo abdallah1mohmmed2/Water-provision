@@ -12212,7 +12212,52 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
     ),
   ),
 ],
-const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<int>(initialValue:_selectedPaymentMethodId,items:[const DropdownMenuItem<int>(value:null,child:Text('كل طرق الدفع')),for(final method in widget.paymentMethods)DropdownMenuItem<int>(value:method['id'] as int,child:Text('${method['name']}'))],onChanged:_applyPaymentMethod,decoration:const InputDecoration(labelText:'طريقة الدفع',border:OutlineInputBorder(),prefixIcon:Icon(Icons.payments_rounded)))),if(_hasQueueBookingStatusFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<String>(initialValue:_selectedQueueBookingStatus,items:[const DropdownMenuItem<String>(value:null,child:Text('كل حالات الطابور والحجز')),for(final value in _queueBookingStatuses)DropdownMenuItem<String>(value:value,child:Text(statusName(value)))],onChanged:_applyQueueBookingStatus,decoration:const InputDecoration(labelText:'حالة الطابور والحجز',border:OutlineInputBorder(),prefixIcon:Icon(Icons.event_available_rounded)))),Row(children:[_metric('عدد السجلات','${visibleRows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric('آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(visibleRows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[SizedBox(height:390,child:PageView.builder(scrollDirection:Axis.horizontal,physics:const PageScrollPhysics(),padEnds:true,itemCount:visibleRows.take(200).length,itemBuilder:(context,index)=>_rowCard(visibleRows[index],index))),if(visibleRows.length>200)Center(child:Text('يتم عرض أول 200 سجل',style:TextStyle(color:_reportInk.withValues(alpha:.55)))),if(visibleRows.length>1)Padding(padding:const EdgeInsets.only(top:8),child:Center(child:Row(mainAxisAlignment:MainAxisAlignment.center,children:[const Icon(Icons.swipe_rounded,size:17,color:_reportOliveDark),const SizedBox(width:6),Text('اسحب يمينًا أو يسارًا للتنقل بين السجلات • ${visibleRows.take(200).length} سجل',style:TextStyle(color:_reportInk.withValues(alpha:.65),fontSize:11))])))]])));}
+const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<int>(initialValue:_selectedPaymentMethodId,items:[const DropdownMenuItem<int>(value:null,child:Text('كل طرق الدفع')),for(final method in widget.paymentMethods)DropdownMenuItem<int>(value:method['id'] as int,child:Text('${method['name']}'))],onChanged:_applyPaymentMethod,decoration:const InputDecoration(labelText:'طريقة الدفع',border:OutlineInputBorder(),prefixIcon:Icon(Icons.payments_rounded)))),if(_hasQueueBookingStatusFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<String>(initialValue:_selectedQueueBookingStatus,items:[const DropdownMenuItem<String>(value:null,child:Text('كل حالات الطابور والحجز')),for(final value in _queueBookingStatuses)DropdownMenuItem<String>(value:value,child:Text(statusName(value)))],onChanged:_applyQueueBookingStatus,decoration:const InputDecoration(labelText:'حالة الطابور والحجز',border:OutlineInputBorder(),prefixIcon:Icon(Icons.event_available_rounded)))),Row(children:[_metric('عدد السجلات','${visibleRows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric('آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(visibleRows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[
+  Row(
+    children: [
+      const Icon(Icons.view_agenda_rounded, color: _reportOliveDark),
+      const SizedBox(width: 8),
+      const Expanded(
+        child: Text(
+          'تفاصيل السجلات',
+          style: TextStyle(
+            color: _reportInk,
+            fontWeight: FontWeight.w900,
+            fontSize: 16,
+          ),
+        ),
+      ),
+      Text(
+        'عرض ${visibleRows.take(200).length} من ${visibleRows.length}',
+        style: TextStyle(
+          color: _reportInk.withValues(alpha: .6),
+          fontSize: 11,
+        ),
+      ),
+    ],
+  ),
+  const SizedBox(height: 10),
+  ListView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    itemCount: visibleRows.take(200).length,
+    itemBuilder: (context, index) => _rowCard(visibleRows[index], index),
+  ),
+  if (visibleRows.length > 200)
+    Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Center(
+        child: Text(
+          'تم تحديد أول 200 سجل للمعاينة لتخفيف الحمل؛ استخدم البحث لتضييق النتائج.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _reportInk.withValues(alpha: .55),
+            fontSize: 11,
+          ),
+        ),
+      ),
+    ),
+]]])));}
 }
 
 class RevenueComparisonsPage extends StatefulWidget {
