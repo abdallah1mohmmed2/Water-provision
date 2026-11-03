@@ -2694,9 +2694,36 @@ class StationRepository {
           "SELECT category,SUM(amount) total FROM expenses WHERE status='posted' AND category IN ('oil','grease') GROUP BY category",
         );
       case 'debts':
-        return db.rawQuery(
-          "SELECT b.id,b.name,${await _balanceSql()} balance FROM beneficiaries b WHERE b.status='active' ORDER BY balance DESC",
-        );
+        {
+          // Snapshot of the outstanding beneficiary balance at the selected month end.
+          final cutoff = to?.add(const Duration(days: 1)).toIso8601String();
+          final balanceExpression = cutoff == null
+              ? await _balanceSql()
+              : """
+                b.opening_balance+b.carried_balance
+                +COALESCE((SELECT SUM(md.amount) FROM beneficiary_manual_debts md
+                  WHERE md.beneficiary_id=b.id AND md.status='posted' AND md.date<?),0)
+                +COALESCE((SELECT SUM(i.total_amount) FROM irrigations i
+                  WHERE i.beneficiary_id=b.id AND i.status!='cancelled' AND i.date<?),0)
+                +COALESCE((SELECT SUM(d.amount) FROM diesel_movements d
+                  WHERE d.beneficiary_id=b.id AND d.kind='advance'
+                    AND d.irrigation_id IS NULL AND d.date<?),0)
+                -COALESCE((SELECT SUM(p.amount) FROM payments p
+                  WHERE p.beneficiary_id=b.id AND p.status='posted' AND p.date<?),0)
+                -CASE WHEN (SELECT value FROM settings
+                  WHERE key='diesel_delivery_financial_credit')='true'
+                  THEN COALESCE((SELECT SUM(d2.amount) FROM diesel_movements d2
+                    WHERE d2.beneficiary_id=b.id AND d2.kind='delivery' AND d2.date<?),0)
+                  ELSE 0 END
+              """;
+          final debtArgs = cutoff == null
+              ? <Object?>[]
+              : <Object?>[cutoff, cutoff, cutoff, cutoff, cutoff];
+          return db.rawQuery(
+            "SELECT b.id,b.name,b.phone,$balanceExpression balance FROM beneficiaries b WHERE b.status='active' ORDER BY balance DESC,b.name",
+            debtArgs,
+          );
+        }
       case 'beneficiary_list':
         return beneficiaries();
       case 'revenue_comparison':
