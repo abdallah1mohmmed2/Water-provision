@@ -96,7 +96,7 @@ class ReportService {
       throw StateError('تقرير الديزل غير متاح لأن المنظومة الحالية ليست ديزل');
     }
     systemType ??= currentType;
-    final rows = (sourceRows != null && sourceRows.isNotEmpty)
+    final rows = sourceRows != null
         ? _normalizeRows(key, sourceRows)
         : _normalizeRows(key, await repo.report(
       key,
