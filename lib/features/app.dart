@@ -6415,6 +6415,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final allPeriod = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}
         .contains(reportPeriodController.text.trim().toLowerCase());
     final from = _activeFrom;
+    final to = _activeTo ?? DateTime(now.year, now.month, now.day);
     if (!allPeriod && from == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -6432,12 +6433,12 @@ class _IrrigationsState extends State<IrrigationsPage> {
       final reportRows = await widget.r.report(
         'irrigations',
         from: from,
-        to: DateTime(now.year, now.month, now.day),
+        to: to,
         beneficiaryId: bid,
         systemType: _activeSystemType,
       );
 
-      final outputRows = reportRows.where((x) => filteredRows.any((v) => v['id'] == x['id'])).toList();
+      final outputRows = reportRows.where((x) => filteredRows.any((v) => v['id'] == (x['irrigation_id'] ?? x['id']))).toList();
       // الطباعة تتبع البحث الحالي أيضاً، وليس فقط مرشحات قاعدة البيانات.
       if (outputRows.isEmpty) {
         if (!mounted) return;
@@ -6465,7 +6466,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
       await ReportService(widget.r).printPdf(
         'irrigations',
         from: from,
-        to: DateTime(now.year, now.month, now.day),
+        to: to,
         beneficiaryId: bid,
         systemType: _activeSystemType,
         sourceRows: outputRows,
@@ -6485,6 +6486,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final allPeriod = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}
         .contains(reportPeriodController.text.trim().toLowerCase());
     final from = _activeFrom;
+    final to = _activeTo ?? DateTime(now.year, now.month, now.day);
     if (!allPeriod && from == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('حدد فترة صحيحة قبل إنشاء ملف PDF.')),
@@ -6500,7 +6502,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
         beneficiaryId: bid,
         systemType: _activeSystemType,
       );
-      final outputRows = reportRows.where((x) => filteredRows.any((v) => v['id'] == x['id'])).toList();
+      final outputRows = reportRows.where((x) => filteredRows.any((v) => v['id'] == (x['irrigation_id'] ?? x['id']))).toList();
       if (outputRows.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -6513,6 +6515,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
         from: from,
         to: to,
         beneficiaryId: bid,
+        systemType: _activeSystemType,
         sourceRows: outputRows,
       );
       if (bytes.isEmpty) throw StateError('ملف PDF الناتج فارغ.');
