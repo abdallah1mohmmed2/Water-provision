@@ -164,7 +164,7 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       if(!mounted)return;
       final workers=x[0] as List<Map<String,Object?>>;
       if(workers.isEmpty)throw StateError('العامل غير موجود أو غير نشط.');
-      setState(() { id=wid; worker=workers.first; profileName.text="${workers.first["name"] ?? ""}"; profilePhone.text="${workers.first["phone"] ?? ""}"; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); assignments=(x[5] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
+      setState(() { id=wid; worker=workers.first; profileName.text=workers.first['name']?.toString() ?? ''; profilePhone.text=workers.first['phone']?.toString() ?? ''; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); assignments=(x[5] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
     }catch(e){if(mounted)setState(() { loading=false; error='$e'; });}
   }
   void message(String s)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));
