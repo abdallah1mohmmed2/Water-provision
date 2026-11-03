@@ -191,8 +191,8 @@ class LocalWorkerAuthService {
 
     await db.transaction((tx) async {
       final managers = await tx.rawQuery(
-        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
-        [managerId, 'manager'],
+        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 AND station_id=?',
+        [managerId, 'manager', stationId],
       );
       if (managers.isEmpty) throw StateError('هذه العملية متاحة لمدير نشط فقط');
       final rows = await tx.rawQuery(
