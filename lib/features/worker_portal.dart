@@ -119,7 +119,7 @@ class WorkerHomePage extends StatefulWidget{
 class _WorkerHomePageState extends State<WorkerHomePage>{
   late final repo=StationRepository(widget.auth.db);
   int? id;Map<String,Object?>? worker,summary;
-  List<Map<String,Object?>> ledger=[],irrigations=[],payments=[],assignments=[],complaints=[];Set<String> permissions={};
+  List<Map<String,Object?>> ledger=[],irrigations=[],payments=[],assignments=[],complaints=[],notifications=[];Set<String> permissions={};
   bool loading=true;String? error;int tab=0;
   final profileName = TextEditingController();
   final profilePhone = TextEditingController();
@@ -161,11 +161,12 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
           WHERE i.operator_worker_id=? AND i.station_id=?
           ORDER BY i.start_datetime DESC,i.id DESC LIMIT 200''',[wid,widget.auth.stationId]) : Future.value(<Map<String,Object?>>[]),
         granted.contains('view_complaints') ? widget.auth.currentWorkerReports() : Future.value(<Map<String,Object?>>[]),
+        granted.contains('view_notifications') ? widget.auth.currentWorkerNotifications() : Future.value(<Map<String,Object?>>[]),
       ]);
       if(!mounted)return;
       final workers=x[0] as List<Map<String,Object?>>;
       if(workers.isEmpty)throw StateError('العامل غير موجود أو غير نشط.');
-      setState(() { id=wid; worker=workers.first; profileName.text=workers.first['name']?.toString() ?? ''; profilePhone.text=workers.first['phone']?.toString() ?? ''; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); assignments=(x[5] as List).cast<Map<String,Object?>>(); complaints=(x[6] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
+      setState(() { id=wid; worker=workers.first; profileName.text=workers.first['name']?.toString() ?? ''; profilePhone.text=workers.first['phone']?.toString() ?? ''; summary=x[1] as Map<String,Object?>; ledger=(x[2] as List).cast<Map<String,Object?>>(); permissions=granted; irrigations=(x[3] as List).cast<Map<String,Object?>>(); payments=(x[4] as List).cast<Map<String,Object?>>(); assignments=(x[5] as List).cast<Map<String,Object?>>(); complaints=(x[6] as List).cast<Map<String,Object?>>(); notifications=(x[7] as List).cast<Map<String,Object?>>(); loading=false; error=null; });
     }catch(e){if(mounted)setState(() { loading=false; error='$e'; });}
   }
   void message(String s)=>ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(s)));
@@ -343,6 +344,26 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
     )),
     if (complaints.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('لا توجد بلاغات سابقة.')),
   ]);
+  Widget notificationsPage() => ListView(padding: const EdgeInsets.all(16), children: [
+    const Text('إشعاراتي', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+    const SizedBox(height: 8),
+    for (final item in notifications) Card(
+      child: ListTile(
+        leading: CircleAvatar(child: Icon(item['read_at'] == null ? Icons.notifications_active : Icons.notifications_none)),
+        title: Text('${item['title']}', style: TextStyle(fontWeight: item['read_at'] == null ? FontWeight.w900 : FontWeight.normal)),
+        subtitle: Text('${item['body']}\n${date(item['created_at'])}'),
+        isThreeLine: true,
+        trailing: item['read_at'] == null ? const Icon(Icons.mark_email_unread_outlined) : const Icon(Icons.done, color: Colors.green),
+        onTap: item['read_at'] != null ? null : () async {
+          try {
+            await widget.auth.markCurrentWorkerNotificationRead((item['id'] as num).toInt());
+            await load();
+          } catch (e) { message('$e'); }
+        },
+      ),
+    ),
+    if (notifications.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('لا توجد إشعارات حتى الآن.')),
+  ]);
   Widget account()=>ListView(padding:const EdgeInsets.all(16),children:[
     Row(children:[const Expanded(child:Text('كشف حسابي',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900))),
       if(permissions.contains('view_reports'))IconButton(icon:const Icon(Icons.picture_as_pdf),onPressed:()async{try{await ReportService(repo).printPdf('worker_transactions',workerId:id);}catch(e){if(mounted)message('تعذر إنشاء PDF: $e');}})]),
@@ -377,7 +398,8 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       if(permissions.contains('view_payments'))(title:'مدفوعاتي',icon:Icons.payments,page:paymentsPage()),
       if(permissions.contains('view_assignments'))(title:'تكليفاتي',icon:Icons.assignment,page:assignmentsPage()),
       if(permissions.contains('view_profile'))(title:'ملفي',icon:Icons.person,page:profilePage()),
-      if(permissions.contains('view_complaints'))(title:'بلاغاتي',icon:Icons.support_agent,page:complaintsPage())
+      if(permissions.contains('view_complaints'))(title:'بلاغاتي',icon:Icons.support_agent,page:complaintsPage()),
+      if(permissions.contains('view_notifications'))(title:'إشعاراتي',icon:Icons.notifications,page:notificationsPage())
     ];
     if(tabs.isEmpty)return Scaffold(appBar:AppBar(title:const Text('بوابة العامل'),actions:[IconButton(onPressed:logout,icon:const Icon(Icons.logout))]),body:const Center(child:Text('لم يمنحك المدير صلاحية عرض الشاشات.')));
     final index=tab.clamp(0,tabs.length-1);
