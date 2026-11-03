@@ -6437,9 +6437,9 @@ class _IrrigationsState extends State<IrrigationsPage> {
         systemType: _activeSystemType,
       );
 
-      // أظهر عدد الصفوف الراجعة من SQLite قبل دخول مرحلة بناء PDF.
-      // لا نغيّر البيانات ولا نحاول إعادة الاستعلام بفلاتر مختلفة تلقائيًا.
-      if (reportRows.isEmpty) {
+      final outputRows = reportRows.where((x) => filteredRows.any((v) => v['id'] == x['id'])).toList();
+      // الطباعة تتبع البحث الحالي أيضاً، وليس فقط مرشحات قاعدة البيانات.
+      if (outputRows.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -6456,7 +6456,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
           SnackBar(
             duration: const Duration(seconds: 3),
             content: Text(
-              'تم جلب ${reportRows.length} سجلًا من قاعدة البيانات. جارٍ إنشاء PDF…',
+              'تم جلب ${outputRows.length} سجلًا وفق فلاتر الشاشة. جارٍ إنشاء PDF…',
             ),
           ),
         );
@@ -6468,7 +6468,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
         to: DateTime(now.year, now.month, now.day),
         beneficiaryId: bid,
         systemType: _activeSystemType,
-        sourceRows: reportRows.where((x) => filteredRows.any((v) => v['id'] == x['id'])).toList(),
+        sourceRows: outputRows,
       );
     } catch (e) {
       if (!mounted) return;
@@ -6500,7 +6500,8 @@ class _IrrigationsState extends State<IrrigationsPage> {
         beneficiaryId: bid,
         systemType: _activeSystemType,
       );
-      if (reportRows.isEmpty) {
+      final outputRows = reportRows.where((x) => filteredRows.any((v) => v['id'] == x['id'])).toList();
+      if (outputRows.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('لا توجد بيانات مطابقة للفلاتر لإنشاء PDF.')),
@@ -6512,7 +6513,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
         from: from,
         to: to,
         beneficiaryId: bid,
-        sourceRows: reportRows.where((x) => filteredRows.any((v) => v['id'] == x['id'])).toList(),
+        sourceRows: outputRows,
       );
       if (bytes.isEmpty) throw StateError('ملف PDF الناتج فارغ.');
       await Printing.sharePdf(
@@ -6521,7 +6522,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم تجهيز PDF من ${reportRows.length} سجلًا وفق الفلاتر المحددة.')),
+          SnackBar(content: Text('تم تجهيز PDF من ${outputRows.length} سجلًا وفق الفلاتر المحددة.')),
         );
       }
     } catch (e) {
