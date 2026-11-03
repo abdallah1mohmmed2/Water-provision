@@ -3878,6 +3878,33 @@ class AccountingService {
           },
         ],
       );
+      if (isWorker) {
+        await tx.insert('worker_transactions', {
+          'worker_id': partyId,
+          'date': date.toIso8601String(),
+          'type': 'opening_balance',
+          'hours': 0,
+          'rate_snapshot': 0,
+          'percentage_snapshot': 0,
+          'amount': amount,
+          'reference_type': 'previous_debt',
+          'reference_id': entryId,
+          'notes': notes.trim(),
+          'created_by': userId,
+        });
+      } else {
+        await tx.insert('partner_transactions', {
+          'partner_id': partyId,
+          'date': date.toIso8601String(),
+          'type': 'opening_balance',
+          'amount': amount,
+          'ownership_snapshot': null,
+          'reference_type': 'previous_debt',
+          'reference_id': entryId,
+          'notes': notes.trim(),
+          'created_by': userId,
+        });
+      }
       await database.auditTx(
         tx,
         userId: userId,
