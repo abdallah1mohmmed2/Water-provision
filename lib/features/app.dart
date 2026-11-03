@@ -6494,7 +6494,6 @@ class _IrrigationsState extends State<IrrigationsPage> {
       return;
     }
     try {
-      final to = DateTime(now.year, now.month, now.day);
       final reportRows = await widget.r.report(
         'irrigations',
         from: from,
