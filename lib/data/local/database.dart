@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 25,
+      version: 26,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -48,6 +48,7 @@ class AppDatabase {
     await _createPartnerAuthTables(d);
     await _createWorkerAuthTables(d);
     await _createWorkerReportsTable(d);
+    await _createWorkerNotificationsTable(d);
     await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_period_station_range ON period_closures(station_id,period_start,period_end)');
     await _seed(d);
@@ -239,6 +240,7 @@ class AppDatabase {
     if (oldV < 23) await _createPartnerAuthTables(d);
     if (oldV < 24) await _createWorkerAuthTables(d);
     if (oldV < 25) await _createWorkerReportsTable(d);
+    if (oldV < 26) await _createWorkerNotificationsTable(d);
   }
 
   /// بيانات دخول الشركاء منفصلة عن بيانات دخول المستفيدين، مع جلسات مستقلة.
@@ -300,6 +302,22 @@ class AppDatabase {
     )''');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_worker_reports_owner ON worker_reports(station_id,worker_id,created_at DESC,id DESC)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_worker_reports_status ON worker_reports(station_id,status,created_at DESC,id DESC)');
+  }
+
+  /// إشعارات العامل مستقلة عن إشعارات المستفيدين، وتُعرض داخل بوابة العامل.
+  Future<void> _createWorkerNotificationsTable(Database d) async {
+    await d.execute('''CREATE TABLE IF NOT EXISTS worker_notifications (
+      id INTEGER PRIMARY KEY,
+      station_id INTEGER NOT NULL REFERENCES stations(id),
+      worker_id INTEGER NOT NULL REFERENCES workers(id),
+      type TEXT NOT NULL DEFAULT 'admin_message',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      read_at TEXT,
+      created_at TEXT NOT NULL
+    )''');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_worker_notifications_owner ON worker_notifications(station_id,worker_id,created_at DESC,id DESC)');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_worker_notifications_unread ON worker_notifications(station_id,worker_id,read_at)');
   }
 
   Future<void> _createBeneficiaryErrorReportsTable(Database d) async {
