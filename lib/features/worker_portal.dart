@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../data/repositories/repositories.dart';
@@ -27,7 +28,7 @@ class _WorkerLoginPageState extends State<WorkerLoginPage>{
   @override
   Widget build(BuildContext context) {
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: ui.TextDirection.rtl,
       child: Scaffold(
         body: Center(
           child: SingleChildScrollView(
@@ -242,7 +243,7 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
     ];
     if(tabs.isEmpty)return Scaffold(appBar:AppBar(title:const Text('بوابة العامل'),actions:[IconButton(onPressed:logout,icon:const Icon(Icons.logout))]),body:const Center(child:Text('لم يمنحك المدير صلاحية عرض الشاشات.')));
     final index=tab.clamp(0,tabs.length-1);
-    return Directionality(textDirection:TextDirection.rtl,child:Scaffold(
+    return Directionality(textDirection:ui.TextDirection.rtl,child:Scaffold(
       appBar:AppBar(title:Text('بوابة العامل • ${worker!['name']}'),actions:[IconButton(onPressed:load,icon:const Icon(Icons.refresh)),
         PopupMenuButton<String>(onSelected:(v){if(v=='password')changePassword();if(v=='logout')logout();},itemBuilder:(_)=>const[
           PopupMenuItem(value:'password',child:Text('تغيير كلمة المرور')),PopupMenuItem(value:'logout',child:Text('تسجيل الخروج'))])]),
