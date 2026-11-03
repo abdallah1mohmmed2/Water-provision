@@ -296,8 +296,8 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
               onChanged: (value) { if (value != null) setDialogState(() => category = value); },
             ),
             const SizedBox(height: 10),
-            TextField(controller: subject, maxLength: 120, decoration: const InputDecoration(labelText: 'عنوان البلاغ')),
-            TextField(controller: description, minLines: 4, maxLines: 7, maxLength: 3000, decoration: const InputDecoration(labelText: 'التفاصيل')),
+            TextField(controller: subject, maxLength: 120, onChanged: (_) => setDialogState(() {}), decoration: const InputDecoration(labelText: 'عنوان البلاغ')),
+            TextField(controller: description, minLines: 4, maxLines: 7, maxLength: 3000, onChanged: (_) => setDialogState(() {}), decoration: const InputDecoration(labelText: 'التفاصيل')),
           ]))),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
