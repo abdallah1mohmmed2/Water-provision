@@ -10125,6 +10125,34 @@ class _WorkersState extends State<WorkersPage> {
     }
   }
 
+  Future<void> sendWorkerNotification(Map<String, Object?> worker) async {
+    if (!widget.manager) { msg('إرسال إشعارات العمال متاح للمدير فقط'); return; }
+    final title = TextEditingController();
+    final body = TextEditingController();
+    final sent = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('إشعار إلى ${worker['name'] ?? 'العامل'}'),
+        content: SizedBox(width: 440, child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: title, maxLength: 120, decoration: const InputDecoration(labelText: 'عنوان الإشعار')),
+          TextField(controller: body, minLines: 3, maxLines: 6, maxLength: 2000, decoration: const InputDecoration(labelText: 'محتوى الإشعار')),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('إرسال الإشعار')),
+        ],
+      ),
+    ) ?? false;
+    if (sent && mounted) {
+      final auth = LocalWorkerAuthService(database: widget.r.db);
+      final ok = await runGuarded(context, () => auth.sendWorkerNotification(
+        managerId: widget.userId, workerId: (worker['id'] as num).toInt(),
+        title: title.text, body: body.text,
+      ));
+      if (ok && mounted) msg('تم إرسال الإشعار إلى العامل');
+    }
+    title.dispose(); body.dispose();
+  }
   Future<void> manageWorkerLogin(Map<String, Object?> worker) async {
     if (!widget.manager) {
       msg('إدارة حسابات دخول العمال متاحة للمدير فقط');
@@ -10172,6 +10200,7 @@ class _WorkersState extends State<WorkersPage> {
       'edit_profile': 'السماح بتعديل الملف الشخصي',
       'view_complaints': 'عرض ومتابعة البلاغات والردود',
       'submit_complaints': 'إرسال بلاغات وشكاوى للإدارة',
+      'view_notifications': 'عرض الإشعارات الواردة من الإدارة',
     };
     final ok = await showDialog<bool>(
       context: context,
@@ -10310,6 +10339,15 @@ class _WorkersState extends State<WorkersPage> {
                 onTap: () {
                   Navigator.pop(c);
                   manageWorkerLogin(x);
+                },
+              ),
+            if (widget.manager)
+              ListTile(
+                leading: const Icon(Icons.notifications_active_outlined),
+                title: const Text('إرسال إشعار إلى العامل'),
+                onTap: () {
+                  Navigator.pop(c);
+                  sendWorkerNotification(x);
                 },
               ),
             if (widget.manager)
