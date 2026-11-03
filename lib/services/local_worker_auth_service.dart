@@ -95,8 +95,8 @@ class LocalWorkerAuthService {
 
   Future<void> _requireManager(int managerId) async {
     final rows = await db.rawQuery(
-      'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
-      [managerId, 'manager'],
+      'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 AND station_id=? LIMIT 1',
+      [managerId, 'manager', stationId],
     );
     if (rows.isEmpty) throw StateError('هذه العملية متاحة لمدير نشط فقط');
   }
@@ -127,8 +127,8 @@ class LocalWorkerAuthService {
 
     await db.transaction((tx) async {
       final manager = await tx.rawQuery(
-        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
-        [managerId, 'manager'],
+        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 AND station_id=? LIMIT 1',
+        [managerId, 'manager', stationId],
       );
       if (manager.isEmpty) throw StateError('هذه العملية متاحة لمدير نشط فقط');
       final workers = await tx.rawQuery(
