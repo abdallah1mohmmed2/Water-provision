@@ -5169,6 +5169,8 @@ int? parseClock(String raw) {
     return '${h.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 
+  String _hm12Label(DateTime d) => '${_hm12(d)} ${d.hour < 12 ? 'ص' : 'م'}';
+
   int? _parseTimeMinutes(String raw) {
     final match = RegExp(r'^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$').firstMatch(raw);
     if (match == null) return null;
@@ -5533,13 +5535,13 @@ int? parseClock(String raw) {
                     OutlinedButton.icon(
                       onPressed: () => chooseTime(true),
                       icon: const Icon(Icons.access_time),
-                      label: Text('بداية التشغيل: ${_hm12(start)}'),
+                      label: Text('بداية التشغيل: ${_hm12Label(start)}'),
                     ),
                     const SizedBox(height: 6),
                     OutlinedButton.icon(
                       onPressed: () => chooseTime(false),
                       icon: const Icon(Icons.av_timer),
-                      label: Text('نهاية التشغيل: ${_hm12(end)}'),
+                      label: Text('نهاية التشغيل: ${_hm12Label(end)}'),
                     ),
                     if (type == 'solar') ...[
                       const SizedBox(height: 8),
@@ -5555,7 +5557,7 @@ int? parseClock(String raw) {
                       if (quickCloudMode)
                         Text('الغيم: ${cloudQuickController.text} دقيقة'),
                       if (!quickCloudMode && cloudPeriods.isNotEmpty)
-                        ...cloudPeriods.map((p) => Text('الغيم: ${_hm12(p['start']!)} – ${_hm12(p['end']!)}')),
+                        ...cloudPeriods.map((p) => Text('الغيم: ${_hm12Label(p['start']!)} – ${_hm12Label(p['end']!)}')),
                     ],
                   ],
                 ),
@@ -6075,8 +6077,8 @@ int? parseClock(String raw) {
                     }),
                   ]),
                   Wrap(spacing: 8, children: [
-                    ChoiceChip(label: const Text('صباحاً'), selected: isStartSelected && startPeriod == 'am', onSelected: (_) => setState(() { isStartSelected = true; startPeriod = 'am'; _updateEndPeriodFromTime(); })),
-                    ChoiceChip(label: const Text('مساءً'), selected: isStartSelected && startPeriod == 'pm', onSelected: (_) => setState(() { isStartSelected = true; startPeriod = 'pm'; _updateEndPeriodFromTime(); })),
+                    ChoiceChip(label: const Text('ص'), selected: isStartSelected && startPeriod == 'am', onSelected: (_) => setState(() { isStartSelected = true; startPeriod = 'am'; _updateEndPeriodFromTime(); })),
+                    ChoiceChip(label: const Text('م'), selected: isStartSelected && startPeriod == 'pm', onSelected: (_) => setState(() { isStartSelected = true; startPeriod = 'pm'; _updateEndPeriodFromTime(); })),
                   ]),
                   const SizedBox(height: 10),
                   Align(
@@ -6103,7 +6105,7 @@ int? parseClock(String raw) {
                       }
                     }),
                   ]),
-                  Chip(avatar: const Icon(Icons.schedule), label: Text('الفترة تلقائياً: ${endPeriod == 'am' ? 'صباحاً' : 'مساءً'}')),
+                  Chip(avatar: const Icon(Icons.schedule), label: Text('الفترة تلقائياً: ${endPeriod == 'am' ? 'ص' : 'م'}')), 
                   TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.arrow_back), label: const Text('تعديل وقت البداية')),
                   const SizedBox(height: 10),
                   Align(
@@ -6115,8 +6117,8 @@ int? parseClock(String raw) {
                     ),
                   ),
                 ] else ...[
-                  Text('البداية: ${_hm12(start)} ${start.hour < 12 ? 'صباحاً' : 'مساءً'}'),
-                  Text('النهاية: ${_hm12(end)} ${end.hour < 12 ? 'صباحاً' : 'مساءً'}'),
+                  Text('البداية: ${_hm12Label(start)}'),
+                  Text('النهاية: ${_hm12Label(end)}'),
                   TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.edit), label: const Text('تعديل الوقت')),
                 ],
                 if (end.year != start.year || end.month != start.month || end.day != start.day)
@@ -6544,7 +6546,10 @@ class _IrrigationsState extends State<IrrigationsPage> {
 
   String _timeOf(Object? value) {
     final d = DateTime.tryParse('$value');
-    return d == null ? '-' : DateFormat('HH:mm').format(d);
+    if (d == null) return '-';
+    final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final period = d.hour < 12 ? 'ص' : 'م';
+    return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $period';
   }
 
   Future<void> cancelIrrigationRow(Map<String, Object?> x) async {
@@ -12873,7 +12878,7 @@ class _IrrigationDetailedReportState extends State<IrrigationDetailedReportPage>
   Future<void> _print()async{try{await ReportService(widget.r).printPdf('irrigations',from:from,to:to,systemType:systemType,sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   int _n(Object? v)=>(v as num?)?.round()??0;
   String _date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
-  String _time(Object? v){final d=DateTime.tryParse('$v');return d==null?'': '${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';}
+  String _time(Object? v){final d=DateTime.tryParse('$v');if(d==null)return '';final h=d.hour%12==0?12:d.hour%12;final p=d.hour<12?'ص':'م';return '${h.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')} $p';}
   List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return q.isEmpty?rows:rows.where((x)=>'${x['party_name']??''} ${x['start_datetime']??''}'.toLowerCase().contains(q)).toList();}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
   Widget _card(Map<String,Object?> x){final total=_n(x['total_amount']);final paid=_n(x['paid_amount']);final due=total-paid;final cloud=_n(x['cloud_minutes'])>0;final id=x['irrigation_id'];return InkWell(onTap:id is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'irrigation',id:id,title:'تفاصيل السقاية'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.water_drop_rounded,color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['party_name']??'غير محدد'}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${_date(x['start_datetime'])} • ${_time(x['start_datetime'])}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),if(cloud)Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:6),decoration:BoxDecoration(color:_reportOrange.withValues(alpha: .12),borderRadius:BorderRadius.circular(10)),child:const Text('بسعر مخفض',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:10))),const Icon(Icons.arrow_back_ios_new_rounded,size:15,color:_reportOlive)]),const SizedBox(height:12),Row(children:[_mini('المدة','${_n(x['minutes'])} دقيقة',Icons.timer_outlined),const SizedBox(width:10),_mini('الإجمالي',money(total),Icons.receipt_long_rounded),const SizedBox(width:10),_mini('المدفوع',money(paid),Icons.payments_outlined)]),const SizedBox(height:12),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),decoration:BoxDecoration(color:due>0?_reportOrange.withValues(alpha: .08):_reportGreen.withValues(alpha: .08),borderRadius:BorderRadius.circular(13)),child:Row(children:[Icon(due>0?Icons.pending_actions_rounded:Icons.check_circle_rounded,color:due>0?_reportOrange:_reportGreen,size:18),const SizedBox(width:7),Text(due>0?'عليه ${money(due)}':'مكتملة السداد',style:TextStyle(color:due>0?_reportOrange:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),const Spacer(),if(id is int)const Text('فتح التفاصيل',style:TextStyle(color:_reportOliveDark,fontSize:11,fontWeight:FontWeight.w800))]))])));}
