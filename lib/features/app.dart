@@ -10222,8 +10222,10 @@ class _WorkersState extends State<WorkersPage> {
                     onChanged: (v) => setDialogState(() {
                       if (v == true) {
                         selected.add(entry.key);
+                        if (entry.key == 'edit_profile') selected.add('view_profile');
                       } else {
                         selected.remove(entry.key);
+                        if (entry.key == 'view_profile') selected.remove('edit_profile');
                       }
                     }),
                   ),
