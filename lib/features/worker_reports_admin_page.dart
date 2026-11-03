@@ -37,7 +37,7 @@ class _WorkerReportsAdminPageState extends State<WorkerReportsAdminPage> {
         title: Text('الرد على البلاغ #${report['id']}'),
         content: SizedBox(width: 440, child: Column(mainAxisSize: MainAxisSize.min, children: [
           DropdownButtonFormField<String>(
-            value: status, decoration: const InputDecoration(labelText: 'حالة البلاغ'),
+            initialValue: status, decoration: const InputDecoration(labelText: 'حالة البلاغ'),
             items: const [
               DropdownMenuItem(value: 'under_review', child: Text('قيد المراجعة')),
               DropdownMenuItem(value: 'accepted', child: Text('مقبول')),
