@@ -273,6 +273,27 @@ class ReportService {
           value: '${money(sumOf('net_amount'))} ريال',
           isBlueTint: true,
         ),
+      if (key == 'debts') ...[
+        StatBoxData(
+          number: '10',
+          title: 'إجمالي المديونية (عليه)',
+          value: '${money(rows.fold<num>(0, (sum, row) {
+            final value = row['balance'];
+            final balance = value is num ? value : num.tryParse('${value ?? ''}') ?? 0;
+            return sum + (balance > 0 ? balance : 0);
+          }))} ريال',
+        ),
+        StatBoxData(
+          number: '11',
+          title: 'إجمالي الرصيد الدائن (له)',
+          value: '${money(rows.fold<num>(0, (sum, row) {
+            final value = row['balance'];
+            final balance = value is num ? value : num.tryParse('${value ?? ''}') ?? 0;
+            return sum + (balance < 0 ? balance.abs() : 0);
+          }))} ريال',
+          isBlueTint: true,
+        ),
+      ],
     ];
 
     final reportTitle = personName == null
