@@ -1653,6 +1653,9 @@ void main() {
       'beneficiary_general_account_transactions',
       'partner_credentials',
       'partner_sessions',
+      'worker_credentials',
+      'worker_sessions',
+      'worker_reports',
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
