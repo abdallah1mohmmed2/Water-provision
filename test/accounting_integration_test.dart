@@ -3104,6 +3104,53 @@ void main() {
     expect(storage.value, isNull);
   });
 
+  test('تعديل الملف الشخصي للعامل يتطلب صلاحية مستقلة ولا يغير بياناته المالية', () async {
+    final repo = StationRepository(db);
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final workerId = await repo.createWorker(
+      name: 'عامل ملف شخصي $suffix',
+      payType: 'hourly',
+      hourlyRate: 1750,
+    );
+    final storage = _MemoryWorkerSessionStorage();
+    final auth = LocalWorkerAuthService(
+      database: db,
+      sessionStorage: storage,
+      stationId: 1,
+    );
+    final username = 'profile_$suffix';
+    const password = 'Worker-Profile-2026!';
+    await auth.createCredentials(
+      workerId: workerId,
+      username: username,
+      password: password,
+      managerId: 1,
+      permissions: const ['view_profile'],
+    );
+    expect(await auth.login(username, password), isTrue);
+    await expectLater(
+      auth.updateCurrentProfile(name: 'اسم غير مصرح', phone: '777000000'),
+      throwsStateError,
+    );
+    await auth.updateCredentials(
+      workerId: workerId,
+      username: username,
+      active: true,
+      managerId: 1,
+      permissions: const ['view_profile', 'edit_profile'],
+    );
+    expect(await auth.login(username, password), isTrue);
+    await auth.updateCurrentProfile(name: 'اسم العامل الجديد', phone: '777123456');
+    final saved = (await db.query(
+      'SELECT name,phone,hourly_rate FROM workers WHERE id=?',
+      args: [workerId],
+    )).single;
+    expect(saved['name'], 'اسم العامل الجديد');
+    expect(saved['phone'], '777123456');
+    expect(saved['hourly_rate'], 1750);
+    expect(await auth.hasPermission('edit_profile'), isTrue);
+  });
+
   test('لا يستطيع المحاسب إنشاء حساب دخول للعامل ولا تُقبل صلاحية غير معروفة', () async {
     final repo = StationRepository(db);
     final suffix = DateTime.now().microsecondsSinceEpoch;
