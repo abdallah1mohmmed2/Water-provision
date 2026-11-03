@@ -6688,7 +6688,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
                 ),
               ),
               SizedBox(width: 210, child: DropdownButtonFormField<String>(
-                value: systemTypeFilter,
+                initialValue: systemTypeFilter,
                 decoration: const InputDecoration(labelText: 'نوع المنظومة'),
                 items: const [
                   DropdownMenuItem(value: 'current', child: Text('منظومة المحطة الحالية')),
