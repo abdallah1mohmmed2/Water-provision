@@ -1599,7 +1599,7 @@ void main() {
     );
   });
 
-  test('ترقية v17 إلى v23 تضيف جداول الدخول الخاصة وتحافظ على سجلات المحطة', () async {
+  test('ترقية v17 إلى v25 تضيف جداول الدخول والبلاغات وتحافظ على سجلات المحطة', () async {
     final opened = await db.db;
     final beneficiariesBefore = await opened.rawQuery(
       'SELECT COUNT(*) count FROM beneficiaries',
@@ -1611,7 +1611,7 @@ void main() {
     await db.close();
     final upgraded = await db.db;
     final tables = await upgraded.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials','beneficiary_general_accounts','beneficiary_general_account_transactions','partner_credentials','partner_sessions')",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials','beneficiary_general_accounts','beneficiary_general_account_transactions','partner_credentials','partner_sessions','worker_credentials','worker_sessions','worker_reports')",
     );
     final cashIndex = await upgraded.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_cash_rec_period'",
