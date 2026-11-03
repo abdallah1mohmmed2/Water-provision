@@ -1188,7 +1188,7 @@ class StationRepository {
                 : switch (type) {
                 'accrual' || 'salary' || 'worker_entitlement' => 'استحقاق عامل',
                 'payment' => 'صرف',
-                'payment_reversal' => 'عكس دفعة عامل',
+                'payment_reversal' => 'عكس صرف عامل',
                 'irrigation' => 'حركة سقاية للعامل',
                 'irrigation_reversal' => 'عكس حركة سقاية',
                 'opening_balance' => 'رصيد افتتاحي للعامل',
@@ -1248,13 +1248,14 @@ class StationRepository {
         _ => 0,
       };
       running += signed;
+      final note = '${row['notes'] ?? ''}'.trim();
       rows.add({
         ...row,
         'journal_entry_id': null,
         'journal_line_id': null,
         'description': type == 'payment'
-            ? ('${row['notes'] ?? ''}'.trim().isEmpty ? 'صرف' : 'صرف - ${'${row['notes']}'.trim()}')
-            : row['notes'] ?? switch (type) {
+            ? (note.isEmpty ? 'صرف' : 'صرف - $note')
+            : note.isNotEmpty ? note : switch (type) {
           'share_accrual' => 'استحقاق أرباح',
           'payment' => 'صرف',
           'irrigation' => 'سقاية على حساب الشريك',
