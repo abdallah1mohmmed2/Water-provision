@@ -944,7 +944,13 @@ class StationRepository {
     );
   }
   Future<List<Map<String, Object?>>> payments() => db.rawQuery(
-    'SELECT p.*,COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,pm.name method_name,c.name cashbox_name,CASE WHEN p.beneficiary_id IS NOT NULL THEN 'receipt' ELSE 'payment' END movement_type FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN cashboxes c ON c.id=p.cashbox_id ORDER BY p.date DESC',
+    '''SELECT p.*,COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,
+              pm.name method_name,c.name cashbox_name,
+              CASE WHEN p.beneficiary_id IS NOT NULL THEN 'receipt' ELSE 'payment' END movement_type
+       FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id
+       LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id
+       JOIN payment_methods pm ON pm.id=p.payment_method_id
+       JOIN cashboxes c ON c.id=p.cashbox_id ORDER BY p.date DESC''',
   );
   Future<List<Map<String, Object?>>> expenses({String search = ''}) {
     final args = <Object?>[];
