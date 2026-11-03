@@ -1599,7 +1599,7 @@ void main() {
     );
   });
 
-  test('ترقية v17 إلى v25 تضيف جداول الدخول والبلاغات وتحافظ على سجلات المحطة', () async {
+  test('ترقية v17 إلى v26 تضيف جداول الدخول والبلاغات والإشعارات وتحافظ على سجلات المحطة', () async {
     final opened = await db.db;
     final beneficiariesBefore = await opened.rawQuery(
       'SELECT COUNT(*) count FROM beneficiaries',
@@ -1611,7 +1611,7 @@ void main() {
     await db.close();
     final upgraded = await db.db;
     final tables = await upgraded.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials','beneficiary_general_accounts','beneficiary_general_account_transactions','partner_credentials','partner_sessions','worker_credentials','worker_sessions','worker_reports')",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cash_reconciliations','general_accounts','general_account_transactions','beneficiary_credentials','beneficiary_general_accounts','beneficiary_general_account_transactions','partner_credentials','partner_sessions','worker_credentials','worker_sessions','worker_reports','worker_notifications')",
     );
     final cashIndex = await upgraded.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_cash_rec_period'",
@@ -1656,6 +1656,7 @@ void main() {
       'worker_credentials',
       'worker_sessions',
       'worker_reports',
+      'worker_notifications',
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
@@ -1673,7 +1674,7 @@ void main() {
       (irrigationsAfter.single['count'] as num).toInt(),
       (irrigationsBefore.single['count'] as num).toInt(),
     );
-    expect((version.single.values.single as num).toInt(), 25);
+    expect((version.single.values.single as num).toInt(), 26);
   });
 
   test('إنشاء دخول المستفيد محصور بالمدير واسم المستخدم فريد داخل المحطة', () async {
@@ -3106,6 +3107,53 @@ void main() {
     expect(await auth.currentWorkerId(), isNull);
     expect(await auth.login(username, password), isFalse);
     expect(storage.value, isNull);
+  });
+
+  test('إشعارات العامل مستقلة ويقرأ العامل إشعاراته فقط', () async {
+    final repo = StationRepository(db);
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final firstWorker = await repo.createWorker(
+      name: 'عامل إشعار أول $suffix', payType: 'hourly', hourlyRate: 1000,
+    );
+    final secondWorker = await repo.createWorker(
+      name: 'عامل إشعار ثان $suffix', payType: 'hourly', hourlyRate: 1000,
+    );
+    final firstStorage = _MemoryWorkerSessionStorage();
+    final secondStorage = _MemoryWorkerSessionStorage();
+    final firstAuth = LocalWorkerAuthService(database: db, sessionStorage: firstStorage);
+    final secondAuth = LocalWorkerAuthService(database: db, sessionStorage: secondStorage);
+    await firstAuth.createCredentials(
+      workerId: firstWorker, username: 'notify_a_$suffix',
+      password: 'Worker-Notify-2026!', managerId: 1,
+      permissions: const ['view_notifications'],
+    );
+    await secondAuth.createCredentials(
+      workerId: secondWorker, username: 'notify_b_$suffix',
+      password: 'Worker-Notify-2026!', managerId: 1,
+      permissions: const ['view_notifications'],
+    );
+    final notificationId = await firstAuth.sendWorkerNotification(
+      managerId: 1, workerId: firstWorker,
+      title: 'تنبيه بموعد الدوام', body: 'يرجى الحضور الساعة الثامنة.',
+    );
+    expect(await firstAuth.login('notify_a_$suffix', 'Worker-Notify-2026!'), isTrue);
+    final firstRows = await firstAuth.currentWorkerNotifications();
+    expect(firstRows, hasLength(1));
+    expect(firstRows.single['id'], notificationId);
+    await firstAuth.markCurrentWorkerNotificationRead(notificationId);
+    expect((await firstAuth.currentWorkerNotifications()).single['read_at'], isNotNull);
+    await expectLater(
+      firstAuth.markCurrentWorkerNotificationRead(notificationId + 99999),
+      throwsStateError,
+    );
+    expect(await secondAuth.login('notify_b_$suffix', 'Worker-Notify-2026!'), isTrue);
+    expect(await secondAuth.currentWorkerNotifications(), isEmpty);
+    await expectLater(
+      secondAuth.markCurrentWorkerNotificationRead(notificationId),
+      throwsStateError,
+    );
+    await firstAuth.logout();
+    await secondAuth.logout();
   });
 
   test('بلاغات العامل معزولة وتدعم رد الإدارة وتغيير الحالة', () async {
