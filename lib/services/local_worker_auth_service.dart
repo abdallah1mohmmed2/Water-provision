@@ -53,6 +53,7 @@ class LocalWorkerAuthService {
     'view_account',
     'view_payments',
     'view_reports',
+    'view_assignments',
     'view_profile',
     'edit_profile',
   };
