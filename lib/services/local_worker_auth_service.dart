@@ -56,6 +56,8 @@ class LocalWorkerAuthService {
     'view_assignments',
     'view_profile',
     'edit_profile',
+    'view_complaints',
+    'submit_complaints',
   };
 
   String _normalize(String value) => value.trim().toLowerCase();
@@ -404,6 +406,143 @@ class LocalWorkerAuthService {
         recordId: (rows.first['id'] as num).toInt(),
         newValues: {'worker_id': workerId, 'password_changed': true},
       );
+    });
+  }
+
+  /// يرسل العامل بلاغًا مرتبطًا بهويته المستخرجة من الجلسة، ولا يقبل workerId من الواجهة.
+  Future<int> submitCurrentWorkerReport({
+    required String category,
+    required String subject,
+    required String description,
+  }) async {
+    final token = await _storage.read();
+    if (token == null || token.isEmpty) throw StateError('انتهت جلسة الدخول.');
+    final tokenHash = crypto.sha256.convert(utf8.encode(token)).toString();
+    final cleanCategory = category.trim();
+    final cleanSubject = subject.trim();
+    final cleanDescription = description.trim();
+    if (cleanCategory.isEmpty || cleanSubject.length < 4 || cleanDescription.length < 10) {
+      throw ArgumentError('يرجى تحديد نوع البلاغ وكتابة عنوان ووصف واضحين.');
+    }
+    if (cleanSubject.length > 120 || cleanDescription.length > 3000) {
+      throw ArgumentError('العنوان أو الوصف أطول من الحد المسموح.');
+    }
+    return db.transaction((tx) async {
+      final rows = await tx.rawQuery(
+        '''SELECT s.worker_id,c.permissions_json FROM worker_sessions s
+           JOIN worker_credentials c ON c.worker_id=s.worker_id
+           JOIN workers w ON w.id=s.worker_id
+           WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?
+             AND c.active=1 AND w.active=1 AND c.station_id=w.station_id
+             AND w.station_id=? LIMIT 1''',
+        [tokenHash, AppClock.now().toIso8601String(), stationId],
+      );
+      if (rows.isEmpty) throw StateError('انتهت جلسة الدخول.');
+      final permissions = jsonDecode('${rows.first['permissions_json']}');
+      if (permissions is! List || !permissions.contains('submit_complaints')) {
+        throw StateError('لا تملك صلاحية إرسال البلاغات.');
+      }
+      final workerId = (rows.first['worker_id'] as num).toInt();
+      final now = AppClock.now().toIso8601String();
+      final id = await tx.insert('worker_reports', {
+        'station_id': stationId,
+        'worker_id': workerId,
+        'category': cleanCategory,
+        'subject': cleanSubject,
+        'description': cleanDescription,
+        'status': 'new',
+        'created_at': now,
+        'updated_at': now,
+      });
+      await db.auditTx(tx, operation: 'worker_report_submitted',
+        table: 'worker_reports', recordId: id,
+        newValues: {'worker_id': workerId, 'category': cleanCategory, 'status': 'new'});
+      return id;
+    });
+  }
+
+  /// العامل يرى بلاغاته فقط؛ يجري التحقق من ملكية الجلسة داخل الاستعلام نفسه.
+  Future<List<Map<String, Object?>>> currentWorkerReports() async {
+    final token = await _storage.read();
+    if (token == null || token.isEmpty) throw StateError('انتهت جلسة الدخول.');
+    final tokenHash = crypto.sha256.convert(utf8.encode(token)).toString();
+    return db.transaction((tx) async {
+      final rows = await tx.rawQuery(
+        '''SELECT s.worker_id,c.permissions_json FROM worker_sessions s
+           JOIN worker_credentials c ON c.worker_id=s.worker_id
+           JOIN workers w ON w.id=s.worker_id
+           WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>?
+             AND c.active=1 AND w.active=1 AND c.station_id=w.station_id
+             AND w.station_id=? LIMIT 1''',
+        [tokenHash, AppClock.now().toIso8601String(), stationId],
+      );
+      if (rows.isEmpty) throw StateError('انتهت جلسة الدخول.');
+      final permissions = jsonDecode('${rows.first['permissions_json']}');
+      if (permissions is! List || !permissions.contains('view_complaints')) {
+        throw StateError('لا تملك صلاحية متابعة البلاغات.');
+      }
+      return tx.rawQuery(
+        '''SELECT id,category,subject,description,status,admin_reply,created_at,updated_at,replied_at
+           FROM worker_reports WHERE station_id=? AND worker_id=?
+           ORDER BY created_at DESC,id DESC LIMIT 100''',
+        [stationId, rows.first['worker_id']],
+      );
+    });
+  }
+
+  /// قائمة الإدارة لا تعمل إلا لمدير نشط، ويمكن حصرها بعامل واحد.
+  Future<List<Map<String, Object?>>> workerReportsForManager({
+    required int managerId,
+    int? workerId,
+  }) async {
+    final managers = await db.rawQuery(
+      'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
+      [managerId, 'manager'],
+    );
+    if (managers.isEmpty) throw StateError('عرض بلاغات العمال متاح للمدير النشط فقط.');
+    return db.rawQuery(
+      '''SELECT r.*,w.name worker_name FROM worker_reports r
+         JOIN workers w ON w.id=r.worker_id
+         WHERE r.station_id=? AND (? IS NULL OR r.worker_id=?)
+         ORDER BY CASE r.status WHEN 'new' THEN 0 WHEN 'under_review' THEN 1 ELSE 2 END,
+           r.created_at DESC,r.id DESC LIMIT 300''',
+      [stationId, workerId, workerId],
+    );
+  }
+
+  /// رد الإدارة وتغيير الحالة داخل معاملة واحدة مع إعادة التحقق من المدير.
+  Future<void> replyToWorkerReport({
+    required int managerId,
+    required int reportId,
+    required String status,
+    required String reply,
+  }) async {
+    const statuses = {'under_review','accepted','rejected','resolved'};
+    if (!statuses.contains(status)) throw ArgumentError('حالة البلاغ غير صحيحة.');
+    final cleanReply = reply.trim();
+    if (cleanReply.length > 3000) throw ArgumentError('الرد أطول من الحد المسموح.');
+    await db.transaction((tx) async {
+      final managers = await tx.rawQuery(
+        'SELECT id FROM app_users WHERE id=? AND role=? AND active=1 LIMIT 1',
+        [managerId, 'manager'],
+      );
+      if (managers.isEmpty) throw StateError('تحديث البلاغات متاح للمدير النشط فقط.');
+      final reports = await tx.query('worker_reports',
+        where: 'id=? AND station_id=?', whereArgs: [reportId, stationId], limit: 1);
+      if (reports.isEmpty) throw StateError('البلاغ غير موجود في هذه المحطة.');
+      final old = reports.first;
+      final now = AppClock.now().toIso8601String();
+      await tx.update('worker_reports', {
+        'status': status,
+        'admin_reply': cleanReply.isEmpty ? null : cleanReply,
+        'reviewed_by': managerId,
+        'updated_at': now,
+        'replied_at': cleanReply.isEmpty ? old['replied_at'] : now,
+      }, where: 'id=? AND station_id=?', whereArgs: [reportId, stationId]);
+      await db.auditTx(tx, userId: managerId,
+        operation: 'worker_report_reviewed', table: 'worker_reports',
+        recordId: reportId, oldValues: old,
+        newValues: {'status': status, 'admin_reply': cleanReply});
     });
   }
 
