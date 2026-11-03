@@ -131,9 +131,13 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       final wid=await widget.auth.currentWorkerId();
       if(wid==null)throw StateError('انتهت جلسة الدخول.');
       final granted=await widget.auth.currentPermissions();
-      final workerColumns=granted.contains('view_account')
-          ? 'id,name,pay_type,fixed_salary,hourly_rate,percentage_rate'
-          : 'id,name';
+      final workerColumns = <String>{
+        'id', 'name',
+        if (granted.contains('view_profile')) 'phone',
+        if (granted.contains('view_account')) ...[
+          'pay_type', 'fixed_salary', 'hourly_rate', 'percentage_rate',
+        ],
+      }.join(',');
       final x=await Future.wait([
         repo.db.rawQuery('SELECT $workerColumns FROM workers WHERE id=? AND station_id=? AND active=1 LIMIT 1',[wid,widget.auth.stationId]),
         granted.contains('view_account') ? repo.partyFinancialSummary('worker',wid) : Future.value(<String,Object?>{}),
@@ -208,6 +212,49 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       ]
     ]);
   }
+  Widget profilePage() {
+    final w = worker!;
+    final name = TextEditingController(text: '${w['name'] ?? ''}');
+    final phone = TextEditingController(text: '${w['phone'] ?? ''}');
+    return StatefulBuilder(builder: (context, refresh) => ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text('ملفي الشخصي', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 12),
+        Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(
+          children: [
+            const CircleAvatar(radius: 34, child: Icon(Icons.person, size: 36)),
+            const SizedBox(height: 12),
+            TextField(controller: name, readOnly: !permissions.contains('edit_profile'),
+              decoration: const InputDecoration(labelText: 'الاسم')),
+            const SizedBox(height: 10),
+            TextField(controller: phone, readOnly: !permissions.contains('edit_profile'),
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(labelText: 'رقم الهاتف')),
+            if (!permissions.contains('edit_profile'))
+              const Padding(padding: EdgeInsets.only(top: 10),
+                child: Text('يمكنك عرض بياناتك فقط. تعديل الملف الشخصي غير مفعل من الإدارة.')),
+            if (permissions.contains('edit_profile')) ...[
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: () async {
+                  try {
+                    await widget.auth.updateCurrentProfile(name: name.text, phone: phone.text);
+                    if (!mounted) return;
+                    message('تم تحديث الملف الشخصي');
+                    await load();
+                  } catch (e) {
+                    if (mounted) message('$e');
+                  }
+                },
+                icon: const Icon(Icons.save_outlined), label: const Text('حفظ التعديلات')),
+            ],
+          ],
+        ))),
+      ],
+    ));
+  }
+
   Widget account()=>ListView(padding:const EdgeInsets.all(16),children:[
     Row(children:[const Expanded(child:Text('كشف حسابي',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900))),
       if(permissions.contains('view_reports'))IconButton(icon:const Icon(Icons.picture_as_pdf),onPressed:()async{try{await ReportService(repo).printPdf('worker_transactions',workerId:id);}catch(e){if(mounted)message('تعذر إنشاء PDF: $e');}})]),
@@ -239,7 +286,8 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
       if(permissions.contains('view_dashboard'))(title:'الرئيسية',icon:Icons.home,page:home()),
       if(permissions.contains('view_irrigations'))(title:'السقايات',icon:Icons.water_drop,page:irrigationPage()),
       if(permissions.contains('view_account'))(title:'حسابي',icon:Icons.account_balance_wallet,page:account()),
-      if(permissions.contains('view_payments'))(title:'مدفوعاتي',icon:Icons.payments,page:paymentsPage())
+      if(permissions.contains('view_payments'))(title:'مدفوعاتي',icon:Icons.payments,page:paymentsPage()),
+      if(permissions.contains('view_profile'))(title:'ملفي',icon:Icons.person,page:profilePage())
     ];
     if(tabs.isEmpty)return Scaffold(appBar:AppBar(title:const Text('بوابة العامل'),actions:[IconButton(onPressed:logout,icon:const Icon(Icons.logout))]),body:const Center(child:Text('لم يمنحك المدير صلاحية عرض الشاشات.')));
     final index=tab.clamp(0,tabs.length-1);
