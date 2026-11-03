@@ -8108,7 +8108,6 @@ class _PaymentsState extends State<PaymentsPage> {
       ps = [],
       methods = [],
       cash = [];
-  Map<String, int> partyBalances = {};
   String target = 'beneficiary', q = '';
   Timer? _searchDebounce;
   Future<void> load() async {
@@ -8118,18 +8117,6 @@ class _PaymentsState extends State<PaymentsPage> {
         p = await widget.r.partners(),
         m = await widget.r.paymentMethods(),
         c = await widget.r.cashboxes();
-    // اعرض الرصيد المحاسبي الحالي لكل طرف، حتى من لم تكن له دفعات مسجلة.
-    final balances = await Future.wait<MapEntry<String, int>>([
-      for (final x in b)
-        _messageBalanceForParty(widget.r, 'beneficiary', x['id'] as int)
-            .then((v) => MapEntry('beneficiary_${x['id']}', v)),
-      for (final x in w)
-        _messageBalanceForParty(widget.r, 'worker', x['id'] as int)
-            .then((v) => MapEntry('worker_${x['id']}', v)),
-      for (final x in p)
-        _messageBalanceForParty(widget.r, 'partner', x['id'] as int)
-            .then((v) => MapEntry('partner_${x['id']}', v)),
-    ]);
     if (mounted) {
       setState(() {
         rows = a;
@@ -8138,7 +8125,6 @@ class _PaymentsState extends State<PaymentsPage> {
         ps = p;
         methods = m;
         cash = c;
-        partyBalances = {for (final entry in balances) entry.key: entry.value};
       });
     }
   }
@@ -8434,14 +8420,27 @@ class _PaymentsState extends State<PaymentsPage> {
     }
   }
 
-  Future<void> addBeneficiaryDebt() async {
-    if (bs.isEmpty) {
-      msg('لا يوجد مستفيدون متاحون');
+  Future<void> addPreviousDebt() async {
+    final parties = target == 'beneficiary'
+        ? bs
+        : target == 'worker'
+            ? ws
+            : ps;
+    if (parties.isEmpty) {
+      msg('لا يوجد ${targetName(target)} متاحون لإضافة مديونية سابقة');
       return;
     }
-    int? beneficiaryId = bs.first['id'] as int;
+    int? partyId = parties.first['id'] as int;
     final amount = TextEditingController();
     final notes = TextEditingController();
+    final partyLabel = target == 'beneficiary'
+        ? 'المستفيد'
+        : target == 'worker'
+            ? 'العامل'
+            : 'الشريك';
+    final balanceMeaning = target == 'beneficiary'
+        ? 'سيُضاف المبلغ على المستفيد لصالح المحطة.'
+        : 'سيُضاف المبلغ كمستحق سابق للطرف على المحطة.';
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -8449,18 +8448,24 @@ class _PaymentsState extends State<PaymentsPage> {
           title: 'إضافة مديونية سابقة',
           children: [
             DropdownButtonFormField<int>(
-              initialValue: beneficiaryId,
+              initialValue: partyId,
               items: [
-                for (final b in bs)
-                  DropdownMenuItem(value: b['id'] as int, child: Text('${b['name']}')),
+                for (final p in parties)
+                  DropdownMenuItem(
+                    value: p['id'] as int,
+                    child: Text('${p['name']}'),
+                  ),
               ],
-              onChanged: (v) => setDialogState(() => beneficiaryId = v),
-              decoration: const InputDecoration(labelText: 'المستفيد'),
+              onChanged: (v) => setDialogState(() => partyId = v),
+              decoration: InputDecoration(labelText: partyLabel),
             ),
             TextField(
               controller: amount,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'مبلغ المديونية *'),
+              decoration: const InputDecoration(
+                labelText: 'مبلغ المديونية *',
+                hintText: 'أدخل المبلغ بالريال',
+              ),
             ),
             TextField(
               controller: notes,
@@ -8468,16 +8473,15 @@ class _PaymentsState extends State<PaymentsPage> {
               maxLines: 3,
               decoration: const InputDecoration(
                 labelText: 'البيان / سبب المديونية *',
-                hintText: 'مثال: رصيد مستحق للمحطة من فترة سابقة',
+                hintText: 'مثال: رصيد مستحق من فترة سابقة',
               ),
             ),
-            const Text(
-              'تُضاف إلى رصيد المستفيد الموحد، ولا تزيد الصندوق أو الإيرادات.',
-            ),
+            Text(balanceMeaning),
+            const Text('لا تُسجّل العملية قبضًا أو صرفًا، ولا تؤثر على الصندوق.'),
           ],
           onSave: () => Navigator.pop(
             d,
-            beneficiaryId != null &&
+            partyId != null &&
                 (int.tryParse(amount.text) ?? 0) > 0 &&
                 notes.text.trim().isNotEmpty,
           ),
@@ -8487,8 +8491,9 @@ class _PaymentsState extends State<PaymentsPage> {
     if (ok != true || !mounted) return;
     if (!await runGuarded(
       context,
-      () => widget.r.accounting.addBeneficiaryDebt(
-        beneficiaryId: beneficiaryId!,
+      () => widget.r.accounting.addPreviousPartyDebt(
+        partyType: target,
+        partyId: partyId!,
         amount: int.parse(amount.text),
         date: AppClock.now(),
         notes: notes.text.trim(),
@@ -8497,7 +8502,7 @@ class _PaymentsState extends State<PaymentsPage> {
     )) {
       return;
     }
-    msg('تمت إضافة المديونية إلى حساب المستفيد دون حركة نقدية');
+    msg('تمت إضافة المديونية السابقة إلى حساب $partyLabel دون حركة نقدية');
     await load();
   }
 
@@ -8533,12 +8538,11 @@ class _PaymentsState extends State<PaymentsPage> {
     title: 'المدفوعات',
     subtitle: 'قبض المستفيدين ودفع مستحقات العمال والشركاء',
     actions: [
-      if (target == 'beneficiary')
-        OutlinedButton.icon(
-          onPressed: addBeneficiaryDebt,
-          icon: const Icon(Icons.note_add_outlined),
-          label: const Text('إضافة مديونية'),
-        ),
+      OutlinedButton.icon(
+        onPressed: addPreviousDebt,
+        icon: const Icon(Icons.note_add_outlined),
+        label: const Text('إضافة مديونية سابقة'),
+      ),
       FilledButton.icon(
         onPressed: add,
         icon: const Icon(Icons.add_card),
@@ -8579,36 +8583,6 @@ class _PaymentsState extends State<PaymentsPage> {
         Expanded(
           child: ListView(
             children: [
-              if ((target == 'beneficiary' ? bs : target == 'worker' ? ws : ps)
-                  .where((party) => _matchesSearch(party['name'], q)).isNotEmpty)
-                ExpansionTile(
-                  leading: const Icon(Icons.account_balance_wallet_outlined),
-                  title: Text('مديونية الأطراف (${(target == 'beneficiary' ? bs : target == 'worker' ? ws : ps).where((party) => _matchesSearch(party['name'], q)).length})'),
-                  subtitle: const Text('الرصيد الحالي لكل طرف — يشمل من لم يسجل دفعات'),
-                  children: [
-                    for (final party in (target == 'beneficiary' ? bs : target == 'worker' ? ws : ps)
-                        .where((party) => _matchesSearch(party['name'], q)))
-                      ListTile(
-                        dense: true,
-                        title: Text('${party['name']}'),
-                        subtitle: const Text('الرصيد المحاسبي الحالي'),
-                        trailing: Text(
-                          _messageBalanceLabel(
-                            partyBalances['${target}_${party['id']}'] ?? 0,
-                            partyType: target,
-                          ),
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: (partyBalances['${target}_${party['id']}'] ?? 0) == 0
-                                ? Colors.grey
-                                : (partyBalances['${target}_${party['id']}'] ?? 0) > 0
-                                    ? (target == 'beneficiary' ? Colors.red : Colors.green)
-                                    : (target == 'beneficiary' ? Colors.green : Colors.red),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
               for (final x in rows.where((x) {
                 final partyId = x[switch (target) {
                   'worker' => 'worker_id',
