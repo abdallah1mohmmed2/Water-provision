@@ -3057,7 +3057,7 @@ void main() {
       username: username,
       password: password,
       managerId: 1,
-      permissions: const ['view_dashboard', 'view_irrigations', 'view_account'],
+      permissions: const ['view_dashboard', 'view_irrigations', 'view_account', 'view_assignments'],
     );
 
     final saved = await db.query(
@@ -3072,6 +3072,7 @@ void main() {
     expect(await auth.login(username, password), isTrue);
     expect(await auth.currentWorkerId(), workerId);
     expect(await auth.hasPermission('view_account'), isTrue);
+    expect(await auth.hasPermission('view_assignments'), isTrue);
     expect(await auth.hasPermission('manage_queue'), isFalse);
     expect(await auth.hasPermission('payments'), isFalse);
     expect(await auth.hasPermission('unknown_capability'), isFalse);
