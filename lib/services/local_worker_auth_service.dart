@@ -331,7 +331,7 @@ class LocalWorkerAuthService {
     if (cleanName.isEmpty) throw ArgumentError('اسم العامل مطلوب');
     await db.transaction((tx) async {
       final rows = await tx.rawQuery(
-        '''SELECT s.worker_id FROM worker_sessions s
+        '''SELECT s.worker_id,c.permissions_json FROM worker_sessions s
            JOIN worker_credentials c ON c.worker_id=s.worker_id
            JOIN workers w ON w.id=s.worker_id
            WHERE s.token_hash=? AND s.worker_id=? AND s.revoked_at IS NULL
@@ -340,6 +340,10 @@ class LocalWorkerAuthService {
         [tokenHash, workerId, AppClock.now().toIso8601String(), stationId],
       );
       if (rows.isEmpty) throw StateError('انتهت جلسة الدخول.');
+      final decodedPermissions = jsonDecode('${rows.first['permissions_json']}');
+      if (decodedPermissions is! List || !decodedPermissions.contains('edit_profile')) {
+        throw StateError('لا تملك صلاحية تعديل الملف الشخصي.');
+      }
       final old = await tx.query(
         'workers',
         columns: ['id','name','phone'],
