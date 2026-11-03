@@ -8108,6 +8108,7 @@ class _PaymentsState extends State<PaymentsPage> {
       ps = [],
       methods = [],
       cash = [];
+  Map<String, int> partyBalances = {};
   String target = 'beneficiary', q = '';
   Timer? _searchDebounce;
   Future<void> load() async {
@@ -8117,6 +8118,18 @@ class _PaymentsState extends State<PaymentsPage> {
         p = await widget.r.partners(),
         m = await widget.r.paymentMethods(),
         c = await widget.r.cashboxes();
+    // اعرض الرصيد المحاسبي الحالي لكل طرف، حتى من لم تكن له دفعات مسجلة.
+    final balances = await Future.wait<MapEntry<String, int>>([
+      for (final x in b)
+        _messageBalanceForParty(widget.r, 'beneficiary', x['id'] as int)
+            .then((v) => MapEntry('beneficiary_${x['id']}', v)),
+      for (final x in w)
+        _messageBalanceForParty(widget.r, 'worker', x['id'] as int)
+            .then((v) => MapEntry('worker_${x['id']}', v)),
+      for (final x in p)
+        _messageBalanceForParty(widget.r, 'partner', x['id'] as int)
+            .then((v) => MapEntry('partner_${x['id']}', v)),
+    ]);
     if (mounted) {
       setState(() {
         rows = a;
@@ -8125,6 +8138,7 @@ class _PaymentsState extends State<PaymentsPage> {
         ps = p;
         methods = m;
         cash = c;
+        partyBalances = {for (final entry in balances) entry.key: entry.value};
       });
     }
   }
@@ -8565,6 +8579,36 @@ class _PaymentsState extends State<PaymentsPage> {
         Expanded(
           child: ListView(
             children: [
+              if ((target == 'beneficiary' ? bs : target == 'worker' ? ws : ps)
+                  .where((party) => _matchesSearch(party['name'], q)).isNotEmpty)
+                ExpansionTile(
+                  leading: const Icon(Icons.account_balance_wallet_outlined),
+                  title: Text('مديونية الأطراف (${(target == 'beneficiary' ? bs : target == 'worker' ? ws : ps).where((party) => _matchesSearch(party['name'], q)).length})'),
+                  subtitle: const Text('الرصيد الحالي لكل طرف — يشمل من لم يسجل دفعات'),
+                  children: [
+                    for (final party in (target == 'beneficiary' ? bs : target == 'worker' ? ws : ps)
+                        .where((party) => _matchesSearch(party['name'], q)))
+                      ListTile(
+                        dense: true,
+                        title: Text('${party['name']}'),
+                        subtitle: const Text('الرصيد المحاسبي الحالي'),
+                        trailing: Text(
+                          _messageBalanceLabel(
+                            partyBalances['${target}_${party['id']}'] ?? 0,
+                            partyType: target,
+                          ),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: (partyBalances['${target}_${party['id']}'] ?? 0) == 0
+                                ? Colors.grey
+                                : (partyBalances['${target}_${party['id']}'] ?? 0) > 0
+                                    ? (target == 'beneficiary' ? Colors.red : Colors.green)
+                                    : (target == 'beneficiary' ? Colors.green : Colors.red),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               for (final x in rows.where((x) {
                 final partyId = x[switch (target) {
                   'worker' => 'worker_id',
