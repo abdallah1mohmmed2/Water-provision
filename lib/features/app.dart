@@ -12257,7 +12257,7 @@ const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const Edge
         ),
       ),
     ),
-]]])));}
+]])));}
 }
 
 class RevenueComparisonsPage extends StatefulWidget {
