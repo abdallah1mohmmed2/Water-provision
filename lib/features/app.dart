@@ -6374,6 +6374,9 @@ class _IrrigationsState extends State<IrrigationsPage> {
   String q = '';
   int? bid;
   bool loading = true;
+  String systemTypeFilter = 'current';
+  DateTimeRange? customRange;
+  int _loadGeneration = 0;
   final TextEditingController reportPeriodController =
       TextEditingController(text: 'كل الفترة');
 
@@ -6526,13 +6529,40 @@ class _IrrigationsState extends State<IrrigationsPage> {
     }
   }
 
+  DateTime? get _activeFrom {
+    if (customRange != null) return DateTime(customRange!.start.year, customRange!.start.month, customRange!.start.day);
+    final now = AppClock.now();
+    final all = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}.contains(reportPeriodController.text.trim().toLowerCase());
+    return all ? null : _reportStart(reportPeriodController.text, now);
+  }
+  DateTime? get _activeTo {
+    if (customRange != null) return DateTime(customRange!.end.year, customRange!.end.month, customRange!.end.day);
+    final now = AppClock.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+  String? get _activeSystemType => systemTypeFilter == 'current' ? null : systemTypeFilter;
+  List<Map<String, Object?>> get filteredRows => rows.where((x) {
+    final query = q.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    return [x['beneficiary_name'], x['party_name'], x['phone'], x['beneficiary_phone'], x['id'], x['invoice_number'], x['notes'], x['pump_name']]
+        .any((value) => '$value'.toLowerCase().contains(query));
+  }).toList();
+  Future<void> chooseCustomRange() async {
+    final now = AppClock.now();
+    final picked = await showDateRangePicker(context: context, firstDate: DateTime(2000), lastDate: DateTime(now.year, now.month, now.day), initialDateRange: customRange, helpText: 'اختر فترة السقايات', saveText: 'تطبيق');
+    if (picked == null || !mounted) return;
+    setState(() { customRange = picked; reportPeriodController.text = 'فترة مخصصة'; });
+    await load();
+  }
   Future<void> load() async {
-    setState(() => loading = true);
+    final generation = ++_loadGeneration;
+    if (mounted) setState(() => loading = true);
     try {
-      final x = await widget.r.irrigations(beneficiaryId: bid);
-      if (mounted) setState(() { rows = x; loading = false; });
+      final x = await widget.r.irrigations(from: _activeFrom, to: _activeTo, beneficiaryId: bid, systemType: _activeSystemType);
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() { rows = x; loading = false; });
     } catch (_) {
-      if (mounted) setState(() => loading = false);
+      if (mounted && generation == _loadGeneration) setState(() => loading = false);
     }
   }
   @override
@@ -6580,9 +6610,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
 
   @override
   Widget build(BuildContext c) {
-    final filtered = rows
-        .where((x) => _matchesSearch(x['beneficiary_name'], q))
-        .toList();
+    final filtered = filteredRows;
     return PageFrame(
       title: 'السقايات',
       subtitle: 'سجل السقايات مع البحث والتصفية ومراجعة الحالة',
@@ -6611,7 +6639,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
                   onChanged: (v) => setState(() => q = v),
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search),
-                    labelText: 'بحث باسم المستفيد',
+                    labelText: 'بحث بالاسم أو الهاتف أو رقم السقاية أو الملاحظة',
                   ),
                 ),
               ),
@@ -6641,10 +6669,11 @@ class _IrrigationsState extends State<IrrigationsPage> {
                 width: 250,
                 child: DropdownMenu<String>(
                   controller: reportPeriodController,
-                  label: const Text('فترة تقرير الطباعة'),
+                  label: const Text('فترة السقايات'),
                   enableFilter: true,
                   enableSearch: true,
                   expandedInsets: EdgeInsets.zero,
+                  onSelected: (value) { if (value != null) { setState(() => customRange = null); load(); } },
                   dropdownMenuEntries: const [
                     DropdownMenuEntry(value: 'كل الفترة', label: 'كل الفترة'),
                     DropdownMenuEntry(value: 'يوم', label: 'اليوم'),
@@ -6654,6 +6683,19 @@ class _IrrigationsState extends State<IrrigationsPage> {
                   ],
                 ),
               ),
+              SizedBox(width: 210, child: DropdownButtonFormField<String>(
+                value: systemTypeFilter,
+                decoration: const InputDecoration(labelText: 'نوع المنظومة'),
+                items: const [
+                  DropdownMenuItem(value: 'current', child: Text('منظومة المحطة الحالية')),
+                  DropdownMenuItem(value: 'all', child: Text('كل المنظومات')),
+                  DropdownMenuItem(value: 'diesel', child: Text('ديزل')),
+                  DropdownMenuItem(value: 'solar', child: Text('شمسي')),
+                  DropdownMenuItem(value: 'equivalent_hybrid', child: Text('النوع الثالث')),
+                ],
+                onChanged: (value) { if (value != null) { setState(() => systemTypeFilter = value); load(); } },
+              )),
+              OutlinedButton.icon(onPressed: loading ? null : chooseCustomRange, icon: const Icon(Icons.date_range), label: const Text('فترة مخصصة')),
               FilledButton.icon(
                 onPressed: loading ? null : printIrrigationsReport,
                 icon: const Icon(Icons.print_rounded),
