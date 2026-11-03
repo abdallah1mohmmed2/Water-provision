@@ -443,6 +443,7 @@ class StationRepository {
       '''SELECT i.*,
                 COALESCE(b.name,w.name,pt.name,'غير محدد') beneficiary_name,
                 COALESCE(b.name,w.name,pt.name,'غير محدد') party_name,
+                b.phone beneficiary_phone,
                 p.name pump_name,
                 COALESCE(i.cloud_minutes,0) cloud_minutes,
                 CASE WHEN COALESCE(i.cloud_minutes,0)>0 THEN 'discounted' ELSE 'none' END cloud_status
