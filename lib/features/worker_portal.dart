@@ -24,23 +24,90 @@ class _WorkerLoginPageState extends State<WorkerLoginPage>{
     }catch(e){if(mounted)setState(()=>error='$e');}
     finally{if(mounted)setState(()=>busy=false);}
   }
-  @override Widget build(BuildContext context)=>Directionality(textDirection:TextDirection.rtl,child:Scaffold(
-    body:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(22),child:ConstrainedBox(
-      constraints:const BoxConstraints(maxWidth:440),child:Card(elevation:5,child:Padding(padding:const EdgeInsets.all(24),
-        child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-          const Icon(Icons.engineering_rounded,size:54),const SizedBox(height:12),
-          const Text('بوابة العامل',textAlign:TextAlign.center,style:TextStyle(fontSize:25,fontWeight:FontWeight.w900)),
-          const Text('تابع أعمالك ومستحقاتك وكشف حسابك',textAlign:TextAlign.center),
-          const SizedBox(height:22),
-          TextField(controller:user,autocorrect:false,decoration:const InputDecoration(labelText:'اسم المستخدم',prefixIcon:Icon(Icons.person_outline),border:OutlineInputBorder())),
-          const SizedBox(height:12),
-          TextField(controller:pass,obscureText:hide,onSubmitted:(_)=>login(),decoration:InputDecoration(labelText:'كلمة المرور',prefixIcon:const Icon(Icons.lock_outline),border:const OutlineInputBorder(),
-            suffixIcon:IconButton(onPressed:()=>setState(()=>hide=!hide),icon:Icon(hide?Icons.visibility:Icons.visibility_off)))),
-          if(error!=null)Padding(padding:const EdgeInsets.only(top:10),child:Text(error!,style:TextStyle(color:Theme.of(context).colorScheme.error))),
-          const SizedBox(height:16),FilledButton.icon(onPressed:busy?null:login,icon:const Icon(Icons.login),label:Text(busy?'جارٍ التحقق…':'تسجيل الدخول')),
-          const SizedBox(height:8),const Text('بيانات الدخول والصلاحيات ينشئها مدير المحطة.',textAlign:TextAlign.center,style:TextStyle(fontSize:12))
-        ]))))))),
-  ));
+  @override
+  Widget build(BuildContext context) {
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        body: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(22),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Card(
+                elevation: 5,
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Icon(Icons.engineering_rounded, size: 54),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'بوابة العامل',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900),
+                      ),
+                      const Text(
+                        'تابع أعمالك ومستحقاتك وكشف حسابك',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 22),
+                      TextField(
+                        controller: user,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: 'اسم المستخدم',
+                          prefixIcon: Icon(Icons.person_outline),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: pass,
+                        obscureText: hide,
+                        onSubmitted: (_) => login(),
+                        decoration: InputDecoration(
+                          labelText: 'كلمة المرور',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          border: const OutlineInputBorder(),
+                          suffixIcon: IconButton(
+                            onPressed: () => setState(() => hide = !hide),
+                            icon: Icon(hide ? Icons.visibility : Icons.visibility_off),
+                          ),
+                        ),
+                      ),
+                      if (error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Text(
+                            error!,
+                            style: TextStyle(color: Theme.of(context).colorScheme.error),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        onPressed: busy ? null : login,
+                        icon: const Icon(Icons.login),
+                        label: Text(busy ? 'جارٍ التحقق…' : 'تسجيل الدخول'),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'بيانات الدخول والصلاحيات ينشئها مدير المحطة.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class WorkerHomePage extends StatefulWidget{
