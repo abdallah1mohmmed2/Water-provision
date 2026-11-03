@@ -289,7 +289,7 @@ class StationRepository {
         (await settings())['diesel_delivery_financial_credit'] == 'true';
     final events = await db.rawQuery(
       "SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.cloud_minutes,i.chargeable_minutes,i.total_amount,i.paid_amount,'s' type,i.total_amount debit,0 credit,0 lah,i.total_amount alayh,'سقاية' description,'posted' status,i.notes notes FROM irrigations i WHERE i.beneficiary_id=? AND i.status!='cancelled' "
-      "UNION ALL SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,'p',0,p.amount,p.amount,0,'دفعة','posted',p.notes FROM payments p WHERE p.beneficiary_id=? AND p.status='posted' "
+      "UNION ALL SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,'p',0,p.amount,p.amount,0,'قبض','posted',p.notes FROM payments p WHERE p.beneficiary_id=? AND p.status='posted' "
       "UNION ALL SELECT d.id,d.date,d.date,d.date,'diesel_advance',0,0,0,0,0,'a',d.amount,0,0,d.amount,'سلفة ديزل','posted',d.notes FROM diesel_movements d WHERE d.beneficiary_id=? AND d.kind='advance' AND d.irrigation_id IS NULL "
       "UNION ALL SELECT md.id,md.date,md.date,md.date,'manual_debt',0,0,0,0,0,'manual_debt',md.amount,0,0,md.amount,'إضافة مديونية',md.status,md.notes FROM beneficiary_manual_debts md WHERE md.beneficiary_id=? "
       "UNION ALL SELECT -md.id,md.cancelled_at,md.cancelled_at,md.cancelled_at,'manual_debt_reversal',0,0,0,0,0,'manual_debt_reversal',0,md.amount,md.amount,0,'إلغاء مديونية','cancelled',md.cancel_reason FROM beneficiary_manual_debts md WHERE md.beneficiary_id=? AND md.status='cancelled' AND md.cancelled_at IS NOT NULL "
@@ -323,7 +323,13 @@ class StationRepository {
       if (toExclusive != null && (date == null || !date.isBefore(toExclusive))) {
         continue;
       }
-      result.add({...raw, 'balance': running});
+      final note = '${raw['notes'] ?? ''}'.trim();
+      final description = '${raw['description'] ?? ''}'.trim();
+      result.add({
+        ...raw,
+        'description': note.isEmpty || description.isEmpty ? description : '$description - $note',
+        'balance': running,
+      });
     }
 
     if (fromDay != null) {
@@ -938,7 +944,7 @@ class StationRepository {
     );
   }
   Future<List<Map<String, Object?>>> payments() => db.rawQuery(
-    'SELECT p.*,COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,pm.name method_name,c.name cashbox_name FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN cashboxes c ON c.id=p.cashbox_id ORDER BY p.date DESC',
+    'SELECT p.*,COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,pm.name method_name,c.name cashbox_name,CASE WHEN p.beneficiary_id IS NOT NULL THEN 'receipt' ELSE 'payment' END movement_type FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN cashboxes c ON c.id=p.cashbox_id ORDER BY p.date DESC',
   );
   Future<List<Map<String, Object?>>> expenses({String search = ''}) {
     final args = <Object?>[];
@@ -1120,7 +1126,7 @@ class StationRepository {
     );
     if (ledgerRows.isNotEmpty) {
       return ledgerRows.map((row) {
-        final note = '${row['transaction_notes'] ?? row['notes'] ?? ''}'.trim();
+        final note = '${row['transaction_notes'] ?? row['notes'] ?? row['memo'] ?? ''}'.trim();
         final isPayment = row['type'] == 'payment' || row['type'] == 'worker_payment';
         if (!isPayment) return row;
         if (note.isNotEmpty) {
@@ -1128,10 +1134,10 @@ class StationRepository {
             ...row,
             'type': 'payment_note',
             'notes': note,
-            'description': note,
+            'description': 'صرف - $note',
           };
         }
-        return {...row, 'type': 'payment'};
+        return {...row, 'type': 'payment', 'description': 'صرف'};
       }).toList();
     }
 
@@ -1169,11 +1175,13 @@ class StationRepository {
         'type': type == 'payment' && notes.trim().isNotEmpty
             ? 'payment_note'
             : type,
-        'description': notes.trim().isNotEmpty
-            ? notes.trim()
-            : switch (type) {
+        'description': type == 'payment'
+            ? (notes.trim().isNotEmpty ? 'صرف - ${notes.trim()}' : 'صرف')
+            : notes.trim().isNotEmpty
+                ? notes.trim()
+                : switch (type) {
                 'accrual' || 'salary' || 'worker_entitlement' => 'استحقاق عامل',
-                'payment' => 'دفعة للعامل',
+                'payment' => 'صرف',
                 'payment_reversal' => 'عكس دفعة عامل',
                 'irrigation' => 'حركة سقاية للعامل',
                 'irrigation_reversal' => 'عكس حركة سقاية',
@@ -1201,7 +1209,13 @@ class StationRepository {
     // بعض قواعد البيانات القديمة تحتوي حركات الشريك التشغيلية قبل اكتمال
     // ترحيلها إلى الأستاذ. لا نخلط المصدرين إذا كان الأستاذ يحتوي حركات؛
     // نستخدم السجل التشغيلي فقط كمسار استعادة عندما يكون كشف الأستاذ فارغًا.
-    if (ledgerRows.isNotEmpty) return ledgerRows;
+    if (ledgerRows.isNotEmpty) {
+      return ledgerRows.map((row) {
+        if (row['type'] != 'payment') return row;
+        final note = '${row['memo'] ?? row['notes'] ?? ''}'.trim();
+        return {...row, 'description': note.isEmpty ? 'صرف' : 'صرف - $note'};
+      }).toList();
+    }
 
     final sourceRows = await db.rawQuery('''
       SELECT pt.id, pt.date, pt.type, pt.amount, pt.reference_type,
@@ -1232,9 +1246,11 @@ class StationRepository {
         ...row,
         'journal_entry_id': null,
         'journal_line_id': null,
-        'description': row['notes'] ?? switch (type) {
+        'description': type == 'payment'
+            ? ('${row['notes'] ?? ''}'.trim().isEmpty ? 'صرف' : 'صرف - ${'${row['notes']}'.trim()}')
+            : row['notes'] ?? switch (type) {
           'share_accrual' => 'استحقاق أرباح',
-          'payment' => 'دفعة للشريك',
+          'payment' => 'صرف',
           'irrigation' => 'سقاية على حساب الشريك',
           'share_adjustment' => 'تسوية حصة الشريك',
           'share_adjustment_reversal' => 'عكس تسوية حصة الشريك',
