@@ -3105,6 +3105,69 @@ void main() {
     expect(storage.value, isNull);
   });
 
+  test('بلاغات العامل معزولة وتدعم رد الإدارة وتغيير الحالة', () async {
+    final repo = StationRepository(db);
+    final suffix = DateTime.now().microsecondsSinceEpoch;
+    final workerId = await repo.createWorker(
+      name: 'عامل بلاغات $suffix',
+      payType: 'hourly',
+      hourlyRate: 1200,
+    );
+    final storage = _MemoryWorkerSessionStorage();
+    final auth = LocalWorkerAuthService(
+      database: db,
+      sessionStorage: storage,
+      stationId: 1,
+    );
+    final username = 'complaint_$suffix';
+    const password = 'Worker-Complaint-2026!';
+    await auth.createCredentials(
+      workerId: workerId,
+      username: username,
+      password: password,
+      managerId: 1,
+      permissions: const ['view_complaints', 'submit_complaints'],
+    );
+    expect(await auth.login(username, password), isTrue);
+    final reportId = await auth.submitCurrentWorkerReport(
+      category: 'operational',
+      subject: 'عطل في المضخة',
+      description: 'توجد مشكلة تشغيلية تحتاج إلى مراجعة الإدارة.',
+    );
+    final ownReports = await auth.currentWorkerReports();
+    expect(ownReports, hasLength(1));
+    expect(ownReports.single['id'], reportId);
+    expect(ownReports.single['status'], 'new');
+    expect(ownReports.single['admin_reply'], isNull);
+
+    final managerReports = await auth.workerReportsForManager(
+      managerId: 1,
+      workerId: workerId,
+    );
+    expect(managerReports, hasLength(1));
+    expect(managerReports.single['worker_name'], contains('عامل بلاغات'));
+
+    await auth.replyToWorkerReport(
+      managerId: 1,
+      reportId: reportId,
+      status: 'resolved',
+      reply: 'تمت معالجة المشكلة وفحص المضخة.',
+    );
+    final updated = await auth.currentWorkerReports();
+    expect(updated.single['status'], 'resolved');
+    expect(updated.single['admin_reply'], 'تمت معالجة المشكلة وفحص المضخة.');
+    await expectLater(
+      auth.replyToWorkerReport(
+        managerId: 1,
+        reportId: reportId,
+        status: 'unknown',
+        reply: 'رد غير صالح',
+      ),
+      throwsArgumentError,
+    );
+    await auth.logout();
+  });
+
   test('تعديل الملف الشخصي للعامل يتطلب صلاحية مستقلة ولا يغير بياناته المالية', () async {
     final repo = StationRepository(db);
     final suffix = DateTime.now().microsecondsSinceEpoch;
