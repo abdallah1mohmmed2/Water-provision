@@ -407,6 +407,15 @@ class ReportService {
     if (partyReport && key == 'type') {
       return AccountingCalculations.partyTransactionTypeName('$value');
     }
+    if (reportKey == 'irrigations' &&
+        (key == 'start_datetime' || key == 'end_datetime')) {
+      final d = DateTime.tryParse('$value');
+      if (d != null) {
+        final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
+        final periodLabel = d.hour < 12 ? 'ص' : 'م';
+        return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
+      }
+    }
     if ({
       'date',
       'start_datetime',
