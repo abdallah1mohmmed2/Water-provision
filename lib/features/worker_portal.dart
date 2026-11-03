@@ -285,7 +285,7 @@ class _WorkerHomePageState extends State<WorkerHomePage>{
           title: const Text('إرسال بلاغ للإدارة'),
           content: SizedBox(width: 440, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
             DropdownButtonFormField<String>(
-              value: category, decoration: const InputDecoration(labelText: 'نوع البلاغ'),
+              initialValue: category, decoration: const InputDecoration(labelText: 'نوع البلاغ'),
               items: const [
                 DropdownMenuItem(value: 'operational', child: Text('مشكلة تشغيلية')),
                 DropdownMenuItem(value: 'schedule', child: Text('جدول العمل والتكليف')),
