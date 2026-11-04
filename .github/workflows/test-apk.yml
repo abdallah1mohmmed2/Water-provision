@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - test/all-open-prs
+      - feature/worker-in-app
   workflow_dispatch:
 
 permissions:
@@ -35,6 +36,9 @@ jobs:
       - name: Install server dependencies
         working-directory: ./server
         run: dart pub get
+
+      - name: Run beneficiary reports migration regression test
+        run: flutter test test/beneficiary_error_reports_migration_test.dart
 
       - name: Run accounting integration tests
         run: flutter test test/accounting_integration_test.dart
