@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 26,
+      version: 27,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -241,6 +241,9 @@ class AppDatabase {
     if (oldV < 24) await _createWorkerAuthTables(d);
     if (oldV < 25) await _createWorkerReportsTable(d);
     if (oldV < 26) await _createWorkerNotificationsTable(d);
+    // إصلاح ذاتي لقواعد البيانات التي وصلت إلى إصدار سابق دون جدول بلاغات المستفيدين.
+    // IF NOT EXISTS يحافظ على كل السجلات والفهارس الموجودة ولا يكرر إنشاءها.
+    if (oldV < 27) await _createBeneficiaryErrorReportsTable(d);
   }
 
   /// بيانات دخول الشركاء منفصلة عن بيانات دخول المستفيدين، مع جلسات مستقلة.
