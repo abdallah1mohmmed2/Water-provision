@@ -144,8 +144,9 @@ void main() {
     expect(result['opening_balance'], 10000);
     expect(result['closing_balance'], 9000);
     expect(history, hasLength(2));
-    expect(history.first['month_key'], '2026-08');
-    expect(history.last['month_key'], '2026-09');
+    expect(history.first['month_key'], '2026-09');
+    expect(history.first['closing_balance'], 10000);
+    expect(history.last['month_key'], '2026-08');
     expect(history.last['closing_balance'], 10000);
   });
 
