@@ -12640,12 +12640,22 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     }
     final rate = _n(row['solar_hourly_rate_snapshot']);
     if (rate <= 0) return _n(row['total_amount']);
-    return AccountingCalculations.amountForMinutes(_n(row['minutes']), rate, 'up', partialHour);
+    final baseBeforeCloud = AccountingCalculations.amountForMinutes(_n(row['minutes']), rate, 'up', partialHour);
+    if (_n(row['work_price_enabled_snapshot']) != 1) return baseBeforeCloud;
+    return AccountingCalculations.amountAtMinuteRate(_n(row['minutes']), _n(row['work_minute_rate_snapshot'])) + _n(row['diesel_amount']);
   }
   int get totalAmountBeforeCloud => visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
   int get totalCloudDeduction => (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62).toInt();
   int get totalAmount => visible.fold<int>(0, (sum, row) => sum + _n(row['total_amount']));
   int get totalPaid => visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
+  int get totalWorkDifference => visible.fold<int>(0, (sum, row) => sum + _n(row['work_difference_snapshot']));
+  int get totalWorkBasis => visible.fold<int>(0, (sum, row) {
+    final hasSnapshot = _n(row['work_price_enabled_snapshot']) == 1 ||
+        _n(row['work_base_water_amount_snapshot']) > 0;
+    return sum + (hasSnapshot
+        ? _n(row['work_base_water_amount_snapshot']) + _n(row['diesel_amount'])
+        : _n(row['total_amount']));
+  });
 
   Future<List<Map<String, Object?>>> _pdfRows() async => visible;
 
@@ -12848,7 +12858,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           _summaryCard('الإيرادات قبل خصم الغيم', '${_money(totalAmountBeforeCloud)} ريال', Icons.price_check_rounded, _reportGreen, 2),
                           _summaryCard('قيمة خصم الغيم', '${_money(totalCloudDeduction)} ريال', Icons.remove_circle_outline_rounded, _reportOrange, 3),
                           _summaryCard('الإيرادات بعد خصم الغيم', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 4),
-                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 5),
+                          _summaryCard('أساس العمل بسعر الساعة', '${_money(totalWorkBasis)} ريال', Icons.calculate_outlined, _reportOliveDark, 5),
+                          _summaryCard('فائض فارق العمل', '${_money(totalWorkDifference)} ريال', Icons.trending_up_rounded, _reportOrange, 6),
+                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 7),
                         ];
                         return Wrap(
                           spacing: 8,
