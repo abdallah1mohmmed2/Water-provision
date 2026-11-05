@@ -68,6 +68,12 @@ void main() {
   }
 
   Future<void> pumpPage(WidgetTester tester, Widget page) async {
+    // شاشة الاختبار الافتراضية قصيرة؛ نستخدم مساحة طولية كافية حتى لا
+    // ينتهي تمرير زر أسفل الصفحة بمحاذاته خلف AppBar.
+    tester.view.physicalSize = const Size(1200, 3000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(MaterialApp(home: page));
     await pumpUntilReady(tester);
   }
@@ -170,11 +176,7 @@ void main() {
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '300');
     final saveButton = find.text('حفظ تسوية الشهر');
-    await tester.scrollUntilVisible(
-      saveButton,
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.ensureVisible(saveButton, alignment: 0.5);
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(saveButton);
     await pumpUntilReady(tester);
@@ -209,20 +211,12 @@ void main() {
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '-10');
     final saveButton = find.text('حفظ تسوية الشهر');
-    await tester.scrollUntilVisible(
-      saveButton,
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.ensureVisible(saveButton, alignment: 0.5);
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(saveButton);
     await pumpUntilReady(tester);
     final validationMessage = find.text('أدخل مبالغ صحيحة من دون قيم سالبة.');
-    await tester.scrollUntilVisible(
-      validationMessage,
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.ensureVisible(validationMessage, alignment: 0.5);
     await tester.pump();
     expect(validationMessage, findsOneWidget);
     expect(
