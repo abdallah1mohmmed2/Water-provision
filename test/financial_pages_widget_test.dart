@@ -31,9 +31,23 @@ void main() {
     await database.delete('accountant_reconciliation_months', '1=1', const []);
   });
 
+  // لا نستخدم pumpAndSettle أثناء تحميل الصفحات؛ مؤشر التحميل المتحرك
+  // يبقي إطاراً مجدولاً باستمرار حتى اكتمال استعلام SQLite غير المتزامن.
+  // ننتظر اختفاء مؤشر التحميل بمهلة محددة ثم نمنح انتقالات الواجهة وقتها.
+  Future<void> pumpUntilReady(WidgetTester tester) async {
+    for (var attempt = 0; attempt < 100; attempt++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+        await tester.pump(const Duration(milliseconds: 300));
+        return;
+      }
+    }
+    throw TestFailure('انتهت مهلة انتظار تحميل الصفحة (10 ثوانٍ).');
+  }
+
   Future<void> pumpPage(WidgetTester tester, Widget page) async {
     await tester.pumpWidget(MaterialApp(home: page));
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
   }
 
   test('رصيد الحساب العام يخصم القبض ويضيف الصرف', () {
@@ -56,13 +70,13 @@ void main() {
     expect(find.text('لا توجد حسابات عامة. أضف حسابًا للبدء.'), findsOneWidget);
 
     await tester.tap(find.text('حساب جديد'));
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
     final fields = find.byType(TextFormField);
     await tester.enterText(fields.at(0), 'حساب اختبار الواجهة');
     await tester.enterText(fields.at(1), '777123456');
     await tester.enterText(fields.at(3), '1000');
     await tester.tap(find.text('حفظ').last);
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
 
     final accounts = await database.query(
       'general_accounts',
@@ -74,24 +88,24 @@ void main() {
     expect(find.text('حساب اختبار الواجهة'), findsOneWidget);
 
     await tester.tap(find.byType(ExpansionTile).first);
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
     await tester.tap(find.text('قبض من الحساب'));
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
     var dialogFields = find.byType(TextFormField);
     await tester.enterText(dialogFields.at(0), '250');
     await tester.enterText(dialogFields.at(1), 'REC-01');
     await tester.enterText(dialogFields.at(2), 'قبض تجريبي');
     await tester.tap(find.text('حفظ الحركة'));
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
 
     await tester.tap(find.text('صرف للحساب'));
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
     dialogFields = find.byType(TextFormField);
     await tester.enterText(dialogFields.at(0), '100');
     await tester.enterText(dialogFields.at(1), 'PAY-01');
     await tester.enterText(dialogFields.at(2), 'صرف تجريبي');
     await tester.tap(find.text('حفظ الحركة'));
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
 
     final transactions = await database.query(
       'general_account_transactions',
@@ -135,7 +149,7 @@ void main() {
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '300');
     await tester.tap(find.text('حفظ تسوية الشهر'));
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
 
     final currentRows = await database.query(
       'accountant_reconciliation_months',
@@ -157,7 +171,7 @@ void main() {
     expect(find.text(currentLabel), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.chevron_right_rounded));
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
     final previous = DateTime(now.year, now.month - 1, 1);
     expect(
       find.text('${previous.year}/${previous.month.toString().padLeft(2, '0')}'),
@@ -167,7 +181,7 @@ void main() {
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '-10');
     await tester.tap(find.text('حفظ تسوية الشهر'));
-    await tester.pumpAndSettle();
+    await pumpUntilReady(tester);
     expect(find.text('أدخل مبالغ صحيحة من دون قيم سالبة.'), findsOneWidget);
     expect(
       await database.query(
