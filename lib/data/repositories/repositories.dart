@@ -2808,7 +2808,7 @@ class StationRepository {
             final displayedAmount = displayedWater + diesel;
             adjustments[id] = (adjustments[id] ?? 0) + displayedAmount - savedAmount;
           }
-          return debtRows.map((row) {
+          final adjustedRows = debtRows.map((row) {
             final id = (row['id'] as num).toInt();
             return <String, Object?>{
               ...row,
@@ -2816,6 +2816,13 @@ class StationRepository {
                   (adjustments[id] ?? 0),
             };
           }).toList();
+          adjustedRows.sort((a, b) {
+            final byBalance = ((b['balance'] as num?) ?? 0)
+                .compareTo((a['balance'] as num?) ?? 0);
+            if (byBalance != 0) return byBalance;
+            return '${a['name'] ?? ''}'.compareTo('${b['name'] ?? ''}');
+          });
+          return adjustedRows;
         }
       case 'beneficiary_list':
         return beneficiaries();
