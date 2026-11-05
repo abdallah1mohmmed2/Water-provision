@@ -70,8 +70,11 @@ void main() {
   }
 
   Future<void> pumpPage(WidgetTester tester, Widget page) async {
+    print('[financial-widget-test] pumpWidget: ${page.runtimeType}');
     await tester.pumpWidget(MaterialApp(home: page));
+    print('[financial-widget-test] waiting for page: ${page.runtimeType}');
     await pumpUntilReady(tester);
+    print('[financial-widget-test] page ready: ${page.runtimeType}');
   }
 
   test('رصيد الحساب العام يخصم القبض ويضيف الصرف', () {
@@ -93,6 +96,7 @@ void main() {
     );
     expect(find.text('لا توجد حسابات عامة. أضف حسابًا للبدء.'), findsOneWidget);
 
+    print('[financial-widget-test] general accounts: open create dialog');
     await tester.tap(find.text('حساب جديد'));
     await pumpUntilReady(tester);
     final fields = find.byType(TextFormField);
@@ -100,6 +104,7 @@ void main() {
     await tester.enterText(fields.at(1), '777123456');
     await tester.enterText(fields.at(3), '1000');
     await tester.tap(find.text('حفظ').last);
+    print('[financial-widget-test] general accounts: create dialog submitted');
     await pumpUntilReady(tester);
 
     final accounts = await database.query(
@@ -114,12 +119,14 @@ void main() {
     await tester.tap(find.byType(ExpansionTile).first);
     await pumpUntilReady(tester);
     await tester.tap(find.text('قبض من الحساب'));
+    print('[financial-widget-test] general accounts: receipt dialog opened');
     await pumpUntilReady(tester);
     var dialogFields = find.byType(TextFormField);
     await tester.enterText(dialogFields.at(0), '250');
     await tester.enterText(dialogFields.at(1), 'REC-01');
     await tester.enterText(dialogFields.at(2), 'قبض تجريبي');
     await tester.tap(find.text('حفظ الحركة'));
+    print('[financial-widget-test] general accounts: transaction submitted');
     await pumpUntilReady(tester);
 
     await tester.tap(find.text('صرف للحساب'));
@@ -220,7 +227,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(saveButton);
     await pumpUntilReady(tester);
-    expect(find.text('أدخل مبالغ صحيحة من دون قيم سالبة.'), findsOneWidget);
+    final validationMessage = find.text('أدخل مبالغ صحيحة من دون قيم سالبة.');
+    await tester.scrollUntilVisible(
+      validationMessage,
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    expect(validationMessage, findsOneWidget);
     expect(
       await database.query(
         'accountant_reconciliation_months',
