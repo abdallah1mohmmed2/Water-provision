@@ -36,7 +36,12 @@ void main() {
   // ننتظر اختفاء مؤشر التحميل بمهلة محددة ثم نمنح انتقالات الواجهة وقتها.
   Future<void> pumpUntilReady(WidgetTester tester) async {
     for (var attempt = 0; attempt < 100; attempt++) {
-      await tester.pump(const Duration(milliseconds: 100));
+      // SQLite FFI يعتمد على I/O حقيقي؛ runAsync يسمح باكتمال Future
+      // خارج fake-async zone الخاصة بـ WidgetTester، ثم نحدّث إطار الواجهة.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump();
       if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
         await tester.pump(const Duration(milliseconds: 300));
         return;
