@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 23,
+      version: 24,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -238,6 +238,30 @@ class AppDatabase {
         if (!columns.any((row) => row['name'] == column[0])) {
           await d.execute('ALTER TABLE irrigations ADD COLUMN ${column[0]} ${column[1]}');
         }
+      }
+    }
+    if (oldV < 24) {
+      // السجلات الأقدم لا تحمل سعر الدقيقة الخاصة. نثبت السعر المضبوط حاليًا
+      // مرة واحدة عند الترقية حتى لا يعاد تسعير عرضها مع كل تغيير لاحق للإعداد.
+      // هذا تحديث snapshots للعرض فقط؛ لا يلمس مبالغ الفواتير أو القيود أو المدفوعات.
+      final configuredRateRows = await d.query(
+        'settings',
+        columns: ['value'],
+        where: 'key = ?',
+        whereArgs: ['work_minute_rate'],
+        limit: 1,
+      );
+      final configuredRate = configuredRateRows.isEmpty
+          ? 0
+          : int.tryParse('${configuredRateRows.first['value'] ?? ''}') ?? 0;
+      if (configuredRate > 0) {
+        await d.rawUpdate(
+          '''UPDATE irrigations
+             SET work_minute_rate_snapshot = ?
+             WHERE beneficiary_id IS NOT NULL
+               AND COALESCE(work_minute_rate_snapshot, 0) <= 0''',
+          [configuredRate],
+        );
       }
     }
   }
