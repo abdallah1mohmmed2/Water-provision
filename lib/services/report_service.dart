@@ -736,37 +736,61 @@ class ReportService {
       final snapshot = id == null ? null : snapshotById[id];
       if (snapshot != null) row.addAll(snapshot);
     }
-    final totalWorkDifference = data.fold<int>(0, (sum, row) => sum + n(row['work_difference_snapshot']));
-    final totalWorkBasis = data.fold<int>(0, (sum, row) {
-      final saved = n(row['work_base_water_amount_snapshot']);
-      return sum + (n(row['work_price_enabled_snapshot']) == 1 || saved > 0
-          ? saved + n(row['diesel_amount'])
-          : n(row['total_amount']));
-    });
+    final useSpecialMinuteRate =
+        settings['work_price_report_display_special_rate'] == 'true';
+    final configuredMinuteRate = n(settings['work_minute_rate']);
     final partialHour = settings['partial_hour'] != 'false';
     int hourlyRate(Map<String, Object?> row) => switch ('${row['system_type'] ?? ''}') {
       'solar' => n(row['solar_hourly_rate_snapshot']),
       'equivalent_hybrid' => n(row['third_type_hourly_rate_snapshot']),
       _ => n(row['water_hourly_rate_snapshot']),
     };
+    int reportAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+      final minutes = n(beforeCloud
+          ? row['minutes']
+          : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))))
+          .clamp(0, 100000000);
+      if (useSpecialMinuteRate && row['beneficiary_id'] != null) {
+        final savedMinuteRate = n(row['work_minute_rate_snapshot']);
+        final minuteRate = savedMinuteRate > 0
+            ? savedMinuteRate
+            : configuredMinuteRate;
+        if (minuteRate > 0) {
+          return AccountingCalculations.amountAtMinuteRate(minutes, minuteRate) +
+              n(row['diesel_amount']);
+        }
+      }
+      final rate = hourlyRate(row);
+      if (rate <= 0) return n(row['total_amount']);
+      final waterAmount = AccountingCalculations.amountForMinutes(
+        minutes, rate, 'up', partialHour,
+      );
+      return waterAmount + n(row['diesel_amount']);
+    }
     int amountAtHourlyRate(Map<String, Object?> row, {required bool beforeCloud}) {
       final rate = hourlyRate(row);
       if (rate <= 0) return n(row['total_amount']);
       final minutes = n(beforeCloud
           ? row['minutes']
           : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))));
-      final waterAmount = AccountingCalculations.amountForMinutes(
-        minutes.clamp(0, 100000000), rate, 'up', partialHour,
-      );
-      return waterAmount + n(row['diesel_amount']);
+      return AccountingCalculations.amountForMinutes(
+            minutes.clamp(0, 100000000), rate, 'up', partialHour,
+          ) +
+          n(row['diesel_amount']);
     }
     final totalAmountBeforeCloud = data.fold<int>(
-      0, (sum, row) => sum + amountAtHourlyRate(row, beforeCloud: true),
+      0, (sum, row) => sum + reportAmount(row, beforeCloud: true),
     );
     final totalAmount = data.fold<int>(
+      0, (sum, row) => sum + reportAmount(row, beforeCloud: false),
+    );
+    final totalWorkBasis = data.fold<int>(
       0, (sum, row) => sum + amountAtHourlyRate(row, beforeCloud: false),
     );
-    final cloudDeductionAmount = (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
+    final totalWorkDifference =
+        useSpecialMinuteRate ? totalAmount - totalWorkBasis : 0;
+    final cloudDeductionAmount =
+        (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
     final totalPaid =
         data.fold<int>(0, (sum, row) => sum + n(row['paid_amount']));
     final remaining = totalAmount - totalPaid;
@@ -783,7 +807,7 @@ class ReportService {
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
           '${invoiceNetMinutes(data[i])}',
-          money(amountAtHourlyRate(data[i], beforeCloud: false)),
+          money(reportAmount(data[i], beforeCloud: false)),
           money(data[i]['paid_amount']),
           display(data[i]['notes']),
         ],
