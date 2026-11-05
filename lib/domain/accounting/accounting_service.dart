@@ -1389,7 +1389,17 @@ class AccountingService {
           );
         }
       }
-      final totalCharged = calc.waterAmount + chargedDiesel;
+      final workPriceEnabled = partyType == 'beneficiary' && set['work_price_difference_enabled'] == 'true';
+      final workMinuteRate = int.tryParse(set['work_minute_rate'] ?? '0') ?? 0;
+      if (workPriceEnabled && workMinuteRate <= 0) {
+        throw StateError('يجب ضبط سعر الدقيقة الخاص قبل تفعيل فارق العمل');
+      }
+      final workBaseTotal = calc.waterAmount + chargedDiesel;
+      final billedWaterAmount = workPriceEnabled
+          ? AccountingCalculations.amountAtMinuteRate(calc.chargeableMinutes, workMinuteRate)
+          : calc.waterAmount;
+      final totalCharged = billedWaterAmount + chargedDiesel;
+      final workDifference = billedWaterAmount - calc.waterAmount;
       final now = AppClock.now().toIso8601String();
       final id = await tx.insert('irrigations', {
         'station_id': stationId,
@@ -1414,7 +1424,11 @@ class AccountingService {
         'third_type_hourly_rate_snapshot': effectiveThirdRate,
         'cloud_minutes': calc.cloudMinutes,
         'chargeable_minutes': calc.chargeableMinutes,
-        'water_amount': calc.waterAmount,
+        'water_amount': billedWaterAmount,
+        'work_price_enabled_snapshot': workPriceEnabled ? 1 : 0,
+        'work_minute_rate_snapshot': workPriceEnabled ? workMinuteRate : 0,
+        'work_base_water_amount_snapshot': calc.waterAmount,
+        'work_difference_snapshot': workPriceEnabled ? workDifference : 0,
         'diesel_amount': chargedDiesel,
         'total_amount': totalCharged,
         'paid_amount': paidAmount,
@@ -1456,11 +1470,11 @@ class AccountingService {
           'memo': partyType == 'beneficiary' ? 'استحقاق سقاية' : 'خصم سقاية من مستحقات الطرف',
         },
       ];
-      if (calc.waterAmount > 0) {
+      if (billedWaterAmount > 0) {
         lines.add({
           'account_id': waterRevenue,
           'debit': 0,
-          'credit': calc.waterAmount,
+          'credit': billedWaterAmount,
           'memo': 'إيراد السقي',
         });
       }
@@ -1499,7 +1513,7 @@ class AccountingService {
           tx,
           workerId: wageWorkerId,
           irrigationId: id,
-          amount: totalCharged,
+          amount: workBaseTotal,
           hours: calc.chargeableMinutes / 60.0,
           date: start,
           userId: userId,
@@ -1509,7 +1523,7 @@ class AccountingService {
       // الاستحقاقات المباشرة عند السقاية تكون بعد أجور العمال دائمًا،
       // بما فيها سقاية الشريك؛ ولا يجوز توزيع الإيراد الإجمالي قبل الأجور.
       final partnerPool =
-          (totalCharged - totalWorkerEntitlement).clamp(0, totalCharged).toInt();
+          (workBaseTotal - totalWorkerEntitlement).clamp(0, workBaseTotal).toInt();
       if (partnerPool > 0) {
         await _accruePartnersFromIrrigationTx(
           tx,
@@ -3064,12 +3078,12 @@ class AccountingService {
       final lines = <Map<String, Object?>>[
         {'account_id': receivable, 'beneficiary_id': beneficiaryId,
          'worker_id': workerId, 'partner_id': partnerId,
-         'debit': result.totalAmount, 'credit': 0,
+         'debit': editedTotal, 'credit': 0,
          'memo': partyType == 'beneficiary' ? 'استحقاق سقاية بعد التعديل' : 'خصم سقاية من مستحقات الطرف بعد التعديل'},
       ];
-      if (result.waterAmount > 0) {
+      if (editedBilledWater > 0) {
         lines.add({'account_id': waterRevenue, 'debit': 0,
-          'credit': result.waterAmount, 'memo': 'إيراد السقي بعد التعديل'});
+          'credit': editedBilledWater, 'memo': 'إيراد السقي بعد التعديل'});
       }
       if (result.dieselAmount > 0) {
         lines.add({'account_id': fuelRevenue, 'debit': 0,
@@ -3083,6 +3097,14 @@ class AccountingService {
           stationId: (old['station_id'] as num).toInt());
       }
       final now = AppClock.now().toIso8601String();
+      final oldWorkPriceEnabled = (old['work_price_enabled_snapshot'] as num?)?.toInt() == 1;
+      final oldWorkMinuteRate = (old['work_minute_rate_snapshot'] as num?)?.toInt() ?? 0;
+      final editedWorkBaseTotal = result.totalAmount;
+      final editedBilledWater = oldWorkPriceEnabled && partyType == 'beneficiary'
+          ? AccountingCalculations.amountAtMinuteRate(result.chargeableMinutes, oldWorkMinuteRate)
+          : result.waterAmount;
+      final editedTotal = editedBilledWater + result.dieselAmount;
+      final editedDifference = editedBilledWater - result.waterAmount;
       final values = <String, Object?>{
         'date': start.toIso8601String().substring(0, 10),
         'start_datetime': start.toIso8601String(),
@@ -3090,9 +3112,13 @@ class AccountingService {
         'minutes': result.minutes,
         'cloud_minutes': result.cloudMinutes,
         'chargeable_minutes': result.chargeableMinutes,
-        'water_amount': result.waterAmount,
+        'water_amount': editedBilledWater,
+        'work_price_enabled_snapshot': oldWorkPriceEnabled ? 1 : 0,
+        'work_minute_rate_snapshot': oldWorkMinuteRate,
+        'work_base_water_amount_snapshot': result.waterAmount,
+        'work_difference_snapshot': oldWorkPriceEnabled ? editedDifference : 0,
         'diesel_amount': result.dieselAmount,
-        'total_amount': result.totalAmount,
+        'total_amount': editedTotal,
         'updated_at': now,
       };
       await tx.update('irrigations', values, where: 'id=?', whereArgs: [id]);
@@ -3235,7 +3261,7 @@ class AccountingService {
       for (final wageWorker in wageWorkers) {
         totalWorkerEntitlement += await _accrueWorkerIrrigationTx(
           tx, workerId: (wageWorker['id'] as num).toInt(), irrigationId: id,
-          amount: result.totalAmount, hours: result.chargeableMinutes / 60.0,
+          amount: editedWorkBaseTotal, hours: result.chargeableMinutes / 60.0,
           date: start, userId: userId);
       }
       if (partyType == 'worker') {
@@ -3252,7 +3278,7 @@ class AccountingService {
           'notes': 'خصم قيمة سقاية من حساب الشريك', 'created_by': userId,
         });
       }
-      final partnerPool = (result.totalAmount - totalWorkerEntitlement).clamp(0, result.totalAmount).toInt();
+      final partnerPool = (editedWorkBaseTotal - totalWorkerEntitlement).clamp(0, editedWorkBaseTotal).toInt();
       if (partnerPool > 0) {
         await _accruePartnersFromIrrigationTx(tx,
           irrigationId: id, stationId: (old['station_id'] as num).toInt(),
@@ -3261,7 +3287,7 @@ class AccountingService {
       await database.auditTx(tx, userId: userId, operation: 'update',
         table: 'irrigations', recordId: id, oldValues: old,
         newValues: values, reason: 'تعديل وقت السقاية وإعادة ترحيل قيدها');
-      return result.totalAmount;
+      return editedTotal;
     });
   }
 
