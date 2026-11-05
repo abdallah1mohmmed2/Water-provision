@@ -12671,7 +12671,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
           _n(row['diesel_amount']);
     }
     return AccountingCalculations.amountForMinutes(
-          minutes.clamp(0, 100000000), rate, 'up', partialHour,
+          minutes.clamp(0, 100000000).toInt(), rate, 'up', partialHour,
         ) +
         _n(row['diesel_amount']);
   }
@@ -12686,7 +12686,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       final rate = savedRate > 0 ? savedRate : specialMinuteRate;
       if (rate > 0) {
         return AccountingCalculations.amountAtMinuteRate(
-              minutes.clamp(0, 100000000), rate,
+              minutes.clamp(0, 100000000).toInt(), rate,
             ) +
             _n(row['diesel_amount']);
       }
