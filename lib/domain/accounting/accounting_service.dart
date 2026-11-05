@@ -3007,7 +3007,7 @@ class AccountingService {
               : 0);
       final editedWorkBaseTotal = result.totalAmount;
       final editedBilledWater = oldWorkPriceEnabled && partyType == 'beneficiary'
-          ? AccountingCalculations.amountAtMinuteRate(result.chargeableMinutes, oldWorkMinuteRate)
+          ? AccountingCalculations.amountAtMinuteRate(result.chargeableMinutes, reportMinuteRate)
           : result.waterAmount;
       final editedTotal = editedBilledWater + result.dieselAmount;
       final editedDifference = editedBilledWater - result.waterAmount;
