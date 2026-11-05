@@ -50,11 +50,14 @@ void main() {
     await database.close();
   });
 
-  // لا نستخدم pumpAndSettle أثناء تحميل الصفحات؛ مؤشر التحميل المتحرك
-  // يبقي إطاراً مجدولاً باستمرار. نضخ إطارات بمدة محددة حتى تكتمل
-  // عمليات SQLite FFI غير المتزامنة، من دون تعليق الاختبار داخل runAsync.
+  // لا نستخدم pumpAndSettle أثناء التحميل؛ مؤشر التحميل المتحرك
+  // يبقي إطاراً مجدولاً باستمرار. نمنح SQLite FFI وقت I/O حقيقياً عبر
+  // runAsync، ثم نضخ إطاراً بمدة محددة لتقديم ساعة fake-async في الاختبار.
   Future<void> pumpUntilReady(WidgetTester tester) async {
     for (var attempt = 0; attempt < 100; attempt++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
       await tester.pump(const Duration(milliseconds: 100));
       if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
         await tester.pump(const Duration(milliseconds: 300));
@@ -172,7 +175,7 @@ void main() {
       250,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(saveButton);
     await pumpUntilReady(tester);
 
@@ -211,7 +214,7 @@ void main() {
       250,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(saveButton);
     await pumpUntilReady(tester);
     final validationMessage = find.text('أدخل مبالغ صحيحة من دون قيم سالبة.');
