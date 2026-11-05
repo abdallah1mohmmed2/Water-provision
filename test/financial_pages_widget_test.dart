@@ -55,6 +55,23 @@ void main() {
     return result;
   }
 
+  Future<void> runDatabaseVoid(
+    WidgetTester tester,
+    Future<void> Function() action,
+  ) async {
+    // Future<void> تُرجع null بطبيعتها؛ لا يجوز تفسير ذلك على أنه فشل.
+    await tester.runAsync(action);
+  }
+
+  Future<void> settleAfterDialogSave(WidgetTester tester) async {
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 150)),
+    );
+    await tester.pump();
+    await pumpUntilReady(tester);
+  }
+
   // لا نستخدم pumpAndSettle أثناء تحميل الصفحات؛ مؤشر التحميل المتحرك
   // يبقي إطاراً مجدولاً باستمرار حتى اكتمال استعلام SQLite غير المتزامن.
   // ننتظر خارج fake-async حتى تنتهي عمليات FFI الفعلية ثم نحدّث الواجهة.
@@ -105,8 +122,8 @@ void main() {
     await tester.enterText(fields.at(0), 'حساب اختبار الواجهة');
     await tester.enterText(fields.at(1), '777123456');
     await tester.enterText(fields.at(3), '1000');
-    await tester.tap(find.text('حفظ').last);
-    await pumpUntilReady(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'حفظ'));
+    await settleAfterDialogSave(tester);
 
     final accounts = await runDatabase(tester, () => database.query(
       'general_accounts',
@@ -125,8 +142,8 @@ void main() {
     await tester.enterText(dialogFields.at(0), '250');
     await tester.enterText(dialogFields.at(1), 'REC-01');
     await tester.enterText(dialogFields.at(2), 'قبض تجريبي');
-    await tester.tap(find.text('حفظ الحركة'));
-    await pumpUntilReady(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'حفظ الحركة'));
+    await settleAfterDialogSave(tester);
 
     await tester.tap(find.text('صرف للحساب'));
     await pumpUntilReady(tester);
@@ -155,7 +172,7 @@ void main() {
     final currentMonth = DateTime(now.year, now.month, 1);
     final previousMonth = DateTime(now.year, now.month - 1, 1);
     final service = ReconciliationService(database);
-    await runDatabase(tester, () => service.saveMonth(
+    await runDatabaseVoid(tester, () => service.saveMonth(
       month: previousMonth,
       openingBalance: 2000,
       manualPaid: 500,
@@ -179,10 +196,10 @@ void main() {
     expect(find.text('قيمة الرصيد الافتتاحي'), findsNothing);
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '300');
-    final saveButton = find.text('حفظ تسوية الشهر');
-    await tester.ensureVisible(saveButton);
+    final saveButton = find.widgetWithText(FilledButton, 'حفظ تسوية الشهر');
+    await tester.scrollUntilVisible(saveButton, 240, scrollable: find.byType(Scrollable).first);
     await tester.tap(saveButton);
-    await pumpUntilReady(tester);
+    await settleAfterDialogSave(tester);
 
     final currentRows = await runDatabase(tester, () => database.query(
       'accountant_reconciliation_months',
@@ -215,8 +232,7 @@ void main() {
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '-10');
     final saveButton = find.widgetWithText(FilledButton, 'حفظ تسوية الشهر');
-    await tester.ensureVisible(saveButton);
-    await tester.pump();
+    await tester.scrollUntilVisible(saveButton, 240, scrollable: find.byType(Scrollable).first);
     await tester.tap(saveButton);
     await tester.pump();
     expect(find.text('أدخل مبالغ صحيحة من دون قيم سالبة.'), findsOneWidget);
