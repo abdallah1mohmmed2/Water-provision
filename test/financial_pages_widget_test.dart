@@ -80,7 +80,12 @@ void main() {
   }
 
   Future<void> settleAfterDialogSave(WidgetTester tester) async {
-    await tester.pumpAndSettle();
+    // لا نستخدم pumpAndSettle هنا؛ بعض عمليات الحفظ تعرض مؤشر CircularProgress
+    // متحركاً باستمرار، فينتظر pumpAndSettle بلا نهاية حتى تنتهي مهلته.
+    // نضخ إطارات محدودة لإكمال انتقال إغلاق الحوار ثم ننتظر I/O الحقيقي.
+    for (var frame = 0; frame < 10; frame++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 150)),
     );
