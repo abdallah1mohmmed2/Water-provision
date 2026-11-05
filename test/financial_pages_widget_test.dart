@@ -145,7 +145,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'حفظ الحركة'));
     await settleAfterDialogSave(tester);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'صرف للحساب'));
+    await tester.tap(find.widgetWithText(OutlinedButton, 'صرف للحساب'));
     await pumpUntilReady(tester);
     dialogFields = find.byType(TextFormField);
     await tester.enterText(dialogFields.at(0), '100');
