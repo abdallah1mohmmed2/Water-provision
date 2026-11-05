@@ -173,7 +173,12 @@ void main() {
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '300');
     final saveButton = find.text('حفظ تسوية الشهر');
-    await tester.ensureVisible(saveButton);
+    await tester.scrollUntilVisible(
+      saveButton,
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(saveButton);
     await pumpUntilReady(tester);
 
@@ -207,7 +212,12 @@ void main() {
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '-10');
     final saveButton = find.text('حفظ تسوية الشهر');
-    await tester.ensureVisible(saveButton);
+    await tester.scrollUntilVisible(
+      saveButton,
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(saveButton);
     await pumpUntilReady(tester);
     expect(find.text('أدخل مبالغ صحيحة من دون قيم سالبة.'), findsOneWidget);
