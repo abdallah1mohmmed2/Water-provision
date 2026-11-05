@@ -1426,7 +1426,7 @@ class AccountingService {
         'chargeable_minutes': calc.chargeableMinutes,
         'water_amount': billedWaterAmount,
         'work_price_enabled_snapshot': workPriceEnabled ? 1 : 0,
-        'work_minute_rate_snapshot': workPriceEnabled ? workMinuteRate : 0,
+        'work_minute_rate_snapshot': partyType == 'beneficiary' ? workMinuteRate : 0,
         'work_base_water_amount_snapshot': calc.waterAmount,
         'work_difference_snapshot': workPriceEnabled ? workDifference : 0,
         'diesel_amount': chargedDiesel,
