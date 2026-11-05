@@ -51,16 +51,11 @@ void main() {
   });
 
   // لا نستخدم pumpAndSettle أثناء تحميل الصفحات؛ مؤشر التحميل المتحرك
-  // يبقي إطاراً مجدولاً باستمرار حتى اكتمال استعلام SQLite غير المتزامن.
-  // ننتظر اختفاء مؤشر التحميل بمهلة محددة ثم نمنح انتقالات الواجهة وقتها.
+  // يبقي إطاراً مجدولاً باستمرار. نضخ إطارات بمدة محددة حتى تكتمل
+  // عمليات SQLite FFI غير المتزامنة، من دون تعليق الاختبار داخل runAsync.
   Future<void> pumpUntilReady(WidgetTester tester) async {
     for (var attempt = 0; attempt < 100; attempt++) {
-      // SQLite FFI يعتمد على I/O حقيقي؛ runAsync يسمح باكتمال Future
-      // خارج fake-async zone الخاصة بـ WidgetTester، ثم نحدّث إطار الواجهة.
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 100)),
-      );
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
       if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
         await tester.pump(const Duration(milliseconds: 300));
         return;
