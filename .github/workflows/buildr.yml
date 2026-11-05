@@ -40,6 +40,14 @@ jobs:
       - name: Analyze Flutter code
         run: flutter analyze
 
+      - name: Run Flutter tests and collect coverage
+        run: flutter test --coverage
+
+      - name: Verify LCOV coverage report
+        run: |
+          test -s coverage/lcov.info
+          grep -q '^DA:' coverage/lcov.info
+
       - name: Prepare Android NDK (retry corrupted downloads)
         shell: bash
         run: |
