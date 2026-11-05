@@ -214,7 +214,7 @@ void main() {
 
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '-10');
-    final saveButton = find.text('حفظ تسوية الشهر');
+    final saveButton = find.widgetWithText(FilledButton, 'حفظ تسوية الشهر');
     await tester.ensureVisible(saveButton);
     await tester.pump();
     await tester.tap(saveButton);
