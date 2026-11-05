@@ -145,14 +145,14 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'حفظ الحركة'));
     await settleAfterDialogSave(tester);
 
-    await tester.tap(find.text('صرف للحساب'));
+    await tester.tap(find.widgetWithText(FilledButton, 'صرف للحساب'));
     await pumpUntilReady(tester);
     dialogFields = find.byType(TextFormField);
     await tester.enterText(dialogFields.at(0), '100');
     await tester.enterText(dialogFields.at(1), 'PAY-01');
     await tester.enterText(dialogFields.at(2), 'صرف تجريبي');
-    await tester.tap(find.text('حفظ الحركة'));
-    await pumpUntilReady(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'حفظ الحركة'));
+    await settleAfterDialogSave(tester);
 
     final transactions = await runDatabase(tester, () => database.query(
       'general_account_transactions',
@@ -186,8 +186,23 @@ void main() {
     );
 
     expect(find.text('أولاً: حساب الشركاء'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('ثانياً: حساب المستفيدين (الرعية)'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('ثانياً: حساب المستفيدين (الرعية)'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('ثالثاً: حساب العمال'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('ثالثاً: حساب العمال'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('رابعاً: المصروفات'),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('رابعاً: المصروفات'), findsOneWidget);
     expect(find.text('التسويات المحفوظة للأشهر السابقة'), findsOneWidget);
     expect(find.textContaining('رصيد الشهر السابق'), findsOneWidget);
@@ -232,7 +247,9 @@ void main() {
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '-10');
     final saveButton = find.widgetWithText(FilledButton, 'حفظ تسوية الشهر');
-    await tester.scrollUntilVisible(saveButton, 240, scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(saveButton);
+    await tester.pump();
+    expect(tester.getCenter(saveButton).dy, lessThan(600));
     await tester.tap(saveButton);
     await tester.pump();
     expect(find.text('أدخل مبالغ صحيحة من دون قيم سالبة.'), findsOneWidget);
