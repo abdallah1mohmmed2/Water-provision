@@ -749,7 +749,8 @@ class ReportService {
       final minutes = n(beforeCloud
           ? row['minutes']
           : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))))
-          .clamp(0, 100000000);
+          .clamp(0, 100000000)
+          .toInt();
       if (useSpecialMinuteRate && row['beneficiary_id'] != null) {
         final savedMinuteRate = n(row['work_minute_rate_snapshot']);
         final minuteRate = savedMinuteRate > 0
@@ -774,7 +775,7 @@ class ReportService {
           ? row['minutes']
           : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))));
       return AccountingCalculations.amountForMinutes(
-            minutes.clamp(0, 100000000), rate, 'up', partialHour,
+            minutes.clamp(0, 100000000).toInt(), rate, 'up', partialHour,
           ) +
           n(row['diesel_amount']);
     }
