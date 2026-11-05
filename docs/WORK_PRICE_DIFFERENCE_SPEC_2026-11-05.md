@@ -94,3 +94,12 @@
 - تشغيل Flutter Analyze والاختبارات وبناء APK ومراجعة Artifact قبل إعلان الجاهزية.
 
 - أضيف Workflow مستقل للفرع `feature/work-price-difference` يعمل عند كل push، وينفذ اختبارات المحاسبة والحسابات والرسائل وفحص SQLite، ثم Flutter Analyze وبناء APK release ورفع APK كـ Artifact لمدة 14 يومًا.
+
+
+## إصلاح ترتيب مساعد اختبار الواجهات المالية — 2026-11-05
+
+- **الدليل:** فشل Flutter Analyze على commit `8b77f6e` بسبب استدعاء `pumpUntilReady` داخل `settleAfterDialogSave` قبل تعريف الدالة محلياً في `test/financial_pages_widget_test.dart`.
+- **التعديل:** نقل تعريف `pumpUntilReady` كاملاً إلى ما قبل `settleAfterDialogSave` مع الإبقاء على جسم الدالتين وسلوك الانتظار دون تغيير.
+- **النطاق:** إصلاح ترتيب تعريفات داخل ملف الاختبار فقط؛ لا تعديل على شيفرة التطبيق أو الحسابات أو SQLite.
+- **التحقق:** ينتظر تشغيل Flutter Analyze والاختبارات وبناء APK على commit الإصلاح. لا يُعلن نجاح APK قبل ظهور Artifact صالح.
+- **الدمج:** التعديل على `feature/work-price-difference` فقط؛ لا دمج إلى `main` دون موافقة صريحة.
