@@ -5809,6 +5809,15 @@ int? parseClock(String raw) {
         );
         final totalAmount =
             (irrigationRow['total_amount'] as num?)?.round() ?? 0;
+        final baseWaterAmount =
+            (irrigationRow['work_base_water_amount_snapshot'] as num?)?.round() ?? 0;
+        final dieselAmount =
+            (irrigationRow['diesel_amount'] as num?)?.round() ?? 0;
+        final workBaseTotal = (irrigationRow['work_price_enabled_snapshot'] as num?)?.toInt() == 1
+            ? baseWaterAmount + dieselAmount
+            : totalAmount;
+        final workDifference =
+            (irrigationRow['work_difference_snapshot'] as num?)?.round() ?? 0;
         final paidAmount =
             (irrigationRow['paid_amount'] as num?)?.round() ?? 0;
         final message = await _renderSavedMessageTemplate(
@@ -5821,6 +5830,8 @@ int? parseClock(String raw) {
             'وقت النهاية': DateFormat('HH:mm').format(end),
             'إجمالي الدقائق': '$minutes',
             'قيمة السقاية': money(totalAmount),
+            'أساس العمل': money(workBaseTotal),
+            'فائض فارق العمل': workDifference == 0 ? '0' : money(workDifference),
             'المبلغ المدفوع': money(paidAmount),
             'المتبقي من السقاية': money(totalAmount - paidAmount),
             'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
