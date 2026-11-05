@@ -209,7 +209,7 @@ void main() {
 
     // يوجد شهر سابق محفوظ؛ الرصيد الافتتاحي يُرحّل تلقائيًا ولا يظهر كحقل قابل للتحرير.
     expect(find.text('قيمة الرصيد الافتتاحي'), findsNothing);
-    final manualField = find.byWidgetPredicate((widget) => widget is TextField && widget.decoration.labelText == 'المبلغ المسلّم خلال هذا الشهر');
+    final manualField = find.byWidgetPredicate((widget) => widget is TextField && widget.decoration?.labelText == 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '300');
     final saveButton = find.widgetWithText(FilledButton, 'حفظ تسوية الشهر');
     await tester.scrollUntilVisible(saveButton, 240, scrollable: find.byType(Scrollable).first);
@@ -244,7 +244,7 @@ void main() {
       findsOneWidget,
     );
 
-    final manualField = find.byWidgetPredicate((widget) => widget is TextField && widget.decoration.labelText == 'المبلغ المسلّم خلال هذا الشهر');
+    final manualField = find.byWidgetPredicate((widget) => widget is TextField && widget.decoration?.labelText == 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '-10');
     final saveButton = find.widgetWithText(FilledButton, 'حفظ تسوية الشهر');
     await tester.ensureVisible(saveButton);
