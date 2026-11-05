@@ -40,6 +40,25 @@ jobs:
       - name: Analyze Flutter code
         run: flutter analyze
 
+      - name: Prepare Android NDK (retry corrupted downloads)
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="28.2.13676358"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          for attempt in 1 2 3; do
+            echo "Installing Android NDK $NDK_VERSION (attempt $attempt/3)"
+            rm -rf "$ANDROID_HOME/ndk/$NDK_VERSION"
+            if "$SDKMANAGER" --install "ndk;$NDK_VERSION" && test -f "$ANDROID_HOME/ndk/$NDK_VERSION/source.properties"; then
+              echo "NDK $NDK_VERSION is installed and verified."
+              exit 0
+            fi
+            echo "NDK installation attempt $attempt failed; retrying with a clean package directory."
+            sleep 5
+          done
+          echo "ERROR: NDK $NDK_VERSION could not be installed after 3 attempts."
+          exit 1
+
       - name: Build Android APK
         run: flutter build apk --debug
 
