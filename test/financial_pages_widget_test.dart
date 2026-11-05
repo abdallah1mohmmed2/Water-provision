@@ -17,18 +17,27 @@ void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    // احذف ملف قاعدة الاختبار مرة واحدة قبل فتح أي اتصال به.
     await databaseFactory.deleteDatabase(
       '${await databaseFactory.getDatabasesPath()}/saqia_station_v2.db',
     );
-    database = AppDatabase.instance;
-    await database.db;
-    repository = StationRepository(database);
   });
 
   setUp(() async {
+    // كل اختبار يحصل على اتصال جديد من الـ singleton نفسه بعد إغلاق اتصال
+    // الاختبار السابق؛ لا نشارك اتصال SQLite FFI بين اختبارات الواجهة.
+    database = AppDatabase.instance;
+    await database.db;
+    repository = StationRepository(database);
     await database.delete('general_account_transactions', '1=1', const []);
     await database.delete('general_accounts', '1=1', const []);
     await database.delete('accountant_reconciliation_months', '1=1', const []);
+  });
+
+  tearDown(() async {
+    // إغلاق الاتصال وإعادة ضبط AppDatabase._db يمنع تسرب حالة/اتصال اختبار
+    // إلى الاختبار التالي، خصوصاً إذا انتهى اختبار واجهة بمهلة.
+    await database.close();
   });
 
   // لا نستخدم pumpAndSettle أثناء تحميل الصفحات؛ مؤشر التحميل المتحرك
