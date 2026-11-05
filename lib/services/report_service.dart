@@ -650,7 +650,12 @@ class ReportService {
                       NULLIF(TRIM(p.name),''),
                       'غير محدد'
                     )
-                  END party_name
+                  END party_name,
+                  COALESCE(i.work_price_enabled_snapshot,0) work_price_enabled_snapshot,
+                  COALESCE(i.work_minute_rate_snapshot,0) work_minute_rate_snapshot,
+                  COALESCE(i.work_base_water_amount_snapshot,0) work_base_water_amount_snapshot,
+                  COALESCE(i.work_difference_snapshot,0) work_difference_snapshot,
+                  COALESCE(i.diesel_amount,0) diesel_amount
            FROM irrigations i
            LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id
            LEFT JOIN workers w ON w.id=i.worker_id
@@ -720,6 +725,26 @@ class ReportService {
         sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
     final totalAmount =
         data.fold<int>(0, (sum, row) => sum + n(row['total_amount']));
+    final snapshotById = <int, Map<String, Object?>>{};
+    for (final row in await repo.db.rawQuery(
+      'SELECT id,work_price_enabled_snapshot,work_base_water_amount_snapshot,work_difference_snapshot,diesel_amount FROM irrigations WHERE id IN (${List.filled(irrigationIds.length, '?').join(',')})',
+      irrigationIds.cast<Object?>(),
+    )) {
+      snapshotById[(row['id'] as num).toInt()] = row;
+    }
+    for (final row in data) {
+      final rawId = row['invoice_id'] ?? row['irrigation_id'] ?? row['id'];
+      final id = rawId is num ? rawId.toInt() : int.tryParse('$rawId');
+      final snapshot = id == null ? null : snapshotById[id];
+      if (snapshot != null) row.addAll(snapshot);
+    }
+    final totalWorkDifference = data.fold<int>(0, (sum, row) => sum + n(row['work_difference_snapshot']));
+    final totalWorkBasis = data.fold<int>(0, (sum, row) {
+      final saved = n(row['work_base_water_amount_snapshot']);
+      return sum + (n(row['work_price_enabled_snapshot']) == 1 || saved > 0
+          ? saved + n(row['diesel_amount'])
+          : n(row['total_amount']));
+    });
     final partialHour = settings['partial_hour'] != 'false';
     int amountBeforeCloud(Map<String, Object?> row) {
       if ('${row['system_type'] ?? ''}' != 'solar' || n(row['cloud_minutes']) <= 0) {
@@ -796,8 +821,19 @@ class ReportService {
         ),
         StatBoxData(
           number: '6',
-          title: 'الإيرادات بعد خصم الغيم',
+          title: 'الإيرادات الفعلية بعد خصم الغيم',
           value: '${money(totalAmount)} ريال',
+          isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '10',
+          title: 'أساس العمل بسعر الساعة',
+          value: '${money(totalWorkBasis)} ريال',
+        ),
+        StatBoxData(
+          number: '11',
+          title: 'فائض فارق العمل',
+          value: '${money(totalWorkDifference)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
