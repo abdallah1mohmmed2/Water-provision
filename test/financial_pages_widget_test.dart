@@ -207,6 +207,10 @@ void main() {
     expect(find.text('التسويات المحفوظة للأشهر السابقة'), findsOneWidget);
     expect(find.textContaining('رصيد الشهر السابق'), findsOneWidget);
 
+    // الحقل يقع أعلى القائمة؛ نعود إلى بدايتها قبل البحث عنه لأن ListView
+    // كسول وقد يزيل العناصر التي خرجت من مجال العرض.
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, 1800));
+    await tester.pump();
     // يوجد شهر سابق محفوظ؛ الرصيد الافتتاحي يُرحّل تلقائيًا ولا يظهر كحقل قابل للتحرير.
     expect(find.text('قيمة الرصيد الافتتاحي'), findsNothing);
     final manualField = find.byKey(const ValueKey('reconciliation-manual-paid-field'));
@@ -257,6 +261,9 @@ void main() {
     await tester.drag(find.byType(Scrollable).first, const Offset(0, 140));
     await tester.pump();
     await tester.tapAt(tester.getCenter(saveButton));
+    await tester.pump();
+    // رسالة التحقق موضوعة أعلى القائمة؛ أعد العرض إلى أعلاها قبل فحصها.
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, 1800));
     await tester.pump();
     expect(find.text('أدخل مبالغ صحيحة من دون قيم سالبة.'), findsOneWidget);
     expect(
