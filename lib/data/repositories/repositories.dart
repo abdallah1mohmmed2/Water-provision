@@ -2731,8 +2731,6 @@ class StationRepository {
           final reportSettings = await settings();
           final useSpecialMinuteRate =
               reportSettings['work_price_report_display_special_rate'] == 'true';
-          final configuredMinuteRate =
-              int.tryParse(reportSettings['work_minute_rate'] ?? '0') ?? 0;
           final partialHour = reportSettings['partial_hour'] != 'false';
           final cutoff = to?.add(const Duration(days: 1)).toIso8601String();
           final balanceExpression = cutoff == null
@@ -2790,9 +2788,7 @@ class StationRepository {
             final savedAmount = (irrigation['total_amount'] as num?)?.round() ?? 0;
             final minuteSnapshot =
                 (irrigation['work_minute_rate_snapshot'] as num?)?.round() ?? 0;
-            final minuteRate = minuteSnapshot > 0
-                ? minuteSnapshot
-                : configuredMinuteRate;
+            final minuteRate = minuteSnapshot;
             final hourlyRate = switch ('${irrigation['system_type'] ?? ''}') {
               'solar' => (irrigation['solar_hourly_rate_snapshot'] as num?)?.round() ?? 0,
               'equivalent_hybrid' => (irrigation['third_type_hourly_rate_snapshot'] as num?)?.round() ?? 0,
