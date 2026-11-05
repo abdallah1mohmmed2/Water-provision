@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -13,14 +15,21 @@ void main() {
 
   late AppDatabase database;
   late StationRepository repository;
+  late Directory testDatabaseDirectory;
 
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-    // احذف ملف قاعدة الاختبار مرة واحدة قبل فتح أي اتصال به.
-    await databaseFactory.deleteDatabase(
-      '${await databaseFactory.getDatabasesPath()}/saqia_station_v2.db',
+    // لكل ملف اختبار مجلد SQLite مستقل؛ يمنع تداخل عمليات الاختبارات
+    // المتوازية التي تستخدم الاسم نفسه لقاعدة البيانات في مسار FFI الافتراضي.
+    testDatabaseDirectory = await Directory.systemTemp.createTemp(
+      'saqia_financial_widget_test_',
     );
+    await databaseFactory.setDatabasesPath(testDatabaseDirectory.path);
+  });
+
+  tearDownAll(() async {
+    await testDatabaseDirectory.delete(recursive: true);
   });
 
   setUp(() async {
@@ -162,7 +171,9 @@ void main() {
     expect(find.text('قيمة الرصيد الافتتاحي'), findsNothing);
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '300');
-    await tester.tap(find.text('حفظ تسوية الشهر'));
+    final saveButton = find.text('حفظ تسوية الشهر');
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
     await pumpUntilReady(tester);
 
     final currentRows = await database.query(
@@ -194,7 +205,9 @@ void main() {
 
     final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '-10');
-    await tester.tap(find.text('حفظ تسوية الشهر'));
+    final saveButton = find.text('حفظ تسوية الشهر');
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
     await pumpUntilReady(tester);
     expect(find.text('أدخل مبالغ صحيحة من دون قيم سالبة.'), findsOneWidget);
     expect(
