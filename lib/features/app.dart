@@ -15324,6 +15324,16 @@ class _SettingsState extends State<SettingsPage> {
                   'سعر النوع الثالث بالساعة',
                   true,
                 ),
+              if (widget.manager) ...[
+                const Divider(height: 8),
+                boolTile('work_price_difference_enabled', 'تفعيل فارق العمل للمستفيدين'),
+                if (s['work_price_difference_enabled'] == 'true')
+                  setTile('work_minute_rate', 'سعر الدقيقة الخاص للمستفيدين', true),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: Text('عند التفعيل تُحسب فاتورة المستفيد بسعر الدقيقة الخاص، بينما تبقى أجور العمال وحصص الشركاء على أساس سعر الساعة العام. الفواتير السابقة لا تتغير.', style: TextStyle(fontSize: 12, height: 1.5)),
+                ),
+              ],
               boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
               dropdownTile('rounding', 'سياسة التقريب', const [
                 MapEntry('nearest', 'التقريب إلى أقرب عدد صحيح'),
