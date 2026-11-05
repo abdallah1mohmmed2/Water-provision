@@ -56,6 +56,12 @@ class AccountingCalculations {
     };
   }
 
+  /// مبلغ فارق العمل للمستفيد: سعر الدقيقة × الدقائق القابلة للفوترة دون تقريب إضافي.
+  static int amountAtMinuteRate(int minutes, int minuteRate) {
+    if (minutes <= 0 || minuteRate <= 0) return 0;
+    return minutes * minuteRate;
+  }
+
   /// مبلغ = دقائق × سعر الساعة / 60 (أو ساعات كاملة مقرّبة لأعلى إن عُطّلت الساعة الجزئية).
   static int amountForMinutes(
     int minutes,
