@@ -215,7 +215,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                             const Text('تسليمات المحاسب اليدوية للشركاء', style: TextStyle(fontWeight: FontWeight.w900)),
                             const SizedBox(height: 8),
-                            TextField(controller: manualPaid, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المسلّم خلال هذا الشهر', suffixText: 'ريال', border: OutlineInputBorder())),
+                            TextField(key: const ValueKey('reconciliation-manual-paid-field'), controller: manualPaid, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المسلّم خلال هذا الشهر', suffixText: 'ريال', border: OutlineInputBorder())),
                             const SizedBox(height: 5),
                             const Text('أدخل هنا ما سلّمه المحاسب خارج سجلات المدفوعات؛ المبالغ المسجلة في التطبيق محسوبة تلقائياً أعلاه.', style: TextStyle(fontSize: 11, color: Colors.black54)),
                             if (!hasPrevious) ...[
