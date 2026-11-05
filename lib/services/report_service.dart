@@ -621,6 +621,7 @@ class ReportService {
         .toSet()
         .toList();
     final resolvedPartyNames = <int, String>{};
+    final snapshotById = <int, Map<String, Object?>>{};
     if (irrigationIds.isNotEmpty) {
       final placeholders = List.filled(irrigationIds.length, '?').join(',');
       final partyRows = await repo.db.rawQuery(
@@ -655,7 +656,10 @@ class ReportService {
                   COALESCE(i.work_minute_rate_snapshot,0) work_minute_rate_snapshot,
                   COALESCE(i.work_base_water_amount_snapshot,0) work_base_water_amount_snapshot,
                   COALESCE(i.work_difference_snapshot,0) work_difference_snapshot,
-                  COALESCE(i.diesel_amount,0) diesel_amount
+                  COALESCE(i.diesel_amount,0) diesel_amount,
+                  COALESCE(i.water_hourly_rate_snapshot,0) water_hourly_rate_snapshot,
+                  COALESCE(i.solar_hourly_rate_snapshot,0) solar_hourly_rate_snapshot,
+                  COALESCE(i.third_type_hourly_rate_snapshot,0) third_type_hourly_rate_snapshot
            FROM irrigations i
            LEFT JOIN beneficiaries b ON b.id=i.beneficiary_id
            LEFT JOIN workers w ON w.id=i.worker_id
@@ -666,7 +670,10 @@ class ReportService {
       for (final row in partyRows) {
         final id = (row['invoice_id'] as num?)?.toInt();
         final name = '${row['party_name'] ?? ''}'.trim();
-        if (id != null && name.isNotEmpty) resolvedPartyNames[id] = name;
+        if (id != null) {
+          if (name.isNotEmpty) resolvedPartyNames[id] = name;
+          snapshotById[id] = row;
+        }
       }
     }
     for (final row in data) {
@@ -723,15 +730,6 @@ class ReportService {
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
     final totalCloudMinutes = data.fold<int>(0, (sum, row) =>
         sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
-    final totalAmount =
-        data.fold<int>(0, (sum, row) => sum + n(row['total_amount']));
-    final snapshotById = <int, Map<String, Object?>>{};
-    for (final row in await repo.db.rawQuery(
-      'SELECT id,work_price_enabled_snapshot,work_base_water_amount_snapshot,work_difference_snapshot,diesel_amount FROM irrigations WHERE id IN (${List.filled(irrigationIds.length, '?').join(',')})',
-      irrigationIds.cast<Object?>(),
-    )) {
-      snapshotById[(row['id'] as num).toInt()] = row;
-    }
     for (final row in data) {
       final rawId = row['invoice_id'] ?? row['irrigation_id'] ?? row['id'];
       final id = rawId is num ? rawId.toInt() : int.tryParse('$rawId');
@@ -746,18 +744,27 @@ class ReportService {
           : n(row['total_amount']));
     });
     final partialHour = settings['partial_hour'] != 'false';
-    int amountBeforeCloud(Map<String, Object?> row) {
-      if ('${row['system_type'] ?? ''}' != 'solar' || n(row['cloud_minutes']) <= 0) {
-        return n(row['total_amount']);
-      }
-      final rate = n(row['solar_hourly_rate_snapshot']);
+    int hourlyRate(Map<String, Object?> row) => switch ('${row['system_type'] ?? ''}') {
+      'solar' => n(row['solar_hourly_rate_snapshot']),
+      'equivalent_hybrid' => n(row['third_type_hourly_rate_snapshot']),
+      _ => n(row['water_hourly_rate_snapshot']),
+    };
+    int amountAtHourlyRate(Map<String, Object?> row, {required bool beforeCloud}) {
+      final rate = hourlyRate(row);
       if (rate <= 0) return n(row['total_amount']);
-      return AccountingCalculations.amountForMinutes(
-        n(row['minutes']), rate, 'up', partialHour,
+      final minutes = n(beforeCloud
+          ? row['minutes']
+          : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))));
+      final waterAmount = AccountingCalculations.amountForMinutes(
+        minutes.clamp(0, 100000000), rate, 'up', partialHour,
       );
+      return waterAmount + n(row['diesel_amount']);
     }
     final totalAmountBeforeCloud = data.fold<int>(
-      0, (sum, row) => sum + amountBeforeCloud(row),
+      0, (sum, row) => sum + amountAtHourlyRate(row, beforeCloud: true),
+    );
+    final totalAmount = data.fold<int>(
+      0, (sum, row) => sum + amountAtHourlyRate(row, beforeCloud: false),
     );
     final cloudDeductionAmount = (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
     final totalPaid =
@@ -776,7 +783,7 @@ class ReportService {
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
           '${invoiceNetMinutes(data[i])}',
-          money(data[i]['total_amount']),
+          money(amountAtHourlyRate(data[i], beforeCloud: false)),
           money(data[i]['paid_amount']),
           display(data[i]['notes']),
         ],
