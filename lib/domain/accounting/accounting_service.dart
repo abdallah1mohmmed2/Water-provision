@@ -2998,6 +2998,15 @@ class AccountingService {
         throw StateError('نوع صاحب حساب السقاية غير مدعوم؛ لم تُغيّر أي بيانات');
       }
 
+      final oldWorkPriceEnabled = (old['work_price_enabled_snapshot'] as num?)?.toInt() == 1;
+      final oldWorkMinuteRate = (old['work_minute_rate_snapshot'] as num?)?.toInt() ?? 0;
+      final editedWorkBaseTotal = result.totalAmount;
+      final editedBilledWater = oldWorkPriceEnabled && partyType == 'beneficiary'
+          ? AccountingCalculations.amountAtMinuteRate(result.chargeableMinutes, oldWorkMinuteRate)
+          : result.waterAmount;
+      final editedTotal = editedBilledWater + result.dieselAmount;
+      final editedDifference = editedBilledWater - result.waterAmount;
+
       // Reverse linked wage and partner accrual rows without deleting history.
       final workerRows = await tx.query(
         'worker_transactions',
@@ -3089,7 +3098,7 @@ class AccountingService {
         lines.add({'account_id': fuelRevenue, 'debit': 0,
           'credit': result.dieselAmount, 'memo': 'قيمة ديزل السقي بعد التعديل'});
       }
-      if (result.totalAmount > 0) {
+      if (editedTotal > 0) {
         await _entry(tx,
           description: 'تعديل سقاية رقم $id',
           referenceType: 'irrigation', referenceId: id,
@@ -3097,14 +3106,6 @@ class AccountingService {
           stationId: (old['station_id'] as num).toInt());
       }
       final now = AppClock.now().toIso8601String();
-      final oldWorkPriceEnabled = (old['work_price_enabled_snapshot'] as num?)?.toInt() == 1;
-      final oldWorkMinuteRate = (old['work_minute_rate_snapshot'] as num?)?.toInt() ?? 0;
-      final editedWorkBaseTotal = result.totalAmount;
-      final editedBilledWater = oldWorkPriceEnabled && partyType == 'beneficiary'
-          ? AccountingCalculations.amountAtMinuteRate(result.chargeableMinutes, oldWorkMinuteRate)
-          : result.waterAmount;
-      final editedTotal = editedBilledWater + result.dieselAmount;
-      final editedDifference = editedBilledWater - result.waterAmount;
       final values = <String, Object?>{
         'date': start.toIso8601String().substring(0, 10),
         'start_datetime': start.toIso8601String(),
