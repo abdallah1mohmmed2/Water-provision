@@ -187,6 +187,21 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                           ]),
                         ),
                       ),
+                      if (error != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Material(
+                            color: Theme.of(context).colorScheme.errorContainer,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Text(
+                                error!,
+                                style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+                              ),
+                            ),
+                          ),
+                        ),
                       const SizedBox(height: 12),
                       _sectionTitle('أولاً: حساب الشركاء'),
                       _card('إجمالي أرباح الشركاء لهذا الشهر', d?['partner_profit'], Icons.groups_rounded, Colors.teal),
@@ -255,7 +270,6 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                       _card('إجمالي المسلّم للعمال هذا الشهر', d?['worker_paid'], Icons.payments_rounded, Colors.teal),
                       _sectionTitle('رابعاً: المصروفات'),
                       _card('إجمالي المصروفات المسجلة لهذا الشهر', d?['expenses'], Icons.receipt_rounded, Colors.indigo),
-                      if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
                       if ((d?['history'] as List? ?? const []).isNotEmpty) ...[
                         _sectionTitle('التسويات المحفوظة للأشهر السابقة'),
                         for (final row in (d!['history'] as List).cast<Map<String, Object?>>())
