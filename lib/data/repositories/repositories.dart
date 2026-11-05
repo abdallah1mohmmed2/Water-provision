@@ -2475,6 +2475,11 @@ class StationRepository {
                       COALESCE(i.chargeable_minutes,i.minutes,0) chargeable_minutes,
                       i.system_type,
                       COALESCE(i.solar_hourly_rate_snapshot,0) solar_hourly_rate_snapshot,
+                      COALESCE(i.work_price_enabled_snapshot,0) work_price_enabled_snapshot,
+                      COALESCE(i.work_minute_rate_snapshot,0) work_minute_rate_snapshot,
+                      COALESCE(i.work_base_water_amount_snapshot,0) work_base_water_amount_snapshot,
+                      COALESCE(i.work_difference_snapshot,0) work_difference_snapshot,
+                      COALESCE(i.diesel_amount,0) diesel_amount,
                       COALESCE(i.total_amount,0) total_amount,
                       COALESCE(i.paid_amount,0) paid_amount,
                       COALESCE(i.notes,'') notes
