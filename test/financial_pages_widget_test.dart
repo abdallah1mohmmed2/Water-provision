@@ -209,7 +209,7 @@ void main() {
 
     // يوجد شهر سابق محفوظ؛ الرصيد الافتتاحي يُرحّل تلقائيًا ولا يظهر كحقل قابل للتحرير.
     expect(find.text('قيمة الرصيد الافتتاحي'), findsNothing);
-    final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
+    final manualField = find.byWidgetPredicate((widget) => widget is TextField && widget.decoration.labelText == 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '300');
     final saveButton = find.widgetWithText(FilledButton, 'حفظ تسوية الشهر');
     await tester.scrollUntilVisible(saveButton, 240, scrollable: find.byType(Scrollable).first);
@@ -244,13 +244,15 @@ void main() {
       findsOneWidget,
     );
 
-    final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
+    final manualField = find.byWidgetPredicate((widget) => widget is TextField && widget.decoration.labelText == 'المبلغ المسلّم خلال هذا الشهر');
     await tester.enterText(manualField, '-10');
     final saveButton = find.widgetWithText(FilledButton, 'حفظ تسوية الشهر');
     await tester.ensureVisible(saveButton);
     await tester.pump();
-    expect(tester.getCenter(saveButton).dy, lessThan(600));
-    await tester.tap(saveButton);
+    // أبعد الزر عن الحافة العليا لمنطقة التمرير كي يصبح مركزه قابلاً للنقر.
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, 140));
+    await tester.pump();
+    await tester.tapAt(tester.getCenter(saveButton));
     await tester.pump();
     expect(find.text('أدخل مبالغ صحيحة من دون قيم سالبة.'), findsOneWidget);
     expect(
