@@ -15405,7 +15405,7 @@ class _SettingsState extends State<SettingsPage> {
                 ),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  child: Text('عند التفعيل تُحسب فاتورة المستفيد بسعر الدقيقة الخاص، بينما تبقى أجور العمال وحصص الشركاء على أساس سعر الساعة العام. الفواتير السابقة لا تتغير.', style: TextStyle(fontSize: 12, height: 1.5)),
+                  child: Text('عند التفعيل تُحسب فاتورة المستفيد بسعر الدقيقة الخاص، بينما تبقى أجور العمال وحصص الشركاء على أساس سعر الساعة العام. السجلات السابقة تُثبت لها قيمة سعر الدقيقة الحالية مرة واحدة عند أول تحديث للتطبيق؛ ولا تتغير مبالغها أو قيودها المحاسبية.', style: TextStyle(fontSize: 12, height: 1.5)),
                 ),
               ],
               boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
