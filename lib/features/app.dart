@@ -15393,7 +15393,8 @@ class _SettingsState extends State<SettingsPage> {
               if (widget.manager) ...[
                 const Divider(height: 8),
                 boolTile('work_price_difference_enabled', 'تفعيل فارق العمل للمستفيدين'),
-                if (s['work_price_difference_enabled'] == 'true')
+                if (s['work_price_difference_enabled'] == 'true' ||
+                    s['work_price_report_display_special_rate'] == 'true')
                   setTile('work_minute_rate', 'سعر الدقيقة الخاص للمستفيدين', true),
                 boolTile('work_price_report_display_special_rate', 'استخدام سعر الدقيقة الخاصة في تقريري الفواتير والمديونيات'),
                 const Padding(
