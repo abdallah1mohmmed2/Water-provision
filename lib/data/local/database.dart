@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 22,
+      version: 23,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -226,6 +226,19 @@ class AppDatabase {
       );
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_accounts_station_name ON general_accounts(station_id,name)');
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_account_transactions_account_date ON general_account_transactions(account_id,date,id)');
+    }
+    if (oldV < 23) {
+      final columns = await d.rawQuery('PRAGMA table_info(irrigations)');
+      for (final column in const [
+        ['work_price_enabled_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+        ['work_minute_rate_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+        ['work_base_water_amount_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+        ['work_difference_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+      ]) {
+        if (!columns.any((row) => row['name'] == column[0])) {
+          await d.execute('ALTER TABLE irrigations ADD COLUMN ${column[0]} ${column[1]}');
+        }
+      }
     }
   }
 
