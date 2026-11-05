@@ -85,8 +85,8 @@ void main() {
       const hourlyBasis = 7000;
       final beneficiaryAmount = AccountingCalculations.amountAtMinuteRate(60, 120);
       expect(beneficiaryAmount - hourlyBasis, 200);
-      expect(AccountingCalculations.amountAtMinuteRate(60, 7000 ~/ 60) - hourlyBasis, -40);
-      expect(AccountingCalculations.amountAtMinuteRate(60, 7000) - 7000, 413000);
+      expect(AccountingCalculations.amountAtMinuteRate(60, 120) - 7200, 0);
+      expect(AccountingCalculations.amountAtMinuteRate(60, 100) - hourlyBasis, -1000);
       expect(hourlyBasis, 7000);
     });
 
