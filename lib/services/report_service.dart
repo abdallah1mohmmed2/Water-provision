@@ -738,7 +738,6 @@ class ReportService {
     }
     final useSpecialMinuteRate =
         settings['work_price_report_display_special_rate'] == 'true';
-    final configuredMinuteRate = n(settings['work_minute_rate']);
     final partialHour = settings['partial_hour'] != 'false';
     int hourlyRate(Map<String, Object?> row) => switch ('${row['system_type'] ?? ''}') {
       'solar' => n(row['solar_hourly_rate_snapshot']),
@@ -753,9 +752,7 @@ class ReportService {
           .toInt();
       if (useSpecialMinuteRate && row['beneficiary_id'] != null) {
         final savedMinuteRate = n(row['work_minute_rate_snapshot']);
-        final minuteRate = savedMinuteRate > 0
-            ? savedMinuteRate
-            : configuredMinuteRate;
+        final minuteRate = savedMinuteRate;
         if (minuteRate > 0) {
           return AccountingCalculations.amountAtMinuteRate(minutes, minuteRate) +
               n(row['diesel_amount']);
