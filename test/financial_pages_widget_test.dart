@@ -20,39 +20,44 @@ void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-    // لكل ملف اختبار مجلد SQLite مستقل؛ يمنع تداخل عمليات الاختبارات
-    // المتوازية التي تستخدم الاسم نفسه لقاعدة البيانات في مسار FFI الافتراضي.
     testDatabaseDirectory = await Directory.systemTemp.createTemp(
       'saqia_financial_widget_test_',
     );
-    // لا نستخدم المسار الافتراضي المشترك ولا نحذف قاعدة ملفات اختبارات أخرى.
     await databaseFactory.setDatabasesPath(testDatabaseDirectory.path);
-  });
-
-  tearDownAll(() async {
-    await testDatabaseDirectory.delete(recursive: true);
-  });
-
-  setUp(() async {
-    // كل اختبار يحصل على اتصال جديد من الـ singleton نفسه بعد إغلاق اتصال
-    // الاختبار السابق؛ لا نشارك اتصال SQLite FFI بين اختبارات الواجهة.
+    // افتح اتصال FFI مرة واحدة خارج fake-async الخاص باختبارات الواجهات.
+    // إبقاء الاتصال مفتوحاً يمنع إعادة فتح SQLite بعد كل اختبار داخل fake-async.
     database = AppDatabase.instance;
     await database.db;
     repository = StationRepository(database);
-    await database.delete('general_account_transactions', '1=1', const []);
-    await database.delete('general_accounts', '1=1', const []);
-    await database.delete('accountant_reconciliation_months', '1=1', const []);
   });
 
-  tearDown(() async {
-    // إغلاق الاتصال وإعادة ضبط AppDatabase._db يمنع تسرب حالة/اتصال اختبار
-    // إلى الاختبار التالي، خصوصاً إذا انتهى اختبار واجهة بمهلة.
+  tearDownAll(() async {
     await database.close();
+    await testDatabaseDirectory.delete(recursive: true);
   });
+
+  Future<void> resetDatabase(WidgetTester tester) async {
+    await tester.runAsync(() async {
+      await database.delete('general_account_transactions', '1=1', const []);
+      await database.delete('general_accounts', '1=1', const []);
+      await database.delete('accountant_reconciliation_months', '1=1', const []);
+    });
+  }
+
+  Future<T> runDatabase<T>(
+    WidgetTester tester,
+    Future<T> Function() action,
+  ) async {
+    final result = await tester.runAsync(action);
+    if (result == null) {
+      throw TestFailure('تعذر إكمال عملية SQLite في اختبار الواجهة.');
+    }
+    return result;
+  }
 
   // لا نستخدم pumpAndSettle أثناء تحميل الصفحات؛ مؤشر التحميل المتحرك
   // يبقي إطاراً مجدولاً باستمرار حتى اكتمال استعلام SQLite غير المتزامن.
-  // ننتظر اختفاء مؤشر التحميل بمهلة محددة ثم نمنح انتقالات الواجهة وقتها.
+  // ننتظر خارج fake-async حتى تنتهي عمليات FFI الفعلية ثم نحدّث الواجهة.
   Future<void> pumpUntilReady(WidgetTester tester) async {
     for (var attempt = 0; attempt < 100; attempt++) {
       // SQLite FFI يعتمد على I/O حقيقي؛ runAsync يسمح باكتمال Future
@@ -87,6 +92,7 @@ void main() {
   });
 
   testWidgets('الحسابات العامة: إنشاء حساب وقبض وصرف وتحديث الرصيد', (tester) async {
+    await resetDatabase(tester);
     await pumpPage(
       tester,
       GeneralAccountsPage(repository, userId: 1),
@@ -102,11 +108,11 @@ void main() {
     await tester.tap(find.text('حفظ').last);
     await pumpUntilReady(tester);
 
-    final accounts = await database.query(
+    final accounts = await runDatabase(tester, () => database.query(
       'general_accounts',
       where: 'name=?',
       whereArgs: const ['حساب اختبار الواجهة'],
-    );
+    ));
     expect(accounts, hasLength(1));
     expect(accounts.single['opening_balance'], 1000);
     expect(find.text('حساب اختبار الواجهة'), findsOneWidget);
@@ -131,10 +137,10 @@ void main() {
     await tester.tap(find.text('حفظ الحركة'));
     await pumpUntilReady(tester);
 
-    final transactions = await database.query(
+    final transactions = await runDatabase(tester, () => database.query(
       'general_account_transactions',
       orderBy: 'id ASC',
-    );
+    ));
     expect(transactions, hasLength(2));
     expect(transactions[0]['type'], 'receipt');
     expect(transactions[1]['type'], 'payment');
@@ -144,17 +150,18 @@ void main() {
   });
 
   testWidgets('شاشة التسوية تعرض الملخص والتاريخ وتحفظ تسوية الشهر', (tester) async {
+    await resetDatabase(tester);
     final now = DateTime.now();
     final currentMonth = DateTime(now.year, now.month, 1);
     final previousMonth = DateTime(now.year, now.month - 1, 1);
     final service = ReconciliationService(database);
-    await service.saveMonth(
+    await runDatabase(tester, () => service.saveMonth(
       month: previousMonth,
       openingBalance: 2000,
       manualPaid: 500,
       openingDetails: 'رصيد الشهر السابق',
       userId: 1,
-    );
+    ));
 
     await pumpPage(
       tester,
@@ -177,17 +184,18 @@ void main() {
     await tester.tap(saveButton);
     await pumpUntilReady(tester);
 
-    final currentRows = await database.query(
+    final currentRows = await runDatabase(tester, () => database.query(
       'accountant_reconciliation_months',
       where: 'month_key=?',
       whereArgs: [service.monthKey(currentMonth)],
-    );
+    ));
     expect(currentRows, hasLength(1));
     expect(currentRows.single['manual_paid'], 300);
     expect(find.text('تم حفظ تسوية الشهر في دفتر التسويات المستقل.'), findsOneWidget);
   });
 
   testWidgets('شاشة التسوية ترفض المبلغ اليدوي السالب وتدعم التنقل بين الشهور', (tester) async {
+    await resetDatabase(tester);
     await pumpPage(
       tester,
       ReconciliationPage(repository, userId: 1),
@@ -208,15 +216,16 @@ void main() {
     await tester.enterText(manualField, '-10');
     final saveButton = find.text('حفظ تسوية الشهر');
     await tester.ensureVisible(saveButton);
+    await tester.pump();
     await tester.tap(saveButton);
-    await pumpUntilReady(tester);
+    await tester.pump();
     expect(find.text('أدخل مبالغ صحيحة من دون قيم سالبة.'), findsOneWidget);
     expect(
-      await database.query(
+      await runDatabase(tester, () => database.query(
         'accountant_reconciliation_months',
         where: 'month_key=?',
         whereArgs: [ReconciliationService(database).monthKey(previous)],
-      ),
+      )),
       isEmpty,
     );
   });
