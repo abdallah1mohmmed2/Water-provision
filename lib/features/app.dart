@@ -12530,6 +12530,8 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   String sortKey = 'start_datetime';
   bool ascending = false, loading = true;
   bool partialHour = true;
+  bool useSpecialMinuteRateReports = false;
+  int specialMinuteRate = 0;
   String? error;
 
   @override
@@ -12571,7 +12573,13 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     try {
       final settings = await widget.r.settings();
       final result = await widget.r.report('invoices', from: from, to: to, systemType: 'all');
-      if (mounted) setState(() { rows = result; partialHour = settings['partial_hour'] != 'false'; loading = false; });
+      if (mounted) setState(() {
+        rows = result;
+        partialHour = settings['partial_hour'] != 'false';
+        useSpecialMinuteRateReports = settings['work_price_report_display_special_rate'] == 'true';
+        specialMinuteRate = int.tryParse(settings['work_minute_rate'] ?? '0') ?? 0;
+        loading = false;
+      });
     } catch (e) {
       if (mounted) setState(() { error = friendlyError(e); loading = false; });
     }
@@ -12636,6 +12644,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       if (sortKey == 'minutes') {
         return _invoiceNetMinutes(a).compareTo(_invoiceNetMinutes(b));
       }
+      if (sortKey == 'total_amount') {
+        return _amountAfterCloud(a).compareTo(_amountAfterCloud(b));
+      }
       return _n(a[sortKey]).compareTo(_n(b[sortKey]));
     }
     filtered.sort((a, b) => ascending ? compare(a, b) : compare(b, a));
@@ -12645,28 +12656,60 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   int get totalMinutes => visible.fold<int>(0, (sum, row) => sum + _n(row['minutes']));
   int get totalCloudMinutes => visible.fold<int>(0, (sum, row) =>
       sum + ('${row['system_type'] ?? ''}' == 'solar' ? _n(row['cloud_minutes']) : 0));
-  int _amountBeforeCloud(Map<String, Object?> row) {
-    if ('${row['system_type'] ?? ''}' != 'solar' || _n(row['cloud_minutes']) <= 0) {
-      return _n(row['total_amount']);
+  int _hourlyAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+    final rate = switch ('${row['system_type'] ?? ''}') {
+      'solar' => _n(row['solar_hourly_rate_snapshot']),
+      'equivalent_hybrid' => _n(row['third_type_hourly_rate_snapshot']),
+      _ => _n(row['water_hourly_rate_snapshot']),
+    };
+    final minutes = beforeCloud
+        ? _n(row['minutes'])
+        : _n(row['chargeable_minutes'] ?? (_n(row['minutes']) - _n(row['cloud_minutes'])));
+    if (rate <= 0) {
+      final savedBase = _n(row['work_base_water_amount_snapshot']);
+      return (savedBase > 0 ? savedBase : _n(row['total_amount']) - _n(row['diesel_amount'])) +
+          _n(row['diesel_amount']);
     }
-    final rate = _n(row['solar_hourly_rate_snapshot']);
-    if (rate <= 0) return _n(row['total_amount']);
-    final baseBeforeCloud = AccountingCalculations.amountForMinutes(_n(row['minutes']), rate, 'up', partialHour);
-    if (_n(row['work_price_enabled_snapshot']) != 1) return baseBeforeCloud;
-    return AccountingCalculations.amountAtMinuteRate(_n(row['minutes']), _n(row['work_minute_rate_snapshot'])) + _n(row['diesel_amount']);
+    return AccountingCalculations.amountForMinutes(
+          minutes.clamp(0, 100000000), rate, 'up', partialHour,
+        ) +
+        _n(row['diesel_amount']);
   }
-  int get totalAmountBeforeCloud => visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
-  int get totalCloudDeduction => (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62).toInt();
-  int get totalAmount => visible.fold<int>(0, (sum, row) => sum + _n(row['total_amount']));
-  int get totalPaid => visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
-  int get totalWorkDifference => visible.fold<int>(0, (sum, row) => sum + _n(row['work_difference_snapshot']));
-  int get totalWorkBasis => visible.fold<int>(0, (sum, row) {
-    final hasSnapshot = _n(row['work_price_enabled_snapshot']) == 1 ||
-        _n(row['work_base_water_amount_snapshot']) > 0;
-    return sum + (hasSnapshot
-        ? _n(row['work_base_water_amount_snapshot']) + _n(row['diesel_amount'])
-        : _n(row['total_amount']));
-  });
+
+  int _reportAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+    final minutes = beforeCloud
+        ? _n(row['minutes'])
+        : _n(row['chargeable_minutes'] ?? (_n(row['minutes']) - _n(row['cloud_minutes'])));
+    final isBeneficiary = row['beneficiary_id'] != null;
+    if (useSpecialMinuteRateReports && isBeneficiary) {
+      final savedRate = _n(row['work_minute_rate_snapshot']);
+      final rate = savedRate > 0 ? savedRate : specialMinuteRate;
+      if (rate > 0) {
+        return AccountingCalculations.amountAtMinuteRate(
+              minutes.clamp(0, 100000000), rate,
+            ) +
+            _n(row['diesel_amount']);
+      }
+    }
+    return _hourlyAmount(row, beforeCloud: beforeCloud);
+  }
+
+  int _amountBeforeCloud(Map<String, Object?> row) =>
+      _reportAmount(row, beforeCloud: true);
+  int _amountAfterCloud(Map<String, Object?> row) =>
+      _reportAmount(row, beforeCloud: false);
+  int get totalAmountBeforeCloud =>
+      visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
+  int get totalCloudDeduction =>
+      (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62).toInt();
+  int get totalAmount =>
+      visible.fold<int>(0, (sum, row) => sum + _amountAfterCloud(row));
+  int get totalPaid =>
+      visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
+  int get totalWorkBasis =>
+      visible.fold<int>(0, (sum, row) => sum + _hourlyAmount(row, beforeCloud: false));
+  int get totalWorkDifference =>
+      useSpecialMinuteRateReports ? totalAmount - totalWorkBasis : 0;
 
   Future<List<Map<String, Object?>>> _pdfRows() async => visible;
 
@@ -12953,7 +12996,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text(_time(data[i]['start_datetime']))),
                                       DataCell(Text(_time(data[i]['end_datetime']))),
                                       DataCell(Text('${_invoiceNetMinutes(data[i])}')),
-                                      DataCell(Text(_money(data[i]['total_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
+                                      DataCell(Text(_money(_amountAfterCloud(data[i])), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),
                                       DataCell(IconButton(tooltip: 'تعديل السقاية', icon: const Icon(Icons.edit_calendar_rounded, color: _reportOliveDark), onPressed: () => _editInvoice(data[i]))),
@@ -15352,6 +15395,11 @@ class _SettingsState extends State<SettingsPage> {
                 boolTile('work_price_difference_enabled', 'تفعيل فارق العمل للمستفيدين'),
                 if (s['work_price_difference_enabled'] == 'true')
                   setTile('work_minute_rate', 'سعر الدقيقة الخاص للمستفيدين', true),
+                boolTile('work_price_report_display_special_rate', 'استخدام سعر الدقيقة الخاصة في تقريري الفواتير والمديونيات'),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: Text('هذا الخيار يغيّر طريقة عرض القيم في تقرير الفواتير وتقرير المديونيات وملفي PDF فقط. عند إيقافه تستخدم التقارير سعر الساعة العام. لا يغيّر الفواتير أو القيود أو الأرصدة المسجلة، ويظل كشف حساب المستفيد دائمًا بسعر الدقيقة الخاصة.', style: TextStyle(fontSize: 12, height: 1.5)),
+                ),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                   child: Text('عند التفعيل تُحسب فاتورة المستفيد بسعر الدقيقة الخاص، بينما تبقى أجور العمال وحصص الشركاء على أساس سعر الساعة العام. الفواتير السابقة لا تتغير.', style: TextStyle(fontSize: 12, height: 1.5)),
