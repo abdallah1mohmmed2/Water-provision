@@ -25,6 +25,7 @@ void main() {
     testDatabaseDirectory = await Directory.systemTemp.createTemp(
       'saqia_financial_widget_test_',
     );
+    // لا نستخدم المسار الافتراضي المشترك ولا نحذف قاعدة ملفات اختبارات أخرى.
     await databaseFactory.setDatabasesPath(testDatabaseDirectory.path);
   });
 
