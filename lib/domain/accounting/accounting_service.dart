@@ -3000,6 +3000,11 @@ class AccountingService {
 
       final oldWorkPriceEnabled = (old['work_price_enabled_snapshot'] as num?)?.toInt() == 1;
       final oldWorkMinuteRate = (old['work_minute_rate_snapshot'] as num?)?.toInt() ?? 0;
+      final reportMinuteRate = oldWorkMinuteRate > 0
+          ? oldWorkMinuteRate
+          : (partyType == 'beneficiary'
+              ? int.tryParse(cfg['work_minute_rate'] ?? '0') ?? 0
+              : 0);
       final editedWorkBaseTotal = result.totalAmount;
       final editedBilledWater = oldWorkPriceEnabled && partyType == 'beneficiary'
           ? AccountingCalculations.amountAtMinuteRate(result.chargeableMinutes, oldWorkMinuteRate)
@@ -3115,7 +3120,7 @@ class AccountingService {
         'chargeable_minutes': result.chargeableMinutes,
         'water_amount': editedBilledWater,
         'work_price_enabled_snapshot': oldWorkPriceEnabled ? 1 : 0,
-        'work_minute_rate_snapshot': oldWorkMinuteRate,
+        'work_minute_rate_snapshot': reportMinuteRate,
         'work_base_water_amount_snapshot': result.waterAmount,
         'work_difference_snapshot': oldWorkPriceEnabled ? editedDifference : 0,
         'diesel_amount': result.dieselAmount,
