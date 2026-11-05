@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - experiment/main-based-2026-11-02
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -28,6 +29,53 @@ jobs:
 
       - name: Run Flutter tests and collect coverage
         run: flutter test --coverage
+
+      - name: Diagnose LCOV coverage paths and hit counts
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+
+          report = Path("coverage/lcov.info")
+          if not report.is_file() or report.stat().st_size == 0:
+              print("ERROR: coverage/lcov.info is missing or empty")
+              sys.exit(1)
+
+          records = []
+          current = None
+          found = False
+          for raw in report.read_text(encoding="utf-8").splitlines():
+              if raw.startswith("SF:"):
+                  current = {"file": raw[3:], "found": 0, "hit": 0}
+                  records.append(current)
+              elif raw.startswith("DA:") and current is not None:
+                  found = True
+                  _, count = raw[3:].split(",", 1)
+                  current["found"] += 1
+                  if int(count) > 0:
+                      current["hit"] += 1
+
+          print(f"LCOV records: {len(records)}")
+          print(f"LCOV executable lines: {sum(r['found'] for r in records)}")
+          print(f"LCOV covered lines: {sum(r['hit'] for r in records)}")
+          for record in records:
+              if record["file"].startswith(("lib/", "/")):
+                  missed = record["found"] - record["hit"]
+                  print(f"LCOV_FILE {record['file']} lines={record['found']} hit={record['hit']} missed={missed}")
+          if not found:
+              print("ERROR: LCOV contains no DA coverage records")
+              sys.exit(1)
+          PY
+
+      - name: Upload LCOV report for diagnosis
+        if: always() && hashFiles('coverage/lcov.info') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarcloud-lcov-${{ github.run_number }}
+          path: coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Run SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v3
