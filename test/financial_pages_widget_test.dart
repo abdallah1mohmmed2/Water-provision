@@ -63,18 +63,6 @@ void main() {
     await tester.runAsync(action);
   }
 
-  Future<void> settleAfterDialogSave(WidgetTester tester) async {
-    await tester.pumpAndSettle();
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 150)),
-    );
-    await tester.pump();
-    await pumpUntilReady(tester);
-  }
-
-  // لا نستخدم pumpAndSettle أثناء تحميل الصفحات؛ مؤشر التحميل المتحرك
-  // يبقي إطاراً مجدولاً باستمرار حتى اكتمال استعلام SQLite غير المتزامن.
-  // ننتظر خارج fake-async حتى تنتهي عمليات FFI الفعلية ثم نحدّث الواجهة.
   Future<void> pumpUntilReady(WidgetTester tester) async {
     for (var attempt = 0; attempt < 100; attempt++) {
       // SQLite FFI يعتمد على I/O حقيقي؛ runAsync يسمح باكتمال Future
@@ -91,6 +79,18 @@ void main() {
     throw TestFailure('انتهت مهلة انتظار تحميل الصفحة (10 ثوانٍ).');
   }
 
+  Future<void> settleAfterDialogSave(WidgetTester tester) async {
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 150)),
+    );
+    await tester.pump();
+    await pumpUntilReady(tester);
+  }
+
+  // لا نستخدم pumpAndSettle أثناء تحميل الصفحات؛ مؤشر التحميل المتحرك
+  // يبقي إطاراً مجدولاً باستمرار حتى اكتمال استعلام SQLite غير المتزامن.
+  // ننتظر خارج fake-async حتى تنتهي عمليات FFI الفعلية ثم نحدّث الواجهة.
   Future<void> pumpPage(WidgetTester tester, Widget page) async {
     await tester.pumpWidget(MaterialApp(home: page));
     await pumpUntilReady(tester);
