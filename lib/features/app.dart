@@ -12531,7 +12531,6 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   bool ascending = false, loading = true;
   bool partialHour = true;
   bool useSpecialMinuteRateReports = false;
-  int specialMinuteRate = 0;
   String? error;
 
   @override
@@ -12578,7 +12577,6 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
           rows = result;
           partialHour = settings['partial_hour'] != 'false';
           useSpecialMinuteRateReports = settings['work_price_report_display_special_rate'] == 'true';
-          specialMinuteRate = int.tryParse(settings['work_minute_rate'] ?? '0') ?? 0;
           loading = false;
         });
       }
@@ -12685,7 +12683,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     final isBeneficiary = row['beneficiary_id'] != null;
     if (useSpecialMinuteRateReports && isBeneficiary) {
       final savedRate = _n(row['work_minute_rate_snapshot']);
-      final rate = savedRate > 0 ? savedRate : specialMinuteRate;
+      final rate = savedRate;
       if (rate > 0) {
         return AccountingCalculations.amountAtMinuteRate(
               minutes.clamp(0, 100000000).toInt(), rate,
