@@ -625,7 +625,7 @@ class ReportService {
     if (irrigationIds.isNotEmpty) {
       final placeholders = List.filled(irrigationIds.length, '?').join(',');
       final partyRows = await repo.db.rawQuery(
-        '''SELECT i.id invoice_id,
+        '''SELECT i.id invoice_id,i.beneficiary_id,i.minutes,i.chargeable_minutes,i.system_type,i.cloud_minutes,
                   CASE i.party_type
                     WHEN 'beneficiary' THEN COALESCE(
                       NULLIF(TRIM(b.name),''),
