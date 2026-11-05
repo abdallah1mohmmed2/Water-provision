@@ -72,6 +72,24 @@ void main() {
       expect(charge(1553), 181184); // 25 ساعة و53 دقيقة
     });
 
+    test('فارق العمل: سعر الدقيقة يطبق على الدقائق الفعلية دون التقريب بالساعة', () {
+      expect(AccountingCalculations.amountAtMinuteRate(1, 120), 120);
+      expect(AccountingCalculations.amountAtMinuteRate(30, 120), 3600);
+      expect(AccountingCalculations.amountAtMinuteRate(60, 120), 7200);
+      expect(AccountingCalculations.amountAtMinuteRate(90, 120), 10800);
+      expect(AccountingCalculations.amountAtMinuteRate(0, 120), 0);
+      expect(AccountingCalculations.amountAtMinuteRate(60, 0), 0);
+    });
+
+    test('فارق العمل يدعم الفائض الموجب والصفر والسالب مع بقاء أساس الساعة ثابتًا', () {
+      const hourlyBasis = 7000;
+      final beneficiaryAmount = AccountingCalculations.amountAtMinuteRate(60, 120);
+      expect(beneficiaryAmount - hourlyBasis, 200);
+      expect(AccountingCalculations.amountAtMinuteRate(60, 7000 ~/ 60) - hourlyBasis, -40);
+      expect(AccountingCalculations.amountAtMinuteRate(60, 7000) - 7000, 413000);
+      expect(hourlyBasis, 7000);
+    });
+
     test('حصة الشريك تُقرّب لأسفل دائمًا ولا تتجاوز المبلغ المتاح', () {
       expect(AccountingCalculations.partnerShare(
         distributable: 123459,
