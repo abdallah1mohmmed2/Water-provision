@@ -204,9 +204,10 @@ void main() {
         ),
       );
       expect(transactions, isNotNull);
-      expect(transactions, hasLength(2));
-      expect(transactions[0]['type'], 'receipt');
-      expect(transactions[1]['type'], 'payment');
+      final loadedTransactions = transactions!;
+      expect(loadedTransactions, hasLength(2));
+      expect(loadedTransactions[0]['type'], 'receipt');
+      expect(loadedTransactions[1]['type'], 'payment');
       expect(find.textContaining('لنا عليه: 850 ريال'), findsOneWidget);
       expect(find.textContaining('قبض تجريبي'), findsOneWidget);
       expect(find.textContaining('صرف تجريبي'), findsOneWidget);
@@ -264,8 +265,9 @@ void main() {
       ),
     );
     expect(currentRows, isNotNull);
-    expect(currentRows, hasLength(1));
-    expect(currentRows.single['manual_paid'], 300);
+    final loadedCurrentRows = currentRows!;
+    expect(loadedCurrentRows, hasLength(1));
+    expect(loadedCurrentRows.single['manual_paid'], 300);
     expect(find.text('تم حفظ تسوية الشهر في دفتر التسويات المستقل.'), findsOneWidget);
   }, timeout: const Timeout(Duration(seconds: 30)));
 
