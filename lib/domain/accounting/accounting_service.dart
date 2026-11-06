@@ -3743,6 +3743,236 @@ class AccountingService {
     );
   }
 
+  /// يضيف مديونية سابقة غير مسجلة للمستفيد كسند مستقل.
+  /// القيد: مدين ذمم المستفيدين 1200 / دائن الأرصدة المرحلة 3100.
+  /// لا ينشئ حركة صندوق أو إيراداً، ويظهر ضمن الرصيد الموحد وكشف الحساب.
+  Future<int> addBeneficiaryDebt({
+    required int beneficiaryId,
+    required int amount,
+    required DateTime date,
+    required String notes,
+    int? userId,
+  }) async {
+    if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
+    if (notes.trim().isEmpty) throw ArgumentError('بيان المديونية مطلوب');
+    return database.transaction((tx) async {
+      await _assertPeriodOpen(tx, date);
+      final rows = await tx.query(
+        'beneficiaries',
+        columns: ['id', 'name', 'status'],
+        where: "id=? AND status='active'",
+        whereArgs: [beneficiaryId],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('المستفيد غير موجود أو غير نشط');
+      final now = AppClock.now().toIso8601String();
+      final debtId = await tx.insert('beneficiary_manual_debts', {
+        'beneficiary_id': beneficiaryId,
+        'date': date.toIso8601String(),
+        'amount': amount,
+        'notes': notes.trim(),
+        'status': 'posted',
+        'created_by': userId,
+        'created_at': now,
+      });
+      final receivable = await _accountIdTx(tx, '1200');
+      final carried = await _accountIdTx(tx, '3100');
+      final entryId = await _entry(
+        tx,
+        description: 'إضافة مديونية سابقة للمستفيد: ${rows.first['name']}',
+        referenceType: 'beneficiary_manual_debt',
+        referenceId: debtId,
+        date: date,
+        userId: userId,
+        lines: [
+          {'account_id': receivable, 'beneficiary_id': beneficiaryId, 'debit': amount, 'credit': 0, 'memo': notes.trim()},
+          {'account_id': carried, 'debit': 0, 'credit': amount, 'memo': 'مديونية سابقة غير مسجلة بالتطبيق'},
+        ],
+      );
+      await tx.update(
+        'beneficiary_manual_debts',
+        {'journal_entry_id': entryId},
+        where: 'id=?',
+        whereArgs: [debtId],
+      );
+      await database.auditTx(
+        tx,
+        userId: userId,
+        operation: 'create',
+        table: 'beneficiary_manual_debts',
+        recordId: debtId,
+        newValues: {
+          'beneficiary_id': beneficiaryId,
+          'amount': amount,
+          'date': date.toIso8601String(),
+          'notes': notes.trim(),
+          'journal_entry_id': entryId,
+        },
+        reason: 'مديونية سابقة مستحقة للمحطة، دون قبض نقدي أو إثبات إيراد جديد',
+      );
+      return debtId;
+    });
+  }
+
+  /// إضافة مديونية سابقة من مركز المدفوعات دون أي حركة صندوق.
+  /// للمستفيد: المبلغ عليه للمحطة؛ للعامل والشريك: المبلغ مستحق لهما على المحطة.
+  Future<int> addPreviousPartyDebt({
+    required String partyType,
+    required int partyId,
+    required int amount,
+    required DateTime date,
+    required String notes,
+    int? userId,
+  }) async {
+    if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
+    if (notes.trim().isEmpty) throw ArgumentError('بيان المديونية مطلوب');
+    if (partyType == 'beneficiary') {
+      return addBeneficiaryDebt(
+        beneficiaryId: partyId,
+        amount: amount,
+        date: date,
+        notes: notes,
+        userId: userId,
+      );
+    }
+    if (partyType != 'worker' && partyType != 'partner') {
+      throw ArgumentError('نوع الطرف غير صالح لإضافة المديونية');
+    }
+    return database.transaction((tx) async {
+      await _assertPeriodOpen(tx, date);
+      final isWorker = partyType == 'worker';
+      final table = isWorker ? 'workers' : 'partners';
+      final partyRows = await tx.query(
+        table,
+        columns: ['id', 'name'],
+        where: 'id=?',
+        whereArgs: [partyId],
+        limit: 1,
+      );
+      if (partyRows.isEmpty) throw StateError('الطرف المحدد غير موجود');
+      final name = '${partyRows.first['name'] ?? ''}';
+      final partyAccount = isWorker
+          ? await _workerAccountIdTx(tx, partyId)
+          : await _partnerAccountIdTx(tx, partyId);
+      final openingEquity = await _accountIdTx(tx, '3000');
+      final entryId = await _entry(
+        tx,
+        description: 'مديونية سابقة مستحقة لـ${isWorker ? 'العامل' : 'الشريك'} $name',
+        referenceType: isWorker ? 'worker_opening' : 'partner_opening',
+        referenceId: partyId,
+        date: date,
+        userId: userId,
+        lines: [
+          {
+            'account_id': partyAccount,
+            if (isWorker) 'worker_id': partyId else 'partner_id': partyId,
+            'debit': 0,
+            'credit': amount,
+            'memo': notes.trim(),
+          },
+          {
+            'account_id': openingEquity,
+            'debit': amount,
+            'credit': 0,
+            'memo': 'مقابل مديونية سابقة',
+          },
+        ],
+      );
+      if (isWorker) {
+        await tx.insert('worker_transactions', {
+          'worker_id': partyId,
+          'date': date.toIso8601String(),
+          'type': 'opening_balance',
+          'hours': 0,
+          'rate_snapshot': 0,
+          'percentage_snapshot': 0,
+          'amount': amount,
+          'reference_type': 'previous_debt',
+          'reference_id': entryId,
+          'notes': notes.trim(),
+          'created_by': userId,
+        });
+      } else {
+        await tx.insert('partner_transactions', {
+          'partner_id': partyId,
+          'date': date.toIso8601String(),
+          'type': 'opening_balance',
+          'amount': amount,
+          'ownership_snapshot': null,
+          'reference_type': 'previous_debt',
+          'reference_id': entryId,
+          'notes': notes.trim(),
+          'created_by': userId,
+        });
+      }
+      await database.auditTx(
+        tx,
+        userId: userId,
+        operation: 'create',
+        table: 'journal_entries',
+        recordId: entryId,
+        newValues: {
+          'party_type': partyType,
+          'party_id': partyId,
+          'amount': amount,
+          'date': date.toIso8601String(),
+          'notes': notes.trim(),
+          'reference_type': isWorker ? 'worker_opening' : 'partner_opening',
+        },
+        reason: 'إضافة مديونية سابقة دون حركة نقدية',
+      );
+      return entryId;
+    });
+  }
+
+  /// يلغي سند مديونية سابقاً بعكس قيده مع إبقاء السند الأصلي للتدقيق.
+  Future<void> cancelBeneficiaryDebt(
+    int debtId,
+    int? userId,
+    String reason,
+  ) async {
+    if (reason.trim().isEmpty) throw ArgumentError('سبب الإلغاء مطلوب');
+    await database.transaction((tx) async {
+      final rows = await tx.query(
+        'beneficiary_manual_debts',
+        where: "id=? AND status='posted'",
+        whereArgs: [debtId],
+        limit: 1,
+      );
+      if (rows.isEmpty) throw StateError('سند المديونية غير موجود أو ملغى مسبقاً');
+      final debt = rows.first;
+      await _assertPeriodOpen(tx, AppClock.now());
+      final reversed = await _reverseEntriesTx(
+        tx,
+        referenceType: 'beneficiary_manual_debt',
+        referenceId: debtId,
+        reason: reason.trim(),
+        userId: userId,
+      );
+      if (reversed == 0) throw StateError('لم يُعثر على قيد أصلي قابل للعكس');
+      await tx.update(
+        'beneficiary_manual_debts',
+        {
+          'status': 'cancelled',
+          'cancelled_at': AppClock.now().toIso8601String(),
+          'cancel_reason': reason.trim(),
+        },
+        where: 'id=? AND status=?',
+        whereArgs: [debtId, 'posted'],
+      );
+      await database.auditTx(
+        tx,
+        userId: userId,
+        operation: 'cancel',
+        table: 'beneficiary_manual_debts',
+        recordId: debtId,
+        oldValues: debt,
+        newValues: {'status': 'cancelled'},
+        reason: reason.trim(),
+      );
+    });
+  }
+
   /// يقيّد الفرق بين الأرصدة الافتتاحية/المرحَّلة القديمة والجديدة للمستفيد في الأستاذ:
   /// موجب (عليه) = مدين ذمم المستفيدين / دائن 3000 (أو 3100 للمرحَّل)، والسالب بالعكس.
   /// يُستدعى عند الإنشاء (القديم = 0) وعند التعديل، فلا يتغير رصيد المستفيد دون قيد.
@@ -3823,10 +4053,12 @@ class AccountingService {
     'backup_records',
     'sync_queue',
     'app_users',
+    'accountant_reconciliation_months',
     'cash_reconciliations',
     'period_closures',
     'beneficiary_auth_codes',
     'beneficiary_sessions',
+    'beneficiary_manual_debts',
     'notification_templates',
   ];
 
@@ -3837,9 +4069,11 @@ class AccountingService {
     'period_closures',
     'beneficiary_auth_codes',
     'beneficiary_sessions',
+    'beneficiary_manual_debts',
     'notification_templates',
     'general_accounts',
     'general_account_transactions',
+    'accountant_reconciliation_months',
   ];
 
   Future<String> exportStateJson() async {

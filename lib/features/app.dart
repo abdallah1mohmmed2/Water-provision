@@ -22,6 +22,7 @@ import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
 import '../services/message_template_service.dart';
 import 'general_accounts_page.dart';
+import 'reconciliation_page.dart';
 
 const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
 
@@ -865,6 +866,7 @@ class _ShellState extends State<AdminShell> {
     'النسخ الاحتياطي',
     'قياس الأداء',
     'الحسابات العامة',
+    'التسوية الشهرية',
   ];
   AppRole get role => AppRole.values.firstWhere(
     (x) => x.name == widget.role,
@@ -874,7 +876,7 @@ class _ShellState extends State<AdminShell> {
     final s = <int>{0, 2, 4, 5, 15};
     if (systemType == 'diesel') s.add(6);
     if (role == AppRole.manager || role == AppRole.accountant) {
-      s.addAll({1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 19});
+      s.addAll({1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 19, 20});
     }
     if (role == AppRole.manager) {
       s.addAll({16, 17, 18});
@@ -1383,6 +1385,7 @@ class _ShellState extends State<AdminShell> {
     Icons.backup_rounded,
     Icons.speed_rounded,
     Icons.account_balance_wallet_rounded,
+    Icons.assessment_rounded,
   ][i];
   Widget _page(int i, {Key? key}) {
     final w = switch (i) {
@@ -1458,6 +1461,7 @@ class _ShellState extends State<AdminShell> {
       17 => BackupPage(repo),
       18 => PerformancePage(repo),
       19 => GeneralAccountsPage(repo, userId: widget.userId),
+      20 => ReconciliationPage(repo, userId: widget.userId),
       _ => DashboardPage(repo, onOpen: go, availableMenu: visible.toList()),
     };
     return KeyedSubtree(key: key, child: w);
@@ -1991,6 +1995,12 @@ class _DashboardState extends State<DashboardPage> {
           ),
         );
         return;
+      case 'debts':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => DebtsReportPage(widget.r)),
+        );
+        return;
       case 'beneficiary_statement':
         try {
           final rows = await widget.r.report('beneficiary_statement');
@@ -2061,6 +2071,7 @@ class _DashboardState extends State<DashboardPage> {
       ('تقرير العمال', 'worker_transactions', Icons.engineering_rounded),
       ('تقرير الفواتير', 'invoices', Icons.receipt_long_rounded),
       ('تقرير المستفيدين', 'beneficiary_statement', Icons.people_alt_rounded),
+      ('تقرير المديونيات', 'debts', Icons.account_balance_wallet_rounded),
     ];
     const cyan = Color(0xFF00E5FF);
     const neon = Color(0xFF39FFB6);
@@ -2087,7 +2098,7 @@ class _DashboardState extends State<DashboardPage> {
                 style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900),
               ),
             ),
-            Text('5 تقارير', style: TextStyle(color: cyan.withValues(alpha: .8), fontSize: 10)),
+            Text('6 تقارير', style: TextStyle(color: cyan.withValues(alpha: .8), fontSize: 10)),
           ]),
           const SizedBox(height: 8),
           Text(
@@ -3124,6 +3135,29 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     ),
   );
 
+  Future<void> cancelManualDebt(Map<String, Object?> row) async {
+    final reason = await askReason(
+      context,
+      'إلغاء المديونية السابقة',
+      message: 'سيُعكس القيد المحاسبي ويُزال أثر المديونية من رصيد المستفيد. ${money(row['debit'])}',
+    );
+    if (reason == null || !mounted) return;
+    final id = (row['id'] as num?)?.toInt();
+    if (id == null) return;
+    if (!await runGuarded(
+      context,
+      () => widget.r.accounting.cancelBeneficiaryDebt(id, null, reason),
+    )) {
+      return;
+    }
+    await load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم إلغاء المديونية وعكس قيدها')),
+      );
+    }
+  }
+
   Widget historyView(BuildContext c) {
     if (history.isEmpty) {
       return Container(
@@ -3146,12 +3180,25 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     return Column(
       children: [
         for (int i = 0; i < shown; i++)
-          _TimelineItem(
-            first: i == 0,
-            last: i == shown - 1,
-            title: _historyTitle(history[i]),
-            subtitle: _historySub(history[i]),
-            amount: _historyAmount(history[i]),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: _TimelineItem(
+                  first: i == 0,
+                  last: i == shown - 1,
+                  title: _historyTitle(history[i]),
+                  subtitle: _historySub(history[i]),
+                  amount: _historyAmount(history[i]),
+                ),
+              ),
+              if (widget.kind == 'beneficiary' && history[i]['type'] == 'manual_debt' && history[i]['status'] == 'posted')
+                IconButton(
+                  tooltip: 'إلغاء المديونية بعكس القيد',
+                  onPressed: () => cancelManualDebt(history[i]),
+                  icon: const Icon(Icons.undo_rounded, color: Colors.red),
+                ),
+            ],
           ),
         if (history.length > maxItems)
           Padding(
@@ -5122,6 +5169,8 @@ int? parseClock(String raw) {
     return '${h.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 
+  String _hm12Label(DateTime d) => '${_hm12(d)} ${d.hour < 12 ? 'ص' : 'م'}';
+
   int? _parseTimeMinutes(String raw) {
     final match = RegExp(r'^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})\s*$').firstMatch(raw);
     if (match == null) return null;
@@ -5486,13 +5535,13 @@ int? parseClock(String raw) {
                     OutlinedButton.icon(
                       onPressed: () => chooseTime(true),
                       icon: const Icon(Icons.access_time),
-                      label: Text('بداية التشغيل: ${_hm12(start)}'),
+                      label: Text('بداية التشغيل: ${_hm12Label(start)}'),
                     ),
                     const SizedBox(height: 6),
                     OutlinedButton.icon(
                       onPressed: () => chooseTime(false),
                       icon: const Icon(Icons.av_timer),
-                      label: Text('نهاية التشغيل: ${_hm12(end)}'),
+                      label: Text('نهاية التشغيل: ${_hm12Label(end)}'),
                     ),
                     if (type == 'solar') ...[
                       const SizedBox(height: 8),
@@ -5508,7 +5557,7 @@ int? parseClock(String raw) {
                       if (quickCloudMode)
                         Text('الغيم: ${cloudQuickController.text} دقيقة'),
                       if (!quickCloudMode && cloudPeriods.isNotEmpty)
-                        ...cloudPeriods.map((p) => Text('الغيم: ${_hm12(p['start']!)} – ${_hm12(p['end']!)}')),
+                        ...cloudPeriods.map((p) => Text('الغيم: ${_hm12Label(p['start']!)} – ${_hm12Label(p['end']!)}')),
                     ],
                   ],
                 ),
@@ -6028,8 +6077,8 @@ int? parseClock(String raw) {
                     }),
                   ]),
                   Wrap(spacing: 8, children: [
-                    ChoiceChip(label: const Text('صباحاً'), selected: isStartSelected && startPeriod == 'am', onSelected: (_) => setState(() { isStartSelected = true; startPeriod = 'am'; _updateEndPeriodFromTime(); })),
-                    ChoiceChip(label: const Text('مساءً'), selected: isStartSelected && startPeriod == 'pm', onSelected: (_) => setState(() { isStartSelected = true; startPeriod = 'pm'; _updateEndPeriodFromTime(); })),
+                    ChoiceChip(label: const Text('ص'), selected: isStartSelected && startPeriod == 'am', onSelected: (_) => setState(() { isStartSelected = true; startPeriod = 'am'; _updateEndPeriodFromTime(); })),
+                    ChoiceChip(label: const Text('م'), selected: isStartSelected && startPeriod == 'pm', onSelected: (_) => setState(() { isStartSelected = true; startPeriod = 'pm'; _updateEndPeriodFromTime(); })),
                   ]),
                   const SizedBox(height: 10),
                   Align(
@@ -6056,7 +6105,7 @@ int? parseClock(String raw) {
                       }
                     }),
                   ]),
-                  Chip(avatar: const Icon(Icons.schedule), label: Text('الفترة تلقائياً: ${endPeriod == 'am' ? 'صباحاً' : 'مساءً'}')),
+                  Chip(avatar: const Icon(Icons.schedule), label: Text('الفترة تلقائياً: ${endPeriod == 'am' ? 'ص' : 'م'}')), 
                   TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.arrow_back), label: const Text('تعديل وقت البداية')),
                   const SizedBox(height: 10),
                   Align(
@@ -6068,8 +6117,8 @@ int? parseClock(String raw) {
                     ),
                   ),
                 ] else ...[
-                  Text('البداية: ${_hm12(start)} ${start.hour < 12 ? 'صباحاً' : 'مساءً'}'),
-                  Text('النهاية: ${_hm12(end)} ${end.hour < 12 ? 'صباحاً' : 'مساءً'}'),
+                  Text('البداية: ${_hm12Label(start)}'),
+                  Text('النهاية: ${_hm12Label(end)}'),
                   TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.edit), label: const Text('تعديل الوقت')),
                 ],
                 if (end.year != start.year || end.month != start.month || end.day != start.day)
@@ -6325,6 +6374,9 @@ class _IrrigationsState extends State<IrrigationsPage> {
   String q = '';
   int? bid;
   bool loading = true;
+  String systemTypeFilter = 'current';
+  DateTimeRange? customRange;
+  int _loadGeneration = 0;
   final TextEditingController reportPeriodController =
       TextEditingController(text: 'كل الفترة');
 
@@ -6362,7 +6414,8 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final now = AppClock.now();
     final allPeriod = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}
         .contains(reportPeriodController.text.trim().toLowerCase());
-    final from = allPeriod ? null : _reportStart(reportPeriodController.text, now);
+    final from = _activeFrom;
+    final to = _activeTo ?? DateTime(now.year, now.month, now.day);
     if (!allPeriod && from == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -6380,13 +6433,14 @@ class _IrrigationsState extends State<IrrigationsPage> {
       final reportRows = await widget.r.report(
         'irrigations',
         from: from,
-        to: DateTime(now.year, now.month, now.day),
+        to: to,
         beneficiaryId: bid,
+        systemType: _activeSystemType,
       );
 
-      // أظهر عدد الصفوف الراجعة من SQLite قبل دخول مرحلة بناء PDF.
-      // لا نغيّر البيانات ولا نحاول إعادة الاستعلام بفلاتر مختلفة تلقائيًا.
-      if (reportRows.isEmpty) {
+      final outputRows = reportRows.where((x) => filteredRows.any((v) => v['id'] == (x['irrigation_id'] ?? x['id']))).toList();
+      // الطباعة تتبع البحث الحالي أيضاً، وليس فقط مرشحات قاعدة البيانات.
+      if (outputRows.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -6403,7 +6457,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
           SnackBar(
             duration: const Duration(seconds: 3),
             content: Text(
-              'تم جلب ${reportRows.length} سجلًا من قاعدة البيانات. جارٍ إنشاء PDF…',
+              'تم جلب ${outputRows.length} سجلًا وفق فلاتر الشاشة. جارٍ إنشاء PDF…',
             ),
           ),
         );
@@ -6412,9 +6466,10 @@ class _IrrigationsState extends State<IrrigationsPage> {
       await ReportService(widget.r).printPdf(
         'irrigations',
         from: from,
-        to: DateTime(now.year, now.month, now.day),
+        to: to,
         beneficiaryId: bid,
-        sourceRows: reportRows,
+        systemType: _activeSystemType,
+        sourceRows: outputRows,
       );
     } catch (e) {
       if (!mounted) return;
@@ -6430,7 +6485,8 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final now = AppClock.now();
     final allPeriod = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}
         .contains(reportPeriodController.text.trim().toLowerCase());
-    final from = allPeriod ? null : _reportStart(reportPeriodController.text, now);
+    final from = _activeFrom;
+    final to = _activeTo ?? DateTime(now.year, now.month, now.day);
     if (!allPeriod && from == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('حدد فترة صحيحة قبل إنشاء ملف PDF.')),
@@ -6438,14 +6494,15 @@ class _IrrigationsState extends State<IrrigationsPage> {
       return;
     }
     try {
-      final to = DateTime(now.year, now.month, now.day);
       final reportRows = await widget.r.report(
         'irrigations',
         from: from,
         to: to,
         beneficiaryId: bid,
+        systemType: _activeSystemType,
       );
-      if (reportRows.isEmpty) {
+      final outputRows = reportRows.where((x) => filteredRows.any((v) => v['id'] == (x['irrigation_id'] ?? x['id']))).toList();
+      if (outputRows.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('لا توجد بيانات مطابقة للفلاتر لإنشاء PDF.')),
@@ -6457,7 +6514,8 @@ class _IrrigationsState extends State<IrrigationsPage> {
         from: from,
         to: to,
         beneficiaryId: bid,
-        sourceRows: reportRows,
+        systemType: _activeSystemType,
+        sourceRows: outputRows,
       );
       if (bytes.isEmpty) throw StateError('ملف PDF الناتج فارغ.');
       await Printing.sharePdf(
@@ -6466,7 +6524,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم تجهيز PDF من ${reportRows.length} سجلًا وفق الفلاتر المحددة.')),
+          SnackBar(content: Text('تم تجهيز PDF من ${outputRows.length} سجلًا وفق الفلاتر المحددة.')),
         );
       }
     } catch (e) {
@@ -6477,13 +6535,40 @@ class _IrrigationsState extends State<IrrigationsPage> {
     }
   }
 
+  DateTime? get _activeFrom {
+    if (customRange != null) return DateTime(customRange!.start.year, customRange!.start.month, customRange!.start.day);
+    final now = AppClock.now();
+    final all = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}.contains(reportPeriodController.text.trim().toLowerCase());
+    return all ? null : _reportStart(reportPeriodController.text, now);
+  }
+  DateTime? get _activeTo {
+    if (customRange != null) return DateTime(customRange!.end.year, customRange!.end.month, customRange!.end.day);
+    final now = AppClock.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+  String? get _activeSystemType => systemTypeFilter == 'current' ? null : systemTypeFilter;
+  List<Map<String, Object?>> get filteredRows => rows.where((x) {
+    final query = q.trim().toLowerCase();
+    if (query.isEmpty) return true;
+    return [x['beneficiary_name'], x['party_name'], x['phone'], x['beneficiary_phone'], x['id'], x['invoice_number'], x['notes'], x['pump_name']]
+        .any((value) => '$value'.toLowerCase().contains(query));
+  }).toList();
+  Future<void> chooseCustomRange() async {
+    final now = AppClock.now();
+    final picked = await showDateRangePicker(context: context, firstDate: DateTime(2000), lastDate: DateTime(now.year, now.month, now.day), initialDateRange: customRange, helpText: 'اختر فترة السقايات', saveText: 'تطبيق');
+    if (picked == null || !mounted) return;
+    setState(() { customRange = picked; reportPeriodController.text = 'فترة مخصصة'; });
+    await load();
+  }
   Future<void> load() async {
-    setState(() => loading = true);
+    final generation = ++_loadGeneration;
+    if (mounted) setState(() => loading = true);
     try {
-      final x = await widget.r.irrigations(beneficiaryId: bid);
-      if (mounted) setState(() { rows = x; loading = false; });
+      final x = await widget.r.irrigations(from: _activeFrom, to: _activeTo, beneficiaryId: bid, systemType: _activeSystemType);
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() { rows = x; loading = false; });
     } catch (_) {
-      if (mounted) setState(() => loading = false);
+      if (mounted && generation == _loadGeneration) setState(() => loading = false);
     }
   }
   @override
@@ -6497,7 +6582,10 @@ class _IrrigationsState extends State<IrrigationsPage> {
 
   String _timeOf(Object? value) {
     final d = DateTime.tryParse('$value');
-    return d == null ? '-' : DateFormat('HH:mm').format(d);
+    if (d == null) return '-';
+    final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final period = d.hour < 12 ? 'ص' : 'م';
+    return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $period';
   }
 
   Future<void> cancelIrrigationRow(Map<String, Object?> x) async {
@@ -6528,9 +6616,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
 
   @override
   Widget build(BuildContext c) {
-    final filtered = rows
-        .where((x) => _matchesSearch(x['beneficiary_name'], q))
-        .toList();
+    final filtered = filteredRows;
     return PageFrame(
       title: 'السقايات',
       subtitle: 'سجل السقايات مع البحث والتصفية ومراجعة الحالة',
@@ -6559,7 +6645,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
                   onChanged: (v) => setState(() => q = v),
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search),
-                    labelText: 'بحث باسم المستفيد',
+                    labelText: 'بحث بالاسم أو الهاتف أو رقم السقاية أو الملاحظة',
                   ),
                 ),
               ),
@@ -6589,10 +6675,11 @@ class _IrrigationsState extends State<IrrigationsPage> {
                 width: 250,
                 child: DropdownMenu<String>(
                   controller: reportPeriodController,
-                  label: const Text('فترة تقرير الطباعة'),
+                  label: const Text('فترة السقايات'),
                   enableFilter: true,
                   enableSearch: true,
                   expandedInsets: EdgeInsets.zero,
+                  onSelected: (value) { if (value != null) { setState(() => customRange = null); load(); } },
                   dropdownMenuEntries: const [
                     DropdownMenuEntry(value: 'كل الفترة', label: 'كل الفترة'),
                     DropdownMenuEntry(value: 'يوم', label: 'اليوم'),
@@ -6602,6 +6689,19 @@ class _IrrigationsState extends State<IrrigationsPage> {
                   ],
                 ),
               ),
+              SizedBox(width: 210, child: DropdownButtonFormField<String>(
+                initialValue: systemTypeFilter,
+                decoration: const InputDecoration(labelText: 'نوع المنظومة'),
+                items: const [
+                  DropdownMenuItem(value: 'current', child: Text('منظومة المحطة الحالية')),
+                  DropdownMenuItem(value: 'all', child: Text('كل المنظومات')),
+                  DropdownMenuItem(value: 'diesel', child: Text('ديزل')),
+                  DropdownMenuItem(value: 'solar', child: Text('شمسي')),
+                  DropdownMenuItem(value: 'equivalent_hybrid', child: Text('النوع الثالث')),
+                ],
+                onChanged: (value) { if (value != null) { setState(() => systemTypeFilter = value); load(); } },
+              )),
+              OutlinedButton.icon(onPressed: loading ? null : chooseCustomRange, icon: const Icon(Icons.date_range), label: const Text('فترة مخصصة')),
               FilledButton.icon(
                 onPressed: loading ? null : printIrrigationsReport,
                 icon: const Icon(Icons.print_rounded),
@@ -8320,6 +8420,92 @@ class _PaymentsState extends State<PaymentsPage> {
     }
   }
 
+  Future<void> addPreviousDebt() async {
+    final parties = target == 'beneficiary'
+        ? bs
+        : target == 'worker'
+            ? ws
+            : ps;
+    if (parties.isEmpty) {
+      msg('لا يوجد ${targetName(target)} متاحون لإضافة مديونية سابقة');
+      return;
+    }
+    int? partyId = parties.first['id'] as int;
+    final amount = TextEditingController();
+    final notes = TextEditingController();
+    final partyLabel = target == 'beneficiary'
+        ? 'المستفيد'
+        : target == 'worker'
+            ? 'العامل'
+            : 'الشريك';
+    final balanceMeaning = target == 'beneficiary'
+        ? 'سيُضاف المبلغ على المستفيد لصالح المحطة.'
+        : 'سيُضاف المبلغ كمستحق سابق للطرف على المحطة.';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (d, setDialogState) => FormDialog(
+          title: 'إضافة مديونية سابقة',
+          children: [
+            DropdownButtonFormField<int>(
+              initialValue: partyId,
+              items: [
+                for (final p in parties)
+                  DropdownMenuItem(
+                    value: p['id'] as int,
+                    child: Text('${p['name']}'),
+                  ),
+              ],
+              onChanged: (v) => setDialogState(() => partyId = v),
+              decoration: InputDecoration(labelText: partyLabel),
+            ),
+            TextField(
+              controller: amount,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'مبلغ المديونية *',
+                hintText: 'أدخل المبلغ بالريال',
+              ),
+            ),
+            TextField(
+              controller: notes,
+              minLines: 2,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'البيان / سبب المديونية *',
+                hintText: 'مثال: رصيد مستحق من فترة سابقة',
+              ),
+            ),
+            Text(balanceMeaning),
+            const Text('لا تُسجّل العملية قبضًا أو صرفًا، ولا تؤثر على الصندوق.'),
+          ],
+          onSave: () => Navigator.pop(
+            d,
+            partyId != null &&
+                (int.tryParse(amount.text) ?? 0) > 0 &&
+                notes.text.trim().isNotEmpty,
+          ),
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    if (!await runGuarded(
+      context,
+      () => widget.r.accounting.addPreviousPartyDebt(
+        partyType: target,
+        partyId: partyId!,
+        amount: int.parse(amount.text),
+        date: AppClock.now(),
+        notes: notes.text.trim(),
+        userId: widget.userId,
+      ),
+    )) {
+      return;
+    }
+    msg('تمت إضافة المديونية السابقة إلى حساب $partyLabel دون حركة نقدية');
+    await load();
+  }
+
   Future<void> cancelPay(Map<String, Object?> x) async {
     final reason = await askReason(
       context,
@@ -8352,6 +8538,11 @@ class _PaymentsState extends State<PaymentsPage> {
     title: 'المدفوعات',
     subtitle: 'قبض المستفيدين ودفع مستحقات العمال والشركاء',
     actions: [
+      OutlinedButton.icon(
+        onPressed: addPreviousDebt,
+        icon: const Icon(Icons.note_add_outlined),
+        label: const Text('إضافة مديونية سابقة'),
+      ),
       FilledButton.icon(
         onPressed: add,
         icon: const Icon(Icons.add_card),
@@ -10782,6 +10973,8 @@ String _refLabel(Object? type, Object? id) {
     'partner' => 'حصة شريك',
     'beneficiary_opening' => 'رصيد افتتاحي لمستفيد',
     'beneficiary_carried' => 'رصيد مرحّل لمستفيد',
+    'beneficiary_manual_debt' => 'إضافة مديونية سابقة لمستفيد',
+    'manual_debt_reversal' => 'إلغاء مديونية سابقة',
     'worker_opening' => 'رصيد افتتاحي لعامل',
     'partner_opening' => 'رصيد افتتاحي لشريك',
     'reversal' => 'قيد عكسي',
@@ -12039,7 +12232,52 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
     ),
   ),
 ],
-const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<int>(initialValue:_selectedPaymentMethodId,items:[const DropdownMenuItem<int>(value:null,child:Text('كل طرق الدفع')),for(final method in widget.paymentMethods)DropdownMenuItem<int>(value:method['id'] as int,child:Text('${method['name']}'))],onChanged:_applyPaymentMethod,decoration:const InputDecoration(labelText:'طريقة الدفع',border:OutlineInputBorder(),prefixIcon:Icon(Icons.payments_rounded)))),if(_hasQueueBookingStatusFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<String>(initialValue:_selectedQueueBookingStatus,items:[const DropdownMenuItem<String>(value:null,child:Text('كل حالات الطابور والحجز')),for(final value in _queueBookingStatuses)DropdownMenuItem<String>(value:value,child:Text(statusName(value)))],onChanged:_applyQueueBookingStatus,decoration:const InputDecoration(labelText:'حالة الطابور والحجز',border:OutlineInputBorder(),prefixIcon:Icon(Icons.event_available_rounded)))),Row(children:[_metric('عدد السجلات','${visibleRows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric('آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(visibleRows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[SizedBox(height:390,child:PageView.builder(scrollDirection:Axis.horizontal,physics:const PageScrollPhysics(),padEnds:true,itemCount:visibleRows.take(200).length,itemBuilder:(context,index)=>_rowCard(visibleRows[index],index))),if(visibleRows.length>200)Center(child:Text('يتم عرض أول 200 سجل',style:TextStyle(color:_reportInk.withValues(alpha:.55)))),if(visibleRows.length>1)Padding(padding:const EdgeInsets.only(top:8),child:Center(child:Row(mainAxisAlignment:MainAxisAlignment.center,children:[const Icon(Icons.swipe_rounded,size:17,color:_reportOliveDark),const SizedBox(width:6),Text('اسحب يمينًا أو يسارًا للتنقل بين السجلات • ${visibleRows.take(200).length} سجل',style:TextStyle(color:_reportInk.withValues(alpha:.65),fontSize:11))])))]])));}
+const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<int>(initialValue:_selectedPaymentMethodId,items:[const DropdownMenuItem<int>(value:null,child:Text('كل طرق الدفع')),for(final method in widget.paymentMethods)DropdownMenuItem<int>(value:method['id'] as int,child:Text('${method['name']}'))],onChanged:_applyPaymentMethod,decoration:const InputDecoration(labelText:'طريقة الدفع',border:OutlineInputBorder(),prefixIcon:Icon(Icons.payments_rounded)))),if(_hasQueueBookingStatusFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<String>(initialValue:_selectedQueueBookingStatus,items:[const DropdownMenuItem<String>(value:null,child:Text('كل حالات الطابور والحجز')),for(final value in _queueBookingStatuses)DropdownMenuItem<String>(value:value,child:Text(statusName(value)))],onChanged:_applyQueueBookingStatus,decoration:const InputDecoration(labelText:'حالة الطابور والحجز',border:OutlineInputBorder(),prefixIcon:Icon(Icons.event_available_rounded)))),Row(children:[_metric('عدد السجلات','${visibleRows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric('آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(visibleRows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[
+  Row(
+    children: [
+      const Icon(Icons.view_agenda_rounded, color: _reportOliveDark),
+      const SizedBox(width: 8),
+      const Expanded(
+        child: Text(
+          'تفاصيل السجلات',
+          style: TextStyle(
+            color: _reportInk,
+            fontWeight: FontWeight.w900,
+            fontSize: 16,
+          ),
+        ),
+      ),
+      Text(
+        'عرض ${visibleRows.take(200).length} من ${visibleRows.length}',
+        style: TextStyle(
+          color: _reportInk.withValues(alpha: .6),
+          fontSize: 11,
+        ),
+      ),
+    ],
+  ),
+  const SizedBox(height: 10),
+  ListView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    itemCount: visibleRows.take(200).length,
+    itemBuilder: (context, index) => _rowCard(visibleRows[index], index),
+  ),
+  if (visibleRows.length > 200)
+    Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Center(
+        child: Text(
+          'تم تحديد أول 200 سجل للمعاينة لتخفيف الحمل؛ استخدم البحث لتضييق النتائج.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _reportInk.withValues(alpha: .55),
+            fontSize: 11,
+          ),
+        ),
+      ),
+    ),
+]])));}
 }
 
 class RevenueComparisonsPage extends StatefulWidget {
@@ -12142,15 +12380,26 @@ class DebtsReportPage extends StatefulWidget {
   @override State<DebtsReportPage> createState()=>_DebtsReportState();
 }
 class _DebtsReportState extends State<DebtsReportPage>{
-  List<Map<String,Object?>> rows=[];String search='';String view='all';bool loading=true;String? error;
-  @override void initState(){super.initState();_load();}
-  Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('debts');if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
-  Future<void> _print()async{try{await ReportService(widget.r).printPdf('debts');}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  List<Map<String,Object?>> rows=[];String search='';String view='all';bool loading=true;String? error;late DateTime month;
+  @override void initState(){super.initState();final now=AppClock.now();month=DateTime(now.year,now.month,1);_load();}
+  Future<void> _setDebtMonth(DateTime value)async{setState(()=>month=DateTime(value.year,value.month,1));await _load();}
+  Future<void> _pickDebtMonth()async{final picked=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:month,locale:const Locale('ar'),helpText:'اختر يوماً من الشهر المطلوب');if(picked!=null)await _setDebtMonth(picked);}
+  Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('debts',from:month,to:DateTime(month.year,month.month+1,0));if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
+  Future<void> _print()async{try{await ReportService(widget.r).printPdf('debts',from:month,to:DateTime(month.year,month.month+1,0),sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   int _n(Object? v)=>(v as num?)?.round()??0;
   List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final b=_n(x['balance']);final okView=view=='all'||(view=='alayh'&&b>0)||(view=='lah'&&b<0)||(view=='balanced'&&b==0);final okSearch=q.isEmpty||'${x['name']??''} ${x['phone']??''}'.toLowerCase().contains(q);return okView&&okSearch;}).toList();}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
   Widget _card(Map<String,Object?> x){final balance=_n(x['balance']);final positive=balance>0;final color=positive?_reportOrange:balance<0?_reportGreen:_reportOliveDark;final label=positive?'عليه':balance<0?'له':'متوازن';return InkWell(onTap:x['id'] is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'beneficiary',id:x['id'] as int,title:'تفاصيل الحساب'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(15)),child:Icon(positive?Icons.arrow_upward_rounded:balance<0?Icons.arrow_downward_rounded:Icons.check_circle_rounded,color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??'غير محدد'}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${x['phone']??'بدون هاتف'}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:8),const Text('فتح تفاصيل الحساب',style:TextStyle(color:_reportOliveDark,fontSize:10,fontWeight:FontWeight.w800))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(label,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:12)),const SizedBox(height:4),Text(money(balance.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:18))])])));}
-  @override Widget build(BuildContext context){final totalAlayh=rows.where((x)=>_n(x['balance'])>0).fold<int>(0,(s,x)=>s+_n(x['balance']));final totalLah=rows.where((x)=>_n(x['balance'])<0).fold<int>(0,(s,x)=>s+_n(x['balance']).abs());final onCount=rows.where((x)=>_n(x['balance'])>0).length;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير المديونيات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة أرصدة الأطراف',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المديونيات والحسابات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('ترتيب واضح للحسابات التي عليها أو لها مبالغ',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.account_balance_wallet_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم الحساب أو الهاتف',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[ChoiceChip(label:const Text('الكل'),selected:view=='all',onSelected:(_)=>setState(()=>view='all')),ChoiceChip(label:const Text('عليه'),selected:view=='alayh',selectedColor:_reportOrange.withValues(alpha: .18),onSelected:(_)=>setState(()=>view='alayh')),ChoiceChip(label:const Text('له'),selected:view=='lah',selectedColor:_reportGreen.withValues(alpha: .18),onSelected:(_)=>setState(()=>view='lah')),ChoiceChip(label:const Text('متوازن'),selected:view=='balanced',onSelected:(_)=>setState(()=>view='balanced'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد الحسابات','${rows.length}',Icons.groups_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي عليه',money(totalAlayh),Icons.arrow_upward_rounded,_reportOrange),const SizedBox(width:8),_kpi('إجمالي له',money(totalLah),Icons.arrow_downward_rounded,_reportGreen)]),const SizedBox(height:10),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.warning_amber_rounded,color:_reportOrange),const SizedBox(width:8),const Text('حسابات عليها مبالغ',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('$onCount حساب',style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900))])),const SizedBox(height:18),Row(children:[const Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('كشف الحسابات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} نتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حسابات مطابقة للفلاتر')]))else ...[for(final x in visible.take(300))_card(x)]])));}
+  @override Widget build(BuildContext context){final totalAlayh=visible.where((x)=>_n(x['balance'])>0).fold<int>(0,(s,x)=>s+_n(x['balance']));final totalLah=visible.where((x)=>_n(x['balance'])<0).fold<int>(0,(s,x)=>s+_n(x['balance']).abs());final onCount=visible.where((x)=>_n(x['balance'])>0).length;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير المديونيات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة أرصدة الأطراف',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المديونيات والحسابات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('ترتيب واضح للحسابات التي عليها أو لها مبالغ',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.account_balance_wallet_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[
+        Row(children:[
+          IconButton(onPressed:()=>_setDebtMonth(DateTime(month.year,month.month-1,1)),tooltip:'الشهر السابق',icon:const Icon(Icons.chevron_right_rounded)),
+          Expanded(child:InkWell(onTap:_pickDebtMonth,child:Column(children:[
+            const Text('المديونيات القائمة حتى نهاية الشهر',style:TextStyle(fontSize:11)),
+            Text('${month.year}/${month.month.toString().padLeft(2,'0')}',style:const TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
+          ]))),
+          IconButton(onPressed:()=>_setDebtMonth(DateTime(month.year,month.month+1,1)),tooltip:'الشهر التالي',icon:const Icon(Icons.chevron_left_rounded)),
+        ]),
+        TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم الحساب أو الهاتف',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[ChoiceChip(label:const Text('الكل'),selected:view=='all',onSelected:(_)=>setState(()=>view='all')),ChoiceChip(label:const Text('عليه'),selected:view=='alayh',selectedColor:_reportOrange.withValues(alpha: .18),onSelected:(_)=>setState(()=>view='alayh')),ChoiceChip(label:const Text('له'),selected:view=='lah',selectedColor:_reportGreen.withValues(alpha: .18),onSelected:(_)=>setState(()=>view='lah')),ChoiceChip(label:const Text('متوازن'),selected:view=='balanced',onSelected:(_)=>setState(()=>view='balanced'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد الحسابات','${visible.length}',Icons.groups_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي عليه',money(totalAlayh),Icons.arrow_upward_rounded,_reportOrange),const SizedBox(width:8),_kpi('إجمالي له',money(totalLah),Icons.arrow_downward_rounded,_reportGreen)]),const SizedBox(height:10),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.warning_amber_rounded,color:_reportOrange),const SizedBox(width:8),const Text('حسابات عليها مبالغ',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('$onCount حساب',style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900))])),const SizedBox(height:18),Row(children:[const Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('كشف الحسابات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} نتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حسابات مطابقة للفلاتر')]))else ...[for(final x in visible.take(300))_card(x)]])));}
 }
 
 class RevenueCollectionsReportPage extends StatefulWidget {
@@ -12740,7 +12989,7 @@ class _IrrigationDetailedReportState extends State<IrrigationDetailedReportPage>
   Future<void> _print()async{try{await ReportService(widget.r).printPdf('irrigations',from:from,to:to,systemType:systemType,sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   int _n(Object? v)=>(v as num?)?.round()??0;
   String _date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
-  String _time(Object? v){final d=DateTime.tryParse('$v');return d==null?'': '${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';}
+  String _time(Object? v){final d=DateTime.tryParse('$v');if(d==null)return '';final h=d.hour%12==0?12:d.hour%12;final p=d.hour<12?'ص':'م';return '${h.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')} $p';}
   List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return q.isEmpty?rows:rows.where((x)=>'${x['party_name']??''} ${x['start_datetime']??''}'.toLowerCase().contains(q)).toList();}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
   Widget _card(Map<String,Object?> x){final total=_n(x['total_amount']);final paid=_n(x['paid_amount']);final due=total-paid;final cloud=_n(x['cloud_minutes'])>0;final id=x['irrigation_id'];return InkWell(onTap:id is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'irrigation',id:id,title:'تفاصيل السقاية'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.water_drop_rounded,color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['party_name']??'غير محدد'}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${_date(x['start_datetime'])} • ${_time(x['start_datetime'])}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),if(cloud)Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:6),decoration:BoxDecoration(color:_reportOrange.withValues(alpha: .12),borderRadius:BorderRadius.circular(10)),child:const Text('بسعر مخفض',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:10))),const Icon(Icons.arrow_back_ios_new_rounded,size:15,color:_reportOlive)]),const SizedBox(height:12),Row(children:[_mini('المدة','${_n(x['minutes'])} دقيقة',Icons.timer_outlined),const SizedBox(width:10),_mini('الإجمالي',money(total),Icons.receipt_long_rounded),const SizedBox(width:10),_mini('المدفوع',money(paid),Icons.payments_outlined)]),const SizedBox(height:12),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),decoration:BoxDecoration(color:due>0?_reportOrange.withValues(alpha: .08):_reportGreen.withValues(alpha: .08),borderRadius:BorderRadius.circular(13)),child:Row(children:[Icon(due>0?Icons.pending_actions_rounded:Icons.check_circle_rounded,color:due>0?_reportOrange:_reportGreen,size:18),const SizedBox(width:7),Text(due>0?'عليه ${money(due)}':'مكتملة السداد',style:TextStyle(color:due>0?_reportOrange:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),const Spacer(),if(id is int)const Text('فتح التفاصيل',style:TextStyle(color:_reportOliveDark,fontSize:11,fontWeight:FontWeight.w800))]))])));}

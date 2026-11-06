@@ -52,7 +52,7 @@ class ReportService {
   'expenses': ['category', 'count', 'total'],
   'cashboxes': ['name', 'incoming', 'outgoing', 'current_balance'],
   'queue_bookings': ['source', 'name', 'status', 'date'],
-  'payment_log': ['date', 'party_name', 'method_name', 'cashbox_name', 'amount'],
+  'payment_log': ['date', 'party_name', 'movement_type', 'method_name', 'cashbox_name', 'amount', 'notes'],
   'beneficiary_statement': ['date', 'description', 'lah', 'alayh', 'balance'],
   'beneficiary_detailed': ['date', 'description', 'start_datetime', 'end_datetime', 'minutes', 'cloud_minutes', 'lah', 'alayh', 'balance'],
   'worker_transactions': ['date', 'description', 'lah', 'alayh', 'balance'],
@@ -96,7 +96,7 @@ class ReportService {
       throw StateError('تقرير الديزل غير متاح لأن المنظومة الحالية ليست ديزل');
     }
     systemType ??= currentType;
-    final rows = (sourceRows != null && sourceRows.isNotEmpty)
+    final rows = sourceRows != null
         ? _normalizeRows(key, sourceRows)
         : _normalizeRows(key, await repo.report(
       key,
@@ -273,6 +273,27 @@ class ReportService {
           value: '${money(sumOf('net_amount'))} ريال',
           isBlueTint: true,
         ),
+      if (key == 'debts') ...[
+        StatBoxData(
+          number: '10',
+          title: 'إجمالي المديونية (عليه)',
+          value: '${money(rows.fold<num>(0, (sum, row) {
+            final value = row['balance'];
+            final balance = value is num ? value : num.tryParse('${value ?? ''}') ?? 0;
+            return sum + (balance > 0 ? balance : 0);
+          }))} ريال',
+        ),
+        StatBoxData(
+          number: '11',
+          title: 'إجمالي الرصيد الدائن (له)',
+          value: '${money(rows.fold<num>(0, (sum, row) {
+            final value = row['balance'];
+            final balance = value is num ? value : num.tryParse('${value ?? ''}') ?? 0;
+            return sum + (balance < 0 ? balance.abs() : 0);
+          }))} ريال',
+          isBlueTint: true,
+        ),
+      ],
     ];
 
     final reportTitle = personName == null
@@ -367,7 +388,7 @@ class ReportService {
   }
 
   String _fieldName(String key) => {
-    'id':'الرقم','date':'التاريخ','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
+    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
   }[key] ?? 'بيان';
 
   String _categoryName(String v) => {
@@ -385,6 +406,15 @@ class ReportService {
     final partyReport = reportKey == 'worker_transactions' || reportKey == 'partner_accounts';
     if (partyReport && key == 'type') {
       return AccountingCalculations.partyTransactionTypeName('$value');
+    }
+    if (reportKey == 'irrigations' &&
+        (key == 'start_datetime' || key == 'end_datetime')) {
+      final d = DateTime.tryParse('$value');
+      if (d != null) {
+        final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
+        final periodLabel = d.hour < 12 ? 'ص' : 'م';
+        return '${hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $periodLabel';
+      }
     }
     if ({
       'date',
@@ -413,7 +443,8 @@ class ReportService {
       return switch ('$value') { 'diesel' => 'ديزل', 'solar' => 'شمسي', 'equivalent_hybrid' => 'النوع الثالث', _ => 'غير محدد' };
     }
     if (key == 'status') return switch ('$value') { 'waiting'=>'منتظر','postponed'=>'مؤجل','running'=>'قيد التشغيل','completed'=>'مكتمل','new'=>'جديد','under_review'=>'قيد المراجعة','scheduled'=>'مجدول','accepted'=>'مقبول','cancelled'=>'ملغى','posted'=>'مرحل', _=> 'غير محدد' };
-    if (key == 'kind') return switch ('$value') { 'receipt'=>'شراء وإضافة','delivery'=>'تسليم','advance'=>'سلفة','consumption'=>'استهلاك','correction'=>'تصحيح','opening_balance'=>'رصيد افتتاحي','payment'=>'دفعة','expense'=>'مصروف', _=> 'حركة' };
+    if (key == 'movement_type') return '$value' == 'receipt' ? 'قبض' : '$value' == 'payment' ? 'صرف' : 'حركة';
+    if (key == 'kind') return switch ('$value') { 'receipt'=>'شراء وإضافة','delivery'=>'تسليم','advance'=>'سلفة','consumption'=>'استهلاك','correction'=>'تصحيح','opening_balance'=>'رصيد افتتاحي','payment'=>'صرف','expense'=>'مصروف', _=> 'حركة' };
     if (key == 'lah' || key == 'alayh') return _format(value);
     if (key == 'balance' || key == 'remaining') {
       final n = value is num ? value.round() : int.tryParse('$value') ?? 0;
@@ -530,11 +561,13 @@ class ReportService {
         StatBoxData(number: '2', title: 'طريقة الدفع', value: display(x['method_name'])),
         StatBoxData(number: '3', title: 'الصندوق', value: display(x['cashbox_name'])),
       ],
-      columns: const ['الطرف', 'المبلغ', 'طريقة الدفع', 'الصندوق', 'التاريخ', 'المرجع'],
+      columns: const ['الطرف', 'المبلغ', 'نوع العملية', 'الملاحظة', 'طريقة الدفع', 'الصندوق', 'التاريخ', 'المرجع'],
       rows: [
         [
           display(x['party_name']),
           NumberFormat('#,##0.##').format(amount),
+          isReceipt ? 'قبض' : 'صرف',
+          display(x['notes']),
           display(x['method_name']),
           display(x['cashbox_name']),
           dateFormat.format(now),
@@ -746,45 +779,40 @@ class ReportService {
         ),
         StatBoxData(
           number: '3',
-          title: 'إجمالي الدقائق',
-          value: duration(totalMinutes),
-        ),
-        StatBoxData(
-          number: '4',
           title: 'دقائق الغيم المخصومة',
           value: duration(totalCloudMinutes),
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '5',
+          number: '4',
           title: 'الإيرادات قبل خصم الغيم',
           value: '${money(totalAmountBeforeCloud)} ريال',
         ),
         StatBoxData(
-          number: '6',
+          number: '5',
           title: 'قيمة خصم الغيم',
           value: '${money(cloudDeductionAmount)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '7',
+          number: '6',
           title: 'الإيرادات بعد خصم الغيم',
           value: '${money(totalAmount)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '8',
+          number: '7',
           title: 'إجمالي المدفوع',
           value: '${money(totalPaid)} ريال',
         ),
         StatBoxData(
-          number: '9',
+          number: '8',
           title: 'المتبقي',
           value: '${money(remaining)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '10',
+          number: '9',
           title: 'الفترة',
           value: period,
         ),

@@ -59,8 +59,9 @@ class OfficialReportTemplate {
     PdfPageFormat pageFormat = PdfPageFormat.a4,
     int preferredRowsPerPage = 30,
     bool printAfterGenerate = true,
+    bool cardsOnly = false,
   }) async {
-    if (columns.isEmpty) {
+    if (columns.isEmpty && !cardsOnly) {
       throw ArgumentError.value(columns, 'columns', 'يجب توفير عمود واحد على الأقل.');
     }
     if (minTableRows < 0) {
@@ -141,17 +142,19 @@ class OfficialReportTemplate {
             _buildStatsGrid(summaryBoxes, arabicFont, arabicBold),
             pw.SizedBox(height: 18),
           ],
-          _buildOfficialTable(
-            columns: columns,
-            rows: normalizedRows,
-            footerRow: normalizedFooter,
-            font: arabicFont,
-            boldFont: arabicBold,
-            cellFontSize: cellFontSize,
-            cellVerticalPadding: cellVerticalPadding,
-          ),
-          pw.SizedBox(height: 35),
-          _buildOfficialSignatures(arabicBold, thirdLabel: thirdSignatureLabel),
+          if (!cardsOnly)
+            _buildOfficialTable(
+              columns: columns,
+              rows: normalizedRows,
+              footerRow: normalizedFooter,
+              font: arabicFont,
+              boldFont: arabicBold,
+              cellFontSize: cellFontSize,
+              cellVerticalPadding: cellVerticalPadding,
+            ),
+          if (!cardsOnly) pw.SizedBox(height: 35),
+          if (!cardsOnly)
+            _buildOfficialSignatures(arabicBold, thirdLabel: thirdSignatureLabel),
         ],
       ),
     );

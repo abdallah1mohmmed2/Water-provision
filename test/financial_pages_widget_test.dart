@@ -1,0 +1,317 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'package:saqia_station/data/local/database.dart';
+import 'package:saqia_station/data/repositories/repositories.dart';
+import 'package:saqia_station/features/general_accounts_page.dart';
+import 'package:saqia_station/features/reconciliation_page.dart';
+import 'package:saqia_station/domain/accounting/reconciliation_service.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  late AppDatabase database;
+  late StationRepository repository;
+  late Directory testDatabaseDirectory;
+
+  setUpAll(() async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+    // لكل ملف اختبار مجلد SQLite مستقل؛ يمنع تداخل عمليات الاختبارات
+    // المتوازية التي تستخدم الاسم نفسه لقاعدة البيانات في مسار FFI الافتراضي.
+    testDatabaseDirectory = await Directory.systemTemp.createTemp(
+      'saqia_financial_widget_test_',
+    );
+    // لا نستخدم المسار الافتراضي المشترك ولا نحذف قاعدة ملفات اختبارات أخرى.
+    await databaseFactory.setDatabasesPath(testDatabaseDirectory.path);
+  });
+
+  tearDownAll(() async {
+    await testDatabaseDirectory.delete(recursive: true);
+  });
+
+  setUp(() async {
+    debugPrint('FINANCIAL_SETUP: start');
+    // كل اختبار يحصل على اتصال جديد من الـ singleton نفسه بعد إغلاق اتصال
+    // الاختبار السابق؛ لا نشارك اتصال SQLite FFI بين اختبارات الواجهة.
+    database = AppDatabase.instance;
+    await database.db;
+    debugPrint('FINANCIAL_SETUP: database opened');
+    repository = StationRepository(database);
+    await database.delete('general_account_transactions', '1=1', const []);
+    await database.delete('general_accounts', '1=1', const []);
+    await database.delete('accountant_reconciliation_months', '1=1', const []);
+    debugPrint('FINANCIAL_SETUP: tables cleared');
+  });
+
+  tearDown(() async {
+    debugPrint('FINANCIAL_TEARDOWN: closing database');
+    // إغلاق الاتصال وإعادة ضبط AppDatabase._db يمنع تسرب حالة/اتصال اختبار
+    // إلى الاختبار التالي، خصوصاً إذا انتهى اختبار واجهة بمهلة.
+    await database.close();
+    debugPrint('FINANCIAL_TEARDOWN: database closed');
+  });
+
+  // لا نستخدم pumpAndSettle أثناء التحميل؛ مؤشر التحميل المتحرك
+  // يبقي إطاراً مجدولاً باستمرار. نمنح SQLite FFI وقت I/O حقيقياً عبر
+  // runAsync، ثم نضخ إطاراً بمدة محددة لتقديم ساعة fake-async في الاختبار.
+  Future<void> pumpUntilReady(WidgetTester tester) async {
+    debugPrint('FINANCIAL_PUMP: wait start');
+    for (var attempt = 0; attempt < 100; attempt++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      if (find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+        await tester.pump(const Duration(milliseconds: 300));
+        debugPrint('FINANCIAL_PUMP: ready');
+        return;
+      }
+    }
+    throw TestFailure('انتهت مهلة انتظار تحميل الصفحة (10 ثوانٍ).');
+  }
+
+  Future<List<Map<String, Object?>>> waitForGeneralAccount(
+    WidgetTester tester,
+  ) async {
+    // حفظ الحساب يبدأ من callback غير متزامن بعد إغلاق Dialog؛ اختفاء
+    // مؤشر التحميل لا يعني اكتمال INSERT لأن الصفحة لا تعرض loading أثناءه.
+    for (var attempt = 0; attempt < 100; attempt++) {
+      final rows = await tester.runAsync(
+        () => database.query(
+          'general_accounts',
+          where: 'name=?',
+          whereArgs: const ['حساب اختبار الواجهة'],
+        ),
+      );
+      if (rows != null && rows.isNotEmpty) return rows;
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+    throw TestFailure('لم يُحفظ الحساب العام خلال 5 ثوانٍ.');
+  }
+
+
+  Future<List<Map<String, Object?>>> waitForTransactions(
+    WidgetTester tester,
+    int expectedCount,
+  ) async {
+    for (var attempt = 0; attempt < 100; attempt++) {
+      final rows = await tester.runAsync(
+        () => database.query(
+          'general_account_transactions',
+          orderBy: 'id ASC',
+        ),
+      );
+      if (rows != null && rows.length >= expectedCount) return rows;
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+    throw TestFailure('لم تُحفظ حركات الحساب خلال 5 ثوانٍ.');
+  }
+
+  Future<void> pumpPage(WidgetTester tester, Widget page) async {
+    // شاشة الاختبار الافتراضية قصيرة؛ نستخدم مساحة طولية كافية حتى لا
+    // ينتهي تمرير زر أسفل الصفحة بمحاذاته خلف AppBar.
+    tester.view.physicalSize = const Size(1200, 3000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    debugPrint('FINANCIAL_PAGE: pumpWidget start');
+    await tester.pumpWidget(MaterialApp(home: page));
+    debugPrint('FINANCIAL_PAGE: pumpWidget done');
+    await pumpUntilReady(tester);
+  }
+
+  test('رصيد الحساب العام يخصم القبض ويضيف الصرف', () {
+    expect(
+      calculateGeneralAccountBalance(1000, [
+        {'type': 'receipt', 'amount': 250},
+        {'type': 'payment', 'amount': 100},
+        {'type': 'unknown', 'amount': 900},
+      ]),
+      850,
+    );
+    expect(calculateGeneralAccountBalance(0, const []), 0);
+  });
+
+  testWidgets(
+    'الحسابات العامة: إنشاء حساب وقبض وصرف وتحديث الرصيد',
+    (tester) async {
+      debugPrint('GENERAL_TEST: start');
+      await pumpPage(
+        tester,
+        GeneralAccountsPage(repository, userId: 1),
+      );
+      debugPrint('GENERAL_TEST: page ready');
+      expect(find.text('لا توجد حسابات عامة. أضف حسابًا للبدء.'), findsOneWidget);
+
+      await tester.tap(find.text('حساب جديد'));
+      debugPrint('GENERAL_TEST: create dialog opened');
+      await pumpUntilReady(tester);
+
+      final fields = find.byType(TextFormField);
+      await tester.enterText(fields.at(0), 'حساب اختبار الواجهة');
+      await tester.enterText(fields.at(1), '777123456');
+      await tester.enterText(fields.at(3), '1000');
+      await tester.tap(find.text('حفظ').last);
+      debugPrint('GENERAL_TEST: account save tapped');
+      await pumpUntilReady(tester);
+
+      // لا نكتفي باختفاء CircularProgressIndicator؛ الحفظ غير متزامن
+      // ولا يفعّل _loading في الصفحة، لذا ننتظر ظهور السجل في SQLite نفسه.
+      debugPrint('GENERAL_TEST: waiting for account row');
+      final accounts = await waitForGeneralAccount(tester);
+      debugPrint('GENERAL_TEST: account row found');
+      await pumpUntilReady(tester);
+      expect(accounts, hasLength(1));
+      expect(accounts.single['opening_balance'], 1000);
+      expect(find.text('حساب اختبار الواجهة'), findsOneWidget);
+      await tester.tap(find.byType(ExpansionTile).first);
+
+      await pumpUntilReady(tester);
+      await tester.tap(find.text('قبض من الحساب'));
+      await pumpUntilReady(tester);
+      var dialogFields = find.byType(TextFormField);
+      await tester.enterText(dialogFields.at(0), '250');
+      await tester.enterText(dialogFields.at(1), 'REC-01');
+      await tester.enterText(dialogFields.at(2), 'قبض تجريبي');
+      await tester.tap(find.text('حفظ الحركة'));
+      await waitForTransactions(tester, 1);
+      await pumpUntilReady(tester);
+
+      await tester.tap(find.text('صرف للحساب'));
+      await pumpUntilReady(tester);
+      dialogFields = find.byType(TextFormField);
+      await tester.enterText(dialogFields.at(0), '100');
+      await tester.enterText(dialogFields.at(1), 'PAY-01');
+      await tester.enterText(dialogFields.at(2), 'صرف تجريبي');
+      await tester.tap(find.text('حفظ الحركة'));
+      await waitForTransactions(tester, 2);
+      await pumpUntilReady(tester);
+
+      final transactions = await tester.runAsync(
+        () => database.query(
+          'general_account_transactions',
+          orderBy: 'id ASC',
+        ),
+      );
+      expect(transactions, isNotNull);
+      final loadedTransactions = transactions!;
+      expect(loadedTransactions, hasLength(2));
+      expect(loadedTransactions[0]['type'], 'receipt');
+      expect(loadedTransactions[1]['type'], 'payment');
+      expect(find.textContaining('لنا عليه: 850 ريال'), findsOneWidget);
+      expect(find.textContaining('قبض تجريبي'), findsOneWidget);
+      expect(find.textContaining('صرف تجريبي'), findsOneWidget);
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  testWidgets('شاشة التسوية تعرض الملخص والتاريخ وتحفظ تسوية الشهر', (tester) async {
+    debugPrint('RECON_SAVE_TEST: start');
+    final now = DateTime.now();
+    final currentMonth = DateTime(now.year, now.month, 1);
+    final previousMonth = DateTime(now.year, now.month - 1, 1);
+    final service = ReconciliationService(database);
+    debugPrint('RECON_SAVE_TEST: seed start');
+    await tester.runAsync(() => service.saveMonth(
+      month: previousMonth,
+      openingBalance: 2000,
+      manualPaid: 500,
+      openingDetails: 'رصيد الشهر السابق',
+      userId: 1,
+    ));
+    debugPrint('RECON_SAVE_TEST: seed done');
+
+    debugPrint('RECON_SAVE_TEST: pump page');
+    await pumpPage(
+      tester,
+      ReconciliationPage(repository, userId: 1),
+    );
+    debugPrint('RECON_SAVE_TEST: page ready');
+
+    expect(find.text('أولاً: حساب الشركاء'), findsOneWidget);
+    expect(find.text('ثانياً: حساب المستفيدين (الرعية)'), findsOneWidget);
+    expect(find.text('ثالثاً: حساب العمال'), findsOneWidget);
+    expect(find.text('رابعاً: المصروفات'), findsOneWidget);
+    expect(find.text('التسويات المحفوظة للأشهر السابقة'), findsOneWidget);
+    expect(find.textContaining('رصيد الشهر السابق'), findsOneWidget);
+
+    // يوجد شهر سابق محفوظ؛ الرصيد الافتتاحي يُرحّل تلقائيًا ولا يظهر كحقل قابل للتحرير.
+    expect(find.text('قيمة الرصيد الافتتاحي'), findsNothing);
+    final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
+    await tester.enterText(manualField, '300');
+    final saveButton = find.text('حفظ تسوية الشهر');
+    await tester.ensureVisible(saveButton);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(saveButton);
+    debugPrint('RECON_NEGATIVE_TEST: negative save tapped');
+    await pumpUntilReady(tester);
+    debugPrint('RECON_NEGATIVE_TEST: validation ready');
+
+    final currentRows = await tester.runAsync(
+      () => database.query(
+        'accountant_reconciliation_months',
+        where: 'month_key=?',
+        whereArgs: [service.monthKey(currentMonth)],
+      ),
+    );
+    expect(currentRows, isNotNull);
+    final loadedCurrentRows = currentRows!;
+    expect(loadedCurrentRows, hasLength(1));
+    expect(loadedCurrentRows.single['manual_paid'], 300);
+    expect(find.text('تم حفظ تسوية الشهر في دفتر التسويات المستقل.'), findsOneWidget);
+  }, timeout: const Timeout(Duration(seconds: 30)));
+
+  testWidgets('شاشة التسوية ترفض المبلغ اليدوي السالب وتدعم التنقل بين الشهور', (tester) async {
+    debugPrint('RECON_NEGATIVE_TEST: start');
+    await pumpPage(
+      tester,
+      ReconciliationPage(repository, userId: 1),
+    );
+    final now = DateTime.now();
+    final currentLabel = '${now.year}/${now.month.toString().padLeft(2, '0')}';
+    expect(find.text(currentLabel), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.chevron_right_rounded));
+    debugPrint('RECON_NEGATIVE_TEST: month navigation tapped');
+    await pumpUntilReady(tester);
+    final previous = DateTime(now.year, now.month - 1, 1);
+    expect(
+      find.text('${previous.year}/${previous.month.toString().padLeft(2, '0')}'),
+      findsOneWidget,
+    );
+
+    final manualField = find.widgetWithText(TextField, 'المبلغ المسلّم خلال هذا الشهر');
+    await tester.enterText(manualField, '-10');
+    final saveButton = find.text('حفظ تسوية الشهر');
+    await tester.ensureVisible(saveButton);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(saveButton);
+    debugPrint('RECON_NEGATIVE_TEST: negative save tapped');
+    await pumpUntilReady(tester);
+    debugPrint('RECON_NEGATIVE_TEST: validation ready');
+    final validationMessage = find.text('أدخل مبالغ صحيحة من دون قيم سالبة.');
+    await tester.ensureVisible(validationMessage);
+    await tester.pump();
+    expect(validationMessage, findsOneWidget);
+    expect(
+      await tester.runAsync(
+        () => database.query(
+          'accountant_reconciliation_months',
+          where: 'month_key=?',
+          whereArgs: [ReconciliationService(database).monthKey(previous)],
+        ),
+      ),
+      isEmpty,
+    );
+  }, timeout: const Timeout(Duration(seconds: 30)));
+}

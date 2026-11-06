@@ -12,6 +12,7 @@ import 'package:saqia_station/data/local/database.dart';
 import 'package:saqia_station/data/repositories/repositories.dart';
 import 'package:saqia_station/domain/accounting/accounting_service.dart';
 import 'package:saqia_station/domain/accounting/calculations.dart';
+import 'package:saqia_station/domain/accounting/reconciliation_service.dart';
 import 'package:saqia_station/services/admin_service.dart';
 import 'package:saqia_station/services/backup_service.dart';
 import 'package:saqia_station/services/report_service.dart';
@@ -924,6 +925,60 @@ void main() {
     }
   });
 
+  test('مديونية المستفيد السابقة: رصيد موحد، لا نقد ولا إيراد، وتُلغى بعكس القيد', () async {
+    final repo = StationRepository(db);
+    final b = await repo.createBeneficiary(name: 'مستفيد مديونية سابقة');
+    final cashBefore = await cashboxBalance(1);
+    final revenueBefore = await accountNet('4000');
+    final receivableBefore = await accountNet('1200');
+    final carriedBefore = await accountNet('3100');
+    final debtId = await svc.addBeneficiaryDebt(
+      beneficiaryId: b,
+      amount: 25000,
+      date: DateTime.now(),
+      notes: 'رصيد مديونية سابق للمحطة',
+      userId: 1,
+    );
+    expect(await cashboxBalance(1), cashBefore);
+    expect(await accountNet('4000'), revenueBefore);
+    expect(await accountNet('1200'), receivableBefore + 25000);
+    expect(await accountNet('3100'), carriedBefore - 25000);
+    expect((await svc.beneficiaryBalance(b))['balance'], 25000);
+    final statement = await repo.beneficiaryStatement(b);
+    final debtRow = statement.singleWhere((row) => row['type'] == 'manual_debt');
+    expect(debtRow['id'], debtId);
+    expect(debtRow['debit'], 25000);
+    expect(debtRow['credit'], 0);
+    expect(statement.last['balance'], 25000);
+
+    // دفعة لاحقة تخصم من الرصيد الموحد، دون إنشاء رصيد مقدم منفصل.
+    await svc.receivePayment(
+      beneficiaryId: b,
+      amount: 10000,
+      paymentMethodId: 1,
+      cashboxId: 1,
+    );
+    expect((await svc.beneficiaryBalance(b))['balance'], 15000);
+
+    await svc.cancelBeneficiaryDebt(debtId, 1, 'إدخال المديونية على المستفيد الخطأ');
+    expect((await svc.beneficiaryBalance(b))['balance'], -10000);
+    expect(await cashboxBalance(1), cashBefore + 10000);
+    expect(await accountNet('4000'), revenueBefore);
+    final row = (await db.query(
+      'SELECT status FROM beneficiary_manual_debts WHERE id=?',
+      args: [debtId],
+    )).single;
+    expect(row['status'], 'cancelled');
+    final afterCancelStatement = await repo.beneficiaryStatement(b);
+    expect(afterCancelStatement.any((x) => x['type'] == 'manual_debt' && x['status'] == 'cancelled'), isTrue);
+    expect(afterCancelStatement.any((x) => x['type'] == 'manual_debt_reversal'), isTrue);
+    expect(afterCancelStatement.last['balance'], -10000);
+    await expectLater(
+      svc.cancelBeneficiaryDebt(debtId, 1, 'محاولة إلغاء مكرر'),
+      throwsA(isA<StateError>()),
+    );
+  });
+
   test('تثبيت جديد: عمود snoozed_until موجود ويعمل تأجيل الإشعار', () async {
     final repo = StationRepository(db);
     final id = await db.insert('notifications', {
@@ -1596,7 +1651,7 @@ void main() {
     );
   });
 
-  test('ترقية v17 تنشئ جداول مطابقة النقد والبنك والحسابات العامة حتى الإصدار 19', () async {
+  test('ترقية v17 تنشئ جداول مطابقة النقد والبنك والحسابات العامة حتى الإصدار 22', () async {
     final opened = await db.db;
     await opened.execute('PRAGMA user_version=17');
     await db.close();
@@ -1618,7 +1673,7 @@ void main() {
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 19);
+    expect((version.single.values.single as num).toInt(), 22);
   });
 
   test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {
@@ -2761,6 +2816,49 @@ void main() {
     final after = await repo.partyFinancialSummary('worker', worker);
     expect(after['earnings'], 0);
     expect(after['balance'], 0);
+  });
+
+  test('دفتر التسوية مستقل ولا يغيّر الأستاذ أو الصندوق', () async {
+    final reconciliation = ReconciliationService(db);
+    final month = DateTime(2098, 3, 1);
+    final cashBefore = await cashboxBalance(1);
+    final journalBefore = (await db.query('SELECT COUNT(*) n FROM journal_entries')).single['n'];
+    await reconciliation.saveMonth(
+      month: month,
+      openingBalance: 1000,
+      manualPaid: 1300,
+      openingDetails: 'يناير 2098: 400 ريال\nفبراير 2098: 600 ريال',
+      userId: 1,
+    );
+    final result = await reconciliation.loadMonth(month);
+    expect(result['opening_balance'], 1000);
+    expect(result['manual_paid'], 1300);
+    expect(result['closing_balance'], -300);
+    expect(result['opening_details'], contains('يناير 2098'));
+    expect(await cashboxBalance(1), cashBefore);
+    expect(
+      (await db.query('SELECT COUNT(*) n FROM journal_entries')).single['n'],
+      journalBefore,
+    );
+
+    // أرباح شهر غير محفوظ بين تسويتين يجب أن تدخل في الرصيد المرحّل للشهر التالي.
+    final repo = StationRepository(db);
+    final partner = await repo.createPartner(
+      name: 'شريك اختبار ترحيل الأشهر المتجاوزة',
+      mode: 'shares',
+      shares: 1,
+    );
+    await svc.createPartnerShare(
+      partnerId: partner,
+      amount: 500,
+      date: DateTime(2098, 4, 10),
+    );
+    final june = await reconciliation.loadMonth(DateTime(2098, 6, 1));
+    expect(june['opening_balance'], -300 + 500);
+    final history = (june['history'] as List).cast<Map<String, Object?>>();
+    final april = history.singleWhere((row) => row['month_key'] == '2098-04');
+    expect(april['partner_profit'], 500);
+    expect(april['closing_balance'], 200);
   });
 
 }

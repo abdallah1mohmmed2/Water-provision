@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 19,
+      version: 22,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -425,6 +425,30 @@ class AppDatabase {
     await d.execute(
       'CREATE TABLE IF NOT EXISTS period_closures (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, period_start TEXT NOT NULL, period_end TEXT NOT NULL, period_end_exclusive TEXT, closed_at TEXT NOT NULL, closed_by INTEGER NOT NULL, opening_transfer INTEGER NOT NULL DEFAULT 0, close_journal_entry_id INTEGER, net_profit INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT \'locked\', reconciliation_json TEXT, reopened_at TEXT, reopened_by INTEGER, reopen_reason TEXT, reopen_journal_entry_id INTEGER, notes TEXT)',
     );
+    await d.execute(
+      "CREATE TABLE IF NOT EXISTS beneficiary_manual_debts (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), date TEXT NOT NULL, amount INTEGER NOT NULL CHECK(amount>0), notes TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'posted' CHECK(status IN ('posted','cancelled')), journal_entry_id INTEGER REFERENCES journal_entries(id), created_by INTEGER REFERENCES app_users(id), created_at TEXT NOT NULL, cancelled_at TEXT, cancel_reason TEXT)",
+    );
+    await d.execute(
+      'CREATE INDEX IF NOT EXISTS idx_beneficiary_manual_debts_party_date ON beneficiary_manual_debts(beneficiary_id,date,id)',
+    );
+    // دفتر تسويات مستقل عن دفتر الأستاذ والصناديق وسجلات الأطراف الأصلية.
+    await d.execute(
+      "CREATE TABLE IF NOT EXISTS accountant_reconciliation_months (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL REFERENCES stations(id), month_key TEXT NOT NULL, opening_balance INTEGER NOT NULL DEFAULT 0, opening_details TEXT, manual_paid INTEGER NOT NULL DEFAULT 0 CHECK(manual_paid>=0), closing_balance INTEGER NOT NULL DEFAULT 0, created_by INTEGER REFERENCES app_users(id), updated_by INTEGER REFERENCES app_users(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(station_id,month_key))",
+    );
+    await d.execute(
+      'CREATE INDEX IF NOT EXISTS idx_accountant_reconciliation_month ON accountant_reconciliation_months(station_id,month_key)',
+    );
+    final reconciliationCols = await d.rawQuery('PRAGMA table_info(accountant_reconciliation_months)');
+    if (!reconciliationCols.any((x) => x['name'] == 'opening_details')) {
+      await d.execute('ALTER TABLE accountant_reconciliation_months ADD COLUMN opening_details TEXT');
+    }
+    final manualDebtCols = await d.rawQuery('PRAGMA table_info(beneficiary_manual_debts)');
+    if (!manualDebtCols.any((x) => x['name'] == 'cancelled_at')) {
+      await d.execute('ALTER TABLE beneficiary_manual_debts ADD COLUMN cancelled_at TEXT');
+    }
+    if (!manualDebtCols.any((x) => x['name'] == 'cancel_reason')) {
+      await d.execute('ALTER TABLE beneficiary_manual_debts ADD COLUMN cancel_reason TEXT');
+    }
     await d.execute(
       'CREATE TABLE IF NOT EXISTS beneficiary_sessions (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), token_hash TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT)',
     );
