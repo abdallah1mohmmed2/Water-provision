@@ -94,88 +94,93 @@ void main() {
     'الحسابات العامة: إنشاء حساب وقبض وصرف وتحديث الرصيد',
     (tester) async {
       // نقاط تشخيص مؤقتة لتحديد أول await يتوقف في CI. لا تغيّر سلوك التطبيق.
-      print('[GENERAL-ACCOUNT-DIAG] 01 before initial page');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 01 before initial page');
       await pumpPage(
         tester,
         GeneralAccountsPage(repository, userId: 1),
       );
-      print('[GENERAL-ACCOUNT-DIAG] 02 initial page ready');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 02 initial page ready');
       expect(find.text('لا توجد حسابات عامة. أضف حسابًا للبدء.'), findsOneWidget);
 
-      print('[GENERAL-ACCOUNT-DIAG] 03 before open create account');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 03 before open create account');
       await tester.tap(find.text('حساب جديد'));
-      print('[GENERAL-ACCOUNT-DIAG] 04 create account tapped');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 04 create account tapped');
       await pumpUntilReady(tester);
-      print('[GENERAL-ACCOUNT-DIAG] 05 create form ready');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 05 create form ready');
 
       final fields = find.byType(TextFormField);
       await tester.enterText(fields.at(0), 'حساب اختبار الواجهة');
-      print('[GENERAL-ACCOUNT-DIAG] 06 account name entered');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 06 account name entered');
       await tester.enterText(fields.at(1), '777123456');
-      print('[GENERAL-ACCOUNT-DIAG] 07 phone entered');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 07 phone entered');
       await tester.enterText(fields.at(3), '1000');
-      print('[GENERAL-ACCOUNT-DIAG] 08 opening balance entered');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 08 opening balance entered');
       await tester.tap(find.text('حفظ').last);
-      print('[GENERAL-ACCOUNT-DIAG] 09 save account tapped');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 09 save account tapped');
       await pumpUntilReady(tester);
-      print('[GENERAL-ACCOUNT-DIAG] 10 account save flow ready');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 10 account save flow ready');
 
-      print('[GENERAL-ACCOUNT-DIAG] 11 before account database query');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 11 before account database query');
       final accounts = await database.query(
         'general_accounts',
         where: 'name=?',
         whereArgs: const ['حساب اختبار الواجهة'],
       );
-      print('[GENERAL-ACCOUNT-DIAG] 12 account database query completed');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 12 account database query completed');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 12a before account count assertion');
       expect(accounts, hasLength(1));
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 12b account count assertion passed');
       expect(accounts.single['opening_balance'], 1000);
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 12c opening balance assertion passed');
       expect(find.text('حساب اختبار الواجهة'), findsOneWidget);
-
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 12d account visible assertion passed');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 12e before expansion tile tap');
       await tester.tap(find.byType(ExpansionTile).first);
-      print('[GENERAL-ACCOUNT-DIAG] 13 account expanded');
+
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 13 account expanded');
       await pumpUntilReady(tester);
-      print('[GENERAL-ACCOUNT-DIAG] 14 account details ready');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 14 account details ready');
       await tester.tap(find.text('قبض من الحساب'));
-      print('[GENERAL-ACCOUNT-DIAG] 15 receipt action tapped');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 15 receipt action tapped');
       await pumpUntilReady(tester);
-      print('[GENERAL-ACCOUNT-DIAG] 16 receipt form ready');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 16 receipt form ready');
       var dialogFields = find.byType(TextFormField);
       await tester.enterText(dialogFields.at(0), '250');
       await tester.enterText(dialogFields.at(1), 'REC-01');
       await tester.enterText(dialogFields.at(2), 'قبض تجريبي');
-      print('[GENERAL-ACCOUNT-DIAG] 17 receipt fields entered');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 17 receipt fields entered');
       await tester.tap(find.text('حفظ الحركة'));
-      print('[GENERAL-ACCOUNT-DIAG] 18 receipt save tapped');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 18 receipt save tapped');
       await pumpUntilReady(tester);
-      print('[GENERAL-ACCOUNT-DIAG] 19 receipt save flow ready');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 19 receipt save flow ready');
 
       await tester.tap(find.text('صرف للحساب'));
-      print('[GENERAL-ACCOUNT-DIAG] 20 payment action tapped');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 20 payment action tapped');
       await pumpUntilReady(tester);
-      print('[GENERAL-ACCOUNT-DIAG] 21 payment form ready');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 21 payment form ready');
       dialogFields = find.byType(TextFormField);
       await tester.enterText(dialogFields.at(0), '100');
       await tester.enterText(dialogFields.at(1), 'PAY-01');
       await tester.enterText(dialogFields.at(2), 'صرف تجريبي');
-      print('[GENERAL-ACCOUNT-DIAG] 22 payment fields entered');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 22 payment fields entered');
       await tester.tap(find.text('حفظ الحركة'));
-      print('[GENERAL-ACCOUNT-DIAG] 23 payment save tapped');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 23 payment save tapped');
       await pumpUntilReady(tester);
-      print('[GENERAL-ACCOUNT-DIAG] 24 payment save flow ready');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 24 payment save flow ready');
 
-      print('[GENERAL-ACCOUNT-DIAG] 25 before transactions database query');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 25 before transactions database query');
       final transactions = await database.query(
         'general_account_transactions',
         orderBy: 'id ASC',
       );
-      print('[GENERAL-ACCOUNT-DIAG] 26 transactions database query completed');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 26 transactions database query completed');
       expect(transactions, hasLength(2));
       expect(transactions[0]['type'], 'receipt');
       expect(transactions[1]['type'], 'payment');
       expect(find.textContaining('لنا عليه: 850 ريال'), findsOneWidget);
       expect(find.textContaining('قبض تجريبي'), findsOneWidget);
       expect(find.textContaining('صرف تجريبي'), findsOneWidget);
-      print('[GENERAL-ACCOUNT-DIAG] 27 test assertions completed');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 27 test assertions completed');
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );
