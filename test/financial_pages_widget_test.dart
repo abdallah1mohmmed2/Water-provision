@@ -182,7 +182,7 @@ void main() {
       expect(find.textContaining('صرف تجريبي'), findsOneWidget);
       debugPrint('[GENERAL-ACCOUNT-DIAG] 27 test assertions completed');
     },
-    timeout: const Timeout(Duration(seconds: 90)),
+    timeout: const Timeout(Duration(seconds: 45)),
   );
 
   testWidgets('شاشة التسوية تعرض الملخص والتاريخ وتحفظ تسوية الشهر', (tester) async {
