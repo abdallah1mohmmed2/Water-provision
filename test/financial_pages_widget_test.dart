@@ -178,7 +178,7 @@ void main() {
       print('[GENERAL-ACCOUNT-DIAG] 27 test assertions completed');
     },
     timeout: const Timeout(Duration(seconds: 90)),
-  );;
+  );
 
   testWidgets('شاشة التسوية تعرض الملخص والتاريخ وتحفظ تسوية الشهر', (tester) async {
     final now = DateTime.now();
