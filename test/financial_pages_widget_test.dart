@@ -127,9 +127,11 @@ void main() {
         whereArgs: const ['حساب اختبار الواجهة'],
       );
       debugPrint('[GENERAL-ACCOUNT-DIAG] 12 account database query completed');
-      debugPrint('[GENERAL-ACCOUNT-DIAG] 12a before account count assertion');
-      expect(accounts, hasLength(1));
-      debugPrint('[GENERAL-ACCOUNT-DIAG] 12b account count assertion passed');
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 12a before account count read');
+      final accountCount = accounts.length;
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 12b account count read: $accountCount');
+      expect(accountCount, 1);
+      debugPrint('[GENERAL-ACCOUNT-DIAG] 12c account count assertion passed');
       expect(accounts.single['opening_balance'], 1000);
       debugPrint('[GENERAL-ACCOUNT-DIAG] 12c opening balance assertion passed');
       expect(find.text('حساب اختبار الواجهة'), findsOneWidget);
