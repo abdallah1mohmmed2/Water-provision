@@ -96,6 +96,27 @@ void main() {
     throw TestFailure('لم يُحفظ الحساب العام خلال 5 ثوانٍ.');
   }
 
+
+  Future<List<Map<String, Object?>>> waitForTransactions(
+    WidgetTester tester,
+    int expectedCount,
+  ) async {
+    for (var attempt = 0; attempt < 100; attempt++) {
+      final rows = await tester.runAsync(
+        () => database.query(
+          'general_account_transactions',
+          orderBy: 'id ASC',
+        ),
+      );
+      if (rows != null && rows.length >= expectedCount) return rows;
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+    throw TestFailure('لم تُحفظ حركات الحساب خلال 5 ثوانٍ.');
+  }
+
   Future<void> pumpPage(WidgetTester tester, Widget page) async {
     // شاشة الاختبار الافتراضية قصيرة؛ نستخدم مساحة طولية كافية حتى لا
     // ينتهي تمرير زر أسفل الصفحة بمحاذاته خلف AppBar.
@@ -163,6 +184,7 @@ void main() {
       await tester.enterText(dialogFields.at(1), 'REC-01');
       await tester.enterText(dialogFields.at(2), 'قبض تجريبي');
       await tester.tap(find.text('حفظ الحركة'));
+      await waitForTransactions(tester, 1);
       await pumpUntilReady(tester);
 
       await tester.tap(find.text('صرف للحساب'));
@@ -172,12 +194,16 @@ void main() {
       await tester.enterText(dialogFields.at(1), 'PAY-01');
       await tester.enterText(dialogFields.at(2), 'صرف تجريبي');
       await tester.tap(find.text('حفظ الحركة'));
+      await waitForTransactions(tester, 2);
       await pumpUntilReady(tester);
 
-      final transactions = await database.query(
-        'general_account_transactions',
-        orderBy: 'id ASC',
+      final transactions = await tester.runAsync(
+        () => database.query(
+          'general_account_transactions',
+          orderBy: 'id ASC',
+        ),
       );
+      expect(transactions, isNotNull);
       expect(transactions, hasLength(2));
       expect(transactions[0]['type'], 'receipt');
       expect(transactions[1]['type'], 'payment');
@@ -185,7 +211,7 @@ void main() {
       expect(find.textContaining('قبض تجريبي'), findsOneWidget);
       expect(find.textContaining('صرف تجريبي'), findsOneWidget);
     },
-    timeout: const Timeout(Duration(seconds: 30)),
+    timeout: const Timeout(Duration(seconds: 45)),
   );
 
   testWidgets('شاشة التسوية تعرض الملخص والتاريخ وتحفظ تسوية الشهر', (tester) async {
@@ -195,13 +221,13 @@ void main() {
     final previousMonth = DateTime(now.year, now.month - 1, 1);
     final service = ReconciliationService(database);
     debugPrint('RECON_SAVE_TEST: seed start');
-    await service.saveMonth(
+    await tester.runAsync(() => service.saveMonth(
       month: previousMonth,
       openingBalance: 2000,
       manualPaid: 500,
       openingDetails: 'رصيد الشهر السابق',
       userId: 1,
-    );
+    ));
     debugPrint('RECON_SAVE_TEST: seed done');
 
     debugPrint('RECON_SAVE_TEST: pump page');
@@ -230,11 +256,14 @@ void main() {
     await pumpUntilReady(tester);
     debugPrint('RECON_NEGATIVE_TEST: validation ready');
 
-    final currentRows = await database.query(
-      'accountant_reconciliation_months',
-      where: 'month_key=?',
-      whereArgs: [service.monthKey(currentMonth)],
+    final currentRows = await tester.runAsync(
+      () => database.query(
+        'accountant_reconciliation_months',
+        where: 'month_key=?',
+        whereArgs: [service.monthKey(currentMonth)],
+      ),
     );
+    expect(currentRows, isNotNull);
     expect(currentRows, hasLength(1));
     expect(currentRows.single['manual_paid'], 300);
     expect(find.text('تم حفظ تسوية الشهر في دفتر التسويات المستقل.'), findsOneWidget);
@@ -273,10 +302,12 @@ void main() {
     await tester.pump();
     expect(validationMessage, findsOneWidget);
     expect(
-      await database.query(
-        'accountant_reconciliation_months',
-        where: 'month_key=?',
-        whereArgs: [ReconciliationService(database).monthKey(previous)],
+      await tester.runAsync(
+        () => database.query(
+          'accountant_reconciliation_months',
+          where: 'month_key=?',
+          whereArgs: [ReconciliationService(database).monthKey(previous)],
+        ),
       ),
       isEmpty,
     );
