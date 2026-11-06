@@ -189,10 +189,12 @@ void main() {
   );
 
   testWidgets('شاشة التسوية تعرض الملخص والتاريخ وتحفظ تسوية الشهر', (tester) async {
+    debugPrint('RECON_SAVE_TEST: start');
     final now = DateTime.now();
     final currentMonth = DateTime(now.year, now.month, 1);
     final previousMonth = DateTime(now.year, now.month - 1, 1);
     final service = ReconciliationService(database);
+    debugPrint('RECON_SAVE_TEST: seed start');
     await service.saveMonth(
       month: previousMonth,
       openingBalance: 2000,
@@ -200,13 +202,14 @@ void main() {
       openingDetails: 'رصيد الشهر السابق',
       userId: 1,
     );
+    debugPrint('RECON_SAVE_TEST: seed done');
 
-    debugPrint('RECON_NEGATIVE_TEST: pump page');
+    debugPrint('RECON_SAVE_TEST: pump page');
     await pumpPage(
       tester,
       ReconciliationPage(repository, userId: 1),
     );
-    debugPrint('RECON_NEGATIVE_TEST: page ready');
+    debugPrint('RECON_SAVE_TEST: page ready');
 
     expect(find.text('أولاً: حساب الشركاء'), findsOneWidget);
     expect(find.text('ثانياً: حساب المستفيدين (الرعية)'), findsOneWidget);
@@ -235,7 +238,7 @@ void main() {
     expect(currentRows, hasLength(1));
     expect(currentRows.single['manual_paid'], 300);
     expect(find.text('تم حفظ تسوية الشهر في دفتر التسويات المستقل.'), findsOneWidget);
-  });
+  }, timeout: const Timeout(Duration(seconds: 30)));
 
   testWidgets('شاشة التسوية ترفض المبلغ اليدوي السالب وتدعم التنقل بين الشهور', (tester) async {
     debugPrint('RECON_NEGATIVE_TEST: start');
@@ -262,7 +265,9 @@ void main() {
     await tester.ensureVisible(saveButton);
     await tester.pump(const Duration(milliseconds: 300));
     await tester.tap(saveButton);
+    debugPrint('RECON_NEGATIVE_TEST: negative save tapped');
     await pumpUntilReady(tester);
+    debugPrint('RECON_NEGATIVE_TEST: validation ready');
     final validationMessage = find.text('أدخل مبالغ صحيحة من دون قيم سالبة.');
     await tester.ensureVisible(validationMessage);
     await tester.pump();
