@@ -221,6 +221,7 @@ class GlobalIdentity {
     final globalId = identity.single['global_id'] as String;
     payload['_global_id'] = globalId;
     final refs = <String, Map<String, String>>{};
+    final unresolved = <String, Map<String, String>>{};
     await db.delete(
       'sync_global_relations',
       where: 'source_table=? AND source_global_id=?',
@@ -232,17 +233,38 @@ class GlobalIdentity {
       final localTargetId = row[column];
       if (localTargetId == null) continue;
       final targetTable = '${fk['table']}';
-      final target = await db.query(
+      var target = await db.query(
         'sync_global_identities',
         columns: ['global_id'],
         where: 'table_name=? AND local_id=?',
         whereArgs: [targetTable, localTargetId],
         limit: 1,
       );
-      if (target.isEmpty) {
-        throw StateError(
-          'Unresolved relation $table.$column -> $targetTable:$localTargetId',
+      if (target.isEmpty && localTargetId is num) {
+        final targetRows = await db.query(
+          targetTable,
+          columns: ['id'],
+          where: 'id=?',
+          whereArgs: [localTargetId],
+          limit: 1,
         );
+        if (targetRows.isNotEmpty) {
+          await ensureRecord(db, targetTable, localTargetId.toInt());
+          target = await db.query(
+            'sync_global_identities',
+            columns: ['global_id'],
+            where: 'table_name=? AND local_id=?',
+            whereArgs: [targetTable, localTargetId],
+            limit: 1,
+          );
+        }
+      }
+      if (target.isEmpty) {
+        unresolved[column] = {
+          'table': targetTable,
+          'local_id': localTargetId.toString(),
+        };
+        continue;
       }
       final targetGlobalId = target.single['global_id'] as String;
       refs[column] = {
@@ -258,6 +280,7 @@ class GlobalIdentity {
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     payload['_global_refs'] = refs;
+    payload['_unresolved_refs'] = unresolved;
     return payload;
   }
 
