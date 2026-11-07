@@ -57,7 +57,7 @@ void main() {
     return body['token'] as String;
   }
 
-  Future<Response> readSettings(String token) => handler(
+  Future<Response> readSettings(String token) async => await handler(
     Request(
       'GET',
       Uri.parse('http://localhost/api/v1/settings'),
