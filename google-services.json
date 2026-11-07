@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1004981299919",
+    "project_id": "manzoma-ststion",
+    "storage_bucket": "manzoma-ststion.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1004981299919:android:5bb7d98823849b43e565ba",
+        "android_client_info": {
+          "package_name": "com.saqia.saqia_station"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAIweeiYVMfiFDMnKzVpMfaDS9r-09Xvx8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
