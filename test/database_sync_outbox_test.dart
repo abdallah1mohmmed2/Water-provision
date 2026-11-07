@@ -206,9 +206,9 @@ void main() {
     });
     final workerId = await database.insert('workers', {
       'name': 'SYNC-TEST-global-worker',
+      'pay_type': 'fixed',
+      'fixed_salary': 0,
       'active': 1,
-      'created_at': now,
-      'updated_at': now,
     });
     final beneficiaryGlobalId = (await database.query(
       'sync_global_identities',
