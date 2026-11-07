@@ -119,7 +119,7 @@ class SyncService {
       events.add({
         'event_id': eventId,
         'entity_type': row['table_name'],
-        'entity_key': row['record_id']?.toString() ?? eventId,
+        'entity_key': '${row['table_name']}:${row['record_id'] ?? eventId}',
         'operation': row['operation'],
         'base_version': (row['base_version'] as num?)?.toInt() ?? 0,
         'payload': jsonDecode(row['payload'] as String),
@@ -149,19 +149,50 @@ class SyncService {
           args: [eventId],
         );
         if (queueRows.isEmpty) continue;
-        await db.update(
-          'sync_queue',
-          {
-            'status': nextStatus,
-            'attempts': (queueRows.first['attempts'] as num).toInt() +
-                (nextStatus == 'pending' ? 1 : 0),
-            'last_error': item['message'],
-            'conflict_version': item['current_version'],
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-          },
-          'event_id=?',
-          [eventId],
-        );
+        final updatedAt = DateTime.now().toUtc().toIso8601String();
+        await db.transaction((tx) async {
+          await tx.update(
+            'sync_queue',
+            {
+              'status': nextStatus,
+              'attempts': (queueRows.first['attempts'] as num).toInt() +
+                  (nextStatus == 'pending' ? 1 : 0),
+              'last_error': item['message'],
+              'conflict_version': item['current_version'],
+              'updated_at': updatedAt,
+            },
+            where: 'event_id=?',
+            whereArgs: [eventId],
+          );
+          if (nextStatus == 'acknowledged') {
+            final eventRows = await tx.query(
+              'sync_queue',
+              columns: ['table_name', 'record_id'],
+              where: 'event_id=?',
+              whereArgs: [eventId],
+              limit: 1,
+            );
+            if (eventRows.isNotEmpty) {
+              final entityType = '${eventRows.first['table_name']}';
+              final entityKey =
+                  '$entityType:${eventRows.first['record_id'] ?? eventId}';
+              final serverVersion =
+                  (item['server_version'] as num?)?.toInt() ??
+                  (item['current_version'] as num?)?.toInt() ??
+                  0;
+              await tx.insert(
+                'sync_entity_versions',
+                {
+                  'entity_type': entityType,
+                  'entity_key': entityKey,
+                  'server_version': serverVersion,
+                  'updated_at': updatedAt,
+                },
+                conflictAlgorithm: ConflictAlgorithm.replace,
+              );
+            }
+          }
+        });
       }
     } catch (error) {
       for (final row in rows) {
