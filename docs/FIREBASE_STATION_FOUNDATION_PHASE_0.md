@@ -101,3 +101,26 @@ flutter build apk --release \
 ```
 
 هذه القيم إعدادات تعريف تطبيق Firebase وليست مفاتيح Admin SDK. لا تُمرر أي service-account key أو سر خادمي إلى التطبيق. لم تُضف بعد حزم Auth/Firestore لأن ربطها قبل إنشاء مشروع الاختبار وتحديد تدفق الهوية وقواعد الوصول قد يفتح اتصالًا غير مقصود أو يثبت عقدًا خاطئًا.
+
+
+## 8. تحديث المحطة التجريبية بعد إنشاء المشروع
+
+> مصدر هذه المعلومة: أكد مالك المشروع في المحادثة إنشاء Firebase Project، ولم يتم فحص Firebase Console مباشرة من بيئة التطوير.
+
+| البيان | القيمة |
+|---|---|
+| اسم المحطة التجريبية | منظومة |
+| Firebase Project ID الذي زوده به المالك | `manzoma-ststion` |
+| Android applicationId | `com.saqia.saqia_station` |
+| حالة تسجيل Android App داخل Firebase | بانتظار تأكيد التسجيل واستلام إعدادات التطبيق |
+| حالة Auth وFirestore | غير مفعّلين/غير متحقق منهما بعد |
+
+### المطلوب من مالك Firebase لإكمال الربط
+
+1. افتح Firebase Console ثم مشروع `manzoma-ststion`.
+2. من Project settings > Your apps، أضف تطبيق Android إذا لم يكن مسجلاً.
+3. استخدم Android package name حرفيًا: `com.saqia.saqia_station`.
+4. بعد التسجيل، افتح إعدادات تطبيق Android وانسخ إعدادات Firebase العامة أو نزّل `google-services.json` وأرفقه في المحادثة للمراجعة.
+5. لا ترسل Service Account JSON أو Admin SDK private key أو أي كلمة مرور/سر خادمي.
+
+لن نضيف ملف إعداد المحطة إلى الفرع قبل مراجعة قيم المشروع والتأكد من تطابق Project ID وAndroid App ID. ستستخدم نسخة البناء التجريبية القيم العامة عبر `--dart-define`، ولن يتم تفعيل مزامنة بيانات حقيقية في هذه الخطوة.
