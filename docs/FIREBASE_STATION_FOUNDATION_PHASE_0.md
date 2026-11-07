@@ -77,6 +77,27 @@
 | مراجعة Firebase الحالي | تمت |
 | مراجعة SQLite ونسخة المخطط | تمت؛ الإصدار 22 |
 | مراجعة عقد API والمزامنة | تمت؛ ظهر عدم توافق `/sync` مع Router الحالي |
-| إضافة SDKs أو تفعيل Auth/Firestore | لم يتم؛ ينتظر تثبيت إعداد مشروع المحطة التجريبية |
+| إعداد خيارات Firebase وقت البناء | أضيفت طبقة اختيارية تقرأ إعدادات مشروع المحطة من `--dart-define`؛ لا يوجد fallback صامت إلى مشروع `water-provision` |\n| اختبار طبقة خيارات Firebase | أضيفت 3 اختبارات وحدات؛ لم تُشغّل بعد على بيئة Flutter |\n| إضافة SDKs أو تفعيل Auth/Firestore | لم يتم؛ ينتظر تثبيت إعداد مشروع المحطة التجريبية |
 | تعديل قاعدة بيانات المستخدم | لم يتم |
 | اختبار Analyze/APK | لم يتم تشغيله بعد هذه المرحلة |
+
+## 7. التهيئة البرمجية الأولية على الفرع
+
+أضيفت الملفات التالية:
+
+- `lib/firebase/station_firebase_config.dart`: يبني `FirebaseOptions` من قيم وقت البناء، ويرفض التهيئة إذا غابت أي قيمة إلزامية.
+- `lib/main.dart`: لم يعد يتصل تلقائيًا بمشروع Firebase الثابت `water-provision`. إذا لم تُمرر إعدادات المحطة، يستمر التطبيق محليًا دون Firebase بدل الاتصال بمشروع محطة أخرى.
+- `test/firebase/station_firebase_config_test.dart`: اختبارات تحقق من القيم الناقصة، وتنظيف المسافات، وخيار Storage الاختياري.
+
+لبناء نسخة Android للمحطة التجريبية بعد تجهيز مشروعها، تمرر القيم العامة الخاصة بتطبيق Android المسجل في ذلك المشروع:
+
+```bash
+flutter build apk --release \
+  --dart-define=SAQIA_FIREBASE_API_KEY=... \
+  --dart-define=SAQIA_FIREBASE_APP_ID=... \
+  --dart-define=SAQIA_FIREBASE_MESSAGING_SENDER_ID=... \
+  --dart-define=SAQIA_FIREBASE_PROJECT_ID=... \
+  --dart-define=SAQIA_FIREBASE_STORAGE_BUCKET=...
+```
+
+هذه القيم إعدادات تعريف تطبيق Firebase وليست مفاتيح Admin SDK. لا تُمرر أي service-account key أو سر خادمي إلى التطبيق. لم تُضف بعد حزم Auth/Firestore لأن ربطها قبل إنشاء مشروع الاختبار وتحديد تدفق الهوية وقواعد الوصول قد يفتح اتصالًا غير مقصود أو يثبت عقدًا خاطئًا.
