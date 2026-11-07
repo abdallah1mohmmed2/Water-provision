@@ -159,7 +159,8 @@ class GlobalIdentity {
       throw StateError('Missing global identity for $table:$localId');
     }
     final payload = Map<String, Object?>.from(row);
-    payload['_global_id'] = identity.single['global_id'] as String;
+    final globalId = identity.single['global_id'] as String;
+    payload['_global_id'] = globalId;
     final refs = <String, Map<String, String>>{};
     await db.delete(
       'sync_global_relations',
