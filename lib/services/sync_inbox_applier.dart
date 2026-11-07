@@ -38,7 +38,7 @@ class SyncInboxApplier {
   static const _reserved = {'_global_id', '_global_refs', '_unresolved_refs'};
   static const _localOnly = {'id', 'station_id', 'created_by', 'reference_id'};
   static const _noDelete = {
-    'accounts', 'payments', 'expenses', 'cashbox_transfers',
+    'accounts', 'payments', 'expenses', 'cashbox_transfers', 'irrigations',
     'worker_transactions', 'partner_transactions', 'journal_entries',
     'journal_lines', 'diesel_movements', 'beneficiary_manual_debts',
     'general_account_transactions', 'accountant_reconciliation_months',
@@ -243,6 +243,16 @@ class SyncInboxApplier {
     } else {
       if (identityRows.single['retired_at'] != null) {
         throw StateError('وصل تحديث لهوية سبق إيقافها: $table');
+      }
+      final existingRecord = await tx.query(
+        table,
+        columns: ['id'],
+        where: 'id=?',
+        whereArgs: [localId],
+        limit: 1,
+      );
+      if (existingRecord.isEmpty) {
+        throw StateError('خريطة الهوية تشير إلى سجل محلي مفقود: $table/$globalId');
       }
       await tx.update(table, values, where: 'id=?', whereArgs: [localId]);
       appliedLocalId = localId;
