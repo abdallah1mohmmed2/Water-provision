@@ -107,4 +107,44 @@ void main() {
     final inbox = await getInbox(stationOneToken,device:'device-a');
     expect((inbox['events'] as List),isEmpty);
   });
+  test('global key adoption preserves the existing local-key server version', () async {
+    final legacy = {
+      'event_id':'33333333-3333-4333-8333-333333333333',
+      'entity_type':'beneficiaries',
+      'entity_key':'beneficiaries:42',
+      'operation':'update',
+      'base_version':0,
+      'payload':{'id':42,'name':'Existing Beneficiary'},
+    };
+    final first = await postEvents(stationOneToken,[legacy]);
+    expect((first['results'] as List).first['status'],'accepted');
+
+    const globalId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    final adopted = {
+      'event_id':'44444444-4444-4444-8444-444444444444',
+      'entity_type':'beneficiaries',
+      'entity_key':'beneficiaries:$globalId',
+      'operation':'update',
+      'base_version':1,
+      'payload':{
+        'id':42,
+        '_global_id':globalId,
+        '_global_refs':{},
+        'name':'Existing Beneficiary updated',
+      },
+    };
+    final second = await postEvents(stationOneToken,[adopted]);
+    expect((second['results'] as List).first['status'],'accepted');
+    expect((second['results'] as List).first['server_version'],2);
+    expect(database.select(
+      "SELECT version FROM sync_entity_versions WHERE station_id=1 AND entity_type='beneficiaries' AND entity_key='beneficiaries:$globalId'",
+    ).single['version'],2);
+    expect(database.select(
+      "SELECT COUNT(*) AS n FROM sync_entity_versions WHERE station_id=1 AND entity_key='beneficiaries:42'",
+    ).single['n'],0);
+    expect(database.select(
+      "SELECT entity_key FROM sync_event_log WHERE event_id='33333333-3333-4333-8333-333333333333'",
+    ).single['entity_key'],'beneficiaries:$globalId');
+  });
+
 }
