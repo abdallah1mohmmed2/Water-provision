@@ -828,6 +828,7 @@ class AppDatabase {
       // Assign identities to every changed row first so references between
       // records created in the same transaction can always be resolved.
       for (final change in changes) {
+        if ('${change['operation']}' == 'noop') continue;
         await GlobalIdentity.ensureRecord(
           tx,
           '${change['table_name']}',
