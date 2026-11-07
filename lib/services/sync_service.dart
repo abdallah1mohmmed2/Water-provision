@@ -15,11 +15,14 @@ class SyncService {
   final ApiClient api;
   final IncomingSyncApplier? applyIncoming;
 
-  SyncService(
-    this.api, [
+  SyncService(this.api, [AppDatabase? database])
+    : db = database ?? AppDatabase.instance,
+      applyIncoming = null;
+
+  SyncService.withInboxHandler(
+    this.api, {
     AppDatabase? database,
-  ], {
-    this.applyIncoming,
+    required this.applyIncoming,
   }) : db = database ?? AppDatabase.instance;
 
   static const _batchSize = 50;
