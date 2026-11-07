@@ -41,6 +41,7 @@ jobs:
         working-directory: server
         run: |
           dart pub get
+          dart analyze bin/inspect_schema.dart
           dart test
 
       - name: Test station Firebase build configuration
