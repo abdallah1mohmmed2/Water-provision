@@ -349,7 +349,7 @@ class SaqiaServer {
         // New clients identify entities by UUID. Bridge the previous
         // table:local_id version key without resetting its server version.
         if (payload is Map && payload['_global_id'] != null) {
-          final globalId = '\${payload['_global_id']}';
+          final globalId = payload['_global_id'].toString();
           final validGlobalId = RegExp(
             r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}
         final currentVersion = currentRows.isEmpty ? 0 : (currentRows.first['version'] as num).toInt();
@@ -705,17 +705,13 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
 }
 ,
           ).hasMatch(globalId);
-          if (!validGlobalId || entityKey != '$entityType:$globalId') {
-            results.add({
-              'event_id': eventId,
-              'status': 'rejected',
-              'message': 'هوية السجل العالمية أو مفتاح الكيان غير متطابق',
-            });
+          if (!validGlobalId || entityKey != entityType + ':' + globalId) {
+            results.add({'event_id':eventId,'status':'rejected','message':'هوية السجل العالمية أو مفتاح الكيان غير متطابق'});
             continue;
           }
           final localId = (payload['id'] as num?)?.toInt();
           if (localId != null) {
-            final legacyKey = '$entityType:$localId';
+            final legacyKey = entityType + ':' + localId.toString();
             if (legacyKey != entityKey) {
               final globalVersion = db.select(
                 'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
