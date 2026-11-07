@@ -25,7 +25,7 @@ class GlobalIdentity {
         created_at TEXT NOT NULL,
         retired_at TEXT,
         PRIMARY KEY(table_name, local_id),
-        UNIQUE(table_name, global_id)
+        UNIQUE(global_id)
       )
     ''');
     await db.execute('''
@@ -39,6 +39,7 @@ class GlobalIdentity {
       )
     ''');
     final now = DateTime.now().toUtc().toIso8601String();
+    var addedIdentities = false;
     for (final table in tables) {
       final exists = await db.rawQuery(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
@@ -60,9 +61,13 @@ class GlobalIdentity {
           'global_id': const Uuid().v4(),
           'created_at': now,
         }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        addedIdentities = true;
       }
     }
-    await rebuildRelations(db);
+    final relationCount = await db.rawQuery('SELECT COUNT(*) AS n FROM sync_global_relations');
+    if (addedIdentities || ((relationCount.first['n'] as num?)?.toInt() ?? 0) == 0) {
+      await rebuildRelations(db);
+    }
   }
 
   static Future<void> ensureRecord(
@@ -156,6 +161,11 @@ class GlobalIdentity {
     final payload = Map<String, Object?>.from(row);
     payload['_global_id'] = identity.single['global_id'] as String;
     final refs = <String, Map<String, String>>{};
+    await db.delete(
+      'sync_global_relations',
+      where: 'source_table=? AND source_global_id=?',
+      whereArgs: [table, globalId],
+    );
     final foreignKeys = await db.rawQuery('PRAGMA foreign_key_list($table)');
     for (final fk in foreignKeys) {
       final column = '${fk['from']}';
@@ -174,10 +184,18 @@ class GlobalIdentity {
           'Unresolved relation $table.$column -> $targetTable:$localTargetId',
         );
       }
+      final targetGlobalId = target.single['global_id'] as String;
       refs[column] = {
         'table': targetTable,
-        'global_id': target.single['global_id'] as String,
+        'global_id': targetGlobalId,
       };
+      await db.insert('sync_global_relations', {
+        'source_table': table,
+        'source_global_id': globalId,
+        'source_column': column,
+        'target_table': targetTable,
+        'target_global_id': targetGlobalId,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     payload['_global_refs'] = refs;
     return payload;
