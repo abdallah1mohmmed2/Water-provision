@@ -139,6 +139,21 @@ class SyncService {
           [row['id']],
         );
       }
+      final unresolved = payload['_unresolved_refs'];
+      if (unresolved is Map && unresolved.isNotEmpty) {
+        await db.update(
+          'sync_queue',
+          {
+            'status': 'failed',
+            'last_error':
+                'تعذر إرسال الحدث لوجود علاقات غير محلولة: ${unresolved.keys.join(', ')}',
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+          },
+          'id=?',
+          [row['id']],
+        );
+        continue;
+      }
       events.add({
         'event_id': eventId,
         'entity_type': table,
@@ -150,6 +165,8 @@ class SyncService {
         'payload': payload,
       });
     }
+
+    if (events.isEmpty) return;
 
     try {
       final response = await api.post('/sync/events', {
