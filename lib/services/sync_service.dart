@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import '../api/api_client.dart';
 import '../data/local/database.dart';
 import '../data/local/global_identity.dart';
+import 'sync_inbox_applier.dart';
 
 typedef IncomingSyncApplier = Future<InboxApplyResult> Function(
   Transaction tx,
@@ -454,7 +455,6 @@ class SyncService {
   /// Makes failed events eligible for a deliberate retry after their
   /// prerequisite records or local configuration have been repaired.
   Future<int> retryFailedInbox({String? eventId}) async {
-    final now = DateTime.now().toUtc().toIso8601String();
     return db.update(
       'sync_inbox',
       {'status': 'pending', 'last_error': null},
