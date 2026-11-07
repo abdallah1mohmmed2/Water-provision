@@ -65,6 +65,40 @@ class GlobalIdentity {
     await rebuildRelations(db);
   }
 
+  static Future<void> ensureRecord(
+    DatabaseExecutor db,
+    String table,
+    int localId,
+  ) async {
+    final rows = await db.query(
+      'sync_global_identities',
+      columns: ['global_id', 'retired_at'],
+      where: 'table_name=? AND local_id=?',
+      whereArgs: [table, localId],
+      limit: 1,
+    );
+    final now = DateTime.now().toUtc().toIso8601String();
+    if (rows.isEmpty) {
+      await db.insert('sync_global_identities', {
+        'table_name': table,
+        'local_id': localId,
+        'global_id': const Uuid().v4(),
+        'created_at': now,
+      });
+    } else if (rows.single['retired_at'] != null) {
+      await db.update(
+        'sync_global_identities',
+        {
+          'global_id': const Uuid().v4(),
+          'created_at': now,
+          'retired_at': null,
+        },
+        where: 'table_name=? AND local_id=?',
+        whereArgs: [table, localId],
+      );
+    }
+  }
+
   static Future<void> rebuildRelations(DatabaseExecutor db) async {
     await db.delete('sync_global_relations');
     for (final source in tables) {
