@@ -60,6 +60,7 @@ void main() {
         id INTEGER PRIMARY KEY,
         beneficiary_id INTEGER NOT NULL,
         position INTEGER NOT NULL DEFAULT 1,
+        cycle_number INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL,
         postponed_count INTEGER NOT NULL DEFAULT 0,
         skip_reason TEXT,
