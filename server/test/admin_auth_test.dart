@@ -27,6 +27,7 @@ void main() {
     database.execute(
       'CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)',
     );
+    database.execute('CREATE TABLE station_settings (station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
     database.execute(
       'INSERT INTO app_users(id,station_id,name,role,username,password_hash,active) VALUES(1,7,?,?,?,?,1)',
       [
