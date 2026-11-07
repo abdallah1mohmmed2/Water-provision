@@ -27,6 +27,9 @@ void main() {
     database.execute(
       'CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)',
     );
+    database.execute('CREATE TABLE station_settings (station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
+    database.execute("INSERT INTO station_settings(station_id,key,value,updated_at) VALUES(7,'station_name','محطة أ','now'),(8,'station_name','محطة ب','now'),(7,'diesel_price_per_liter','100','now'),(8,'diesel_price_per_liter','900','now')");
+    database.execute("INSERT INTO settings(key,value,updated_at) VALUES('station_name','إعداد عام قديم','now')");
     database.execute('''
       CREATE TABLE beneficiaries (
         id INTEGER PRIMARY KEY,
@@ -169,6 +172,27 @@ void main() {
           body: body == null ? null : jsonEncode(body),
         ),
       );
+
+  test('settings are isolated by station and never expose legacy global values', () async {
+    final token = await login();
+    final response = await request('GET', '/api/v1/settings', token);
+    final values = jsonDecode(await response.readAsString()) as Map;
+    expect(response.statusCode, 200);
+    expect(values['station_name'], 'محطة أ');
+    expect(values['diesel_price_per_liter'], '100');
+    expect(values.containsValue('محطة ب'), isFalse);
+    expect(values.containsValue('إعداد عام قديم'), isFalse);
+  });
+
+  test('updating settings changes only the authenticated station', () async {
+    final token = await login();
+    final response = await request('PUT', '/api/v1/settings', token,
+        body: {'station_name': 'محطة أ المعدلة'});
+    expect(response.statusCode, 200);
+    expect(database.select("SELECT value FROM station_settings WHERE station_id=7 AND key='station_name'").first['value'], 'محطة أ المعدلة');
+    expect(database.select("SELECT value FROM station_settings WHERE station_id=8 AND key='station_name'").first['value'], 'محطة ب');
+    expect(database.select("SELECT value FROM settings WHERE key='station_name'").first['value'], 'إعداد عام قديم');
+  });
 
   test('irrigation list only returns records belonging to the manager station',
       () async {
