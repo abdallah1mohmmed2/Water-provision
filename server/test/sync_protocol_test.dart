@@ -29,7 +29,7 @@ void main() {
         .sign(SecretKey(secret));
   });
 
-  tearDown(() => database.close());
+  tearDown(() => database.dispose());
 
   Future<Map<String, dynamic>> postEvents(
     String token,
