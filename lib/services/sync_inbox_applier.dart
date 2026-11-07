@@ -78,7 +78,7 @@ class SyncInboxApplier {
       throw StateError('الحدث يحتوي على علاقات مصدر غير محلولة.');
     }
 
-    final entityKey = table + ':' + globalId;
+    final entityKey = '$table:$globalId';
     final versionRows = await tx.query(
       'sync_entity_versions',
       columns: ['server_version'],
