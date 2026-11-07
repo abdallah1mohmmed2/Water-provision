@@ -199,15 +199,17 @@ class SyncService {
       throw StateError('إصدار الخادم غير متاح؛ أعد جلب حالة السجل قبل الحل.');
     }
     final now = DateTime.now().toUtc().toIso8601String();
+    final replacementEventId = await _uuid();
+    final deviceId = await _deviceId();
     await db.transaction((tx) async {
       await tx.insert('sync_queue', {
         'operation': 'update',
         'table_name': row['table_name'],
         'record_id': row['record_id'],
         'payload': jsonEncode(resolvedPayload),
-        'event_id': await _uuid(),
+        'event_id': replacementEventId,
         'base_version': serverVersion,
-        'device_id': await _deviceId(),
+        'device_id': deviceId,
         'status': 'pending',
         'attempts': 0,
         'created_at': now,
