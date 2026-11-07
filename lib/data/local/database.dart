@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 22,
+      version: 23,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -43,6 +43,8 @@ class AppDatabase {
       if (s.isNotEmpty) await d.execute(s);
     }
     await _createHelpers(d);
+    await d.execute('CREATE TABLE IF NOT EXISTS station_settings (station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_station_settings_station ON station_settings(station_id)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_period_station_range ON period_closures(station_id,period_start,period_end)');
     await _seed(d);
@@ -216,6 +218,12 @@ class AppDatabase {
       await d.execute(
         'CREATE INDEX IF NOT EXISTS idx_cash_rec_period ON cash_reconciliations(station_id,period_start,period_end_exclusive,account_code,id)',
       );
+    }
+    if (oldV < 23) {
+      await d.execute('CREATE TABLE IF NOT EXISTS station_settings (station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
+      await d.execute('CREATE INDEX IF NOT EXISTS idx_station_settings_station ON station_settings(station_id)');
+      // Preserve the global legacy table and copy values only to the historical default station.
+      await d.execute('INSERT OR IGNORE INTO station_settings(station_id,key,value,updated_at) SELECT 1,key,value,updated_at FROM settings WHERE EXISTS (SELECT 1 FROM stations WHERE id=1)');
     }
     if (oldV < 19) {
       await d.execute(
@@ -577,6 +585,12 @@ class AppDatabase {
     };
     for (final e in defaults.entries) {
       await d.insert('settings', {
+        'key': e.key,
+        'value': e.value,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await d.insert('station_settings', {
+        'station_id': 1,
         'key': e.key,
         'value': e.value,
         'updated_at': now,
