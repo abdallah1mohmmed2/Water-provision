@@ -119,7 +119,7 @@ class SyncCoordinator with WidgetsBindingObserver {
     final connectivity = await _connectivity.checkConnectivity();
     final online = connectivity.any((x) => x != ConnectivityResult.none);
     status.value = status.value.copyWith(connected: online);
-    if (online) unawaited(syncNow());
+    if (online) unawaited(_syncQuietly());
   }
 
   void _attach(ApiClient client) {
