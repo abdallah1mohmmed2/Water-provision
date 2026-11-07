@@ -1,5 +1,6 @@
 import '../../core/app_clock.dart';
 import 'dart:convert';
+import 'global_identity.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -26,13 +27,16 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 27,
+      version: 28,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
       onCreate: (d, v) async => _create(d),
       onUpgrade: (d, oldV, newV) async => _upgrade(d, oldV, newV),
-      onOpen: (d) async => d.execute('PRAGMA foreign_keys=ON'),
+      onOpen: (d) async {
+        await d.execute('PRAGMA foreign_keys=ON');
+        await GlobalIdentity.ensure(d);
+      },
     );
     return _db!;
   }
@@ -828,7 +832,8 @@ class AppDatabase {
         final operation = '${change['operation']}';
         if (operation == 'noop') continue;
 
-        Map<String, Object?> payload = {'id': recordId};
+        await GlobalIdentity.ensureRecord(tx, table, recordId);
+        Map<String, Object?> rawPayload = {'id': recordId};
         if (operation != 'delete') {
           final rows = await tx.query(
             table,
@@ -837,10 +842,24 @@ class AppDatabase {
             limit: 1,
           );
           if (rows.isEmpty) continue;
-          payload = Map<String, Object?>.from(rows.first);
+          rawPayload = Map<String, Object?>.from(rows.first);
+        }
+        final payload = await GlobalIdentity.decoratePayload(
+          tx,
+          table,
+          rawPayload,
+          recordId,
+        );
+        if (operation == 'delete') {
+          await tx.update(
+            'sync_global_identities',
+            {'retired_at': now},
+            where: 'table_name=? AND local_id=?',
+            whereArgs: [table, recordId],
+          );
         }
 
-        final key = '$table:$recordId';
+        final key = '$table:${payload['_global_id']}';
         final versionRows = await tx.query(
           'sync_entity_versions',
           columns: ['server_version'],
