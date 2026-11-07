@@ -7,7 +7,8 @@ import '../api/api_client.dart';
 import '../data/local/database.dart';
 import '../data/local/global_identity.dart';
 
-typedef IncomingSyncApplier = Future<void> Function(
+typedef IncomingSyncApplier = Future<InboxApplyResult> Function(
+  Transaction tx,
   Map<String, dynamic> event,
 );
 
@@ -373,22 +374,75 @@ class SyncService {
         'source_device': row['source_device'],
       };
       try {
-        await handler(event);
-        await db.update(
-          'sync_inbox',
-          {
-            'status': 'applied',
-            'applied_at': DateTime.now().toUtc().toIso8601String(),
-            'last_error': null,
-          },
-          'event_id=?',
-          [row['event_id']],
-        );
-        applied++;
+        await db.transaction((tx) async {
+          final current = await tx.query(
+            'sync_inbox',
+            columns: ['status'],
+            where: 'event_id=?',
+            whereArgs: [row['event_id']],
+            limit: 1,
+          );
+          if (current.isEmpty || current.single['status'] != 'pending') return;
+
+          final result = await handler(tx, event);
+          final now = DateTime.now().toUtc().toIso8601String();
+          if (result == InboxApplyResult.conflict) {
+            await tx.update(
+              'sync_inbox',
+              {
+                'status': 'conflict',
+                'last_error': 'تعارض مع تغييرات محلية غير مرسلة؛ يتطلب حلاً يدوياً.',
+              },
+              where: 'event_id=?',
+              whereArgs: [row['event_id']],
+            );
+            return;
+          }
+
+          final entityType = row['entity_type'] as String;
+          final entityKey = row['entity_key'] as String;
+          final incomingVersion = (row['server_version'] as num).toInt();
+          final existing = await tx.query(
+            'sync_entity_versions',
+            columns: ['server_version'],
+            where: 'entity_type=? AND entity_key=?',
+            whereArgs: [entityType, entityKey],
+            limit: 1,
+          );
+          final knownVersion = existing.isEmpty
+              ? 0
+              : (existing.single['server_version'] as num).toInt();
+          await tx.insert(
+            'sync_entity_versions',
+            {
+              'entity_type': entityType,
+              'entity_key': entityKey,
+              'server_version': knownVersion > incomingVersion
+                  ? knownVersion
+                  : incomingVersion,
+              'updated_at': now,
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+          await tx.update(
+            'sync_inbox',
+            {
+              'status': 'applied',
+              'applied_at': now,
+              'last_error': null,
+            },
+            where: 'event_id=?',
+            whereArgs: [row['event_id']],
+          );
+          applied++;
+        }, captureSync: false);
       } catch (error) {
         await db.update(
           'sync_inbox',
-          {'status': 'failed', 'last_error': error.toString()},
+          {
+            'status': 'failed',
+            'last_error': error.toString(),
+          },
           'event_id=?',
           [row['event_id']],
         );
@@ -396,4 +450,17 @@ class SyncService {
     }
     return applied;
   }
+
+  /// Makes failed events eligible for a deliberate retry after their
+  /// prerequisite records or local configuration have been repaired.
+  Future<int> retryFailedInbox({String? eventId}) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    return db.update(
+      'sync_inbox',
+      {'status': 'pending', 'last_error': null},
+      eventId == null ? "status='failed'" : "status='failed' AND event_id=?",
+      eventId == null ? const [] : [eventId],
+    );
+  }
+
 }
