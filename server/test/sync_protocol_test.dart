@@ -15,7 +15,7 @@ void main() {
   late String stationTwoToken;
 
   setUp(() {
-    database = Database.memory();
+    database = sqlite3.openInMemory();
     database.execute('CREATE TABLE stations(id INTEGER PRIMARY KEY, name TEXT NOT NULL)');
     database.execute('INSERT INTO stations(id,name) VALUES(1,\'Station One\'),(2,\'Station Two\')');
     database.execute('''CREATE TABLE app_users(
@@ -29,7 +29,7 @@ void main() {
         .sign(SecretKey(secret));
   });
 
-  tearDown(() => database.dispose());
+  tearDown(() => database.close());
 
   Future<Map<String, dynamic>> postEvents(
     String token,
