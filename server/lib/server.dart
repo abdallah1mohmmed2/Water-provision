@@ -309,7 +309,7 @@ class SaqiaServer {
     if (!PasswordHasher.isArgon2id(storedHash)) {
       final upgradedHash = await PasswordHasher.hash(password);
       db.execute(
-        'UPDATE app_users SET password_hash=? WHERE id=? AND password_hash=?',
+        'UPDATE app_users SET password_hash=? WHERE id=? AND password_hash=? AND active=1',
         [upgradedHash, row['id'], storedHash],
       );
       if (db.select('SELECT changes() AS affected').first['affected'] == 0) {
@@ -329,11 +329,16 @@ class SaqiaServer {
       }
     }
 
-    _clearLoginFailures(scopes);
-    final user = _rows(db.select(
-      'SELECT id,station_id,name,role FROM app_users WHERE id=? AND active=1',
+    final activeRows = db.select(
+      'SELECT id,station_id,name,role FROM app_users WHERE id=? AND active=1 LIMIT 1',
       [row['id']],
-    )).first;
+    );
+    if (activeRows.isEmpty) {
+      _recordFailedLogin(scopes, now);
+      return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+    }
+    _clearLoginFailures(scopes);
+    final user = _rows(activeRows).first;
     return _json({
       'token': _token({'kind': 'admin', 'userId': user['id'], 'stationId': user['station_id'], 'role': user['role']}),
       'user': {'id': user['id'], 'name': user['name'], 'role': user['role']},
