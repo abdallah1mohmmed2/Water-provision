@@ -692,7 +692,11 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
       'SELECT COALESCE(MAX(server_sequence),0) AS cursor FROM sync_event_log WHERE station_id=?',
       [station],
     ).first['cursor'] as int;
-    return _json({'events':events,'cursor':high});
+    // Do not skip the remainder when a station has more than one page.
+    final cursor = rows.length == 100
+        ? (rows.last['server_sequence'] as num).toInt()
+        : high;
+    return _json({'events':events,'cursor':cursor});
   }
 
   int _stationId(Map<String, dynamic> claims) {
