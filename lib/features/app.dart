@@ -20,6 +20,8 @@ import '../services/report_service.dart';
 import '../services/official_report_template.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
+import '../services/sync_coordinator.dart';
+import 'sync_connection_panel.dart';
 import '../services/message_template_service.dart';
 import 'general_accounts_page.dart';
 import 'reconciliation_page.dart';
@@ -477,6 +479,11 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
   }
 
   Future<void> _unlocked() async {
+    try {
+      await SyncCoordinator.instance.resume();
+    } catch (_) {
+      // A sync outage must never block local station access.
+    }
     if (user == null) {
       setState(() => error = 'تعذر تحديد مستخدم نشط لفتح المحطة.');
       return;
@@ -15345,6 +15352,7 @@ class _SettingsState extends State<SettingsPage> {
               ]),
               if ((s['time_source'] ?? 'device') == 'server')
                 setTile('server_url', 'عنوان الخادم (لمزامنة الوقت)'),
+              SyncConnectionPanel(initialServerUrl: s['server_url'] ?? ''),
               dropdownTile('week_start', 'بداية الأسبوع', const [
                 MapEntry('saturday', 'السبت'),
                 MapEntry('sunday', 'الأحد'),
