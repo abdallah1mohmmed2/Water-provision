@@ -1661,7 +1661,7 @@ void main() {
     );
   });
 
-  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 27', () async {
+  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 28', () async {
     final opened = await db.db;
     await opened.execute('PRAGMA user_version=17');
     await db.close();
