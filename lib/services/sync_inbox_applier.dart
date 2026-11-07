@@ -59,10 +59,10 @@ class SyncInboxApplier {
     final serverVersion = (event['server_version'] as num?)?.toInt();
 
     if (table is! String || !domains.containsKey(table)) {
-      throw StateError('نوع سجل Inbox غير مسموح: ' + table.toString());
+      throw StateError('نوع سجل Inbox غير مسموح: $table');
     }
     if (!const {'create', 'update', 'delete'}.contains(operation)) {
-      throw StateError('عملية Inbox غير مسموحة: ' + operation.toString());
+      throw StateError('عملية Inbox غير مسموحة: $operation');
     }
     if (rawPayload is! Map || serverVersion == null || serverVersion < 1) {
       throw StateError('حمولة أو إصدار Inbox غير صالح.');
@@ -70,7 +70,7 @@ class SyncInboxApplier {
     final payload = Map<String, dynamic>.from(rawPayload);
     final globalId = payload['_global_id'];
     if (globalId is! String || !_uuid.hasMatch(globalId) ||
-        globalKey != table + ':' + globalId) {
+        globalKey != '$table:$globalId') {
       throw StateError('هوية السجل العالمية لا تطابق مفتاح الحدث.');
     }
     final unresolved = payload['_unresolved_refs'];
@@ -91,7 +91,7 @@ class SyncInboxApplier {
         : (versionRows.single['server_version'] as num).toInt();
     if (serverVersion <= currentVersion) return InboxApplyResult.applied;
     if (serverVersion != currentVersion + 1) {
-      throw StateError('تسلسل إصدار ' + table + ' غير مكتمل.');
+      throw StateError('تسلسل إصدار $table غير مكتمل.');
     }
 
     final identityRows = await tx.query(
@@ -118,7 +118,7 @@ class SyncInboxApplier {
     if (operation == 'delete') {
       if (_noDelete.contains(table)) return InboxApplyResult.conflict;
       if (localId == null) {
-        throw StateError('وصل حذف لسجل غير معروف محلياً: ' + table);
+        throw StateError('وصل حذف لسجل غير معروف محلياً: $table');
       }
       await tx.delete(table, where: 'id=?', whereArgs: [localId]);
       await tx.update(
@@ -130,12 +130,12 @@ class SyncInboxApplier {
       return InboxApplyResult.applied;
     }
 
-    final columns = await tx.rawQuery('PRAGMA table_info(' + table + ')');
+    final columns = await tx.rawQuery('PRAGMA table_info($table)');
     if (columns.isEmpty || !columns.any((c) => c['name'] == 'id')) {
-      throw StateError('مخطط الجدول غير متاح: ' + table);
+      throw StateError('مخطط الجدول غير متاح: $table');
     }
     final allowed = columns.map((c) => c['name'].toString()).toSet();
-    final foreignKeys = await tx.rawQuery('PRAGMA foreign_key_list(' + table + ')');
+    final foreignKeys = await tx.rawQuery('PRAGMA foreign_key_list($table)');
     final fkByColumn = <String, String>{
       for (final fk in foreignKeys) fk['from'].toString(): fk['table'].toString(),
       if (table == 'diesel_movements') 'cashbox_id': 'cashboxes',
@@ -150,7 +150,7 @@ class SyncInboxApplier {
         : Map<String, dynamic>.from(rawRefs as Map);
     for (final key in refs.keys) {
       if (!fkByColumn.containsKey(key)) {
-        throw StateError('مرجع غير معلن في مخطط ' + table + ': ' + key);
+        throw StateError('مرجع غير معلن في مخطط $table: $key');
       }
     }
 
@@ -159,7 +159,7 @@ class SyncInboxApplier {
       final column = entry.key;
       if (_reserved.contains(column) || _localOnly.contains(column)) continue;
       if (!allowed.contains(column)) {
-        throw StateError('عمود غير معروف في حمولة ' + table + ': ' + column);
+        throw StateError('عمود غير معروف في حمولة $table: $column');
       }
       if (fkByColumn.containsKey(column)) {
         values[column] = await _resolveForeignKey(
@@ -167,7 +167,7 @@ class SyncInboxApplier {
         );
       } else {
         if (column.endsWith('_id') && entry.value != null) {
-          throw StateError('رفض معرف محلي غير قابل للتحويل في ' + table + '.' + column);
+          throw StateError('رفض معرف محلي غير قابل للتحويل في $table.$column');
         }
         values[column] = entry.value;
       }
@@ -231,7 +231,7 @@ class SyncInboxApplier {
         if (matches.length == 1) return InboxApplyResult.conflict;
       }
       if (operation != 'create') {
-        throw StateError('وصل تحديث قبل إنشاء السجل ' + table + '/' + globalId);
+        throw StateError('وصل تحديث قبل إنشاء السجل $table/$globalId');
       }
       appliedLocalId = await tx.insert(table, values);
       await tx.insert('sync_global_identities', {
@@ -242,7 +242,7 @@ class SyncInboxApplier {
       });
     } else {
       if (identityRows.single['retired_at'] != null) {
-        throw StateError('وصل تحديث لهوية سبق إيقافها: ' + table);
+        throw StateError('وصل تحديث لهوية سبق إيقافها: $table');
       }
       await tx.update(table, values, where: 'id=?', whereArgs: [localId]);
       appliedLocalId = localId;
@@ -284,13 +284,13 @@ class SyncInboxApplier {
       return (rows.first['id'] as num).toInt();
     }
     if (referenceValue is! Map) {
-      throw StateError('العلاقة ' + sourceTable + '.' + column + ' بلا مرجع عالمي.');
+      throw StateError('العلاقة $sourceTable.$column بلا مرجع عالمي.');
     }
     final ref = Map<String, dynamic>.from(referenceValue);
     final refTable = ref['table'];
     final globalId = ref['global_id'];
     if (refTable != targetTable || globalId is! String || !_uuid.hasMatch(globalId)) {
-      throw StateError('مرجع العلاقة ' + sourceTable + '.' + column + ' غير مطابق.');
+      throw StateError('مرجع العلاقة $sourceTable.$column غير مطابق.');
     }
     final rows = await tx.query(
       'sync_global_identities',
@@ -345,7 +345,7 @@ class SyncInboxApplier {
       );
       if (natural.length == 1) return (natural.single['id'] as num).toInt();
     }
-    throw StateError('السجل المرتبط ' + targetTable + '/' + globalId + ' لم يصل بعد.');
+    throw StateError('السجل المرتبط $targetTable/$globalId لم يصل بعد.');
   }
 
   static Future<void> _refreshJournalStatus(Transaction tx, int journalId) async {
