@@ -21,8 +21,8 @@
 - أضيف `lib/firebase/station_firebase_config.dart` لتهيئة Firebase من قيم وقت البناء.
 - إذا لم توجد القيم المطلوبة، يبقى Firebase غير مهيأ ويستمر التطبيق محليًا دون fallback إلى مشروع آخر.
 - تم تثبيت هذا الفرع التجريبي على Project ID `manzoma-ststion` داخل طبقة الإعداد؛ أي Project ID مختلف يُرفض.
-- أضيف Google Services Gradle plugin بإصدار `4.4.4` إلى `android/settings.gradle.kts` وطُبق على تطبيق Android.
-- أضيف `tooling/prepare_firebase_dart_defines.py` لاستخراج قيم Firebase العامة من ملف JSON، والتحقق من وجود عميل Android واحد مطابق للحزمة، والتحقق من Project ID الخاص بالفرع.
+- أضيف Google Services Gradle plugin بإصدار `4.5.0` إلى `android/settings.gradle.kts` وطُبق على تطبيق Android.
+- أضيف `tooling/prepare_firebase_dart_defines.py` لاستخراج قيم Firebase العامة من ملف JSON، والتحقق من وجود عميل Android واحد مطابق للحزمة، والتحقق من Project ID الخاص بالفرع. وأضيفت اختبارات Python للسكربت ضمن `tooling/test_prepare_firebase_dart_defines.py`.
 - تم تحديث `.github/workflows/buildr.yml` و`.github/workflows/build-apk.yml` لتمرير إعدادات المشروع الصحيح إلى أوامر Flutter build. أضيف فرع المحطة إلى مسار بناء APK ورفع Artifact.
 - أضيف اختبار لحالة عدم وجود إعدادات، واختبارات القيم الناقصة، والتهيئة الصحيحة، ورفض مشروع محطة أخرى، وStorage Bucket الاختياري.
 
