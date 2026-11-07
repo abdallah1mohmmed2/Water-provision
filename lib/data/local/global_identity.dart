@@ -103,16 +103,23 @@ class GlobalIdentity {
           : ((existing.single['server_version'] as num).toInt() > oldVersion
                 ? (existing.single['server_version'] as num).toInt()
                 : oldVersion);
-      await db.update(
-        'sync_entity_versions',
-        {
-          'entity_key': globalKey,
-          'server_version': mergedVersion,
-        },
-        where: 'entity_type=? AND entity_key=?',
-        whereArgs: [table, key],
-      );
-      if (existing.isNotEmpty) {
+      if (existing.isEmpty) {
+        await db.update(
+          'sync_entity_versions',
+          {
+            'entity_key': globalKey,
+            'server_version': mergedVersion,
+          },
+          where: 'entity_type=? AND entity_key=?',
+          whereArgs: [table, key],
+        );
+      } else {
+        await db.update(
+          'sync_entity_versions',
+          {'server_version': mergedVersion},
+          where: 'entity_type=? AND entity_key=?',
+          whereArgs: [table, globalKey],
+        );
         await db.delete(
           'sync_entity_versions',
           where: 'entity_type=? AND entity_key=?',
