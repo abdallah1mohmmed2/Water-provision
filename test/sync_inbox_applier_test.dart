@@ -172,6 +172,106 @@ void main() {
     expect(result, InboxApplyResult.conflict);
   });
 
+  test('balanced remote journal lines promote the entry to posted', () async {
+    const journalGlobalId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const debitLineGlobalId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const creditLineGlobalId = '99999999-9999-4999-8999-999999999999';
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    final accounts = await database.query(
+      'accounts',
+      columns: ['id'],
+      orderBy: 'id',
+      limit: 2,
+    );
+    expect(accounts, hasLength(2));
+    final accountRefs = <Map<String, String>>[];
+    for (final account in accounts) {
+      final identity = (await database.query(
+        'sync_global_identities',
+        columns: ['global_id'],
+        where: 'table_name=? AND local_id=?',
+        whereArgs: ['accounts', account['id']],
+        limit: 1,
+      )).single;
+      accountRefs.add({
+        'table': 'accounts',
+        'global_id': identity['global_id'] as String,
+      });
+    }
+
+    await database.transaction((tx) async {
+      await SyncInboxApplier.apply(
+        tx,
+        event(
+          table: 'journal_entries',
+          id: journalGlobalId,
+          operation: 'create',
+          version: 1,
+          payload: {
+            'date': now,
+            'description': 'INBOX-BALANCED-JOURNAL',
+            'status': 'posted',
+            'created_at': now,
+          },
+        ),
+      );
+      await SyncInboxApplier.apply(
+        tx,
+        event(
+          table: 'journal_lines',
+          id: debitLineGlobalId,
+          operation: 'create',
+          version: 1,
+          payload: {
+            'journal_entry_id': 7001,
+            'account_id': accounts[0]['id'],
+            'debit': 250,
+            'credit': 0,
+            '_global_refs': {
+              'journal_entry_id': {
+                'table': 'journal_entries',
+                'global_id': journalGlobalId,
+              },
+              'account_id': accountRefs[0],
+            },
+          },
+        ),
+      );
+      await SyncInboxApplier.apply(
+        tx,
+        event(
+          table: 'journal_lines',
+          id: creditLineGlobalId,
+          operation: 'create',
+          version: 1,
+          payload: {
+            'journal_entry_id': 7001,
+            'account_id': accounts[1]['id'],
+            'debit': 0,
+            'credit': 250,
+            '_global_refs': {
+              'journal_entry_id': {
+                'table': 'journal_entries',
+                'global_id': journalGlobalId,
+              },
+              'account_id': accountRefs[1],
+            },
+          },
+        ),
+      );
+    }, captureSync: false);
+
+    final journal = (await database.query(
+      'journal_entries',
+      where: 'description=?',
+      whereArgs: ['INBOX-BALANCED-JOURNAL'],
+      limit: 1,
+    )).single;
+    expect(journal['status'], 'posted');
+    expect(await database.query('sync_queue'), isEmpty);
+  });
+
   test('journal entries remain draft until their lines balance', () async {
     const journalGlobalId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
     final now = DateTime.now().toUtc().toIso8601String();
