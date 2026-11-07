@@ -68,6 +68,58 @@ class GlobalIdentity {
     if (addedIdentities || ((relationCount.first['n'] as num?)?.toInt() ?? 0) == 0) {
       await rebuildRelations(db);
     }
+    await _migrateLocalEntityVersions(db);
+  }
+
+  static Future<void> _migrateLocalEntityVersions(DatabaseExecutor db) async {
+    final versions = await db.query('sync_entity_versions');
+    for (final version in versions) {
+      final table = version['entity_type'] as String;
+      final key = version['entity_key'] as String;
+      final prefix = '$table:';
+      if (!key.startsWith(prefix)) continue;
+      final localId = int.tryParse(key.substring(prefix.length));
+      if (localId == null) continue;
+      final identities = await db.query(
+        'sync_global_identities',
+        columns: ['global_id'],
+        where: 'table_name=? AND local_id=?',
+        whereArgs: [table, localId],
+        limit: 1,
+      );
+      if (identities.isEmpty) continue;
+      final globalKey = '$table:${identities.single['global_id']}';
+      if (globalKey == key) continue;
+      final existing = await db.query(
+        'sync_entity_versions',
+        columns: ['server_version'],
+        where: 'entity_type=? AND entity_key=?',
+        whereArgs: [table, globalKey],
+        limit: 1,
+      );
+      final oldVersion = (version['server_version'] as num).toInt();
+      final mergedVersion = existing.isEmpty
+          ? oldVersion
+          : ((existing.single['server_version'] as num).toInt() > oldVersion
+                ? (existing.single['server_version'] as num).toInt()
+                : oldVersion);
+      await db.update(
+        'sync_entity_versions',
+        {
+          'entity_key': globalKey,
+          'server_version': mergedVersion,
+        },
+        where: 'entity_type=? AND entity_key=?',
+        whereArgs: [table, key],
+      );
+      if (existing.isNotEmpty) {
+        await db.delete(
+          'sync_entity_versions',
+          where: 'entity_type=? AND entity_key=?',
+          whereArgs: [table, key],
+        );
+      }
+    }
   }
 
   static Future<void> ensureRecord(
