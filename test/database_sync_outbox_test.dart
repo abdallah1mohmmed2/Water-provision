@@ -90,7 +90,11 @@ void main() {
     );
     expect(events, hasLength(3));
     expect(events.last['operation'], 'delete');
-    expect(jsonDecode(events.last['payload'] as String), {'id': id});
+    final deletePayload = jsonDecode(events.last['payload'] as String)
+        as Map<String, dynamic>;
+    expect(deletePayload['id'], id);
+    expect(deletePayload['_global_id'], isA<String>());
+    expect(deletePayload['_global_refs'], isEmpty);
   });
 
   test('business write and its outbox event roll back together', () async {
