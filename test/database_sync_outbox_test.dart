@@ -164,10 +164,19 @@ void main() {
     );
     expect(events, hasLength(1));
     expect(events.single['operation'], 'create');
-    expect(
-      jsonDecode(events.single['payload'] as String)['beneficiary_id'],
-      beneficiaryId,
-    );
+    final bookingPayload = jsonDecode(events.single['payload'] as String)
+        as Map<String, dynamic>;
+    expect(bookingPayload['beneficiary_id'], beneficiaryId);
+    expect(bookingPayload['_global_id'], isA<String>());
+    final globalRefs = bookingPayload['_global_refs'] as Map<String, dynamic>;
+    final beneficiaryGlobalId = (await database.query(
+      'sync_global_identities',
+      columns: ['global_id'],
+      where: 'table_name=? AND local_id=?',
+      whereArgs: ['beneficiaries', beneficiaryId],
+    )).single['global_id'];
+    expect(globalRefs['beneficiary_id']['table'], 'beneficiaries');
+    expect(globalRefs['beneficiary_id']['global_id'], beneficiaryGlobalId);
   });
 
   test('remote repository writes can opt out of echoing into the outbox', () async {
@@ -185,6 +194,51 @@ void main() {
       await database.query('sync_queue', where: 'table_name=?', whereArgs: ['beneficiaries']),
       isEmpty,
     );
+  });
+
+  test('global identities are unique across tables and stable across updates', () async {
+    final now = DateTime.now().toIso8601String();
+    final beneficiaryId = await database.insert('beneficiaries', {
+      'name': 'SYNC-TEST-global-beneficiary',
+      'status': 'active',
+      'created_at': now,
+      'updated_at': now,
+    });
+    final workerId = await database.insert('workers', {
+      'name': 'SYNC-TEST-global-worker',
+      'active': 1,
+      'created_at': now,
+      'updated_at': now,
+    });
+    final beneficiaryGlobalId = (await database.query(
+      'sync_global_identities',
+      columns: ['global_id'],
+      where: 'table_name=? AND local_id=?',
+      whereArgs: ['beneficiaries', beneficiaryId],
+    )).single['global_id'];
+    final workerGlobalId = (await database.query(
+      'sync_global_identities',
+      columns: ['global_id'],
+      where: 'table_name=? AND local_id=?',
+      whereArgs: ['workers', workerId],
+    )).single['global_id'];
+    expect(beneficiaryGlobalId, isNot(workerGlobalId));
+
+    await database.update(
+      'beneficiaries',
+      {'phone': '777111222'},
+      'id=?',
+      [beneficiaryId],
+    );
+    final update = (await database.query(
+      'sync_queue',
+      where: 'table_name=? AND record_id=?',
+      whereArgs: ['beneficiaries', beneficiaryId],
+      orderBy: 'id DESC',
+      limit: 1,
+    )).single;
+    final payload = jsonDecode(update['payload'] as String) as Map<String, dynamic>;
+    expect(payload['_global_id'], beneficiaryGlobalId);
   });
 
 }
