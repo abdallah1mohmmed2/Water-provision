@@ -244,6 +244,9 @@ class SyncService {
         });
       }
     } catch (error) {
+      // Only reset rows that were actually part of the failed HTTP batch.
+      // Rows rejected locally for unresolved references must remain failed;
+      // otherwise a network error would silently make them eligible again.
       for (final row in rows) {
         await db.update(
           'sync_queue',
@@ -253,7 +256,7 @@ class SyncService {
             'last_error': error.toString(),
             'updated_at': DateTime.now().toUtc().toIso8601String(),
           },
-          'id=?',
+          "id=? AND status='sending'",
           [row['id']],
         );
       }
