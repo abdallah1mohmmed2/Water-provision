@@ -825,6 +825,15 @@ class AppDatabase {
         return result;
       }
       final changes = await tx.query('sync_change_log', orderBy: 'rowid');
+      // Assign identities to every changed row first so references between
+      // records created in the same transaction can always be resolved.
+      for (final change in changes) {
+        await GlobalIdentity.ensureRecord(
+          tx,
+          '${change['table_name']}',
+          (change['record_id'] as num).toInt(),
+        );
+      }
       final now = DateTime.now().toUtc().toIso8601String();
       for (final change in changes) {
         final table = '${change['table_name']}';
