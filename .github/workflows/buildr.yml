@@ -72,11 +72,11 @@ jobs:
 
       - name: Build Android APK
         run: |
-          flutter build apk --debug \\
-            --dart-define=SAQIA_FIREBASE_API_KEY="$SAQIA_FIREBASE_API_KEY" \\
-            --dart-define=SAQIA_FIREBASE_APP_ID="$SAQIA_FIREBASE_APP_ID" \\
-            --dart-define=SAQIA_FIREBASE_MESSAGING_SENDER_ID="$SAQIA_FIREBASE_MESSAGING_SENDER_ID" \\
-            --dart-define=SAQIA_FIREBASE_PROJECT_ID="$SAQIA_FIREBASE_PROJECT_ID" \\
+          flutter build apk --debug \
+            --dart-define=SAQIA_FIREBASE_API_KEY="$SAQIA_FIREBASE_API_KEY" \
+            --dart-define=SAQIA_FIREBASE_APP_ID="$SAQIA_FIREBASE_APP_ID" \
+            --dart-define=SAQIA_FIREBASE_MESSAGING_SENDER_ID="$SAQIA_FIREBASE_MESSAGING_SENDER_ID" \
+            --dart-define=SAQIA_FIREBASE_PROJECT_ID="$SAQIA_FIREBASE_PROJECT_ID" \
             --dart-define=SAQIA_FIREBASE_STORAGE_BUCKET="$SAQIA_FIREBASE_STORAGE_BUCKET"
 
       - name: SonarQube Scan
