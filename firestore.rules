@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Fail closed until trusted identity, station claims, and role checks
+    // are implemented and tested on the server.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
