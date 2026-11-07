@@ -8,6 +8,7 @@ import 'package:sqflite/sqflite.dart';
 import '../api/api_client.dart';
 import '../data/local/database.dart';
 import 'sync_service.dart';
+import 'sync_inbox_applier.dart';
 
 class SyncRuntimeStatus {
   final bool connected;
@@ -122,7 +123,10 @@ class SyncCoordinator with WidgetsBindingObserver {
   }
 
   void _attach(ApiClient client) {
-    _service = SyncService(client);
+    _service = SyncService.withInboxHandler(
+      client,
+      applyIncoming: SyncInboxApplier.apply,
+    );
     _ensureObservers();
     status.value = status.value.copyWith(connected: true, clearError: true);
     _startRetryTimer();
@@ -186,6 +190,7 @@ class SyncCoordinator with WidgetsBindingObserver {
     try {
       await service.push();
       await service.pull();
+      await service.applyInbox();
       await _refreshCounts();
       status.value = status.value.copyWith(
         lastSyncAt: DateTime.now(),
