@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:saqia_server/server.dart';
+import 'package:saqia_server/password_hasher.dart';
 import 'package:shelf/shelf.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:test/test.dart';
@@ -65,6 +66,100 @@ void main() {
       headers: {'authorization': 'Bearer $token'},
     ),
   );
+
+  test('legacy SHA-256 admin password upgrades to Argon2id after valid login', () async {
+    final legacyHash = database.select(
+      'SELECT password_hash FROM app_users WHERE id=1',
+    ).first['password_hash'];
+
+    await login();
+
+    final upgradedHash = database.select(
+      'SELECT password_hash FROM app_users WHERE id=1',
+    ).first['password_hash'] as String;
+    expect(upgradedHash, startsWith(r'$argon2id
+      () async {
+    final token = await login();
+
+    final response = await readSettings(token);
+
+    expect(response.statusCode, 200);
+  });
+
+  test('revokes an existing JWT immediately after account deactivation',
+      () async {
+    final token = await login();
+    database.execute('UPDATE app_users SET active=0 WHERE id=1');
+
+    final response = await readSettings(token);
+
+    expect(response.statusCode, 401);
+  });
+
+  test('revokes an existing JWT immediately after role change', () async {
+    final token = await login();
+    database.execute(
+      "UPDATE app_users SET role='operations' WHERE id=1",
+    );
+
+    final response = await readSettings(token);
+
+    expect(response.statusCode, 401);
+  });
+
+  test('revokes an existing JWT immediately after station reassignment',
+      () async {
+    final token = await login();
+    database.execute('UPDATE app_users SET station_id=8 WHERE id=1');
+
+    final response = await readSettings(token);
+
+    expect(response.statusCode, 401);
+  });
+}
+));
+    expect(upgradedHash, isNot(legacyHash));
+    expect(await PasswordHasher.verify('correct-password', upgradedHash), isTrue);
+    expect(await PasswordHasher.verify('incorrect-password', upgradedHash), isFalse);
+  });
+
+  test('incorrect legacy password never changes the stored hash', () async {
+    final legacyHash = database.select(
+      'SELECT password_hash FROM app_users WHERE id=1',
+    ).first['password_hash'];
+
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/auth/login'),
+        body: jsonEncode({
+          'username': 'manager-test',
+          'password': 'incorrect-password',
+        }),
+      ),
+    );
+
+    expect(response.statusCode, 401);
+    expect(
+      database.select('SELECT password_hash FROM app_users WHERE id=1').first['password_hash'],
+      legacyHash,
+    );
+  });
+
+  test('existing Argon2id password authenticates without being rewritten', () async {
+    final argonHash = await PasswordHasher.hash('correct-password');
+    database.execute(
+      'UPDATE app_users SET password_hash=? WHERE id=1',
+      [argonHash],
+    );
+
+    await login();
+
+    expect(
+      database.select('SELECT password_hash FROM app_users WHERE id=1').first['password_hash'],
+      argonHash,
+    );
+  });
 
   test('accepts a JWT while the issuing account remains active and unchanged',
       () async {
