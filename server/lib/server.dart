@@ -90,6 +90,29 @@ class SaqiaServer {
   }
 
   bool _hasTable(String table) => db.select("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", [table]).isNotEmpty;
+  static const _syncEntityTypes = <String>{
+    'pumps', 'beneficiaries', 'partners', 'workers', 'accounts',
+    'payment_methods', 'cashboxes', 'cashbox_transfers', 'payments',
+    'expenses', 'worker_transactions', 'partner_transactions',
+    'journal_entries', 'journal_lines', 'irrigations', 'cloud_periods',
+    'diesel_movements', 'queue_entries', 'booking_requests',
+    'irrigation_sessions', 'beneficiary_manual_debts', 'general_accounts',
+    'general_account_transactions', 'accountant_reconciliation_months',
+    'period_closures', 'cash_reconciliations',
+  };
+
+  Object? _canonicalSyncValue(Object? value) {
+    if (value is Map) {
+      final keys = value.keys.map((key) => key.toString()).toList()..sort();
+      return <String, Object?>{
+        for (final key in keys) key: _canonicalSyncValue(value[key]),
+      };
+    }
+    if (value is List) return value.map(_canonicalSyncValue).toList();
+    return value;
+  }
+
+  String _canonicalSyncJson(Object? value) => jsonEncode(_canonicalSyncValue(value));
 
   void _ensureFinancialStationOwnership() {
     const tables = ['payments','expenses','diesel_movements','cashbox_transfers','worker_transactions','partner_transactions'];
@@ -326,24 +349,41 @@ class SaqiaServer {
         final validUuid = RegExp(
           r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
         ).hasMatch(eventId);
-        if (!validUuid || entityType.isEmpty || entityType.length > 64 ||
+        if (!validUuid || !_syncEntityTypes.contains(entityType) ||
             entityKey.isEmpty || entityKey.length > 160 ||
             !const {'create','update','delete'}.contains(operation) ||
             payload is! Map || baseVersion == null || baseVersion < 0 ||
-            utf8.encode(jsonEncode(payload)).length > 262144) {
+            utf8.encode(_canonicalSyncJson(payload)).length > 262144) {
           results.add({'event_id':eventId,'status':'rejected','message':'حقول الحدث غير صالحة'});
           continue;
         }
         final duplicate = db.select(
-          'SELECT server_sequence,status,server_version FROM sync_event_log WHERE station_id=? AND event_id=? LIMIT 1',
+          '''SELECT server_sequence,status,server_version,source_device,
+            entity_type,entity_key,operation,payload_json,base_version
+            FROM sync_event_log WHERE station_id=? AND event_id=? LIMIT 1''',
           [station,eventId],
         );
         if (duplicate.isNotEmpty) {
-          results.add({'event_id':eventId,'status':duplicate.first['status']=='conflict'?'conflict':'duplicate',
-            'server_sequence':duplicate.first['server_sequence'],
-            'server_version':duplicate.first['server_version'],
-            'current_version':duplicate.first['server_version'],
-            'message':duplicate.first['status']=='conflict'?'الحدث مسجل كتعارض سابق':'الحدث مسجل مسبقاً'});
+          final previous = duplicate.first;
+          final sameRequest = previous['source_device'] == device &&
+              previous['entity_type'] == entityType &&
+              previous['entity_key'] == entityKey &&
+              previous['operation'] == operation &&
+              (previous['base_version'] as num).toInt() == baseVersion &&
+              previous['payload_json'] == _canonicalSyncJson(payload);
+          if (!sameRequest) {
+            results.add({
+              'event_id': eventId,
+              'status': 'rejected',
+              'message': 'أعيد استخدام event_id لحمولة أو مصدر مختلف؛ رُفض الحدث لحماية سلامة Idempotency.',
+            });
+            continue;
+          }
+          results.add({'event_id':eventId,'status':previous['status']=='conflict'?'conflict':'duplicate',
+            'server_sequence':previous['server_sequence'],
+            'server_version':previous['server_version'],
+            'current_version':previous['server_version'],
+            'message':previous['status']=='conflict'?'الحدث مسجل كتعارض سابق':'الحدث مسجل مسبقاً'});
           continue;
         }
         // New clients identify entities by UUID. Bridge the previous
@@ -398,7 +438,7 @@ class SaqiaServer {
           (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
           VALUES(?,?,?,?,?,?,?,?,?,?,?)''',[
           station,eventId,device,entityType,entityKey,operation,
-          jsonEncode(payload),baseVersion,nextVersion,conflict?'conflict':'accepted',now
+          _canonicalSyncJson(payload),baseVersion,nextVersion,conflict?'conflict':'accepted',now
         ]);
         if (!conflict) {
           db.execute('''INSERT INTO sync_entity_versions(station_id,entity_type,entity_key,version,updated_at)
