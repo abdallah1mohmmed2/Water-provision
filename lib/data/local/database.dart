@@ -44,12 +44,12 @@ class AppDatabase {
       if (s.isNotEmpty) await d.execute(s);
     }
     await _createHelpers(d);
-    await _ensureSyncSchema(d);
     await d.execute('CREATE TABLE IF NOT EXISTS station_settings (station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_station_settings_station ON station_settings(station_id)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_period_station_range ON period_closures(station_id,period_start,period_end)');
     await _seed(d);
+    await _ensureSyncSchema(d);
   }
 
   Future<void> _upgrade(Database d, int oldV, int newV) async {
@@ -241,6 +241,8 @@ class AppDatabase {
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_accounts_station_name ON general_accounts(station_id,name)');
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_account_transactions_account_date ON general_account_transactions(account_id,date,id)');
     }
+    // Re-run after all historical migrations so newly-created tables receive capture triggers.
+    await _ensureSyncSchema(d);
   }
 
   /// V24: أضف ملكية محطة صريحة للمعاملات المالية، مع إسناد تاريخي محافظ.
