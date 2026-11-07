@@ -85,12 +85,12 @@ class SaqiaServer {
     Set<String> roles = const {},
   }) => (Request r) async {
     final claims = _verify(r);
-    if (claims == null ||
-        claims['kind'] != 'admin' ||
-        (claims['userId'] as num?)?.toInt() == null ||
-        (claims['userId'] as num).toInt() <= 0 ||
-        (claims['stationId'] as num?)?.toInt() == null ||
-        (claims['stationId'] as num).toInt() <= 0) {
+    if (claims == null) {
+      return _json({'error': 'جلسة غير صالحة'}, status: 401);
+    }
+    final userId = (claims['userId'] as num?)?.toInt() ?? 0;
+    final stationId = (claims['stationId'] as num?)?.toInt() ?? 0;
+    if (claims['kind'] != 'admin' || userId <= 0 || stationId <= 0) {
       return _json({'error': 'جلسة غير صالحة'}, status: 401);
     }
     if (roles.isNotEmpty && !roles.contains('${claims['role']}')) {
