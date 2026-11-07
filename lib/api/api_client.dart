@@ -21,7 +21,6 @@ class ApiClient {
     final headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'X-Station-Id': '1',
       if (token != null) 'Authorization': 'Bearer $token',
     };
     final uri = Uri.parse('$baseUrl/api/v1$path');

@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 22,
+      version: 24,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -43,6 +43,8 @@ class AppDatabase {
       if (s.isNotEmpty) await d.execute(s);
     }
     await _createHelpers(d);
+    await d.execute('CREATE TABLE IF NOT EXISTS station_settings (station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_station_settings_station ON station_settings(station_id)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_period_station_range ON period_closures(station_id,period_start,period_end)');
     await _seed(d);
@@ -217,6 +219,15 @@ class AppDatabase {
         'CREATE INDEX IF NOT EXISTS idx_cash_rec_period ON cash_reconciliations(station_id,period_start,period_end_exclusive,account_code,id)',
       );
     }
+    if (oldV < 23) {
+      await d.execute('CREATE TABLE IF NOT EXISTS station_settings (station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
+      await d.execute('CREATE INDEX IF NOT EXISTS idx_station_settings_station ON station_settings(station_id)');
+      // Preserve the global legacy table and copy values only to the historical default station.
+      await d.execute('INSERT OR IGNORE INTO station_settings(station_id,key,value,updated_at) SELECT 1,key,value,updated_at FROM settings WHERE EXISTS (SELECT 1 FROM stations WHERE id=1)');
+    }
+    if (oldV < 24) {
+      await _migrateV24(d);
+    }
     if (oldV < 19) {
       await d.execute(
         "CREATE TABLE IF NOT EXISTS general_accounts (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL DEFAULT 1 REFERENCES stations(id), name TEXT NOT NULL, phone TEXT, address TEXT, opening_balance INTEGER NOT NULL DEFAULT 0, notes TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
@@ -229,6 +240,44 @@ class AppDatabase {
     }
   }
 
+  /// V24: أضف ملكية محطة صريحة للمعاملات المالية، مع إسناد تاريخي محافظ.
+  Future<void> _migrateV24(Database d) async {
+    const tables = ['payments','expenses','diesel_movements','cashbox_transfers','worker_transactions','partner_transactions'];
+    for (final table in tables) {
+      final cols = await d.rawQuery('PRAGMA table_info($table)');
+      if (cols.isNotEmpty && !cols.any((x) => x['name'] == 'station_id')) {
+        await d.execute('ALTER TABLE $table ADD COLUMN station_id INTEGER REFERENCES stations(id)');
+      }
+    }
+    await d.execute("""UPDATE payments SET station_id=(SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id)
+      WHERE station_id IS NULL AND (SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id) IS NOT NULL
+      AND (SELECT station_id FROM payment_methods WHERE id=payments.payment_method_id)=(SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id)
+      AND ((beneficiary_id IS NOT NULL AND (SELECT station_id FROM beneficiaries WHERE id=payments.beneficiary_id)=(SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id))
+        OR (worker_id IS NOT NULL AND (SELECT station_id FROM workers WHERE id=payments.worker_id)=(SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id))
+        OR (partner_id IS NOT NULL AND (SELECT station_id FROM partners WHERE id=payments.partner_id)=(SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id)))""");
+    await d.execute("""UPDATE expenses SET station_id=(SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id)
+      WHERE station_id IS NULL AND cashbox_id IS NOT NULL AND payment_method_id IS NOT NULL
+      AND (SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id) IS NOT NULL
+      AND (SELECT station_id FROM payment_methods WHERE id=expenses.payment_method_id)=(SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id)
+      AND (beneficiary_id IS NULL OR (SELECT station_id FROM beneficiaries WHERE id=expenses.beneficiary_id)=(SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id))
+      AND (worker_id IS NULL OR (SELECT station_id FROM workers WHERE id=expenses.worker_id)=(SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id))
+      AND (partner_id IS NULL OR (SELECT station_id FROM partners WHERE id=expenses.partner_id)=(SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id))""");
+    await d.execute("""UPDATE diesel_movements SET station_id=COALESCE((SELECT station_id FROM irrigations WHERE id=diesel_movements.irrigation_id),(SELECT station_id FROM beneficiaries WHERE id=diesel_movements.beneficiary_id),(SELECT station_id FROM cashboxes WHERE id=diesel_movements.cashbox_id))
+      WHERE station_id IS NULL AND (irrigation_id IS NOT NULL OR beneficiary_id IS NOT NULL OR cashbox_id IS NOT NULL)
+      AND (irrigation_id IS NULL OR (SELECT station_id FROM irrigations WHERE id=diesel_movements.irrigation_id) IS NOT NULL)
+      AND (beneficiary_id IS NULL OR (SELECT station_id FROM beneficiaries WHERE id=diesel_movements.beneficiary_id) IS NOT NULL)
+      AND (cashbox_id IS NULL OR (SELECT station_id FROM cashboxes WHERE id=diesel_movements.cashbox_id) IS NOT NULL)
+      AND (SELECT COUNT(DISTINCT station_id) FROM (SELECT station_id FROM irrigations WHERE id=diesel_movements.irrigation_id AND diesel_movements.irrigation_id IS NOT NULL UNION ALL SELECT station_id FROM beneficiaries WHERE id=diesel_movements.beneficiary_id AND diesel_movements.beneficiary_id IS NOT NULL UNION ALL SELECT station_id FROM cashboxes WHERE id=diesel_movements.cashbox_id AND diesel_movements.cashbox_id IS NOT NULL))=1""");
+    await d.execute("""UPDATE cashbox_transfers SET station_id=(SELECT station_id FROM cashboxes WHERE id=cashbox_transfers.to_cashbox_id)
+      WHERE station_id IS NULL AND to_cashbox_id IS NOT NULL AND (SELECT station_id FROM cashboxes WHERE id=cashbox_transfers.to_cashbox_id) IS NOT NULL
+      AND (from_cashbox_id IS NULL OR (SELECT station_id FROM cashboxes WHERE id=cashbox_transfers.from_cashbox_id)=(SELECT station_id FROM cashboxes WHERE id=cashbox_transfers.to_cashbox_id))""");
+    await d.execute("""UPDATE worker_transactions SET station_id=(SELECT station_id FROM workers WHERE id=worker_transactions.worker_id)
+      WHERE station_id IS NULL AND (SELECT station_id FROM workers WHERE id=worker_transactions.worker_id) IS NOT NULL
+      AND (cashbox_id IS NULL OR (SELECT station_id FROM cashboxes WHERE id=worker_transactions.cashbox_id)=(SELECT station_id FROM workers WHERE id=worker_transactions.worker_id))""");
+    await d.execute("""UPDATE partner_transactions SET station_id=(SELECT station_id FROM partners WHERE id=partner_transactions.partner_id)
+      WHERE station_id IS NULL AND (SELECT station_id FROM partners WHERE id=partner_transactions.partner_id) IS NOT NULL""");
+    for (final table in tables) { await d.execute('CREATE INDEX IF NOT EXISTS idx_${table}_station_date ON $table(station_id,date)'); }
+  }
   Future<void> _migrateV15(Database d) async {
     final cols = await d.rawQuery('PRAGMA table_info(irrigations)');
     if (!cols.any((x) => x['name'] == 'operator_worker_id')) {
@@ -577,6 +626,12 @@ class AppDatabase {
     };
     for (final e in defaults.entries) {
       await d.insert('settings', {
+        'key': e.key,
+        'value': e.value,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await d.insert('station_settings', {
+        'station_id': 1,
         'key': e.key,
         'value': e.value,
         'updated_at': now,

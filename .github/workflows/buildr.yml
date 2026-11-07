@@ -37,6 +37,18 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
+      - name: Test Shelf API runtime configuration
+        working-directory: server
+        run: |
+          dart pub get
+          dart test
+
+      - name: Test station Firebase build configuration
+        run: python3 -m unittest discover -s tooling -p 'test_*.py'
+
+      - name: Load station Firebase Android configuration
+        run: python3 tooling/prepare_firebase_dart_defines.py
+
       - name: Analyze Flutter code
         run: flutter analyze
 
@@ -68,7 +80,20 @@ jobs:
           exit 1
 
       - name: Build Android APK
-        run: flutter build apk --debug
+        run: |
+          flutter build apk --debug \
+            --dart-define=SAQIA_FIREBASE_API_KEY="$SAQIA_FIREBASE_API_KEY" \
+            --dart-define=SAQIA_FIREBASE_APP_ID="$SAQIA_FIREBASE_APP_ID" \
+            --dart-define=SAQIA_FIREBASE_MESSAGING_SENDER_ID="$SAQIA_FIREBASE_MESSAGING_SENDER_ID" \
+            --dart-define=SAQIA_FIREBASE_PROJECT_ID="$SAQIA_FIREBASE_PROJECT_ID" \
+            --dart-define=SAQIA_FIREBASE_STORAGE_BUCKET="$SAQIA_FIREBASE_STORAGE_BUCKET"
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Saqia-App-Debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
