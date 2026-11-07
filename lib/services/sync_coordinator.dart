@@ -137,7 +137,7 @@ class SyncCoordinator with WidgetsBindingObserver {
       (results) {
         final online = results.any((x) => x != ConnectivityResult.none);
         status.value = status.value.copyWith(connected: online);
-        if (online && _service != null) unawaited(syncNow());
+        if (online && _service != null) unawaited(_syncQuietly());
       },
       onError: (Object error) {
         status.value = status.value.copyWith(error: error.toString());
@@ -147,14 +147,14 @@ class SyncCoordinator with WidgetsBindingObserver {
 
   void _startRetryTimer() {
     _retryTimer ??= Timer.periodic(const Duration(seconds: 45), (_) {
-      if (_service != null) unawaited(syncNow());
+      if (_service != null) unawaited(_syncQuietly());
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _service != null) {
-      unawaited(syncNow());
+      unawaited(_syncQuietly());
     }
   }
 
@@ -169,6 +169,14 @@ class SyncCoordinator with WidgetsBindingObserver {
       pending: pending,
       inboxPending: (inbox.first['n'] as num?)?.toInt() ?? 0,
     );
+  }
+
+  Future<void> _syncQuietly() async {
+    try {
+      await syncNow();
+    } catch (_) {
+      // Background retries expose failures through the status notifier.
+    }
   }
 
   Future<void> syncNow() async {
