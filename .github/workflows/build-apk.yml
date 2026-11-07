@@ -28,6 +28,9 @@ jobs:
       - name: جلب الحزم والمكتبات
         run: flutter pub get
 
+      - name: Test station Firebase build configuration
+        run: python3 -m unittest discover -s tooling -p 'test_*.py'
+
       - name: Load station Firebase Android configuration
         run: python3 tooling/prepare_firebase_dart_defines.py
 
