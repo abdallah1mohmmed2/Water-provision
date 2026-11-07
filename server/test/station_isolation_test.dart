@@ -482,4 +482,34 @@ void main() {
     expect(response.statusCode, 401);
   });
 
+
+  test('known but unimplemented reports fail closed instead of returning irrigation rows', () async {
+    final token = await login();
+    final response = await request('GET', '/api/v1/reports/expenses', token);
+    final body = jsonDecode(await response.readAsString()) as Map;
+    expect(response.statusCode, 501);
+    expect(body['code'], 'REPORT_NOT_IMPLEMENTED');
+    expect(body['report'], 'expenses');
+    expect(body['rows'], isNull);
+  });
+
+  test('cash flow report includes only the authenticated station financial rows', () async {
+    database.execute('''CREATE TABLE payments (
+      id INTEGER PRIMARY KEY, station_id INTEGER, date TEXT NOT NULL,
+      amount INTEGER NOT NULL, status TEXT NOT NULL)''');
+    database.execute('''CREATE TABLE expenses (
+      id INTEGER PRIMARY KEY, station_id INTEGER, date TEXT NOT NULL,
+      amount INTEGER NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL)''');
+    database.execute("INSERT INTO payments VALUES(1,7,'2026-11-01',100,'posted'),(2,8,'2026-11-01',900,'posted')");
+    database.execute("INSERT INTO expenses VALUES(1,7,'2026-11-02',20,'مصروف أ','posted'),(2,8,'2026-11-02',80,'مصروف ب','posted')");
+    final token = await login();
+    final response = await request('GET', '/api/v1/reports/cash_flow', token);
+    final body = jsonDecode(await response.readAsString()) as Map;
+    final rows = body['rows'] as List;
+    expect(response.statusCode, 200);
+    expect(rows, hasLength(2));
+    expect(rows.map((row) => row['amount']).toSet(), {100, -20});
+    expect(rows.map((row) => row['title']).toSet(), {'قبض', 'مصروف أ'});
+  });
+
 }
