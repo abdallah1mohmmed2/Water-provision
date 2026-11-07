@@ -3,6 +3,10 @@ import 'package:saqia_station/firebase/station_firebase_config.dart';
 
 void main() {
   group('StationFirebaseConfig.buildAndroidOptions', () {
+    test('keeps Firebase disabled when this build has no station defines', () {
+      expect(StationFirebaseConfig.androidOptions, isNull);
+    });
+
     test('returns null when a required station value is missing', () {
       final options = StationFirebaseConfig.buildAndroidOptions(
         apiKey: 'api-key',
