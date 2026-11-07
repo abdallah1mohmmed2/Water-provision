@@ -295,6 +295,30 @@ class GlobalIdentity {
           reference['name'] = '${natural.single['name']}';
           reference['type'] = '${natural.single['type']}';
         }
+      } else if (targetTable == 'pumps') {
+        final natural = await db.query(
+          'pumps',
+          columns: ['name', 'system_type'],
+          where: 'id=?',
+          whereArgs: [localTargetId],
+          limit: 1,
+        );
+        if (natural.isNotEmpty) {
+          reference['name'] = '${natural.single['name']}';
+          reference['system_type'] = '${natural.single['system_type']}';
+        }
+      } else if (targetTable == 'cashboxes') {
+        final natural = await db.query(
+          'cashboxes',
+          columns: ['name', 'currency'],
+          where: 'id=?',
+          whereArgs: [localTargetId],
+          limit: 1,
+        );
+        if (natural.isNotEmpty) {
+          reference['name'] = '${natural.single['name']}';
+          reference['currency'] = '${natural.single['currency']}';
+        }
       }
       refs[column] = reference;
       await db.insert('sync_global_relations', {
@@ -305,6 +329,77 @@ class GlobalIdentity {
         'target_global_id': targetGlobalId,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
+    // A few legacy columns represent relations without SQLite FOREIGN KEY
+    // declarations. Export only the audited mappings below; never guess from
+    // a column name alone.
+    const softRelations = <String, String>{
+      'diesel_movements.cashbox_id': 'cashboxes',
+      'payment_methods.cashbox_id': 'cashboxes',
+    };
+    for (final relation in softRelations.entries) {
+      final parts = relation.key.split('.');
+      if (parts.first != table) continue;
+      final column = parts.last;
+      final localTargetId = row[column];
+      if (localTargetId == null) continue;
+      var target = await db.query(
+        'sync_global_identities',
+        columns: ['global_id'],
+        where: 'table_name=? AND local_id=?',
+        whereArgs: [relation.value, localTargetId],
+        limit: 1,
+      );
+      if (target.isEmpty && localTargetId is num) {
+        final exists = await db.query(
+          relation.value,
+          columns: ['id'],
+          where: 'id=?',
+          whereArgs: [localTargetId],
+          limit: 1,
+        );
+        if (exists.isNotEmpty) {
+          await ensureRecord(db, relation.value, localTargetId.toInt());
+          target = await db.query(
+            'sync_global_identities',
+            columns: ['global_id'],
+            where: 'table_name=? AND local_id=?',
+            whereArgs: [relation.value, localTargetId],
+            limit: 1,
+          );
+        }
+      }
+      if (target.isEmpty) {
+        unresolved[column] = {
+          'table': relation.value,
+          'local_id': localTargetId.toString(),
+        };
+        continue;
+      }
+      final ref = <String, String>{
+        'table': relation.value,
+        'global_id': target.single['global_id'] as String,
+      };
+      final natural = await db.query(
+        'cashboxes',
+        columns: ['name', 'currency'],
+        where: 'id=?',
+        whereArgs: [localTargetId],
+        limit: 1,
+      );
+      if (natural.isNotEmpty) {
+        ref['name'] = '${natural.single['name']}';
+        ref['currency'] = '${natural.single['currency']}';
+      }
+      refs[column] = ref;
+      await db.insert('sync_global_relations', {
+        'source_table': table,
+        'source_global_id': globalId,
+        'source_column': column,
+        'target_table': relation.value,
+        'target_global_id': target.single['global_id'],
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+
     payload['_global_refs'] = refs;
     payload['_unresolved_refs'] = unresolved;
     return payload;
