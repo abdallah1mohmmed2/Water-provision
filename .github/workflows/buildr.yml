@@ -88,6 +88,13 @@ jobs:
             --dart-define=SAQIA_FIREBASE_PROJECT_ID="$SAQIA_FIREBASE_PROJECT_ID" \
             --dart-define=SAQIA_FIREBASE_STORAGE_BUCKET="$SAQIA_FIREBASE_STORAGE_BUCKET"
 
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Saqia-App-Debug
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
