@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:saqia_station/data/local/database.dart';
+import 'package:saqia_station/data/repositories/repositories.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +22,11 @@ void main() {
   });
 
   setUp(() async {
+    await database.delete(
+      'booking_requests',
+      "beneficiary_id IN (SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')",
+      const [],
+    );
     await database.delete('beneficiaries', "name LIKE 'SYNC-TEST-%'", const []);
     await database.delete('sync_queue', '1=1', const []);
   });
@@ -124,6 +130,35 @@ void main() {
     );
     expect(events.map((e) => e['base_version']).toList(), [0, 1, 2]);
   });
+  test('repository booking saves are captured without manual enqueue calls', () async {
+    final now = DateTime.now().toIso8601String();
+    final beneficiaryId = await database.insert('beneficiaries', {
+      'name': 'SYNC-TEST-booking-party',
+      'status': 'active',
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    final repository = StationRepository(database);
+    final bookingId = await repository.createBooking(
+      beneficiaryId,
+      'طلب حجز تجريبي',
+      userId: 1,
+    );
+
+    final events = await database.query(
+      'sync_queue',
+      where: 'table_name=? AND record_id=?',
+      whereArgs: ['booking_requests', bookingId],
+    );
+    expect(events, hasLength(1));
+    expect(events.single['operation'], 'create');
+    expect(
+      jsonDecode(events.single['payload'] as String)['beneficiary_id'],
+      beneficiaryId,
+    );
+  });
+
   test('remote repository writes can opt out of echoing into the outbox', () async {
     final now = DateTime.now().toIso8601String();
     await database.transaction((tx) async {
