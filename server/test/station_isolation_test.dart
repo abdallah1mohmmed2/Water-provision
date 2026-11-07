@@ -348,4 +348,53 @@ void main() {
     expect(body['ok'], isNull);
     expect(database.select('SELECT COUNT(*) AS total FROM beneficiaries').first['total'], before);
   });
+
+  test('admin login is rate limited after five failed attempts', () async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final response = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/v1/auth/login'),
+          body: jsonEncode({
+            'username': 'manager-test',
+            'password': 'incorrect-password',
+          }),
+        ),
+      );
+      expect(response.statusCode, 401);
+    }
+
+    final blocked = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/auth/login'),
+        body: jsonEncode({
+          'username': 'manager-test',
+          'password': 'correct-password',
+        }),
+      ),
+    );
+    expect(blocked.statusCode, 429);
+    expect(blocked.headers['retry-after'], '900');
+  });
+
+  test('successful admin login clears prior failed attempts', () async {
+    final failed = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/auth/login'),
+        body: jsonEncode({
+          'username': 'manager-test',
+          'password': 'incorrect-password',
+        }),
+      ),
+    );
+    expect(failed.statusCode, 401);
+    await login();
+    expect(
+      database.select('SELECT COUNT(*) AS total FROM auth_rate_limits').first['total'],
+      0,
+    );
+  });
+
 }
