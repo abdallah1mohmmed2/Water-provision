@@ -414,12 +414,12 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
       return Response(429, body: jsonEncode({'error': 'طلبات الرموز كثيرة؛ حاول بعد 15 دقيقة'}),
         headers: {'content-type': 'application/json; charset=utf-8', 'retry-after': '900'});
     }
+    _recordFailedLogin(scopes, now);
     final rows = db.select("SELECT id FROM beneficiaries WHERE phone=? AND status='active' ORDER BY id", [phone]);
     if (rows.isEmpty) return _json({'error': 'رقم الهاتف غير مسجل'}, status: 404);
     if (rows.length != 1) {
       return _json({'error': 'رقم الهاتف مرتبط بأكثر من حساب؛ يلزم رقم فريد لكل مستفيد'}, status: 409);
     }
-    _recordFailedLogin(scopes, now);
     final id = rows.first['id'] as int;
     final code = (100000 + Random.secure().nextInt(900000)).toString();
     final createdAt = now.toIso8601String();
