@@ -183,6 +183,29 @@ class SyncInboxApplier {
 
     int appliedLocalId;
     if (localId == null) {
+      // These catalogs are seeded independently on each device. Never create
+      // duplicate chart/payment-method rows merely because their UUIDs differ.
+      if (table == 'accounts' && payload['code'] is String) {
+        final matches = await tx.query(
+          'accounts',
+          columns: ['id'],
+          where: 'code=?',
+          whereArgs: [payload['code']],
+          limit: 1,
+        );
+        if (matches.isNotEmpty) return InboxApplyResult.conflict;
+      }
+      if (table == 'payment_methods' &&
+          payload['name'] is String && payload['type'] is String) {
+        final matches = await tx.query(
+          'payment_methods',
+          columns: ['id'],
+          where: 'name=? AND type=?',
+          whereArgs: [payload['name'], payload['type']],
+          limit: 2,
+        );
+        if (matches.length == 1) return InboxApplyResult.conflict;
+      }
       if (operation != 'create') {
         throw StateError('وصل تحديث قبل إنشاء السجل ' + table + '/' + globalId);
       }
@@ -252,10 +275,31 @@ class SyncInboxApplier {
       whereArgs: [targetTable, globalId],
       limit: 1,
     );
-    if (rows.isEmpty || rows.single['retired_at'] != null) {
-      throw StateError('السجل المرتبط ' + targetTable + '/' + globalId + ' لم يصل بعد.');
+    if (rows.isNotEmpty && rows.single['retired_at'] == null) {
+      return (rows.single['local_id'] as num).toInt();
     }
-    return (rows.single['local_id'] as num).toInt();
+    if (targetTable == 'accounts' && ref['code'] is String) {
+      final natural = await tx.query(
+        'accounts',
+        columns: ['id'],
+        where: 'code=?',
+        whereArgs: [ref['code']],
+        limit: 2,
+      );
+      if (natural.length == 1) return (natural.single['id'] as num).toInt();
+    }
+    if (targetTable == 'payment_methods' &&
+        ref['name'] is String && ref['type'] is String) {
+      final natural = await tx.query(
+        'payment_methods',
+        columns: ['id'],
+        where: 'name=? AND type=?',
+        whereArgs: [ref['name'], ref['type']],
+        limit: 2,
+      );
+      if (natural.length == 1) return (natural.single['id'] as num).toInt();
+    }
+    throw StateError('السجل المرتبط ' + targetTable + '/' + globalId + ' لم يصل بعد.');
   }
 
   static Future<void> _refreshJournalStatus(Transaction tx, int journalId) async {
