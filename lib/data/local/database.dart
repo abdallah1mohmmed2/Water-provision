@@ -25,7 +25,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 24,
+      version: 25,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -43,6 +43,7 @@ class AppDatabase {
       if (s.isNotEmpty) await d.execute(s);
     }
     await _createHelpers(d);
+    await _ensureSyncSchema(d);
     await d.execute('CREATE TABLE IF NOT EXISTS station_settings (station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_station_settings_station ON station_settings(station_id)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
@@ -52,6 +53,7 @@ class AppDatabase {
 
   Future<void> _upgrade(Database d, int oldV, int newV) async {
     await _createHelpers(d);
+    await _ensureSyncSchema(d);
     if (oldV < 2) {
       await d.execute(
         'CREATE INDEX IF NOT EXISTS idx_sessions_status ON irrigation_sessions(status)',
@@ -501,6 +503,42 @@ class AppDatabase {
     await d.execute(
       'CREATE TABLE IF NOT EXISTS beneficiary_sessions (id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL REFERENCES beneficiaries(id), token_hash TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT)',
     );
+  }
+
+  /// Durable local Outbox/Inbox protocol metadata. Existing queue rows are preserved.
+  Future<void> _ensureSyncSchema(Database d) async {
+    final columns = await d.rawQuery('PRAGMA table_info(sync_queue)');
+    if (!columns.any((x) => x['name'] == 'event_id')) {
+      await d.execute('ALTER TABLE sync_queue ADD COLUMN event_id TEXT');
+    }
+    if (!columns.any((x) => x['name'] == 'base_version')) {
+      await d.execute('ALTER TABLE sync_queue ADD COLUMN base_version INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!columns.any((x) => x['name'] == 'device_id')) {
+      await d.execute('ALTER TABLE sync_queue ADD COLUMN device_id TEXT');
+    }
+    await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_event_id ON sync_queue(event_id) WHERE event_id IS NOT NULL');
+    await d.execute('''CREATE TABLE IF NOT EXISTS sync_inbox (
+      event_id TEXT PRIMARY KEY,
+      server_sequence INTEGER NOT NULL UNIQUE,
+      entity_type TEXT NOT NULL,
+      entity_key TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      base_version INTEGER NOT NULL,
+      server_version INTEGER NOT NULL,
+      source_device TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','applied','conflict','failed')),
+      last_error TEXT,
+      received_at TEXT NOT NULL,
+      applied_at TEXT
+    )''');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_sync_inbox_status_sequence ON sync_inbox(status,server_sequence)');
+    await d.execute('''CREATE TABLE IF NOT EXISTS sync_metadata (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )''');
   }
 
   Future<void> _seed(Database d) async {
