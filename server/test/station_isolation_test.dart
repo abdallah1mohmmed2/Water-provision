@@ -307,4 +307,27 @@ void main() {
       'running',
     );
   });
+  test('full database backup is blocked until station-scoped export exists', () async {
+    final token = await login();
+    final before = database.select('SELECT COUNT(*) AS total FROM beneficiaries').first['total'];
+    final response = await request('POST', '/api/v1/backup', token,
+        body: {'path': 'must_not_be_created.db'});
+    final body = jsonDecode(await response.readAsString()) as Map;
+
+    expect(response.statusCode, 409);
+    expect(body['ok'], isNull);
+    expect(database.select('SELECT COUNT(*) AS total FROM beneficiaries').first['total'], before);
+  });
+
+  test('full database restore is blocked without changing live database', () async {
+    final token = await login();
+    final before = database.select('SELECT COUNT(*) AS total FROM beneficiaries').first['total'];
+    final response = await request('POST', '/api/v1/restore', token,
+        body: {'base64': 'U1FMaXRlIGZvcm1hdCAz'});
+    final body = jsonDecode(await response.readAsString()) as Map;
+
+    expect(response.statusCode, 409);
+    expect(body['ok'], isNull);
+    expect(database.select('SELECT COUNT(*) AS total FROM beneficiaries').first['total'], before);
+  });
 }
