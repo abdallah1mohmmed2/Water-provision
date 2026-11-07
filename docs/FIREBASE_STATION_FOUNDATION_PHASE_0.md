@@ -112,8 +112,18 @@ flutter build apk --release \
 | اسم المحطة التجريبية | منظومة |
 | Firebase Project ID الذي زوده به المالك | `manzoma-ststion` |
 | Android applicationId | `com.saqia.saqia_station` |
-| حالة تسجيل Android App داخل Firebase | بانتظار تأكيد التسجيل واستلام إعدادات التطبيق |
+| حالة تسجيل Android App داخل Firebase | تم التحقق من ملف الإعداد المرفوع في فرع `docs/firebase-database-architecture` ثم نسخه إلى `android/app/google-services.json` في هذا الفرع |
 | حالة Auth وFirestore | غير مفعّلين/غير متحقق منهما بعد |
+
+### نتيجة استلام ملف Android
+
+- المصدر: `google-services.json` في الفرع `docs/firebase-database-architecture`.
+- الوجهة على هذا الفرع: `android/app/google-services.json`.
+- `project_id`: `manzoma-ststion`.
+- `package_name`: `com.saqia.saqia_station`.
+- `mobilesdk_app_id`: `1:1004981299919:android:5bb7d98823849b43e565ba`.
+- تم التحقق من JSON وتطابق المشروع والحزمة قبل النسخ.
+- لم يتم تعديل `main`.
 
 ### المطلوب من مالك Firebase لإكمال الربط
 
@@ -123,4 +133,4 @@ flutter build apk --release \
 4. بعد التسجيل، افتح إعدادات تطبيق Android وانسخ إعدادات Firebase العامة أو نزّل `google-services.json` وأرفقه في المحادثة للمراجعة.
 5. لا ترسل Service Account JSON أو Admin SDK private key أو أي كلمة مرور/سر خادمي.
 
-لن نضيف ملف إعداد المحطة إلى الفرع قبل مراجعة قيم المشروع والتأكد من تطابق Project ID وAndroid App ID. ستستخدم نسخة البناء التجريبية القيم العامة عبر `--dart-define`، ولن يتم تفعيل مزامنة بيانات حقيقية في هذه الخطوة.
+تمت إضافة ملف إعداد Android إلى الفرع بعد التحقق من Project ID وAndroid App ID. طبقة `StationFirebaseConfig` الحالية ما زالت تعتمد `--dart-define` صراحةً، ولم نفعّل بعد Google Services Gradle plugin أو Auth/Firestore أو أي مزامنة؛ يلزم حسم طريقة الإعداد الموحدة قبل البناء والاختبار.
