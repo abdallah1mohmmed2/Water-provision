@@ -91,7 +91,7 @@ class SyncService {
   }
 
   /// Sends immutable event IDs. Retrying a request can never create a second
-  /// server-side effect because the server enforces (station_id,event_id).
+  /// second event-log entry because the server enforces (station_id,event_id).
   Future<void> push() async {
     final deviceId = await _deviceId();
     final rows = await db.query(
@@ -141,7 +141,9 @@ class SyncService {
             ? 'acknowledged'
             : status == 'conflict'
                 ? 'conflict'
-                : 'pending';
+                : status == 'rejected'
+                    ? 'failed'
+                    : 'pending';
         final queueRows = await db.query(
           'SELECT id,attempts FROM sync_queue WHERE event_id=? LIMIT 1',
           args: [eventId],
