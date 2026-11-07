@@ -26,6 +26,8 @@ CREATE TABLE journal_entries (id INTEGER PRIMARY KEY, station_id INTEGER REFEREN
 CREATE TABLE journal_lines (id INTEGER PRIMARY KEY, journal_entry_id INTEGER NOT NULL REFERENCES journal_entries(id), account_id INTEGER NOT NULL REFERENCES accounts(id), beneficiary_id INTEGER REFERENCES beneficiaries(id), worker_id INTEGER REFERENCES workers(id), partner_id INTEGER REFERENCES partners(id), debit INTEGER NOT NULL DEFAULT 0, credit INTEGER NOT NULL DEFAULT 0, memo TEXT, CHECK(debit >= 0 AND credit >= 0 AND NOT(debit > 0 AND credit > 0)));
 CREATE TABLE audit_logs (id INTEGER PRIMARY KEY, user_id INTEGER, operation TEXT NOT NULL, table_name TEXT NOT NULL, record_id INTEGER, old_values TEXT, new_values TEXT, reason TEXT, created_at TEXT NOT NULL);
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE station_settings (station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key));
+CREATE INDEX idx_station_settings_station ON station_settings(station_id);
 CREATE TABLE notifications (id INTEGER PRIMARY KEY, beneficiary_id INTEGER REFERENCES beneficiaries(id), type TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, read_at TEXT, created_at TEXT NOT NULL, snoozed_until TEXT);
 CREATE TABLE backup_records (id INTEGER PRIMARY KEY, path TEXT NOT NULL, created_at TEXT NOT NULL, status TEXT NOT NULL, notes TEXT);
 CREATE TABLE sync_queue (id INTEGER PRIMARY KEY, operation TEXT NOT NULL, table_name TEXT NOT NULL, record_id INTEGER, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
