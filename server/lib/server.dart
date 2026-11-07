@@ -80,7 +80,24 @@ class SaqiaServer {
   String _hash(String v) => sha256.convert(utf8.encode(v)).toString();
   String _token(Map<String,dynamic> claims) => JWT(claims).sign(SecretKey(jwtSecret), expiresIn: const Duration(hours: 12));
   Map<String,dynamic>? _verify(Request r) { final h=r.headers['authorization']??''; if(!h.startsWith('Bearer ')) return null; try { return JWT.verify(h.substring(7),SecretKey(jwtSecret)).payload as Map<String,dynamic>; } catch (_) { return null; } }
-  Handler _auth(Handler Function(Request,Map<String,dynamic>) fn,{Set<String> roles=const{}})=>(Request r) async { final c=_verify(r); if(c==null)return _json({'error':'جلسة غير صالحة'},status:401); if(roles.isNotEmpty&&!roles.contains('${c['role']}'))return _json({'error':'لا تملك صلاحية تنفيذ العملية'},status:403); return fn(r,c); };
+  Handler _auth(
+    Handler Function(Request, Map<String, dynamic>) fn, {
+    Set<String> roles = const {},
+  }) => (Request r) async {
+    final claims = _verify(r);
+    if (claims == null ||
+        claims['kind'] != 'admin' ||
+        (claims['userId'] as num?)?.toInt() == null ||
+        (claims['userId'] as num).toInt() <= 0 ||
+        (claims['stationId'] as num?)?.toInt() == null ||
+        (claims['stationId'] as num).toInt() <= 0) {
+      return _json({'error': 'جلسة غير صالحة'}, status: 401);
+    }
+    if (roles.isNotEmpty && !roles.contains('${claims['role']}')) {
+      return _json({'error': 'لا تملك صلاحية تنفيذ العملية'}, status: 403);
+    }
+    return fn(r, claims);
+  };
   Handler _beneficiaryAuth(Handler Function(Request,Map<String,dynamic>) fn)=>(Request r) async { final c=_verify(r); if(c==null||c['kind']!='beneficiary')return _json({'error':'جلسة المستفيد غير صالحة'},status:401); final exp=db.select('SELECT id FROM beneficiary_sessions WHERE beneficiary_id=? AND token_hash=? AND revoked_at IS NULL AND expires_at>? LIMIT 1',[c['beneficiaryId'],c['session'],DateTime.now().toIso8601String()]); if(exp.isEmpty)return _json({'error':'جلسة المستفيد منتهية'},status:401); return fn(r,c); };
 
   void _journal({required String description, required String referenceType, int? referenceId, required List<Map<String,Object?>> lines, int? userId}) {
@@ -98,7 +115,13 @@ class SaqiaServer {
     catch(e){try{db.execute('ROLLBACK');}catch(_){} return _json({'error':'فشلت العملية الذرية: $e'},status:422);}
   }
   int _accountId(String code){final r=db.select('SELECT id FROM accounts WHERE code=? LIMIT 1',[code]);if(r.isEmpty)throw StateError('الحساب غير موجود: $code');return r.first['id'] as int;}
-  int _stationId(Map<String,dynamic> c)=>(c['stationId'] as num?)?.toInt()??1;
+  int _stationId(Map<String, dynamic> claims) {
+    final stationId = (claims['stationId'] as num?)?.toInt();
+    if (stationId == null || stationId <= 0) {
+      throw StateError('رمز الجلسة لا يحتوي على محطة صالحة');
+    }
+    return stationId;
+  }
   bool _owns(String table,int id,int stationId){final r=db.select('SELECT id FROM $table WHERE id=? AND station_id=? LIMIT 1',[id,stationId]);return r.isNotEmpty;}
   void _requireOwn(String table,int? id,int stationId,String label){if(id==null||!_owns(table,id,stationId))throw StateError('$label لا يتبع المحطة الحالية');}
   void _audit(int userId,String operation,String table,int? recordId,{String? reason}){db.execute('INSERT INTO audit_logs(user_id,operation,table_name,record_id,reason,created_at) VALUES(?,?,?,?,?,?)',[userId,operation,table,recordId,reason,DateTime.now().toIso8601String()]);}
