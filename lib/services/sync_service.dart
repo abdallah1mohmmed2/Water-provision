@@ -154,6 +154,7 @@ class SyncService {
             'attempts': (queueRows.first['attempts'] as num).toInt() +
                 (nextStatus == 'pending' ? 1 : 0),
             'last_error': item['message'],
+            'conflict_version': item['current_version'],
             'updated_at': DateTime.now().toUtc().toIso8601String(),
           },
           'event_id=?',
@@ -176,6 +177,53 @@ class SyncService {
       }
       rethrow;
     }
+  }
+
+  /// Re-queues a user/repository-merged conflict as a NEW event against the
+  /// server version. The original conflicted event remains in the local queue
+  /// as resolved for auditability; the server's immutable conflict record stays.
+  Future<void> resolveConflict(
+    String eventId, {
+    required Map<String, dynamic> resolvedPayload,
+  }) async {
+    final rows = await db.query(
+      "SELECT * FROM sync_queue WHERE event_id=? AND status='conflict' LIMIT 1",
+      args: [eventId],
+    );
+    if (rows.isEmpty) {
+      throw StateError('حدث التعارض غير موجود أو تمت معالجته مسبقاً.');
+    }
+    final row = rows.first;
+    final serverVersion = (row['conflict_version'] as num?)?.toInt();
+    if (serverVersion == null) {
+      throw StateError('إصدار الخادم غير متاح؛ أعد جلب حالة السجل قبل الحل.');
+    }
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.transaction((tx) async {
+      await tx.insert('sync_queue', {
+        'operation': 'update',
+        'table_name': row['table_name'],
+        'record_id': row['record_id'],
+        'payload': jsonEncode(resolvedPayload),
+        'event_id': await _uuid(),
+        'base_version': serverVersion,
+        'device_id': await _deviceId(),
+        'status': 'pending',
+        'attempts': 0,
+        'created_at': now,
+        'updated_at': now,
+      });
+      await tx.update(
+        'sync_queue',
+        {
+          'status': 'resolved',
+          'last_error': 'تم إنشاء حدث دمج جديد انطلاقاً من الإصدار $serverVersion',
+          'updated_at': now,
+        },
+        where: 'event_id=?',
+        whereArgs: [eventId],
+      );
+    });
   }
 
   /// Downloads and durably stores remote events before advancing the cursor.
