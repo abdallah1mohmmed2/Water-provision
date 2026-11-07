@@ -567,8 +567,8 @@ class AppDatabase {
       'partner_transactions', 'journal_entries', 'journal_lines',
       'queue_entries', 'booking_requests', 'irrigation_sessions',
       'beneficiary_manual_debts', 'general_accounts',
-      'general_account_transactions', 'period_closures',
-      'cash_reconciliations',
+      'general_account_transactions', 'accountant_reconciliation_months',
+      'period_closures', 'cash_reconciliations',
     ];
     for (final table in syncTables) {
       final tableInfo = await d.rawQuery('PRAGMA table_info($table)');
@@ -803,12 +803,19 @@ class AppDatabase {
       transaction((tx) => tx.delete(table, where: where, whereArgs: args));
 
   /// Saves domain mutations and their Outbox events in one SQLite transaction.
-  Future<T> transaction<T>(Future<T> Function(Transaction tx) action) async {
+  Future<T> transaction<T>(
+    Future<T> Function(Transaction tx) action, {
+    bool captureSync = true,
+  }) async {
     final database = await db;
     return database.transaction((tx) async {
       await tx.delete('sync_change_log');
       final result = await action(tx);
-      final changes = await tx.query('sync_change_log');
+      if (!captureSync) {
+        await tx.delete('sync_change_log');
+        return result;
+      }
+      final changes = await tx.query('sync_change_log', orderBy: 'rowid');
       final now = DateTime.now().toUtc().toIso8601String();
       for (final change in changes) {
         final table = '${change['table_name']}';
