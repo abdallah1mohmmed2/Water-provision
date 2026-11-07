@@ -209,6 +209,7 @@ void main() {
     final entry = database.select('SELECT station_id,created_by FROM journal_entries').first;
     expect(entry['station_id'], 7);
     expect(entry['created_by'], 1);
+    expect(database.select('SELECT station_id FROM partner_transactions').first['station_id'], 7);
   });
 
   test('irrigation list only returns records belonging to the manager station',
