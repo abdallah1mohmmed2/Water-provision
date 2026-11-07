@@ -154,6 +154,34 @@ void main() {
     expect(row['name'], 'INBOX-LOCAL-PENDING');
   });
 
+  test('rejects invalid non-positive amounts in incoming financial records', () async {
+    const paymentGlobalId = 'abababab-abab-4bab-8bab-abababababab';
+    await expectLater(
+      database.transaction(
+        (tx) => SyncInboxApplier.apply(
+          tx,
+          event(
+            table: 'payments',
+            id: paymentGlobalId,
+            operation: 'create',
+            version: 1,
+            payload: {'amount': -25},
+          ),
+        ),
+        captureSync: false,
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(
+      await database.query(
+        'payments',
+        where: 'amount=?',
+        whereArgs: [-25],
+      ),
+      isEmpty,
+    );
+  });
+
   test('financial ledger records cannot be deleted by remote tombstones', () async {
     const paymentGlobalId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
     final result = await database.transaction(
