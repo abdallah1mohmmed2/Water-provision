@@ -196,7 +196,7 @@ void main() {
 
   test('new journal entries persist the authenticated station explicitly', () async {
     database.execute('CREATE TABLE partners (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL)');
-    database.execute('CREATE TABLE partner_transactions (id INTEGER PRIMARY KEY, partner_id INTEGER NOT NULL, date TEXT NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, ownership_snapshot REAL, reference_type TEXT, reference_id INTEGER, notes TEXT, created_by INTEGER)');
+    database.execute('CREATE TABLE partner_transactions (id INTEGER PRIMARY KEY, station_id INTEGER, partner_id INTEGER NOT NULL, date TEXT NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, ownership_snapshot REAL, reference_type TEXT, reference_id INTEGER, notes TEXT, created_by INTEGER)');
     database.execute('CREATE TABLE accounts (id INTEGER PRIMARY KEY, code TEXT NOT NULL, name TEXT NOT NULL)');
     database.execute('CREATE TABLE journal_entries (id INTEGER PRIMARY KEY, station_id INTEGER, date TEXT NOT NULL, reference_type TEXT, reference_id INTEGER, description TEXT NOT NULL, status TEXT NOT NULL, created_by INTEGER, created_at TEXT NOT NULL)');
     database.execute('CREATE TABLE journal_lines (id INTEGER PRIMARY KEY, journal_entry_id INTEGER NOT NULL, account_id INTEGER NOT NULL, beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER, debit INTEGER NOT NULL DEFAULT 0, credit INTEGER NOT NULL DEFAULT 0, memo TEXT)');
