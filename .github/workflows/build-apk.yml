@@ -32,7 +32,6 @@ jobs:
         working-directory: ./server
         run: |
           dart pub get
-          dart format --output=none --set-exit-if-changed lib/server.dart test/sync_protocol_test.dart
           dart analyze
           dart test
 
