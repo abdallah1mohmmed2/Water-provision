@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -10,15 +11,25 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AppDatabase database;
+  late Directory testDatabaseDirectory;
 
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    testDatabaseDirectory = await Directory.systemTemp.createTemp(
+      'saqia_database_sync_outbox_test_',
+    );
+    await databaseFactory.setDatabasesPath(testDatabaseDirectory.path);
     await databaseFactory.deleteDatabase(
       '${await databaseFactory.getDatabasesPath()}/saqia_station_v2.db',
     );
     database = AppDatabase.instance;
     await database.db;
+  });
+
+  tearDownAll(() async {
+    await database.close();
+    await testDatabaseDirectory.delete(recursive: true);
   });
 
   setUp(() async {
