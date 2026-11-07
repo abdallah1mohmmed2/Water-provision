@@ -448,4 +448,38 @@ void main() {
     );
   });
 
+
+  test('inactive beneficiary sessions cannot access the API', () async {
+    final now = DateTime.now().toIso8601String();
+    database.execute(
+      'INSERT INTO beneficiary_auth_codes(beneficiary_id,code_hash,expires_at,created_at) VALUES(?,?,?,?)',
+      [
+        11,
+        sha256.convert(utf8.encode('123456')).toString(),
+        DateTime.now().add(const Duration(minutes: 5)).toIso8601String(),
+        now,
+      ],
+    );
+    final loginResponse = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/beneficiary/session'),
+        body: jsonEncode({'phone': '777', 'code': '123456'}),
+      ),
+    );
+    expect(loginResponse.statusCode, 200);
+    final loginBody = jsonDecode(await loginResponse.readAsString()) as Map;
+    final token = loginBody['token'] as String;
+    database.execute("UPDATE beneficiaries SET status='inactive' WHERE id=11");
+
+    final response = await handler(
+      Request(
+        'GET',
+        Uri.parse('http://localhost/api/v1/beneficiary/me'),
+        headers: {'authorization': 'Bearer $token'},
+      ),
+    );
+    expect(response.statusCode, 401);
+  });
+
 }
