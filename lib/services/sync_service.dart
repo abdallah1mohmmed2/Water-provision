@@ -143,7 +143,7 @@ class SyncService {
         'event_id': eventId,
         'entity_type': table,
         'entity_key': recordId == null
-            ? '${table}:$eventId'
+            ? '$table:$eventId'
             : GlobalIdentity.entityKey(table, payload),
         'operation': row['operation'],
         'base_version': (row['base_version'] as num?)?.toInt() ?? 0,
