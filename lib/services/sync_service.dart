@@ -93,7 +93,7 @@ class SyncService {
     final deviceId = await _deviceId();
     final rows = await db.query(
       "SELECT * FROM sync_queue WHERE status IN ('pending','sending') ORDER BY id LIMIT ?",
-      [_batchSize],
+      args: [_batchSize],
     );
     if (rows.isEmpty) return;
 
@@ -224,7 +224,7 @@ class SyncService {
     }
     final rows = await db.query(
       "SELECT * FROM sync_inbox WHERE status='pending' ORDER BY server_sequence LIMIT ?",
-      [limit],
+      args: [limit],
     );
     var applied = 0;
     for (final row in rows) {
