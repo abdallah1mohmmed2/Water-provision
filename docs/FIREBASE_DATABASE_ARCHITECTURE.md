@@ -408,3 +408,101 @@ stations/{stationKey}/exports/{exportUuid}.pdf
 - `assets/db/001_initial.sql` — المخطط الأولي والعلاقات الأساسية.
 - `server/lib/server.dart` — API الحالية، JWT، الصلاحيات، والعمليات المالية.
 - `pubspec.yaml` — الحزم الحالية، ومنها `firebase_core` وSQLite وHTTP وUUID.
+
+
+## 18. ERD — العلاقات الأساسية
+
+المخطط التالي يوضح العلاقات المرجعية التي ظهرت صراحة في SQL الأولي. الجداول التي تنشأ في Dart أو أضيفت بترقيات موضحة بعد الرسم؛ لا يعني غيابها من الرسم أنها غير موجودة.
+
+```mermaid
+erDiagram
+  STATIONS ||--o{ PUMPS : owns
+  STATIONS ||--o{ BENEFICIARIES : serves
+  STATIONS ||--o{ PARTNERS : has
+  STATIONS ||--o{ WORKERS : employs
+  STATIONS ||--o{ CASHBOXES : owns
+  STATIONS ||--o{ PAYMENT_METHODS : configures
+  STATIONS ||--o{ IRRIGATIONS : records
+  STATIONS ||--o{ JOURNAL_ENTRIES : posts
+  STATIONS ||--o{ GENERAL_ACCOUNTS : owns
+  STATIONS ||--o{ PERIOD_CLOSURES : closes
+
+  BENEFICIARIES ||--o{ BOOKING_REQUESTS : requests
+  BENEFICIARIES ||--o{ QUEUE_ENTRIES : queues
+  BENEFICIARIES ||--o{ IRRIGATION_SESSIONS : receives
+  BENEFICIARIES ||--o{ IRRIGATIONS : billed
+  BENEFICIARIES ||--o{ PAYMENTS : pays
+  BENEFICIARIES ||--o{ DIESEL_MOVEMENTS : diesel
+  BENEFICIARIES ||--o{ BENEFICIARY_MANUAL_DEBTS : prior_debt
+  BENEFICIARIES ||--o{ NOTIFICATIONS : receives
+
+  PUMPS ||--o{ IRRIGATION_SESSIONS : runs
+  PUMPS ||--o{ IRRIGATIONS : used_for
+  BOOKING_REQUESTS o|--o{ IRRIGATION_SESSIONS : schedules
+  QUEUE_ENTRIES o|--o{ IRRIGATION_SESSIONS : starts
+  IRRIGATION_SESSIONS o|--o{ IRRIGATIONS : produces
+  IRRIGATIONS ||--o{ CLOUD_PERIODS : contains
+  IRRIGATIONS o|--o{ DIESEL_MOVEMENTS : consumes
+
+  PARTNERS ||--o{ PARTNER_TRANSACTIONS : ledger
+  PARTNERS ||--o{ IRRIGATIONS : party
+  WORKERS ||--o{ WORKER_TRANSACTIONS : payroll
+  WORKERS ||--o{ IRRIGATIONS : operator_or_party
+
+  PAYMENT_METHODS ||--o{ PAYMENTS : method
+  CASHBOXES ||--o{ PAYMENTS : receives_or_pays
+  CASHBOXES ||--o{ EXPENSES : pays
+  CASHBOXES ||--o{ CASHBOX_TRANSFERS : source_or_target
+  PAYMENT_METHODS ||--o{ EXPENSES : method
+
+  ACCOUNTS ||--o{ JOURNAL_LINES : account
+  JOURNAL_ENTRIES ||--|{ JOURNAL_LINES : contains
+  BENEFICIARIES o|--o{ JOURNAL_LINES : dimension
+  PARTNERS o|--o{ JOURNAL_LINES : dimension
+  WORKERS o|--o{ JOURNAL_LINES : dimension
+
+  GENERAL_ACCOUNTS ||--o{ GENERAL_ACCOUNT_TRANSACTIONS : movements
+```
+
+### 18.1 جداول مساعدة/مهاجرة وعلاقات إضافية
+
+- `app_users`: مستخدمو المحطة؛ يرتبط به `cash_reconciliations.created_by/approved_by` وحقول المنشئ في حركات متعددة. لا يوجد FK شامل على كل `created_by` في المخطط الحالي.
+- `beneficiary_auth_codes` و`beneficiary_sessions`: كلاهما يرتبط بـ `beneficiaries.id`.
+- `beneficiary_manual_debts`: يرتبط بالمستفيد، وبـ `journal_entries.id` عند ترحيل القيد، وبـ `app_users.id` للمنشئ.
+- `cash_reconciliations`: يرتبط بالمحطة وبمستخدمي الإنشاء/الاعتماد.
+- `period_closures`: يرتبط بالمحطة، ويحتفظ بمراجع قيود الإقفال وإعادة الفتح كأعمدة IDs.
+- `accountant_reconciliation_months`: يرتبط بالمحطة ومستخدمي الإنشاء/التحديث، وله قيد `UNIQUE(station_id, month_key)`.
+- `notification_templates` و`report_runs` و`performance_metrics` و`audit_logs` و`backup_records` و`sync_queue` جداول مساندة ولا تظهر لها علاقات FK كاملة في التعريفات الحالية.
+
+## 19. قاموس حقول مختصر للمفاتيح التشغيلية والمالية
+
+هذا القاموس يركز على الحقول التي تؤثر في التكامل والمزامنة والدفاتر. الأنواع أدناه هي أنواع SQLite كما عُرّفت، وقد توجد أعمدة إضافية أضيفت بترقيات إصدار لاحق.
+
+| الجدول | الحقول المحورية (الاسم — النوع) |
+|---|---|
+| stations | id INTEGER PK, name TEXT, address TEXT, phone TEXT, active INTEGER, created_at TEXT, updated_at TEXT |
+| pumps | id INTEGER PK, station_id INTEGER FK, name TEXT, system_type TEXT, active INTEGER, notes TEXT |
+| beneficiaries | id INTEGER PK, station_id INTEGER FK, name TEXT, phone TEXT, address TEXT, location TEXT, jerba_number TEXT, area TEXT, status TEXT, is_needy INTEGER, opening_balance INTEGER, carried_balance INTEGER, opening_diesel_liters REAL, carried_diesel_liters REAL, notes TEXT, created_at TEXT, updated_at TEXT |
+| partners | id INTEGER PK, station_id INTEGER FK, name TEXT, phone TEXT, ownership_mode TEXT, shares_count INTEGER, ownership_percentage REAL, opening_balance INTEGER, carried_balance INTEGER, active INTEGER, notes TEXT |
+| workers | id INTEGER PK, station_id INTEGER FK, name TEXT, phone TEXT, job_title TEXT, pay_type TEXT, fixed_salary INTEGER, hourly_rate INTEGER, percentage_rate REAL, opening_balance INTEGER, carried_balance INTEGER, active INTEGER, notes TEXT |
+| booking_requests | id INTEGER PK, beneficiary_id INTEGER FK, created_at TEXT, status TEXT, scheduled_date TEXT, scheduled_start TEXT, scheduled_end TEXT, priority INTEGER, notes TEXT, cancel_reason TEXT, reviewed_by INTEGER, reviewed_at TEXT |
+| queue_entries | id INTEGER PK, beneficiary_id INTEGER FK, position INTEGER, cycle_number INTEGER, status TEXT, last_served_at TEXT, postponed_count INTEGER, skip_reason TEXT, created_at TEXT, updated_at TEXT |
+| irrigation_sessions | id INTEGER PK, beneficiary_id INTEGER FK, queue_entry_id INTEGER FK, booking_id INTEGER FK, pump_id INTEGER FK, planned_start TEXT, actual_start TEXT, actual_end TEXT, status TEXT, timer_started_at TEXT, timer_stopped_at TEXT, diesel_before REAL, diesel_consumed REAL, diesel_after REAL, diesel_warning_shown INTEGER, postponement_reason TEXT, notes TEXT |
+| irrigations | id INTEGER PK, station_id INTEGER FK, pump_id INTEGER FK, beneficiary_id INTEGER FK nullable, worker_id INTEGER FK nullable, operator_worker_id INTEGER FK nullable, partner_id INTEGER FK nullable, party_type TEXT, booking_id INTEGER FK nullable, queue_entry_id INTEGER FK nullable, session_id INTEGER FK nullable, date TEXT, start_datetime TEXT, end_datetime TEXT, minutes INTEGER, system_type TEXT, rate snapshots INTEGER/REAL, cloud_minutes INTEGER, chargeable_minutes INTEGER, water_amount INTEGER, diesel_amount INTEGER, total_amount INTEGER, paid_amount INTEGER, status TEXT, override_waiting_period INTEGER, override_reason TEXT, notes TEXT, created_by INTEGER, created_at TEXT, updated_at TEXT |
+| cloud_periods | id INTEGER PK, irrigation_id INTEGER FK, start_datetime TEXT, end_datetime TEXT, minutes INTEGER, created_at TEXT |
+| diesel_movements | id INTEGER PK, beneficiary_id INTEGER FK nullable, irrigation_id INTEGER FK nullable, cashbox_id INTEGER nullable, kind TEXT, liters REAL, unit_price INTEGER, amount INTEGER, date TEXT, notes TEXT, created_by INTEGER |
+| payment_methods | id INTEGER PK, station_id INTEGER FK, name TEXT, type TEXT, account_number TEXT, bank_name TEXT, cashbox_id INTEGER nullable, ledger_account_code TEXT, active INTEGER |
+| cashboxes | id INTEGER PK, station_id INTEGER FK, name TEXT, opening_balance INTEGER, current_balance INTEGER, currency TEXT, active INTEGER, ledger_account_code TEXT |
+| cashbox_transfers | id INTEGER PK, from_cashbox_id INTEGER FK, to_cashbox_id INTEGER FK, amount INTEGER, date TEXT, is_opening_transfer INTEGER, reference TEXT, notes TEXT, created_by INTEGER |
+| payments | id INTEGER PK, beneficiary_id INTEGER FK nullable, partner_id INTEGER FK nullable, worker_id INTEGER FK nullable, amount INTEGER, date TEXT, payment_method_id INTEGER FK, cashbox_id INTEGER FK, reference_number TEXT, notes TEXT, status TEXT, created_by INTEGER |
+| expenses | id INTEGER PK, category TEXT, title TEXT, amount INTEGER, date TEXT, payment_method_id INTEGER FK nullable, cashbox_id INTEGER FK nullable, beneficiary_id INTEGER FK nullable, worker_id INTEGER FK nullable, partner_id INTEGER FK nullable, attachment_path TEXT, notes TEXT, status TEXT, created_by INTEGER |
+| worker_transactions | id INTEGER PK, worker_id INTEGER FK, date TEXT, type TEXT, hours REAL, rate_snapshot INTEGER, percentage_snapshot REAL, amount INTEGER, cashbox_id INTEGER FK nullable, reference_type TEXT, reference_id INTEGER, notes TEXT, created_by INTEGER |
+| partner_transactions | id INTEGER PK, partner_id INTEGER FK, date TEXT, type TEXT, amount INTEGER, ownership_snapshot REAL, reference_type TEXT, reference_id INTEGER, notes TEXT, created_by INTEGER |
+| accounts | id INTEGER PK, parent_id INTEGER FK self, code TEXT UNIQUE, name TEXT, type TEXT |
+| journal_entries | id INTEGER PK, station_id INTEGER FK nullable, date TEXT, reference_type TEXT, reference_id INTEGER, description TEXT, status TEXT, created_by INTEGER, created_at TEXT |
+| journal_lines | id INTEGER PK, journal_entry_id INTEGER FK, account_id INTEGER FK, beneficiary_id INTEGER FK nullable, worker_id INTEGER FK nullable, partner_id INTEGER FK nullable, debit INTEGER, credit INTEGER, memo TEXT |
+| general_accounts | id INTEGER PK, station_id INTEGER FK, name TEXT, phone TEXT, address TEXT, opening_balance INTEGER, notes TEXT, active INTEGER, created_at TEXT, updated_at TEXT |
+| general_account_transactions | id INTEGER PK, station_id INTEGER FK, account_id INTEGER FK, date TEXT, type TEXT, amount INTEGER, reference_number TEXT, notes TEXT, created_by INTEGER FK nullable, created_at TEXT |
+| sync_queue | id INTEGER PK, operation TEXT, table_name TEXT, record_id INTEGER nullable, payload TEXT, status TEXT, attempts INTEGER, last_error TEXT, created_at TEXT, updated_at TEXT |
+
+**تنبيه:** الجداول التي أضيفت في `_createHelpers` أو migrations (مثل `beneficiary_manual_debts` و`cash_reconciliations` و`period_closures` و`accountant_reconciliation_months`) يجب أخذ تعريفها من نسخة قاعدة runtime ذات إصدار 22 عند بناء قاموس نهائي آلي. هذا الجدول ليس بديلًا عن استخراج `PRAGMA table_info` من قاعدة المحطة الفعلية.
