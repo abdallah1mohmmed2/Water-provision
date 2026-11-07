@@ -25,7 +25,9 @@
 | ملف المخطط | `assets/db/001_initial.sql` | هو مرجع إنشاء الجداول الأساسية، لكنه ليس وحده كامل المخطط |
 | جداول مساعدة وترقيات | `_createHelpers` وترقيات حتى 22 في `database.dart` | بعض الجداول والأعمدة أُنشئت خارج SQL الأولي |
 | Backend | `server/lib/server.dart`، Shelf Router، JWT، SQLite | توجد API حقيقية؛ لا ينبغي افتراض أن Functions موجودة |
-| Firebase SDK | `firebase_core` موجود في `pubspec.yaml` | وجود Firebase Core لا يثبت تفعيل Auth/Firestore/Storage/FCM |
+| Firebase SDK | `firebase_core` وتهيئة `Firebase.initializeApp` موجودان؛ `firebase_options.dart` يشير حاليًا إلى المشروع `water-provision` | التهيئة الحالية لمشروع واحد، وليست provisioning لمشروع مستقل لكل محطة |
+| إعداد Android | `android/app/google-services.json` موجود | يلزم فصل إعدادات البناء حسب المحطة/البيئة وعدم إعادة استخدام config واحد لكل المحطات |
+| Sync client | `lib/services/sync_service.dart` موجود ويقرأ `sync_queue` ويرسل `POST /sync` | توجد محاولة مزامنة أولية، لكنها لا تثبت اكتمال مزامنة آمنة أو توافق API؛ يجب التحقق من endpoint قبل تفعيلها |
 | المزامنة | جدول `sync_queue` موجود | وجود الجدول وحده لا يثبت وجود محرك مزامنة مكتمل |
 | هوية المدير | `app_users` ينشأ في `_createHelpers` ويحتوي `password_hash` و`role` | يلزم ربط هوية Firebase UID بحساب التطبيق دون ترحيل كلمات المرور كنص |
 | المستفيد | API مستقلة لرمز تحقق وجلسة مستفيد في الخادم | يجب ترحيلها إلى Auth أو ربطها به بحذر مع الحفاظ على سياسة الدخول |
@@ -397,7 +399,7 @@ stations/{stationKey}/exports/{exportUuid}.pdf
 
 - هذه الوثيقة مبنية على مراجعة `database.dart` و`001_initial.sql` و`server.dart` و`pubspec.yaml` على commit المذكور أعلى الوثيقة.
 - لم يتم فتح قاعدة SQLite إنتاجية أو استخراج `sqlite_master` منها؛ لذلك يجب إجراء جرد runtime على نسخة قاعدة حقيقية قبل أي migration سحابي.
-- لم يتم التحقق من ملفات Firebase المنصة أو Firebase Console أو قواعد Firestore؛ وجود `firebase_core` وحده لا يكفي لإثبات جاهزية أي خدمة.
+- لم يتم التحقق من ملفات Firebase المنصة أو Firebase Console أو قواعد Firestore؛ يوجد بالفعل `firebase_options.dart` وتهيئة `Firebase.initializeApp` وملف Android `google-services.json`، ويشير إعداد Dart الحالي إلى مشروع Firebase واحد اسمه `water-provision`. لكن الحزم الظاهرة لا تثبت وجود Auth/Firestore/Storage/FCM، كما أن هذا الإعداد الحالي لا يحقق بعد قرار مشروع مستقل لكل محطة.
 - لم يتم بناء أو تشغيل Firebase أو تعديل التطبيق أو ترحيل بيانات.
 - لا تعتبر مسارات Firestore والحقول الجديدة أعلاه موجودة حاليًا؛ إنها مواصفات مقترحة.
 - لا يتم دمج هذا الفرع إلى `main` إلا بعد مراجعتك وموافقتك الصريحة.
