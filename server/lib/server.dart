@@ -346,10 +346,10 @@ class SaqiaServer {
             'message':duplicate.first['status']=='conflict'?'الحدث مسجل كتعارض سابق':'الحدث مسجل مسبقاً'});
           continue;
         }
-        // New clients identify entities by UUID. On first contact, bridge
-        // the old table:local_id version key without resetting its server version.
+        // New clients identify entities by UUID. Bridge the previous
+        // table:local_id version key without resetting its server version.
         if (payload is Map && payload['_global_id'] != null) {
-          final globalId = '${payload['_global_id']}';
+          final globalId = '\${payload['_global_id']}';
           final validGlobalId = RegExp(
             r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}
         final currentVersion = currentRows.isEmpty ? 0 : (currentRows.first['version'] as num).toInt();
