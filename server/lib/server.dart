@@ -235,7 +235,7 @@ class SaqiaServer {
     }
     return await fn(r, claims);
   };
-  Handler _beneficiaryAuth(Future<Response> Function(Request,Map<String,dynamic>) fn)=>(Request r) async { final c=_verify(r); if(c==null||c['kind']!='beneficiary')return _json({'error':'جلسة المستفيد غير صالحة'},status:401); final exp=db.select('SELECT id FROM beneficiary_sessions WHERE beneficiary_id=? AND token_hash=? AND revoked_at IS NULL AND expires_at>? LIMIT 1',[c['beneficiaryId'],c['session'],DateTime.now().toIso8601String()]); if(exp.isEmpty)return _json({'error':'جلسة المستفيد منتهية'},status:401); return await fn(r,c); };
+  Handler _beneficiaryAuth(Future<Response> Function(Request,Map<String,dynamic>) fn)=>(Request r) async { final c=_verify(r); if(c==null||c['kind']!='beneficiary')return _json({'error':'جلسة المستفيد غير صالحة'},status:401); final exp=db.select("SELECT bs.id FROM beneficiary_sessions bs JOIN beneficiaries b ON b.id=bs.beneficiary_id WHERE bs.beneficiary_id=? AND bs.token_hash=? AND bs.revoked_at IS NULL AND bs.expires_at>? AND b.status='active' LIMIT 1",[c['beneficiaryId'],c['session'],DateTime.now().toIso8601String()]); if(exp.isEmpty)return _json({'error':'جلسة المستفيد منتهية'},status:401); return await fn(r,c); };
 
   int _stationForUser(int? userId) {
     if (userId == null || userId <= 0) {
