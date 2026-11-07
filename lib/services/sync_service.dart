@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../api/api_client.dart';
 import '../data/local/database.dart';
+import '../data/local/global_identity.dart';
 
 typedef IncomingSyncApplier = Future<void> Function(
   Map<String, dynamic> event,
@@ -116,13 +117,36 @@ class SyncService {
         'id=?',
         [row['id']],
       );
+      final table = row['table_name'] as String;
+      final recordId = (row['record_id'] as num?)?.toInt();
+      var payload = Map<String, dynamic>.from(
+        jsonDecode(row['payload'] as String) as Map,
+      );
+      if (recordId != null && payload['_global_id'] == null) {
+        payload = Map<String, dynamic>.from(
+          await GlobalIdentity.decoratePayload(
+            await db.db,
+            table,
+            payload,
+            recordId,
+          ),
+        );
+        await db.update(
+          'sync_queue',
+          {'payload': jsonEncode(payload)},
+          'id=?',
+          [row['id']],
+        );
+      }
       events.add({
         'event_id': eventId,
-        'entity_type': row['table_name'],
-        'entity_key': '${row['table_name']}:${row['record_id'] ?? eventId}',
+        'entity_type': table,
+        'entity_key': recordId == null
+            ? '${table}:$eventId'
+            : GlobalIdentity.entityKey(table, payload),
         'operation': row['operation'],
         'base_version': (row['base_version'] as num?)?.toInt() ?? 0,
-        'payload': jsonDecode(row['payload'] as String),
+        'payload': payload,
       });
     }
 
@@ -167,15 +191,19 @@ class SyncService {
           if (nextStatus == 'acknowledged' || nextStatus == 'conflict') {
             final eventRows = await tx.query(
               'sync_queue',
-              columns: ['table_name', 'record_id'],
+              columns: ['table_name', 'record_id', 'payload'],
               where: 'event_id=?',
               whereArgs: [eventId],
               limit: 1,
             );
             if (eventRows.isNotEmpty) {
               final entityType = '${eventRows.first['table_name']}';
-              final entityKey =
-                  '$entityType:${eventRows.first['record_id'] ?? eventId}';
+              final entityPayload = Map<String, dynamic>.from(
+                jsonDecode(eventRows.first['payload'] as String) as Map,
+              );
+              final entityKey = (eventRows.first['record_id'] == null)
+                  ? '$entityType:$eventId'
+                  : GlobalIdentity.entityKey(entityType, entityPayload);
               final serverVersion = nextStatus == 'conflict'
                   ? (item['current_version'] as num?)?.toInt() ?? 0
                   : (item['server_version'] as num?)?.toInt() ??
