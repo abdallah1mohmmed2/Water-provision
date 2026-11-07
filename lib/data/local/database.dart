@@ -1,5 +1,6 @@
 import '../../core/app_clock.dart';
 import 'dart:convert';
+import 'package:uuid/uuid.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -25,7 +26,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 25,
+      version: 26,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -542,6 +543,58 @@ class AppDatabase {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL
     )''');
+    await d.execute('''CREATE TABLE IF NOT EXISTS sync_entity_versions (
+      entity_type TEXT NOT NULL,
+      entity_key TEXT NOT NULL,
+      server_version INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(entity_type, entity_key)
+    )''');
+    await d.execute('''CREATE TABLE IF NOT EXISTS sync_change_log (
+      table_name TEXT NOT NULL,
+      record_id INTEGER NOT NULL,
+      operation TEXT NOT NULL,
+      PRIMARY KEY(table_name, record_id)
+    )''');
+
+    // Capture business writes at the SQLite transaction boundary.
+    const syncTables = [
+      'pumps', 'beneficiaries', 'partners', 'workers', 'irrigations',
+      'cloud_periods', 'diesel_movements', 'payment_methods', 'cashboxes',
+      'cashbox_transfers', 'payments', 'expenses', 'worker_transactions',
+      'partner_transactions', 'journal_entries', 'journal_lines',
+      'queue_entries', 'booking_requests', 'irrigation_sessions',
+      'beneficiary_manual_debts', 'general_accounts',
+      'general_account_transactions', 'period_closures',
+      'cash_reconciliations',
+    ];
+    for (final table in syncTables) {
+      final tableInfo = await d.rawQuery('PRAGMA table_info($table)');
+      if (tableInfo.isEmpty || !tableInfo.any((row) => row['name'] == 'id')) {
+        continue;
+      }
+      await d.execute('''CREATE TRIGGER IF NOT EXISTS sync_${table}_insert
+        AFTER INSERT ON $table BEGIN
+          INSERT INTO sync_change_log(table_name,record_id,operation)
+          VALUES('$table',NEW.id,'create')
+          ON CONFLICT(table_name,record_id) DO UPDATE SET operation=
+            CASE WHEN sync_change_log.operation IN ('create','noop') THEN 'create' ELSE 'update' END;
+        END''');
+      await d.execute('''CREATE TRIGGER IF NOT EXISTS sync_${table}_update
+        AFTER UPDATE ON $table BEGIN
+          INSERT INTO sync_change_log(table_name,record_id,operation)
+          VALUES('$table',NEW.id,'update')
+          ON CONFLICT(table_name,record_id) DO UPDATE SET operation=
+            CASE WHEN sync_change_log.operation='create' THEN 'create' ELSE 'update' END;
+        END''');
+      await d.execute('''CREATE TRIGGER IF NOT EXISTS sync_${table}_delete
+        AFTER DELETE ON $table BEGIN
+          INSERT INTO sync_change_log(table_name,record_id,operation)
+          VALUES('$table',OLD.id,'delete')
+          ON CONFLICT(table_name,record_id) DO UPDATE SET operation=
+            CASE WHEN sync_change_log.operation='create' THEN 'noop' ELSE 'delete' END;
+        END''');
+    }
   }
 
   Future<void> _seed(Database d) async {
@@ -731,18 +784,81 @@ class AppDatabase {
     String table,
     Map<String, Object?> values, {
     ConflictAlgorithm? conflictAlgorithm,
-  }) async =>
-      (await db).insert(table, values, conflictAlgorithm: conflictAlgorithm);
+  }) async => transaction(
+    (tx) => tx.insert(table, values, conflictAlgorithm: conflictAlgorithm),
+  );
+
   Future<int> update(
     String table,
     Map<String, Object?> values,
     String where,
     List<Object?> args,
-  ) async => (await db).update(table, values, where: where, whereArgs: args);
+  ) async => transaction(
+    (tx) => tx.update(table, values, where: where, whereArgs: args),
+  );
+
   Future<int> delete(String table, String where, List<Object?> args) async =>
-      (await db).delete(table, where: where, whereArgs: args);
-  Future<T> transaction<T>(Future<T> Function(Transaction tx) action) async =>
-      (await db).transaction(action);
+      transaction((tx) => tx.delete(table, where: where, whereArgs: args));
+
+  /// Saves domain mutations and their Outbox events in one SQLite transaction.
+  Future<T> transaction<T>(Future<T> Function(Transaction tx) action) async {
+    final database = await db;
+    return database.transaction((tx) async {
+      await tx.delete('sync_change_log');
+      final result = await action(tx);
+      final changes = await tx.query('sync_change_log');
+      final now = DateTime.now().toUtc().toIso8601String();
+      for (final change in changes) {
+        final table = '${change['table_name']}';
+        final recordId = (change['record_id'] as num).toInt();
+        final operation = '${change['operation']}';
+        if (operation == 'noop') continue;
+
+        Map<String, Object?> payload = {'id': recordId};
+        if (operation != 'delete') {
+          final rows = await tx.query(
+            table,
+            where: 'id=?',
+            whereArgs: [recordId],
+            limit: 1,
+          );
+          if (rows.isEmpty) continue;
+          payload = Map<String, Object?>.from(rows.first);
+        }
+
+        final key = '$table:$recordId';
+        final versionRows = await tx.query(
+          'sync_entity_versions',
+          columns: ['server_version'],
+          where: 'entity_type=? AND entity_key=?',
+          whereArgs: [table, key],
+          limit: 1,
+        );
+        final serverVersion = versionRows.isEmpty
+            ? 0
+            : (versionRows.first['server_version'] as num).toInt();
+        final pendingRows = await tx.rawQuery(
+          "SELECT COUNT(*) AS n FROM sync_queue WHERE table_name=? AND record_id=? AND status IN ('pending','sending')",
+          [table, recordId],
+        );
+        final pendingCount = (pendingRows.first['n'] as num?)?.toInt() ?? 0;
+        await tx.insert('sync_queue', {
+          'operation': operation,
+          'table_name': table,
+          'record_id': recordId,
+          'payload': jsonEncode(payload),
+          'event_id': const Uuid().v4(),
+          'base_version': serverVersion + pendingCount,
+          'status': 'pending',
+          'attempts': 0,
+          'created_at': now,
+          'updated_at': now,
+        });
+      }
+      await tx.delete('sync_change_log');
+      return result;
+    });
+  }
   Future<void> close() async {
     final d = _db;
     _db = null;
