@@ -1,131 +1,69 @@
-# تأسيس Firebase لمحطة تجريبية — المرحلة صفر (فحص ما قبل الربط)
+# تأسيس Firebase لمحطة «منظومة» — المرحلة التأسيسية
 
-> الحالة: فحص موثق على فرع `feature/firebase-station-foundation`.
-> النطاق: لا تغيير في قاعدة بيانات محطة حقيقية، ولا إنشاء مشروع Firebase سحابي، ولا نقل عمليات مالية.
-> الفرع الأساسي: `main`.
+> الفرع: `feature/firebase-station-foundation`
+> الفرع الأساسي لطلب المراجعة: `main`
+> سياسة التنفيذ: لا دمج إلى `main` دون موافقة صريحة. SQLite تبقى Offline-first ومصدر التشغيل المحلي.
 
-## 1. نتيجة الفحص الحالي
+## 1. هوية مشروع المحطة
 
-| المكوّن | الحالة التي أكدها الكود | القرار |
-|---|---|---|
-| Flutter Firebase | `firebase_core: ^5.0.0` فقط ضمن الاعتماديات | لا توجد بعد حزم Auth أو Firestore أو Storage أو Messaging |
-| بدء التطبيق | `main.dart` يهيئ Firebase على Android فقط | يلزم جعل اختيار مشروع المحطة صريحًا قبل التوسع |
-| إعداد Firebase | `firebase_options.dart` يحتوي إعداد Android ثابتًا لمشروع واحد هو `water-provision` | لا يجوز إعادة استخدامه تلقائيًا لكل محطة |
-| إعداد Android | يوجد إعداد Google Services حالي للمشروع الواحد | يجب فصل إعدادات البناء للمحطة التجريبية عن بقية المحطات وعدم إدخال ملفات مفاتيح خاصة |
-| SQLite | إصدار المخطط الحالي 22، وقاعدة التشغيل المحلية هي `saqia_station_v2.db` | تبقى SQLite مصدر التشغيل المحلي في المرحلة التجريبية |
-| هوية المستخدم | جدول `app_users` يحفظ username وpassword_hash وrole | لا تُنقل password_hash إلى Firebase/Firestore؛ يلزم ربط UID بحساب محلي بطريقة تحقق آمنة |
-| الخادم | Shelf API يستخدم JWT وله مسارات `/api/v1/*`، والعمليات المالية تنفذ في الخادم | تبقى الكتابات المالية الحساسة في الخادم إلى أن يعتمد تصميم موثق بديل |
-| المزامنة الحالية | `SyncService.push()` يرسل `POST /sync`، بينما `ApiClient` يضيف تلقائيًا `/api/v1` ولا يوجد مسار `/api/v1/sync` في Router الذي فُحص | المزامنة الحالية غير متوافقة ظاهريًا مع عقد الخادم؛ لا نفعّلها ولا نبني فوقها قبل إصلاح عقدها واختباره |
-| قائمة المزامنة | `sync_queue` يحوي operation/table_name/record_id/payload/status/attempts/errors/timestamps | ينقصه UUID ثابت وidempotency key وإصدار/حالة تعارض؛ لا يصلح وحده لمزامنة إنتاجية آمنة |
-
-## 2. حدود ما تم التحقق منه
-
-- تمت مراجعة `pubspec.yaml` و`lib/main.dart` و`lib/firebase_options.dart` و`lib/api/api_client.dart` و`lib/services/sync_service.dart` و`lib/data/local/database.dart` و`server/lib/server.dart` و`server/pubspec.yaml` و`assets/db/001_initial.sql`.
-- إصدار SQLite 22 مؤكد من `AppDatabase`.
-- مسارات API المؤكدة في Router تبدأ بـ `/api/v1`، ولم يظهر مسار `/api/v1/sync`.
-- لم يتم فحص قاعدة بيانات محطة فعلية أو بيانات مستخدمين.
-- لم يتم التحقق من إعدادات Firebase Console أو ملكية/صلاحيات حساب Google Cloud، لذلك لا ندعي إنشاء مشروع جديد أو تفعيل الخدمات.
-
-## 3. قرار المرحلة التجريبية
-
-1. اختيار محطة واحدة تجريبية وتخصيص Firebase Project مستقل لها.
-2. عدم ربط أي محطة أخرى بهذا المشروع.
-3. SQLite تظل قاعدة العمل الأساسية محليًا، ويكون الاتصال السحابي اختياريًا ولا يعطل العمل دون إنترنت.
-4. إبقاء تسجيل الدخول الحالي فعالًا إلى أن يُنفذ ربط UID مع اختبارات استعادة الحساب والصلاحيات.
-5. منع كتابة القيود والمدفوعات والأرصدة مباشرة من العميل إلى Firestore؛ تبقى عبر الخادم الموثوق مع تحقق الدور والمحطة ومفتاح منع التكرار.
-6. لا مزامنة للبيانات التاريخية أو المالية الحقيقية في أول اختبار؛ نستخدم بيانات تجريبية اصطناعية.
-7. لا يتم اعتماد اختيار Firebase Project من قيمة يرسلها المستخدم أو من station_id وحده؛ اختيار إعداد المشروع يكون من إعداد بناء موثوق خاص بالمحطة.
-
-## 4. مراحل التنفيذ التالية
-
-### المرحلة 1 — إعداد المحطة التجريبية
-- استلام/إنشاء Firebase Project خاص بالمحطة التجريبية من حساب مالك المشروع.
-- تسجيل تطبيق Android التجريبي في المشروع وإعداد Firebase options بطريقة build-time.
-- إضافة Firebase Auth وFirestore فقط بعد تثبيت project id وpackage name وبيئة الاختبار.
-- حفظ ملفات الإعداد العامة المطلوبة للبناء دون مفاتيح خادم أو service-account credentials.
-- توثيق طريقة بناء نسخة المحطة التجريبية وعدم خلطها بإعداد `water-provision` الحالي.
-
-### المرحلة 2 — الهوية والصلاحيات
-- ربط UID بحساب `app_users` دون نقل password_hash.
-- تحديد الأدوار من مصدر موثوق والتحقق منها في الخادم وقواعد Firestore.
-- اختبار منع مستخدم محطة من الوصول إلى مشروع محطة أخرى.
-- إبقاء مسار الرجوع لتسجيل الدخول الحالي خلال الاختبار.
-
-### المرحلة 3 — مزامنة آمنة محدودة
-- تصميم outbox بمعرف UUID ثابت وidempotency key وإعادة المحاولة وحالات التعارض.
-- إصلاح/تحديد عقد المزامنة بين العميل والخادم قبل تشغيله.
-- اختبار سجل تجريبي غير مالي على جهازين، مع فصل offline/retry/duplicate/conflict.
-- إضافة تدقيق للعمليات وتوثيق الاستعادة.
-
-### المرحلة 4 — التحقق قبل التوسع
-- Flutter Analyze واختبارات الوحدة والتكامل وبناء APK.
-- اختبار العمل دون إنترنت ثم عودة الاتصال.
-- اختبار العزل والصلاحيات ومنع تكرار العمليات.
-- مراجعة السجلات والنتائج قبل نقل أي بيانات حقيقية أو الانتقال إلى التطبيقات الجانبية.
-
-## 5. متطلبات خارج GitHub
-
-إنشاء Firebase Project وربط Android App يتطلب صلاحية على حساب Google/Firebase Console الخاص بالمالك. لا يمكن استنتاج هذه الصلاحية من وجود `google-services.json` الحالي. لا تضع service-account JSON أو مفاتيح Admin SDK أو كلمات مرور في المستودع أو المحادثة.
-
-قبل تفعيل المرحلة 1 نحتاج تحديد المحطة التجريبية (اسم/معرّف داخلي غير حساس) وتأكيد Android applicationId الفعلي من Gradle، ثم تجهيز مشروع Firebase الجديد من حساب المالك. لا نطلب أو نحتاج بيانات مالية حقيقية لهذه المرحلة.
-
-## 6. سجل التنفيذ
-
-| المرحلة | النتيجة |
+| البيان | القيمة |
 |---|---|
-| إنشاء فرع تجريبي من main | تم |
-| مراجعة Firebase الحالي | تمت |
-| مراجعة SQLite ونسخة المخطط | تمت؛ الإصدار 22 |
-| مراجعة عقد API والمزامنة | تمت؛ ظهر عدم توافق `/sync` مع Router الحالي |
-| إعداد خيارات Firebase وقت البناء | أضيفت طبقة اختيارية تقرأ إعدادات مشروع المحطة من `--dart-define`؛ لا يوجد fallback صامت إلى مشروع `water-provision` |\n| اختبار طبقة خيارات Firebase | أضيفت 3 اختبارات وحدات؛ لم تُشغّل بعد على بيئة Flutter |\n| إضافة SDKs أو تفعيل Auth/Firestore | لم يتم؛ ينتظر تثبيت إعداد مشروع المحطة التجريبية |
-| تعديل قاعدة بيانات المستخدم | لم يتم |
-| اختبار Analyze/APK | لم يتم تشغيله بعد هذه المرحلة |
+| اسم المحطة | منظومة |
+| Firebase Project ID | `manzoma-ststion` |
+| Android applicationId | `com.saqia.saqia_station` |
+| Firebase Android App ID | `1:1004981299919:android:5bb7d98823849b43e565ba` |
+| ملف إعداد Android | `android/app/google-services.json` |
 
-## 7. التهيئة البرمجية الأولية على الفرع
+مصدر الملف هو `google-services.json` المرفوع في الفرع `docs/firebase-database-architecture`. تمت قراءة الملف والتحقق من JSON وProject ID وPackage Name، ثم نسخه إلى موضع Android الصحيح في هذا الفرع. لم يتم تعديل `main`.
 
-أضيفت الملفات التالية:
+## 2. ما تم تنفيذه في الكود
 
-- `lib/firebase/station_firebase_config.dart`: يبني `FirebaseOptions` من قيم وقت البناء، ويرفض التهيئة إذا غابت أي قيمة إلزامية.
-- `lib/main.dart`: لم يعد يتصل تلقائيًا بمشروع Firebase الثابت `water-provision`. إذا لم تُمرر إعدادات المحطة، يستمر التطبيق محليًا دون Firebase بدل الاتصال بمشروع محطة أخرى.
-- `test/firebase/station_firebase_config_test.dart`: اختبارات تحقق من القيم الناقصة، وتنظيف المسافات، وخيار Storage الاختياري.
+- أضيف `lib/firebase/station_firebase_config.dart` لتهيئة Firebase من قيم وقت البناء.
+- إذا لم توجد القيم المطلوبة، يبقى Firebase غير مهيأ ويستمر التطبيق محليًا دون fallback إلى مشروع آخر.
+- تم تثبيت هذا الفرع التجريبي على Project ID `manzoma-ststion` داخل طبقة الإعداد؛ أي Project ID مختلف يُرفض.
+- أضيف Google Services Gradle plugin بإصدار `4.4.4` إلى `android/settings.gradle.kts` وطُبق على تطبيق Android.
+- أضيف `tooling/prepare_firebase_dart_defines.py` لاستخراج قيم Firebase العامة من ملف JSON، والتحقق من وجود عميل Android واحد مطابق للحزمة، والتحقق من Project ID الخاص بالفرع.
+- تم تحديث `.github/workflows/buildr.yml` و`.github/workflows/build-apk.yml` لتمرير إعدادات المشروع الصحيح إلى أوامر Flutter build. أضيف فرع المحطة إلى مسار بناء APK ورفع Artifact.
+- أضيف اختبار لحالة عدم وجود إعدادات، واختبارات القيم الناقصة، والتهيئة الصحيحة، ورفض مشروع محطة أخرى، وStorage Bucket الاختياري.
 
-لبناء نسخة Android للمحطة التجريبية بعد تجهيز مشروعها، تمرر القيم العامة الخاصة بتطبيق Android المسجل في ذلك المشروع:
+## 3. قواعد Firestore والأمان
+
+- أضيف `firebase.json` لربط إعداد Firebase CLI بملف `firestore.rules`.
+- القواعد الحالية **deny-all**: تمنع جميع عمليات القراءة والكتابة إلى أن يكتمل نظام الهوية والصلاحيات.
+- لم يتم نشر القواعد إلى Firebase Console؛ وجودها في GitHub لا يعني أنها مطبقة على المشروع السحابي.
+- لم تتم إضافة Firebase Auth أو Cloud Firestore Flutter packages حتى الآن، ولم يتم تفعيل أي موفر تسجيل دخول أو إنشاء قاعدة Firestore من Console.
+
+## 4. لماذا لم نفعل Firebase Auth بعد؟
+
+التطبيق الحالي لا يستخدم Firebase Auth. تسجيل الدخول الإداري يعتمد جدول `app_users` ورموز JWT يصدرها خادم Shelf، وتسجيل المستفيد له مسار خادمي منفصل. لا يصح استبدال ذلك مباشرةً بـFirebase Auth أو نقل `password_hash` إلى Firestore.
+
+قبل فتح Firestore يجب تنفيذ تصميم موثوق يربط Firebase UID بحساب التطبيق المحلي، ويثبت المحطة والدور من جهة الخادم، ويمنع المستخدم من تغيير `station_id` أو الدور بنفسه. يجب أن تكون Custom Claims أو بيانات الصلاحيات تحت تحكم الخادم فقط، مع اختبارات رفض الوصول بين المحطات والأدوار. تظل العمليات المالية الحساسة على الخادم.
+
+## 5. المزامنة وقاعدة البيانات
+
+- إصدار SQLite الحالي 22، وتبقى قاعدة التشغيل المحلية `saqia_station_v2.db`.
+- لم يتم تغيير مخطط SQLite أو ترحيل بيانات.
+- تمت مراجعة `SyncService`: يرسل `POST /sync`، بينما `ApiClient` يضيف `/api/v1`، ولم يظهر مسار `/api/v1/sync` في Router الذي تمت مراجعته.
+- جدول `sync_queue` يفتقد UUID ثابتًا وIdempotency Key وبيانات إصدار/تعارض.
+- لذلك لم يتم تشغيل المزامنة ولم يتم نقل أي بيانات تشغيلية أو مالية. يلزم إصلاح عقد API وتصميم Outbox آمن واختباره على بيانات اصطناعية قبل المزامنة.
+
+## 6. تشغيل إعدادات البناء محليًا
+
+من جذر المستودع، بعد التأكد من أن `android/app/google-services.json` خاص بالمحطة التجريبية:
 
 ```bash
-flutter build apk --release \
-  --dart-define=SAQIA_FIREBASE_API_KEY=... \
-  --dart-define=SAQIA_FIREBASE_APP_ID=... \
-  --dart-define=SAQIA_FIREBASE_MESSAGING_SENDER_ID=... \
-  --dart-define=SAQIA_FIREBASE_PROJECT_ID=... \
-  --dart-define=SAQIA_FIREBASE_STORAGE_BUCKET=...
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --release $(python3 tooling/prepare_firebase_dart_defines.py)
 ```
 
-هذه القيم إعدادات تعريف تطبيق Firebase وليست مفاتيح Admin SDK. لا تُمرر أي service-account key أو سر خادمي إلى التطبيق. لم تُضف بعد حزم Auth/Firestore لأن ربطها قبل إنشاء مشروع الاختبار وتحديد تدفق الهوية وقواعد الوصول قد يفتح اتصالًا غير مقصود أو يثبت عقدًا خاطئًا.
+السكربت يتحقق من المشروع والحزمة ويطبع معاملات `--dart-define` المطلوبة. هذه إعدادات Firebase client العامة وليست Service Account أو مفاتيح Admin SDK. لا تُمرر أي مفاتيح خادم أو بيانات اعتماد إدارية إلى التطبيق.
 
+## 7. حالة التحقق وحدودها
 
-## 8. ملف Firebase للمحطة التجريبية
-
-- المصدر: `google-services.json` في الفرع `docs/firebase-database-architecture`.
-- الوجهة: `android/app/google-services.json` في هذا الفرع.
-- `project_id`: `manzoma-ststion`.
-- `package_name`: `com.saqia.saqia_station`.
-- `mobilesdk_app_id`: `1:1004981299919:android:5bb7d98823849b43e565ba`.
-- تم التحقق من JSON وتطابق المشروع والحزمة قبل النسخ.
-- ملف `main` لم يتغير.
-
-## 9. تهيئة Android وCI وقواعد Firestore
-
-- أضيف Google Services Gradle plugin بإصدار `4.4.4` في `android/settings.gradle.kts` وطُبق على `:app`.
-- أضيف `tooling/prepare_firebase_dart_defines.py` لاستخراج إعدادات العميل العامة من ملف JSON. يرفض غياب التطبيق أو تكراره، ويتحقق من أن فرع `feature/firebase-station-foundation` لا يستهدف إلا `manzoma-ststion`.
-- تم تحديث `.github/workflows/buildr.yml` و`.github/workflows/build-apk.yml` لتمرير القيم المستخرجة إلى `flutter build`. وأضيف فرع المحطة إلى مسار بناء APK وإنتاج Artifact.
-- أضيف `firebase.json` و`firestore.rules`. القواعد الحالية تمنع كل قراءة وكتابة عمدًا؛ لا توجد صلاحيات عميل قبل إكمال نظام الهوية والصلاحيات.
-- لم تتم إضافة Firebase Auth أو Cloud Firestore Flutter packages، ولم يتم تفعيل Auth أو إنشاء/نشر قاعدة Firestore من Console.
-- السبب: تسجيل الدخول الحالي يستخدم حسابات `app_users` ورموز JWT من الخادم، بينما Firebase Auth يعتمد UID وموفري دخول. يجب تصميم ربط موثوق بين UID والحساب المحلي والأدوار، مع قواعد/Custom Claims يضبطها الخادم فقط، قبل السماح بالوصول إلى بيانات المحطة.
-- لم يتم تفعيل أي مزامنة، ولم يتم نقل بيانات تشغيلية أو مالية.
-
-## 10. التحقق المطلوب
-
-- انتظار CI على أحدث commit: Flutter Analyze، Flutter tests، SonarCloud، Android Build، ثم Release APK workflow.
-- لا يعلن نجاح البناء أو توفر APK إلا بعد نجاح المهام وظهور Artifact.
-- بعد نجاح CI، يلزم من مالك Firebase تفعيل Authentication وCloud Firestore من Console، ثم مراجعة قواعد الأمان ونشرها بعد إضافة اختبارات العزل والصلاحيات.
-- تبقى SQLite محلية ومصدر التشغيل الأساسي، وتبقى الكتابات المالية عبر الخادم الموثوق.
+- أضيفت تغييرات Gradle وCI والاختبارات إلى الفرع وطلب السحب رقم 35.
+- أُطلقت تشغيلات CI جديدة على أحدث commit. عند آخر استعلام كانت مهام Flutter Analyze وSonarCloud وBuild قيد التنفيذ؛ لا نسجل نجاحًا قبل ظهور نتيجة نهائية ناجحة.
+- يجب أيضًا التأكد من تشغيل Release APK workflow وظهور Artifact قبل إعلان أن ملف APK جاهز.
+- إنشاء Firebase Project وتسجيل Android App تم تأكيدهما من ملف الإعداد، لكن تفعيل Authentication وCloud Firestore ونشر القواعد يتطلبان صلاحية في Firebase Console ولم ندّع تنفيذهما.
+- لم يتم تعديل أو دمج أي شيء إلى `main`.
