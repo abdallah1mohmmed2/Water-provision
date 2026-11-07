@@ -452,6 +452,17 @@ class SyncService {
     return applied;
   }
 
+  /// Retries only dependency-order failures after a later Inbox page may
+  /// have delivered the missing parent entity.
+  Future<int> retryDeferredInbox() async {
+    return db.update(
+      'sync_inbox',
+      {'status': 'pending', 'last_error': null},
+      "status='failed' AND (last_error LIKE '%لم يصل بعد%' OR last_error LIKE '%قبل إنشاء السجل%' OR last_error LIKE '%تسلسل إصدار%')",
+      const [],
+    );
+  }
+
   /// Makes failed events eligible for a deliberate retry after their
   /// prerequisite records or local configuration have been repaired.
   Future<int> retryFailedInbox({String? eventId}) async {
