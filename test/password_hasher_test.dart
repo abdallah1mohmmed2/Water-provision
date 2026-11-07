@@ -28,7 +28,7 @@ void main() {
 
     test('rejects malformed and unsupported password hashes', () async {
       expect(await PasswordHasher.verify('password', 'not-a-valid-hash'), isFalse);
-      expect(await PasswordHasher.verify('password', 'a' * 64), isFalse);
+      expect(await PasswordHasher.verify('password', List.filled(64, 'a').join()), isFalse);
     });
   });
 }
