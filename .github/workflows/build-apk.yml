@@ -28,6 +28,21 @@ jobs:
       - name: جلب الحزم والمكتبات
         run: flutter pub get
 
+      - name: تجهيز واختبار خادم المزامنة
+        working-directory: ./server
+        run: |
+          dart pub get
+          dart format --output=none --set-exit-if-changed lib/server.dart test/sync_protocol_test.dart
+          dart analyze
+          dart test
+
+      - name: تنسيق وفحص ملفات Outbox
+        run: |
+          dart format --output=none --set-exit-if-changed \
+            lib/data/local/database.dart \
+            lib/services/sync_service.dart \
+            test/database_sync_outbox_test.dart
+
       - name: Test station Firebase build configuration
         run: python3 -m unittest discover -s tooling -p 'test_*.py'
 
