@@ -7,6 +7,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:uuid/uuid.dart';
+import 'password_hasher.dart';
 
 class SaqiaServer {
   final Database db;
@@ -293,17 +294,46 @@ class SaqiaServer {
         body: jsonEncode({'error': 'محاولات تسجيل الدخول كثيرة؛ حاول بعد 15 دقيقة'}),
         headers: {'content-type': 'application/json; charset=utf-8', 'retry-after': '900'});
     }
-    final passwordHash = _hash(password);
     final rows = db.select(
-      'SELECT id,station_id,name,role FROM app_users WHERE username=? AND password_hash=? AND active=1',
-      [username, passwordHash],
+      'SELECT id,station_id,name,role,password_hash FROM app_users WHERE username=? AND active=1 LIMIT 1',
+      [username],
     );
-    if (rows.isEmpty) {
+    if (rows.isEmpty ||
+        !await PasswordHasher.verify(password, '${rows.first['password_hash'] ?? ''}')) {
       _recordFailedLogin(scopes, now);
       return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
     }
+
+    final row = rows.first;
+    final storedHash = '${row['password_hash'] ?? ''}';
+    if (!PasswordHasher.isArgon2id(storedHash)) {
+      final upgradedHash = await PasswordHasher.hash(password);
+      db.execute(
+        'UPDATE app_users SET password_hash=? WHERE id=? AND password_hash=?',
+        [upgradedHash, row['id'], storedHash],
+      );
+      if (db.select('SELECT changes() AS affected').first['affected'] == 0) {
+        // A concurrent successful login may already have upgraded the hash.
+        final latest = db.select(
+          'SELECT password_hash FROM app_users WHERE id=? AND active=1 LIMIT 1',
+          [row['id']],
+        );
+        if (latest.isEmpty ||
+            !await PasswordHasher.verify(
+              password,
+              '${latest.first['password_hash'] ?? ''}',
+            )) {
+          _recordFailedLogin(scopes, now);
+          return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+        }
+      }
+    }
+
     _clearLoginFailures(scopes);
-    final user = _rows(rows).first;
+    final user = _rows(db.select(
+      'SELECT id,station_id,name,role FROM app_users WHERE id=? AND active=1',
+      [row['id']],
+    )).first;
     return _json({
       'token': _token({'kind': 'admin', 'userId': user['id'], 'stationId': user['station_id'], 'role': user['role']}),
       'user': {'id': user['id'], 'name': user['name'], 'role': user['role']},
