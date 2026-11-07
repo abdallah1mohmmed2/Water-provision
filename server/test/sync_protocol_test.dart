@@ -81,6 +81,28 @@ void main() {
     expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').first['n'],1);
   });
 
+  test('reusing an event id with a different payload is rejected', () async {
+    final first = await postEvents(stationOneToken, [event()]);
+    final changed = event();
+    changed['payload'] = {'name': 'Tampered Beneficiary'};
+    final replay = await postEvents(stationOneToken, [changed]);
+    expect((first['results'] as List).first['status'], 'accepted');
+    expect((replay['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').first['n'], 1);
+    expect(database.select('SELECT payload_json FROM sync_event_log').first['payload_json'],
+        '{"name":"Test Beneficiary"}');
+  });
+
+  test('unsupported entity types are rejected before entering the event log', () async {
+    final invalid = event();
+    invalid['entity_type'] = 'app_users';
+    invalid['entity_key'] = 'app_users:admin';
+    final response = await postEvents(stationOneToken, [invalid]);
+    expect((response['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').first['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_entity_versions').first['n'], 0);
+  });
+
   test('stale base version is recorded as conflict without advancing version', () async {
     await postEvents(stationOneToken,[event()]);
     final stale = event(
