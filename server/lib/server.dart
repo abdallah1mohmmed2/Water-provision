@@ -404,8 +404,32 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
   Future<Response> _restore(Request r,Map<String,dynamic> c) async =>
       _json({'error':'استعادة ملف قاعدة البيانات الكامل معطلة مؤقتاً؛ يلزم التحقق من ملكية المحطة قبل الاستعادة.'}, status:409);
 
-  Future<Response> _beneficiaryRequestCode(Request r) async {final b=await _body(r);final phone='${b['phone']??''}';final rows=db.select("SELECT id FROM beneficiaries WHERE phone=? AND status='active'",[phone]);if(rows.isEmpty)return _json({'error':'رقم الهاتف غير مسجل'},status:404);final id=rows.first['id'] as int;final code=(100000+Random.secure().nextInt(900000)).toString();db.execute('INSERT INTO beneficiary_auth_codes(beneficiary_id,code_hash,expires_at,created_at) VALUES(?,?,?,?)',[id,_hash(code),DateTime.now().add(const Duration(minutes:10)).toIso8601String(),DateTime.now().toIso8601String()]);final out=<String,Object?>{'ok':true,'message':'تم إنشاء رمز آمن صالح لمدة 10 دقائق'};if(Platform.environment['SAQIA_DEV_OTP']=='true')out['dev_code']=code;return _json(out);}
-  Future<Response> _beneficiaryLogin(Request r) async {final b=await _body(r);final phone='${b['phone']??''}';final code='${b['code']??''}';final rows=db.select("SELECT id FROM beneficiaries WHERE phone=? AND status='active'",[phone]);if(rows.isEmpty)return _json({'error':'رقم الهاتف غير مسجل'},status:401);final id=rows.first['id'] as int;final expected=db.select('SELECT id,code_hash,attempts FROM beneficiary_auth_codes WHERE beneficiary_id=? AND used_at IS NULL AND expires_at>? ORDER BY id DESC LIMIT 1',[id,DateTime.now().toIso8601String()]);if(expected.isEmpty)return _json({'error':'الرمز غير صحيح أو منتهي'},status:401);
+  Future<Response> _beneficiaryRequestCode(Request r) async {
+    final body = await _body(r);
+    final phone = '${body['phone'] ?? ''}'.trim();
+    if (phone.isEmpty) return _json({'error': 'رقم الهاتف مطلوب'}, status: 400);
+    final scopes = ['beneficiary-otp-ip:${_loginIp(r)}', 'beneficiary-otp-phone:${_loginIp(r)}:$phone'];
+    final now = DateTime.now().toUtc();
+    if (_loginIsBlocked(scopes, now)) {
+      return Response(429, body: jsonEncode({'error': 'طلبات الرموز كثيرة؛ حاول بعد 15 دقيقة'}),
+        headers: {'content-type': 'application/json; charset=utf-8', 'retry-after': '900'});
+    }
+    final rows = db.select("SELECT id FROM beneficiaries WHERE phone=? AND status='active' ORDER BY id", [phone]);
+    if (rows.isEmpty) return _json({'error': 'رقم الهاتف غير مسجل'}, status: 404);
+    if (rows.length != 1) {
+      return _json({'error': 'رقم الهاتف مرتبط بأكثر من حساب؛ يلزم رقم فريد لكل مستفيد'}, status: 409);
+    }
+    _recordFailedLogin(scopes, now);
+    final id = rows.first['id'] as int;
+    final code = (100000 + Random.secure().nextInt(900000)).toString();
+    final createdAt = now.toIso8601String();
+    db.execute('INSERT INTO beneficiary_auth_codes(beneficiary_id,code_hash,expires_at,created_at) VALUES(?,?,?,?)',
+      [id, _hash(code), now.add(const Duration(minutes: 10)).toIso8601String(), createdAt]);
+    final out = <String, Object?>{'ok': true, 'message': 'تم إنشاء رمز آمن صالح لمدة 10 دقائق'};
+    if (Platform.environment['SAQIA_DEV_OTP'] == 'true') out['dev_code'] = code;
+    return _json(out);
+  }
+  Future<Response> _beneficiaryLogin(Request r) async {final b=await _body(r);final phone='${b['phone']??''}'.trim();final code='${b['code']??''}';final rows=db.select("SELECT id FROM beneficiaries WHERE phone=? AND status='active' ORDER BY id",[phone]);if(rows.isEmpty)return _json({'error':'رقم الهاتف غير مسجل'},status:401);if(rows.length!=1)return _json({'error':'رقم الهاتف مرتبط بأكثر من حساب؛ يلزم رقم فريد لكل مستفيد'},status:409);final id=rows.first['id'] as int;final expected=db.select('SELECT id,code_hash,attempts FROM beneficiary_auth_codes WHERE beneficiary_id=? AND used_at IS NULL AND expires_at>? ORDER BY id DESC LIMIT 1',[id,DateTime.now().toIso8601String()]);if(expected.isEmpty)return _json({'error':'الرمز غير صحيح أو منتهي'},status:401);
     final attempts=(expected.first['attempts'] as int?)??0; if(attempts>=5)return _json({'error':'تم تجاوز عدد محاولات الرمز'},status:429);
     if(expected.first['code_hash']!=_hash(code)){db.execute('UPDATE beneficiary_auth_codes SET attempts=attempts+1 WHERE id=?',[expected.first['id']]);return _json({'error':'الرمز غير صحيح أو منتهي'},status:401);}db.execute('UPDATE beneficiary_auth_codes SET used_at=? WHERE id=?',[DateTime.now().toIso8601String(),expected.first['id']]);final session=const Uuid().v4();db.execute('INSERT INTO beneficiary_sessions(beneficiary_id,token_hash,expires_at,created_at) VALUES(?,?,?,?)',[id,_hash(session),DateTime.now().add(const Duration(hours:12)).toIso8601String(),DateTime.now().toIso8601String()]);return _json({'token':_token({'kind':'beneficiary','beneficiaryId':id,'session':_hash(session)})});}
   int _bid(Map<String,dynamic> c)=>c['beneficiaryId'] as int;
