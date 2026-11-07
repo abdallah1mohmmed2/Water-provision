@@ -21,8 +21,8 @@ void main() {
   });
 
   setUp(() async {
-    await database.delete('sync_queue', '1=1', const []);
     await database.delete('beneficiaries', "name LIKE 'SYNC-TEST-%'", const []);
+    await database.delete('sync_queue', '1=1', const []);
   });
 
   test('create, update and delete writes each create an atomic outbox event', () async {
@@ -124,4 +124,21 @@ void main() {
     );
     expect(events.map((e) => e['base_version']).toList(), [0, 1, 2]);
   });
+  test('remote repository writes can opt out of echoing into the outbox', () async {
+    final now = DateTime.now().toIso8601String();
+    await database.transaction((tx) async {
+      await tx.insert('beneficiaries', {
+        'name': 'SYNC-TEST-remote',
+        'status': 'active',
+        'created_at': now,
+        'updated_at': now,
+      });
+    }, captureSync: false);
+
+    expect(
+      await database.query('sync_queue', where: 'table_name=?', whereArgs: ['beneficiaries']),
+      isEmpty,
+    );
+  });
+
 }
