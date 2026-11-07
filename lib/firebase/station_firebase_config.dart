@@ -8,6 +8,9 @@ import 'package:flutter/foundation.dart';
 class StationFirebaseConfig {
   const StationFirebaseConfig._();
 
+  /// This branch is the isolated pilot build for the Manzoma station only.
+  static const String pilotProjectId = 'manzoma-ststion';
+
   static const String _apiKey = String.fromEnvironment(
     'SAQIA_FIREBASE_API_KEY',
   );
@@ -48,6 +51,7 @@ class StationFirebaseConfig {
         .any((value) => value.trim().isEmpty)) {
       return null;
     }
+    if (projectId.trim() != pilotProjectId) return null;
 
     return FirebaseOptions(
       apiKey: apiKey.trim(),
