@@ -326,6 +326,7 @@ class SaqiaServer {
         final validUuid = RegExp(
           r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
         ).hasMatch(eventId);
+        if (!validUuid || entityType.isEmpty || entityType.length > 64 ||
             entityKey.isEmpty || entityKey.length > 160 ||
             !const {'create','update','delete'}.contains(operation) ||
             payload is! Map || baseVersion == null || baseVersion < 0 ||
