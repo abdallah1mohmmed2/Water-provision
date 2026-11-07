@@ -28,7 +28,7 @@ class AdminService {
       final changed = await db.update(
         'app_users',
         {'password_hash': upgradedHash},
-        'id=? AND password_hash=?',
+        'id=? AND password_hash=? AND active=1',
         [user['id'], storedHash],
       );
       if (changed == 0) {
@@ -47,8 +47,12 @@ class AdminService {
       }
     }
 
-    user.remove('password_hash');
-    return user;
+    final activeUser = await db.query(
+      'SELECT id, station_id, name, username, role FROM app_users WHERE id=? AND active=1 LIMIT 1',
+      args: [user['id']],
+    );
+    if (activeUser.isEmpty) return null;
+    return activeUser.first;
   }
 
   Future<List<Map<String, Object?>>> users() => db.query(
