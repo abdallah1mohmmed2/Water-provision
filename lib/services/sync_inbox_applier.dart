@@ -182,6 +182,7 @@ class SyncInboxApplier {
     }
     values.remove('created_by');
     values.remove('reference_id');
+    _validateDomainValues(table, values);
 
     int appliedLocalId;
     if (localId == null) {
@@ -277,6 +278,34 @@ class SyncInboxApplier {
       }
     }
     return InboxApplyResult.applied;
+  }
+
+  static void _validateDomainValues(
+    String table,
+    Map<String, Object?> values,
+  ) {
+    const positiveAmountTables = {
+      'payments',
+      'expenses',
+      'cashbox_transfers',
+      'worker_transactions',
+      'partner_transactions',
+      'beneficiary_manual_debts',
+      'general_account_transactions',
+    };
+    if (positiveAmountTables.contains(table) && values.containsKey('amount')) {
+      final amount = values['amount'];
+      if (amount is! num || amount <= 0) {
+        throw StateError('يجب أن يكون المبلغ موجباً في سجل ' + table);
+      }
+    }
+    if (table == 'cashbox_transfers') {
+      final from = values['from_cashbox_id'];
+      final to = values['to_cashbox_id'];
+      if (from != null && to != null && from == to) {
+        throw StateError('لا يمكن تحويل الرصيد إلى الصندوق نفسه.');
+      }
+    }
   }
 
   static Future<Object?> _resolveForeignKey(
