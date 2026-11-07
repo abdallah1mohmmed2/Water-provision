@@ -623,9 +623,11 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
           [station,eventId],
         );
         if (duplicate.isNotEmpty) {
-          results.add({'event_id':eventId,'status':'duplicate',
+          results.add({'event_id':eventId,'status':duplicate.first['status']=='conflict'?'conflict':'duplicate',
             'server_sequence':duplicate.first['server_sequence'],
-            'server_version':duplicate.first['server_version']});
+            'server_version':duplicate.first['server_version'],
+            'current_version':duplicate.first['server_version'],
+            'message':duplicate.first['status']=='conflict'?'الحدث مسجل كتعارض سابق':'الحدث مسجل مسبقاً'});
           continue;
         }
         final currentRows = db.select(
