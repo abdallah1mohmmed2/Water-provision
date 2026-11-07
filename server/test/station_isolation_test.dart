@@ -156,8 +156,8 @@ void main() {
     String path,
     String token, {
     Object? body,
-  }) =>
-      handler(
+  }) async =>
+      await handler(
         Request(
           method,
           Uri.parse('http://localhost$path'),
