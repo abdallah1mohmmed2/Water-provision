@@ -194,6 +194,23 @@ void main() {
     expect(database.select("SELECT value FROM settings WHERE key='station_name'").first['value'], 'إعداد عام قديم');
   });
 
+  test('new journal entries persist the authenticated station explicitly', () async {
+    database.execute('CREATE TABLE partners (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL)');
+    database.execute('CREATE TABLE partner_transactions (id INTEGER PRIMARY KEY, partner_id INTEGER NOT NULL, date TEXT NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, ownership_snapshot REAL, reference_type TEXT, reference_id INTEGER, notes TEXT, created_by INTEGER)');
+    database.execute('CREATE TABLE accounts (id INTEGER PRIMARY KEY, code TEXT NOT NULL, name TEXT NOT NULL)');
+    database.execute('CREATE TABLE journal_entries (id INTEGER PRIMARY KEY, station_id INTEGER, date TEXT NOT NULL, reference_type TEXT, reference_id INTEGER, description TEXT NOT NULL, status TEXT NOT NULL, created_by INTEGER, created_at TEXT NOT NULL)');
+    database.execute('CREATE TABLE journal_lines (id INTEGER PRIMARY KEY, journal_entry_id INTEGER NOT NULL, account_id INTEGER NOT NULL, beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER, debit INTEGER NOT NULL DEFAULT 0, credit INTEGER NOT NULL DEFAULT 0, memo TEXT)');
+    database.execute("INSERT INTO partners(id,station_id,name) VALUES(10,7,'شريك أ')");
+    database.execute("INSERT INTO accounts(id,code,name) VALUES(1,'5000','مصروف'),(2,'2200','مستحقات')");
+    final token = await login();
+    final response = await request('POST', '/api/v1/partners/10/transactions', token,
+        body: {'type': 'share_accrual', 'amount': 1250});
+    expect(response.statusCode, 200);
+    final entry = database.select('SELECT station_id,created_by FROM journal_entries').first;
+    expect(entry['station_id'], 7);
+    expect(entry['created_by'], 1);
+  });
+
   test('irrigation list only returns records belonging to the manager station',
       () async {
     final token = await login();
