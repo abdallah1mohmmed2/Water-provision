@@ -26,7 +26,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 26,
+      version: 27,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -575,6 +575,9 @@ class AppDatabase {
       if (tableInfo.isEmpty || !tableInfo.any((row) => row['name'] == 'id')) {
         continue;
       }
+      await d.execute('DROP TRIGGER IF EXISTS sync_${table}_insert');
+      await d.execute('DROP TRIGGER IF EXISTS sync_${table}_update');
+      await d.execute('DROP TRIGGER IF EXISTS sync_${table}_delete');
       await d.execute('''CREATE TRIGGER IF NOT EXISTS sync_${table}_insert
         AFTER INSERT ON $table BEGIN
           INSERT OR REPLACE INTO sync_change_log(table_name,record_id,operation)
