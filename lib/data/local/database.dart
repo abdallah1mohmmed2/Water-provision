@@ -568,7 +568,7 @@ class AppDatabase {
       'pumps', 'beneficiaries', 'partners', 'workers', 'irrigations',
       'cloud_periods', 'diesel_movements', 'payment_methods', 'cashboxes',
       'cashbox_transfers', 'payments', 'expenses', 'worker_transactions',
-      'partner_transactions', 'journal_entries', 'journal_lines',
+      'partner_transactions', 'journal_entries', 'journal_lines', 'accounts',
       'queue_entries', 'booking_requests', 'irrigation_sessions',
       'beneficiary_manual_debts', 'general_accounts',
       'general_account_transactions', 'accountant_reconciliation_months',
