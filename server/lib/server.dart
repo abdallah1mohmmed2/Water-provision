@@ -11,7 +11,81 @@ import 'package:uuid/uuid.dart';
 class SaqiaServer {
   final Database db;
   final String jwtSecret;
-  SaqiaServer(this.db, {required this.jwtSecret}) { _ensureFinancialStationOwnership(); }
+  SaqiaServer(this.db, {required this.jwtSecret}) {
+    _ensureFinancialStationOwnership();
+    _ensureLoginRateLimitTable();
+  }
+
+  void _ensureLoginRateLimitTable() {
+    db.execute('''CREATE TABLE IF NOT EXISTS auth_rate_limits (
+      scope_key TEXT PRIMARY KEY,
+      window_started_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      blocked_until TEXT
+    )''');
+  }
+
+  String _loginIp(Request request) {
+    final connection = request.context['shelf.io.connection_info'];
+    if (connection is HttpConnectionInfo) return connection.remoteAddress.address;
+    return 'unknown';
+  }
+
+  List<String> _loginScopes(Request request, String username) {
+    final ip = _loginIp(request);
+    return ['admin-ip:$ip', 'admin-user:$ip:${username.trim().toLowerCase()}'];
+  }
+
+  bool _loginIsBlocked(List<String> scopes, DateTime now) {
+    for (final scope in scopes) {
+      final rows = db.select(
+        'SELECT window_started_at, attempts, blocked_until FROM auth_rate_limits WHERE scope_key=?',
+        [scope],
+      );
+      if (rows.isEmpty) continue;
+      final row = rows.first;
+      final blockedUntil = DateTime.tryParse('${row['blocked_until'] ?? ''}');
+      if (blockedUntil != null && blockedUntil.isAfter(now)) return true;
+      final started = DateTime.tryParse('${row['window_started_at']}');
+      if (started == null || now.difference(started) >= const Duration(minutes: 15)) {
+        db.execute('DELETE FROM auth_rate_limits WHERE scope_key=?', [scope]);
+      }
+    }
+    return false;
+  }
+
+  void _recordFailedLogin(List<String> scopes, DateTime now) {
+    final nowText = now.toIso8601String();
+    for (final scope in scopes) {
+      final rows = db.select(
+        'SELECT window_started_at, attempts FROM auth_rate_limits WHERE scope_key=?',
+        [scope],
+      );
+      var attempts = 1;
+      var windowStart = nowText;
+      if (rows.isNotEmpty) {
+        final started = DateTime.tryParse('${rows.first['window_started_at']}');
+        if (started != null && now.difference(started) < const Duration(minutes: 15)) {
+          attempts = (rows.first['attempts'] as num).toInt() + 1;
+          windowStart = started.toIso8601String();
+        }
+      }
+      final blockedUntil = attempts >= 5
+          ? now.add(const Duration(minutes: 15)).toIso8601String()
+          : null;
+      db.execute('''INSERT INTO auth_rate_limits(scope_key,window_started_at,attempts,blocked_until)
+        VALUES(?,?,?,?) ON CONFLICT(scope_key) DO UPDATE SET
+        window_started_at=excluded.window_started_at, attempts=excluded.attempts,
+        blocked_until=excluded.blocked_until''',
+        [scope, windowStart, attempts, blockedUntil]);
+    }
+  }
+
+  void _clearLoginFailures(List<String> scopes) {
+    for (final scope in scopes) {
+      db.execute('DELETE FROM auth_rate_limits WHERE scope_key=?', [scope]);
+    }
+  }
 
   bool _hasTable(String table) => db.select("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", [table]).isNotEmpty;
 
@@ -205,7 +279,36 @@ class SaqiaServer {
   void _audit(int userId,String operation,String table,int? recordId,{String? reason}){db.execute('INSERT INTO audit_logs(user_id,operation,table_name,record_id,reason,created_at) VALUES(?,?,?,?,?,?)',[userId,operation,table,recordId,reason,DateTime.now().toIso8601String()]);}
   int _round(double v,String mode)=>mode=='up'?v.ceil():mode=='down'?v.floor():v.round();
 
-  Future<Response> _adminLogin(Request r) async { final b=await _body(r); final u='${b['username']??''}'; final p=_hash('${b['password']??''}'); final rows=db.select('SELECT id,station_id,name,role FROM app_users WHERE username=? AND password_hash=? AND active=1',[u,p]); if(rows.isEmpty)return _json({'error':'اسم المستخدم أو كلمة المرور غير صحيحة'},status:401); final x=_rows(rows).first; return _json({'token':_token({'kind':'admin','userId':x['id'],'stationId':x['station_id'],'role':x['role']}),'user':{'id':x['id'],'name':x['name'],'role':x['role']}}); }
+  Future<Response> _adminLogin(Request r) async {
+    final body = await _body(r);
+    final username = '${body['username'] ?? ''}'.trim();
+    final password = '${body['password'] ?? ''}';
+    if (username.isEmpty || password.isEmpty) {
+      return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+    }
+    final scopes = _loginScopes(r, username);
+    final now = DateTime.now().toUtc();
+    if (_loginIsBlocked(scopes, now)) {
+      return Response(429,
+        body: jsonEncode({'error': 'محاولات تسجيل الدخول كثيرة؛ حاول بعد 15 دقيقة'}),
+        headers: {'content-type': 'application/json; charset=utf-8', 'retry-after': '900'});
+    }
+    final passwordHash = _hash(password);
+    final rows = db.select(
+      'SELECT id,station_id,name,role FROM app_users WHERE username=? AND password_hash=? AND active=1',
+      [username, passwordHash],
+    );
+    if (rows.isEmpty) {
+      _recordFailedLogin(scopes, now);
+      return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+    }
+    _clearLoginFailures(scopes);
+    final user = _rows(rows).first;
+    return _json({
+      'token': _token({'kind': 'admin', 'userId': user['id'], 'stationId': user['station_id'], 'role': user['role']}),
+      'user': {'id': user['id'], 'name': user['name'], 'role': user['role']},
+    });
+  }
   Future<Response> _dashboard(Request r,Map<String,dynamic> c) async {final station=_stationId(c);final x=_rows(db.select("SELECT (SELECT COUNT(*) FROM beneficiaries WHERE status='active' AND station_id=?) beneficiaries,(SELECT COUNT(*) FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE b.station_id=? AND q.status IN ('waiting','postponed')) queue,(SELECT COUNT(*) FROM booking_requests br JOIN beneficiaries b ON b.id=br.beneficiary_id WHERE b.station_id=? AND br.status IN ('new','under_review')) bookings,(SELECT COUNT(*) FROM irrigation_sessions s JOIN pumps p ON p.id=s.pump_id JOIN beneficiaries b ON b.id=s.beneficiary_id WHERE p.station_id=? AND b.station_id=? AND s.status='running') running_sessions,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled' AND station_id=?) revenue,(SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='posted' AND station_id=?) paid,(SELECT COALESCE(SUM(amount),0) FROM expenses WHERE status='posted' AND station_id=?) expenses",[station,station,station,station,station,station,station,station])).first;return _json(x);}
   Map<String,String> _settingsForStation(int stationId) => {
     for(final x in db.select('SELECT key,value FROM station_settings WHERE station_id=?',[stationId]))
