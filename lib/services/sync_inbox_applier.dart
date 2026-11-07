@@ -296,7 +296,7 @@ class SyncInboxApplier {
     if (positiveAmountTables.contains(table) && values.containsKey('amount')) {
       final amount = values['amount'];
       if (amount is! num || amount <= 0) {
-        throw StateError('يجب أن يكون المبلغ موجباً في سجل ' + table);
+        throw StateError('يجب أن يكون المبلغ موجباً في سجل $table');
       }
     }
     if (table == 'cashbox_transfers') {
