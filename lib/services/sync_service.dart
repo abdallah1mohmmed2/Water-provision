@@ -43,7 +43,7 @@ class SyncService {
   Future<String> _metadata(String key, Future<String> Function() create) async {
     final rows = await db.query(
       'SELECT value FROM sync_metadata WHERE key=? LIMIT 1',
-      [key],
+      args: [key],
     );
     if (rows.isNotEmpty) return rows.first['value'] as String;
     final value = await create();
@@ -54,7 +54,7 @@ class SyncService {
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
     final latest = await db.query(
       'SELECT value FROM sync_metadata WHERE key=? LIMIT 1',
-      [key],
+      args: [key],
     );
     return latest.first['value'] as String;
   }
@@ -141,7 +141,7 @@ class SyncService {
                 : 'pending';
         final queueRows = await db.query(
           'SELECT id,attempts FROM sync_queue WHERE event_id=? LIMIT 1',
-          [eventId],
+          args: [eventId],
         );
         if (queueRows.isEmpty) continue;
         await db.update(
