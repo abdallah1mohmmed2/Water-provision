@@ -123,6 +123,7 @@ class SyncService {
         jsonDecode(row['payload'] as String) as Map,
       );
       if (recordId != null && payload['_global_id'] == null) {
+        await GlobalIdentity.ensureRecord(await db.db, table, recordId);
         payload = Map<String, dynamic>.from(
           await GlobalIdentity.decoratePayload(
             await db.db,
