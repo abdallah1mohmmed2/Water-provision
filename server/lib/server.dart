@@ -85,15 +85,37 @@ class SaqiaServer {
     Set<String> roles = const {},
   }) => (Request r) async {
     final claims = _verify(r);
-    if (claims == null) {
+    if (claims == null || claims['kind'] != 'admin') {
       return _json({'error': 'جلسة غير صالحة'}, status: 401);
     }
+
     final userId = (claims['userId'] as num?)?.toInt() ?? 0;
     final stationId = (claims['stationId'] as num?)?.toInt() ?? 0;
-    if (claims['kind'] != 'admin' || userId <= 0 || stationId <= 0) {
+    final tokenRole = claims['role'];
+    if (userId <= 0 || stationId <= 0 || tokenRole is! String) {
       return _json({'error': 'جلسة غير صالحة'}, status: 401);
     }
-    if (roles.isNotEmpty && !roles.contains('${claims['role']}')) {
+
+    // Re-check the account on every request so disabling a user, changing
+    // their role, or moving them to another station revokes existing JWTs.
+    final users = db.select(
+      'SELECT station_id, role, active FROM app_users WHERE id=? LIMIT 1',
+      [userId],
+    );
+    if (users.isEmpty) {
+      return _json({'error': 'الحساب غير موجود أو تم إيقافه'}, status: 401);
+    }
+    final user = users.first;
+    final currentStation = (user['station_id'] as num?)?.toInt() ?? 0;
+    final currentRole = user['role'];
+    final active = (user['active'] as num?)?.toInt() == 1;
+    if (!active ||
+        currentStation != stationId ||
+        currentRole != tokenRole) {
+      return _json({'error': 'انتهت صلاحية الجلسة؛ يرجى تسجيل الدخول مجدداً'}, status: 401);
+    }
+
+    if (roles.isNotEmpty && !roles.contains(tokenRole)) {
       return _json({'error': 'لا تملك صلاحية تنفيذ العملية'}, status: 403);
     }
     return fn(r, claims);
