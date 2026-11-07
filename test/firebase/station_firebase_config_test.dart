@@ -12,7 +12,7 @@ void main() {
         apiKey: 'api-key',
         appId: 'app-id',
         messagingSenderId: '',
-        projectId: 'station-project',
+        projectId: 'manzoma-ststion',
       );
 
       expect(options, isNull);
@@ -23,16 +23,27 @@ void main() {
         apiKey: ' api-key ',
         appId: 'app-id',
         messagingSenderId: 'sender-id',
-        projectId: 'station-project',
-        storageBucket: 'station-project.firebasestorage.app',
+        projectId: 'manzoma-ststion',
+        storageBucket: 'manzoma-ststion.firebasestorage.app',
       );
 
       expect(options, isNotNull);
       expect(options!.apiKey, 'api-key');
       expect(options.appId, 'app-id');
       expect(options.messagingSenderId, 'sender-id');
-      expect(options.projectId, 'station-project');
-      expect(options.storageBucket, 'station-project.firebasestorage.app');
+      expect(options.projectId, 'manzoma-ststion');
+      expect(options.storageBucket, 'manzoma-ststion.firebasestorage.app');
+    });
+
+    test('rejects a different station Firebase project', () {
+      final options = StationFirebaseConfig.buildAndroidOptions(
+        apiKey: 'api-key',
+        appId: 'app-id',
+        messagingSenderId: 'sender-id',
+        projectId: 'another-station',
+      );
+
+      expect(options, isNull);
     });
 
     test('allows an omitted optional storage bucket', () {
@@ -40,7 +51,7 @@ void main() {
         apiKey: 'api-key',
         appId: 'app-id',
         messagingSenderId: 'sender-id',
-        projectId: 'station-project',
+        projectId: 'manzoma-ststion',
       );
 
       expect(options, isNotNull);
