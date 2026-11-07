@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/widgets.dart';
+import 'package:sqflite/sqflite.dart';
 
 import '../api/api_client.dart';
 import '../data/local/database.dart';
@@ -55,7 +56,6 @@ class SyncCoordinator with WidgetsBindingObserver {
   final status = ValueNotifier(const SyncRuntimeStatus());
   final _connectivity = Connectivity();
 
-  ApiClient? _api;
   SyncService? _service;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Timer? _retryTimer;
@@ -123,7 +123,6 @@ class SyncCoordinator with WidgetsBindingObserver {
   }
 
   void _attach(ApiClient client) {
-    _api = client;
     _service = SyncService(client);
     _ensureObservers();
     status.value = status.value.copyWith(connected: true, clearError: true);
@@ -202,7 +201,6 @@ class SyncCoordinator with WidgetsBindingObserver {
     _connectivitySubscription = null;
     if (_observing) WidgetsBinding.instance.removeObserver(this);
     _observing = false;
-    _api = null;
     _service = null;
     await _storage.delete(key: _tokenKey);
     status.value = const SyncRuntimeStatus();
