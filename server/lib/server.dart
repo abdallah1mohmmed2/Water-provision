@@ -394,8 +394,71 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
   Future<Response> _partnerTransaction(Request r,Map<String,dynamic> c) => _atomic(() => _partnerTransactionUnsafe(r,c));
   Future<Response> _journalReport(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT je.*,jl.account_id,jl.debit,jl.credit,a.code account_code,a.name account_name FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? ORDER BY je.date DESC LIMIT 1000',[_stationId(c)])));
   Future<Response> _ledger(Request r,Map<String,dynamic> c) async {final code=r.url.queryParameters['account']??'1200';return _json(_rows(db.select('SELECT jl.*,je.date,je.description,a.code,a.name account_name FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE a.code=? AND je.station_id=? ORDER BY je.date,jl.id',[code,_stationId(c)])));}
-  Future<Response> _reports(Request r,Map<String,dynamic> c) async {final name=r.params['name']!; final allowed={'cash_flow','time_comparison','monthly_financial','income','payment_methods','expenses','cashboxes','queue_bookings','payment_log','beneficiary_statement','beneficiary_detailed','beneficiary_stats','needy','diesel_inventory','activity_overview','oil_status','debts','beneficiary_list','revenue_comparison','system_comparison','journal','ledger','worker_transactions','partner_accounts'};if(!allowed.contains(name))return _json({'error':'التقرير غير معروف'},status:404);return _json({'report':name,'rows':_reportRows(name,_stationId(c))});}
-  List<Map<String,Object?>> _reportRows(String name,int station){switch(name){case 'cash_flow':return _rows(db.select("SELECT date,'payment' kind,amount,'قبض' title FROM payments WHERE status='posted' AND station_id=? UNION ALL SELECT date,'expense' kind,-amount,title FROM expenses WHERE status='posted' AND station_id=? ORDER BY date DESC",[station,station]));case 'income':return _rows(db.select("SELECT system_type,COUNT(*) operations,SUM(water_amount) water_income,SUM(diesel_amount) diesel_income,SUM(total_amount) total FROM irrigations WHERE status!='cancelled' AND station_id=? GROUP BY system_type",[station]));case 'system_comparison':return _rows(db.select("SELECT system_type,COUNT(*) operations,SUM(minutes) minutes,SUM(total_amount) total,SUM(diesel_amount) diesel_cost FROM irrigations WHERE status!='cancelled' AND station_id=? GROUP BY system_type",[station]));case 'journal':return _rows(db.select('SELECT * FROM journal_entries WHERE station_id=? ORDER BY date DESC',[station]));case 'ledger':return _rows(db.select('SELECT jl.* FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.station_id=? ORDER BY jl.id DESC',[station]));default:return _rows(db.select('SELECT * FROM irrigations WHERE status!=\'cancelled\' AND station_id=? ORDER BY start_datetime DESC LIMIT 1000',[station]));}}
+  Future<Response> _reports(Request r, Map<String, dynamic> c) async {
+    final name = r.params['name']!;
+    const supported = {
+      'cash_flow',
+      'income',
+      'system_comparison',
+      'journal',
+      'ledger',
+    };
+    const known = {
+      'cash_flow', 'time_comparison', 'monthly_financial', 'income',
+      'payment_methods', 'expenses', 'cashboxes', 'queue_bookings',
+      'payment_log', 'beneficiary_statement', 'beneficiary_detailed',
+      'beneficiary_stats', 'needy', 'diesel_inventory', 'activity_overview',
+      'oil_status', 'debts', 'beneficiary_list', 'revenue_comparison',
+      'system_comparison', 'journal', 'ledger', 'worker_transactions',
+      'partner_accounts',
+    };
+    if (!known.contains(name)) {
+      return _json({'error': 'التقرير غير معروف'}, status: 404);
+    }
+    if (!supported.contains(name)) {
+      return _json({
+        'error': 'التقرير معروف لكنه غير منفذ في واجهة الخادم بعد',
+        'report': name,
+        'code': 'REPORT_NOT_IMPLEMENTED',
+      }, status: 501);
+    }
+    return _json({'report': name, 'rows': _reportRows(name, _stationId(c))});
+  }
+
+  List<Map<String, Object?>> _reportRows(String name, int station) {
+    switch (name) {
+      case 'cash_flow':
+        return _rows(db.select(
+          "SELECT date,'payment' kind,amount,'قبض' title FROM payments WHERE status='posted' AND station_id=? "
+          "UNION ALL SELECT date,'expense' kind,-amount,title FROM expenses WHERE status='posted' AND station_id=? ORDER BY date DESC",
+          [station, station],
+        ));
+      case 'income':
+        return _rows(db.select(
+          "SELECT system_type,COUNT(*) operations,SUM(water_amount) water_income,SUM(diesel_amount) diesel_income,SUM(total_amount) total "
+          "FROM irrigations WHERE status!='cancelled' AND station_id=? GROUP BY system_type",
+          [station],
+        ));
+      case 'system_comparison':
+        return _rows(db.select(
+          "SELECT system_type,COUNT(*) operations,SUM(minutes) minutes,SUM(total_amount) total,SUM(diesel_amount) diesel_cost "
+          "FROM irrigations WHERE status!='cancelled' AND station_id=? GROUP BY system_type",
+          [station],
+        ));
+      case 'journal':
+        return _rows(db.select(
+          'SELECT * FROM journal_entries WHERE station_id=? ORDER BY date DESC',
+          [station],
+        ));
+      case 'ledger':
+        return _rows(db.select(
+          'SELECT jl.* FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.station_id=? ORDER BY jl.id DESC',
+          [station],
+        ));
+      default:
+        throw StateError('Unsupported report reached the query layer: $name');
+    }
+  }
   // Full-file SQLite backups/restores are unsafe for a shared multi-station database.
   // Keep these endpoints explicitly blocked until station-scoped export/import exists.
   Future<Response> _backup(Request r,Map<String,dynamic> c) async =>
