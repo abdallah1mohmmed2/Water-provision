@@ -577,24 +577,26 @@ class AppDatabase {
       }
       await d.execute('''CREATE TRIGGER IF NOT EXISTS sync_${table}_insert
         AFTER INSERT ON $table BEGIN
-          INSERT INTO sync_change_log(table_name,record_id,operation)
-          VALUES('$table',NEW.id,'create')
-          ON CONFLICT(table_name,record_id) DO UPDATE SET operation=
-            CASE WHEN sync_change_log.operation IN ('create','noop') THEN 'create' ELSE 'update' END;
+          INSERT OR REPLACE INTO sync_change_log(table_name,record_id,operation)
+          VALUES('$table',NEW.id,CASE
+            WHEN EXISTS (SELECT 1 FROM sync_change_log WHERE table_name='$table' AND record_id=NEW.id AND operation='create') THEN 'create'
+            WHEN EXISTS (SELECT 1 FROM sync_change_log WHERE table_name='$table' AND record_id=NEW.id AND operation='noop') THEN 'create'
+            WHEN EXISTS (SELECT 1 FROM sync_change_log WHERE table_name='$table' AND record_id=NEW.id) THEN 'update'
+            ELSE 'create' END);
         END''');
       await d.execute('''CREATE TRIGGER IF NOT EXISTS sync_${table}_update
         AFTER UPDATE ON $table BEGIN
-          INSERT INTO sync_change_log(table_name,record_id,operation)
-          VALUES('$table',NEW.id,'update')
-          ON CONFLICT(table_name,record_id) DO UPDATE SET operation=
-            CASE WHEN sync_change_log.operation='create' THEN 'create' ELSE 'update' END;
+          INSERT OR REPLACE INTO sync_change_log(table_name,record_id,operation)
+          VALUES('$table',NEW.id,CASE
+            WHEN EXISTS (SELECT 1 FROM sync_change_log WHERE table_name='$table' AND record_id=NEW.id AND operation='create') THEN 'create'
+            ELSE 'update' END);
         END''');
       await d.execute('''CREATE TRIGGER IF NOT EXISTS sync_${table}_delete
         AFTER DELETE ON $table BEGIN
-          INSERT INTO sync_change_log(table_name,record_id,operation)
-          VALUES('$table',OLD.id,'delete')
-          ON CONFLICT(table_name,record_id) DO UPDATE SET operation=
-            CASE WHEN sync_change_log.operation='create' THEN 'noop' ELSE 'delete' END;
+          INSERT OR REPLACE INTO sync_change_log(table_name,record_id,operation)
+          VALUES('$table',OLD.id,CASE
+            WHEN EXISTS (SELECT 1 FROM sync_change_log WHERE table_name='$table' AND record_id=OLD.id AND operation='create') THEN 'noop'
+            ELSE 'delete' END);
         END''');
     }
   }
