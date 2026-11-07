@@ -138,6 +138,8 @@ class SyncInboxApplier {
     final foreignKeys = await tx.rawQuery('PRAGMA foreign_key_list(' + table + ')');
     final fkByColumn = <String, String>{
       for (final fk in foreignKeys) fk['from'].toString(): fk['table'].toString(),
+      if (table == 'diesel_movements') 'cashbox_id': 'cashboxes',
+      if (table == 'payment_methods') 'cashbox_id': 'cashboxes',
     };
     final rawRefs = payload['_global_refs'];
     if (rawRefs != null && rawRefs is! Map) {
@@ -202,6 +204,28 @@ class SyncInboxApplier {
           columns: ['id'],
           where: 'name=? AND type=?',
           whereArgs: [payload['name'], payload['type']],
+          limit: 2,
+        );
+        if (matches.length == 1) return InboxApplyResult.conflict;
+      }
+      if (table == 'pumps' &&
+          payload['name'] is String && payload['system_type'] is String) {
+        final matches = await tx.query(
+          'pumps',
+          columns: ['id'],
+          where: 'name=? AND system_type=?',
+          whereArgs: [payload['name'], payload['system_type']],
+          limit: 2,
+        );
+        if (matches.length == 1) return InboxApplyResult.conflict;
+      }
+      if (table == 'cashboxes' &&
+          payload['name'] is String && payload['currency'] is String) {
+        final matches = await tx.query(
+          'cashboxes',
+          columns: ['id'],
+          where: 'name=? AND currency=?',
+          whereArgs: [payload['name'], payload['currency']],
           limit: 2,
         );
         if (matches.length == 1) return InboxApplyResult.conflict;
@@ -295,6 +319,28 @@ class SyncInboxApplier {
         columns: ['id'],
         where: 'name=? AND type=?',
         whereArgs: [ref['name'], ref['type']],
+        limit: 2,
+      );
+      if (natural.length == 1) return (natural.single['id'] as num).toInt();
+    }
+    if (targetTable == 'pumps' &&
+        ref['name'] is String && ref['system_type'] is String) {
+      final natural = await tx.query(
+        'pumps',
+        columns: ['id'],
+        where: 'name=? AND system_type=?',
+        whereArgs: [ref['name'], ref['system_type']],
+        limit: 2,
+      );
+      if (natural.length == 1) return (natural.single['id'] as num).toInt();
+    }
+    if (targetTable == 'cashboxes' &&
+        ref['name'] is String && ref['currency'] is String) {
+      final natural = await tx.query(
+        'cashboxes',
+        columns: ['id'],
+        where: 'name=? AND currency=?',
+        whereArgs: [ref['name'], ref['currency']],
         limit: 2,
       );
       if (natural.length == 1) return (natural.single['id'] as num).toInt();
