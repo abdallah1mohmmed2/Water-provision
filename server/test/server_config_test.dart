@@ -31,7 +31,7 @@ void main() {
         'SAQIA_JWT_SECRET': secret,
       });
 
-      expect(config.bindAddress, InternetAddress.loopbackIPv4);
+      expect(config.bindAddress.address, '127.0.0.1');
       expect(config.port, 8080);
       expect(config.databasePath, '../saqia_station_v2.db');
     });
