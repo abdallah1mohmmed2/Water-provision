@@ -517,6 +517,9 @@ class AppDatabase {
     if (!columns.any((x) => x['name'] == 'device_id')) {
       await d.execute('ALTER TABLE sync_queue ADD COLUMN device_id TEXT');
     }
+    if (!columns.any((x) => x['name'] == 'conflict_version')) {
+      await d.execute('ALTER TABLE sync_queue ADD COLUMN conflict_version INTEGER');
+    }
     await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_event_id ON sync_queue(event_id) WHERE event_id IS NOT NULL');
     await d.execute('''CREATE TABLE IF NOT EXISTS sync_inbox (
       event_id TEXT PRIMARY KEY,
