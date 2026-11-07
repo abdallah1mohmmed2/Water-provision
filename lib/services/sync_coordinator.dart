@@ -190,6 +190,7 @@ class SyncCoordinator with WidgetsBindingObserver {
     try {
       await service.push();
       await service.pull();
+      await service.retryDeferredInbox();
       await service.applyInbox();
       await _refreshCounts();
       status.value = status.value.copyWith(
