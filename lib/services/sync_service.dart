@@ -164,7 +164,7 @@ class SyncService {
             where: 'event_id=?',
             whereArgs: [eventId],
           );
-          if (nextStatus == 'acknowledged') {
+          if (nextStatus == 'acknowledged' || nextStatus == 'conflict') {
             final eventRows = await tx.query(
               'sync_queue',
               columns: ['table_name', 'record_id'],
@@ -176,10 +176,11 @@ class SyncService {
               final entityType = '${eventRows.first['table_name']}';
               final entityKey =
                   '$entityType:${eventRows.first['record_id'] ?? eventId}';
-              final serverVersion =
-                  (item['server_version'] as num?)?.toInt() ??
-                  (item['current_version'] as num?)?.toInt() ??
-                  0;
+              final serverVersion = nextStatus == 'conflict'
+                  ? (item['current_version'] as num?)?.toInt() ?? 0
+                  : (item['server_version'] as num?)?.toInt() ??
+                        (item['current_version'] as num?)?.toInt() ??
+                        0;
               await tx.insert(
                 'sync_entity_versions',
                 {
