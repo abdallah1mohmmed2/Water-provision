@@ -21,16 +21,26 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late AppDatabase db;
   late AccountingService svc;
+  late Directory testDatabaseDirectory;
 
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    testDatabaseDirectory = await Directory.systemTemp.createTemp(
+      'saqia_accounting_integration_test_',
+    );
+    await databaseFactory.setDatabasesPath(testDatabaseDirectory.path);
     await databaseFactory.deleteDatabase(
       '${await databaseFactory.getDatabasesPath()}/saqia_station_v2.db',
     );
     db = AppDatabase.instance;
     svc = AccountingService(db);
     await db.db;
+  });
+
+  tearDownAll(() async {
+    await db.close();
+    await testDatabaseDirectory.delete(recursive: true);
   });
 
   Future<int> cashboxBalance(int id) async =>
