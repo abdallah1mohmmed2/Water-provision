@@ -103,34 +103,29 @@ flutter build apk --release \
 هذه القيم إعدادات تعريف تطبيق Firebase وليست مفاتيح Admin SDK. لا تُمرر أي service-account key أو سر خادمي إلى التطبيق. لم تُضف بعد حزم Auth/Firestore لأن ربطها قبل إنشاء مشروع الاختبار وتحديد تدفق الهوية وقواعد الوصول قد يفتح اتصالًا غير مقصود أو يثبت عقدًا خاطئًا.
 
 
-## 8. تحديث المحطة التجريبية بعد إنشاء المشروع
-
-> مصدر هذه المعلومة: أكد مالك المشروع في المحادثة إنشاء Firebase Project، ولم يتم فحص Firebase Console مباشرة من بيئة التطوير.
-
-| البيان | القيمة |
-|---|---|
-| اسم المحطة التجريبية | منظومة |
-| Firebase Project ID الذي زوده به المالك | `manzoma-ststion` |
-| Android applicationId | `com.saqia.saqia_station` |
-| حالة تسجيل Android App داخل Firebase | تم التحقق من ملف الإعداد المرفوع في فرع `docs/firebase-database-architecture` ثم نسخه إلى `android/app/google-services.json` في هذا الفرع |
-| حالة Auth وFirestore | غير مفعّلين/غير متحقق منهما بعد |
-
-### نتيجة استلام ملف Android
+## 8. ملف Firebase للمحطة التجريبية
 
 - المصدر: `google-services.json` في الفرع `docs/firebase-database-architecture`.
-- الوجهة على هذا الفرع: `android/app/google-services.json`.
+- الوجهة: `android/app/google-services.json` في هذا الفرع.
 - `project_id`: `manzoma-ststion`.
 - `package_name`: `com.saqia.saqia_station`.
 - `mobilesdk_app_id`: `1:1004981299919:android:5bb7d98823849b43e565ba`.
 - تم التحقق من JSON وتطابق المشروع والحزمة قبل النسخ.
-- لم يتم تعديل `main`.
+- ملف `main` لم يتغير.
 
-### المطلوب من مالك Firebase لإكمال الربط
+## 9. تهيئة Android وCI وقواعد Firestore
 
-1. افتح Firebase Console ثم مشروع `manzoma-ststion`.
-2. من Project settings > Your apps، أضف تطبيق Android إذا لم يكن مسجلاً.
-3. استخدم Android package name حرفيًا: `com.saqia.saqia_station`.
-4. بعد التسجيل، افتح إعدادات تطبيق Android وانسخ إعدادات Firebase العامة أو نزّل `google-services.json` وأرفقه في المحادثة للمراجعة.
-5. لا ترسل Service Account JSON أو Admin SDK private key أو أي كلمة مرور/سر خادمي.
+- أضيف Google Services Gradle plugin بإصدار `4.4.4` في `android/settings.gradle.kts` وطُبق على `:app`.
+- أضيف `tooling/prepare_firebase_dart_defines.py` لاستخراج إعدادات العميل العامة من ملف JSON. يرفض غياب التطبيق أو تكراره، ويتحقق من أن فرع `feature/firebase-station-foundation` لا يستهدف إلا `manzoma-ststion`.
+- تم تحديث `.github/workflows/buildr.yml` و`.github/workflows/build-apk.yml` لتمرير القيم المستخرجة إلى `flutter build`. وأضيف فرع المحطة إلى مسار بناء APK وإنتاج Artifact.
+- أضيف `firebase.json` و`firestore.rules`. القواعد الحالية تمنع كل قراءة وكتابة عمدًا؛ لا توجد صلاحيات عميل قبل إكمال نظام الهوية والصلاحيات.
+- لم تتم إضافة Firebase Auth أو Cloud Firestore Flutter packages، ولم يتم تفعيل Auth أو إنشاء/نشر قاعدة Firestore من Console.
+- السبب: تسجيل الدخول الحالي يستخدم حسابات `app_users` ورموز JWT من الخادم، بينما Firebase Auth يعتمد UID وموفري دخول. يجب تصميم ربط موثوق بين UID والحساب المحلي والأدوار، مع قواعد/Custom Claims يضبطها الخادم فقط، قبل السماح بالوصول إلى بيانات المحطة.
+- لم يتم تفعيل أي مزامنة، ولم يتم نقل بيانات تشغيلية أو مالية.
 
-تمت إضافة ملف إعداد Android إلى الفرع بعد التحقق من Project ID وAndroid App ID. طبقة `StationFirebaseConfig` الحالية ما زالت تعتمد `--dart-define` صراحةً، ولم نفعّل بعد Google Services Gradle plugin أو Auth/Firestore أو أي مزامنة؛ يلزم حسم طريقة الإعداد الموحدة قبل البناء والاختبار.
+## 10. التحقق المطلوب
+
+- انتظار CI على أحدث commit: Flutter Analyze، Flutter tests، SonarCloud، Android Build، ثم Release APK workflow.
+- لا يعلن نجاح البناء أو توفر APK إلا بعد نجاح المهام وظهور Artifact.
+- بعد نجاح CI، يلزم من مالك Firebase تفعيل Authentication وCloud Firestore من Console، ثم مراجعة قواعد الأمان ونشرها بعد إضافة اختبارات العزل والصلاحيات.
+- تبقى SQLite محلية ومصدر التشغيل الأساسي، وتبقى الكتابات المالية عبر الخادم الموثوق.
