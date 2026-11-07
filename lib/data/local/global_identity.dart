@@ -267,10 +267,36 @@ class GlobalIdentity {
         continue;
       }
       final targetGlobalId = target.single['global_id'] as String;
-      refs[column] = {
+      final reference = <String, String>{
         'table': targetTable,
         'global_id': targetGlobalId,
       };
+      // Stable natural keys let independently seeded reference catalogs (the
+      // chart of accounts and payment methods) resolve without trusting local
+      // SQLite integer IDs.
+      if (targetTable == 'accounts') {
+        final natural = await db.query(
+          'accounts',
+          columns: ['code'],
+          where: 'id=?',
+          whereArgs: [localTargetId],
+          limit: 1,
+        );
+        if (natural.isNotEmpty) reference['code'] = '${natural.single['code']}';
+      } else if (targetTable == 'payment_methods') {
+        final natural = await db.query(
+          'payment_methods',
+          columns: ['name', 'type'],
+          where: 'id=?',
+          whereArgs: [localTargetId],
+          limit: 1,
+        );
+        if (natural.isNotEmpty) {
+          reference['name'] = '${natural.single['name']}';
+          reference['type'] = '${natural.single['type']}';
+        }
+      }
+      refs[column] = reference;
       await db.insert('sync_global_relations', {
         'source_table': table,
         'source_global_id': globalId,
