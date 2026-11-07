@@ -565,7 +565,7 @@ class AppDatabase {
 
     // Capture business writes at the SQLite transaction boundary.
     const syncTables = [
-      'stations', 'pumps', 'beneficiaries', 'partners', 'workers', 'irrigations',
+      'pumps', 'beneficiaries', 'partners', 'workers', 'irrigations',
       'cloud_periods', 'diesel_movements', 'payment_methods', 'cashboxes',
       'cashbox_transfers', 'payments', 'expenses', 'worker_transactions',
       'partner_transactions', 'journal_entries', 'journal_lines', 'accounts',
