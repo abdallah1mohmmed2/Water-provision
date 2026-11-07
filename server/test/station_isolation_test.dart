@@ -111,6 +111,14 @@ void main() {
     database.execute(
       "INSERT INTO beneficiaries(id,station_id,name) VALUES(10,7,'مستفيد أ'),(20,8,'مستفيد ب')",
     );
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,phone) VALUES(11,7,'مستفيد هاتف','777'),(21,8,'مستفيد هاتف آخر','888')");
+    database.execute('''CREATE TABLE beneficiary_auth_codes (
+      id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL, code_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL, used_at TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL)''');
+    database.execute('''CREATE TABLE beneficiary_sessions (
+      id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL, token_hash TEXT UNIQUE NOT NULL,
+      expires_at TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT)''');
     database.execute(
       "INSERT INTO pumps(id,station_id,name) VALUES(100,7,'مضخة أ'),(200,8,'مضخة ب')",
     );
@@ -393,6 +401,49 @@ void main() {
     await login();
     expect(
       database.select('SELECT COUNT(*) AS total FROM auth_rate_limits').first['total'],
+      0,
+    );
+  });
+
+
+  test('beneficiary OTP requests are rate limited by IP and phone', () async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final response = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/v1/beneficiary/request-code'),
+          body: jsonEncode({'phone': '777'}),
+        ),
+      );
+      expect(response.statusCode, 200);
+    }
+    final blocked = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/beneficiary/request-code'),
+        body: jsonEncode({'phone': '777'}),
+      ),
+    );
+    expect(blocked.statusCode, 429);
+    expect(blocked.headers['retry-after'], '900');
+    expect(
+      database.select('SELECT COUNT(*) AS total FROM beneficiary_auth_codes').first['total'],
+      5,
+    );
+  });
+
+  test('beneficiary OTP rejects a phone shared across stations', () async {
+    database.execute("UPDATE beneficiaries SET phone='999' WHERE id IN (10,20)");
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/beneficiary/request-code'),
+        body: jsonEncode({'phone': '999'}),
+      ),
+    );
+    expect(response.statusCode, 409);
+    expect(
+      database.select('SELECT COUNT(*) AS total FROM beneficiary_auth_codes').first['total'],
       0,
     );
   });
