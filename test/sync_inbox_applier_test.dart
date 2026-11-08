@@ -117,6 +117,110 @@ void main() {
     ), hasLength(1));
   });
 
+  test('server projection updates the origin derived row and supersedes its legacy outbox event', () async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    const start = '2099-08-01T08:00:00.000';
+    const originalEnd = '2099-08-01T08:10:00.000';
+    const projectedEnd = '2099-08-01T08:30:00.000';
+    late int irrigationId;
+    late int cloudPeriodId;
+    late String irrigationGlobalId;
+    late String cloudGlobalId;
+
+    await database.transaction((tx) async {
+      final beneficiaryId = await tx.insert('beneficiaries', {
+        'name': 'INBOX-PROJECTION-BENEFICIARY',
+        'status': 'active',
+        'created_at': now,
+        'updated_at': now,
+      });
+      await GlobalIdentity.ensureRecord(tx, 'beneficiaries', beneficiaryId);
+      irrigationId = await tx.insert('irrigations', {
+        'station_id': 1,
+        'pump_id': 1,
+        'beneficiary_id': beneficiaryId,
+        'party_type': 'beneficiary',
+        'date': start.substring(0, 10),
+        'start_datetime': start,
+        'end_datetime': '2099-08-01T09:00:00.000',
+        'minutes': 60,
+        'system_type': 'solar',
+        'chargeable_minutes': 60,
+        'total_amount': 1000,
+        'status': 'posted',
+        'created_at': now,
+        'updated_at': now,
+      });
+      await GlobalIdentity.ensureRecord(tx, 'irrigations', irrigationId);
+      irrigationGlobalId = (await tx.query(
+        'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
+        whereArgs: ['irrigations', irrigationId],
+      )).single['global_id'] as String;
+    }, captureSync: false);
+
+    cloudPeriodId = await database.insert('cloud_periods', {
+      'irrigation_id': irrigationId,
+      'start_datetime': start,
+      'end_datetime': originalEnd,
+      'minutes': 10,
+      'created_at': now,
+    });
+    cloudGlobalId = (await database.query(
+      'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
+      whereArgs: ['cloud_periods', cloudPeriodId],
+    )).single['global_id'] as String;
+    expect(
+      await database.query(
+        'sync_queue',
+        where: 'table_name=? AND record_id=?',
+        whereArgs: ['cloud_periods', cloudPeriodId],
+      ),
+      hasLength(1),
+    );
+
+    final projection = event(
+      table: 'cloud_periods',
+      id: cloudGlobalId,
+      operation: 'update',
+      version: 1,
+      payload: {
+        'irrigation_id': irrigationId,
+        'start_datetime': start,
+        'end_datetime': projectedEnd,
+        'minutes': 30,
+        'created_at': now,
+        '_global_refs': {
+          'irrigation_id': {
+            'table': 'irrigations',
+            'global_id': irrigationGlobalId,
+          },
+        },
+      },
+    )..['source_device'] = '__server_projection__';
+
+    final result = await database.transaction(
+      (tx) => SyncInboxApplier.apply(tx, projection),
+      captureSync: false,
+    );
+    expect(result, InboxApplyResult.applied);
+    final rows = await database.query(
+      'cloud_periods',
+      where: 'id=?',
+      whereArgs: [cloudPeriodId],
+    );
+    expect(rows, hasLength(1));
+    expect(rows.single['end_datetime'], projectedEnd);
+    expect(rows.single['minutes'], 30);
+    expect(
+      await database.query(
+        'sync_queue',
+        where: 'table_name=? AND record_id=?',
+        whereArgs: ['cloud_periods', cloudPeriodId],
+      ),
+      isEmpty,
+    );
+  });
+
   test('applies station-owned irrigation session lifecycle and rejects reopening a completed session', () async {
     final now = DateTime.now().toUtc().toIso8601String();
     final beneficiaryId = await database.transaction((tx) async {
