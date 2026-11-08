@@ -254,6 +254,22 @@ void main() {
       paid_amount INTEGER NOT NULL DEFAULT 0, notes TEXT,
       status TEXT NOT NULL
     )''');
+    database.execute('''CREATE TABLE payments(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, date TEXT NOT NULL,
+      amount INTEGER NOT NULL, status TEXT NOT NULL, notes TEXT
+    )''');
+    database.execute('''CREATE TABLE diesel_movements(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, irrigation_id INTEGER,
+      kind TEXT NOT NULL, amount INTEGER NOT NULL,
+      date TEXT NOT NULL, notes TEXT
+    )''');
+    database.execute('''CREATE TABLE beneficiary_manual_debts(
+      id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL,
+      date TEXT NOT NULL, amount INTEGER NOT NULL, notes TEXT,
+      status TEXT NOT NULL, cancelled_at TEXT, cancel_reason TEXT
+    )''');
     database.execute("INSERT INTO irrigations(id,station_id,beneficiary_id,start_datetime,status) VALUES(1,1,1,'2026-11-08T08:00:00','posted')");
     Future<Response> get(String token, String suffix) => server.router().call(Request(
       'GET',
