@@ -220,6 +220,12 @@ class StationRepository {
     int? userId,
   }) async {
     if (name.trim().isEmpty) throw ArgumentError('اسم المستفيد مطلوب');
+    if (serverSessionActive &&
+        (opening != 0 || carried != 0 || openingDiesel != 0)) {
+      throw StateError(
+        'إضافة الأرصدة الافتتاحية للمستفيد عبر الاتصال بالخادم متوقفة مؤقتاً حتى تفعيل المعالج المحاسبي المركزي.',
+      );
+    }
     final now = AppClock.now().toIso8601String();
     final id = await db.transaction((tx) async {
       final newId = await tx.insert('beneficiaries', {
@@ -263,6 +269,7 @@ class StationRepository {
         'opening_diesel_liters': openingDiesel,
       },
     );
+    if (serverSessionActive) SyncCoordinator.instance.requestSync();
     return id;
   }
 
@@ -290,6 +297,26 @@ class StationRepository {
     }
     if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
       throw ArgumentError('اسم المستفيد مطلوب');
+    }
+    if (serverSessionActive &&
+        (values.containsKey('opening_balance') || values.containsKey('carried_balance'))) {
+      final currentRows = await db.query(
+        'SELECT opening_balance,carried_balance FROM beneficiaries WHERE id=? LIMIT 1',
+        [id],
+      );
+      if (currentRows.isEmpty) throw StateError('المستفيد غير موجود');
+      for (final key in const ['opening_balance', 'carried_balance']) {
+        if (values.containsKey(key) &&
+            (values[key] as num?)?.round() !=
+                (currentRows.first[key] as num?)?.round()) {
+          throw StateError(
+            'تعديل الأرصدة الافتتاحية عبر الاتصال بالخادم متوقف حتى تفعيل المعالج المحاسبي المركزي.',
+          );
+        }
+      }
+      values = Map<String, Object?>.from(values)
+        ..remove('opening_balance')
+        ..remove('carried_balance');
     }
     final now = AppClock.now().toIso8601String();
     int balanceValue(Object? value, String label) {
@@ -339,6 +366,7 @@ class StationRepository {
         newValues: newValues,
       );
     });
+    if (serverSessionActive) SyncCoordinator.instance.requestSync();
   }
 
   Future<void> deleteBeneficiary(int id, int? userId, String reason) async {
@@ -413,6 +441,7 @@ class StationRepository {
         reason: reason,
       );
     });
+    if (serverSessionActive) SyncCoordinator.instance.requestSync();
   }
   Future<Map<String, Object?>> beneficiaryDetails(int id) async {
     final b = (await db.rawQuery(
