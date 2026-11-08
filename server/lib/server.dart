@@ -731,11 +731,25 @@ class SaqiaServer {
 
   Future<Response> _beneficiaries(Request r,Map<String,dynamic> c) async {
     final station = _stationId(c);
+    // Give legacy server-side rows a stable identity once; never infer identity
+    // from a local integer ID or from a beneficiary name.
+    final missingLinks = db.select("""
+      SELECT b.id FROM beneficiaries b
+      LEFT JOIN sync_entity_links l
+        ON l.station_id=b.station_id AND l.entity_type='beneficiaries' AND l.local_id=b.id
+      WHERE b.station_id=? AND l.global_id IS NULL
+    """, [station]);
+    for (final row in missingLinks) {
+      db.execute(
+        "INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'beneficiaries',?,?,?)",
+        [station, const Uuid().v4(), row['id'], DateTime.now().toIso8601String()],
+      );
+    }
     final balance = _beneficiaryBalanceExpression();
     return _json(_rows(db.select("""
       SELECT b.*, l.global_id AS _global_id, $balance AS balance
       FROM beneficiaries b
-      LEFT JOIN sync_entity_links l
+      JOIN sync_entity_links l
         ON l.station_id=b.station_id AND l.entity_type='beneficiaries' AND l.local_id=b.id
       WHERE b.status='active' AND b.station_id=?
       ORDER BY b.name
