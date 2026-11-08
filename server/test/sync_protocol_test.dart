@@ -232,7 +232,37 @@ void main() {
 
 
 
-  test('legacy beneficiary rows receive a stable global identity on first API read', () async {
+    test('beneficiary detail and irrigation history resolve global UUID within JWT station', () async {
+    const globalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    await postEvents(stationOneToken, [
+      event(globalId: globalId, payload: {'name': 'Global Detail'}),
+    ]);
+    database.execute('''CREATE TABLE irrigations(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER NOT NULL, start_datetime TEXT NOT NULL,
+      status TEXT NOT NULL
+    )''');
+    database.execute("INSERT INTO irrigations(id,station_id,beneficiary_id,start_datetime,status) VALUES(1,1,1,'2026-11-08T08:00:00','posted')");
+    Future<Response> get(String token, String suffix) => server.router().call(Request(
+      'GET',
+      Uri.parse('http://localhost/api/v1/beneficiaries/$globalId$suffix'),
+      headers: {'authorization': 'Bearer $token'},
+    ));
+    final detail = await get(stationOneToken, '');
+    expect(detail.statusCode, 200);
+    final body = jsonDecode(await detail.readAsString()) as Map<String, dynamic>;
+    expect(body['_global_id'], globalId);
+    expect(body['name'], 'Global Detail');
+    final history = await get(stationOneToken, '/statement');
+    expect(history.statusCode, 200);
+    final rows = jsonDecode(await history.readAsString()) as List;
+    expect(rows, hasLength(1));
+    expect(rows.single['id'], 1);
+    final crossStation = await get(stationTwoToken, '');
+    expect(crossStation.statusCode, 404);
+  });
+
+test('legacy beneficiary rows receive a stable global identity on first API read', () async {
     database.execute(
       "INSERT INTO beneficiaries(station_id,name,status) VALUES(1,'Legacy Beneficiary','active')",
     );
