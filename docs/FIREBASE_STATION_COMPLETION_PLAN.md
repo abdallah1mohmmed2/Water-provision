@@ -511,3 +511,23 @@
 أكد سجل Release أن SQLite 3.53.4 جُهز من amalgamation الرسمي بعد التحقق من SHA3-256، ثم نجح `flutter build apk --release` ورفع Artifact. كما نجحت اختبارات Shelf وFlutter وتحليل Flutter وفحص SonarCloud. سبب فشل Kotlin السابق كان HTTP 504 عند تنزيل `kotlin-compiler-embeddable-2.2.21.jar` بعد تحويل الطلب إلى GitHub Releases؛ أضيف Huawei Cloud Maven mirror قبل Maven Central، ونجح البناء بعد ذلك. لا تغيير في المعمارية أو إصدارات SQLite/Gradle/Kotlin، ولا تعطيل لفحوص سلامة الملفات.
 
 النتائج أعلاه تخص commit `a337ad0`. هذا التحديث يوثق نتائج ذلك الرأس؛ وسيبدأ CI من جديد بسبب هذا التعديل التوثيقي، ولا يعتمد الرأس الجديد إلا بعد التحقق من نجاح Release ووجود Artifact على SHA الجديد.
+
+
+## بوابة Release النهائية — 2026-11-08 — commit 5e1be3d
+
+رأس الفرع `feature/firebase-station-foundation` عند التحقق: `5e1be3d43e8a9e13aab3d679083112086f757bd1`.
+
+| Workflow | Run ID | SHA | النتيجة |
+|---|---:|---|---|
+| Build Flutter APK | 42474648916 | 5e1be3d | success |
+| Flutter Analyze | 42474653710 | 5e1be3d | success |
+| SonarCloud | 42474653799 | 5e1be3d | success |
+| Build / SonarQube | 42474653935 | 5e1be3d | success |
+
+Artifact Release: `Saqia-App-Release`, ID `13615301107`, الحجم `36,369,429` bytes. تم تنزيله وفحص ZIP، ويحتوي على `app-release.apk` بحجم `78,813,080` bytes. SHA-256 للأرشيف `970bed551454654a84c1843b1bbcbcb1eaa7f747f4865b865e6e25e87e590b0e`، وSHA-256 للـ APK `75504644574e629d66b9e847b285fbbc7fd3a7475702771cafa82a74450a748e`. رابط التنزيل: https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42474648916/artifacts/13615301107
+
+أكد سجل الوظيفة نجاح جميع الخطوات من `flutter pub get` واختبارات Shelf وFlutter وFlutter Analyze إلى تجهيز NDK، والتحقق من SQLite 3.53.4 بواسطة SHA3-256، وبناء Release ورفع Artifact. ملف المصدر SQLite يُنشأ أثناء CI داخل `.ci/sqlite3` بعد التحقق؛ عدم وجود هذا المجلد في Git tree قبل التشغيل متوقع وليس ملف مصدر مفقوداً.
+
+تنبيه: إعداد Release الحالي يستخدم debug signing config في `android/app/build.gradle.kts`. يلزم إعداد مفتاح توقيع Release إنتاجي قبل توزيع نسخة إنتاجية أو رفعها إلى المتجر. لا يُعد هذا التنبيه فشلاً في بناء APK المطلوب.
+
+هذه النتائج تخص commit `5e1be3d` فقط. هذا التحديث التوثيقي سيُنشئ رأساً جديداً؛ لا تعتمد حالة الرأس الجديد حتى تكتمل بوابات CI وRelease عليه. لا دمج إلى `main`.
