@@ -596,6 +596,10 @@ class SaqiaServer {
       _applySyncBeneficiaryManualDebt(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
       return;
     }
+    if (entityType == 'worker_transactions' || entityType == 'partner_transactions') {
+      _applySyncPartyOpeningDebt(station:station,entityType:entityType,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
     if (entityType != 'beneficiaries') throw UnsupportedError('معالج المزامنة لهذا المجال غير منفذ بعد');
     final globalId = '${payload['_global_id'] ?? ''}';
     final validGlobalId = globalId.length == 36 &&
