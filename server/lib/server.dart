@@ -972,7 +972,7 @@ class SaqiaServer {
     final pumpId=_resolveSyncReference(station:station,entityType:'pumps',column:'pump_id',references:refs);
     if (db.select("SELECT 1 FROM beneficiaries WHERE id=? AND station_id=? AND status='active'",[beneficiaryId,station]).isEmpty || db.select('SELECT 1 FROM pumps WHERE id=? AND station_id=? AND active=1',[pumpId,station]).isEmpty) throw StateError('المستفيد أو المضخة غير نشط أو لا يتبع المحطة');
     final columns=db.select('PRAGMA table_info(irrigation_sessions)').map((x)=>x['name'].toString()).toSet();
-    const required={'id','beneficiary_id','pump_id','queue_entry_id','booking_id','actual_start','actual_end','status','timer_started_at','timer_stopped_at','postponement_reason','notes'};
+    const required={'id','beneficiary_id','pump_id','queue_entry_id','booking_id','planned_start','actual_start','actual_end','status','timer_started_at','timer_stopped_at','diesel_before','diesel_consumed','diesel_after','diesel_warning_shown','postponement_reason','notes'};
     if (!required.every(columns.contains)) throw StateError('مخطط جلسات التشغيل غير مكتمل');
     final queueId=payload['queue_entry_id']==null?null:_resolveOperationalSyncRef(station:station,entityType:'queue_entries',column:'queue_entry_id',references:refs,beneficiaryId:beneficiaryId);
     final bookingId=payload['booking_id']==null?null:_resolveOperationalSyncRef(station:station,entityType:'booking_requests',column:'booking_id',references:refs,beneficiaryId:beneficiaryId);
@@ -1001,7 +1001,7 @@ class SaqiaServer {
     if (nextStatus=='postponed' && (values['postponement_reason']??current.first['postponement_reason']??'').toString().trim().isEmpty) throw StateError('سبب تأجيل الجلسة مطلوب');
     if (nextStatus=='completed') { final start=DateTime.tryParse(current.first['actual_start'].toString()); final end=DateTime.tryParse((values['actual_end']??current.first['actual_end']??'').toString()); if (start==null || end==null || !end.isAfter(start)) throw StateError('وقت إنهاء الجلسة غير صالح'); values['actual_end']=end.toIso8601String(); values['timer_stopped_at']=values['timer_stopped_at']??end.toIso8601String(); }
     if (values.isEmpty) throw StateError('لا توجد حقول جلسة قابلة للتحديث');
-    if (oldStatus=='completed' && values['actual_end']!=null && values['actual_end'].toString()!=current.first['actual_end'].toString()) throw StateError('لا يمكن تغيير وقت جلسة مكتملة');
+    if (oldStatus=='completed' && values.entries.any((entry)=>entry.value!=current.first[entry.key])) throw StateError('لا يمكن تعديل بيانات جلسة مكتملة');
     db.execute('UPDATE irrigation_sessions SET '+values.keys.map((k)=>k+'=?').join(',')+' WHERE id=?',[...values.values,localId]);
   }
 
@@ -1116,8 +1116,8 @@ class SaqiaServer {
       final nextStatus = values['status'].toString();
       final allowedTransitions = entityType == 'queue_entries'
           ? <String, Set<String>>{
-              'waiting': {'waiting', 'postponed', 'completed', 'skipped'},
-              'postponed': {'postponed', 'waiting', 'completed', 'skipped'},
+              'waiting': {'waiting', 'postponed', 'served', 'completed', 'skipped'},
+              'postponed': {'postponed', 'waiting', 'served', 'completed', 'skipped'},
               'completed': {'completed'},
               'served': {'served'},
               'skipped': {'skipped'},
