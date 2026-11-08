@@ -1787,7 +1787,6 @@ class SaqiaServer {
         db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[station,beneficiaryId,irrigationId,'advance',shortage,dieselPrice,advanceAmount,now,'سلفة ديزل تلقائية',userId]);
         // The advance is a quantity-only movement. Its value is already
         // included in the irrigation total and must not create a second journal.
-        final movementId = db.lastInsertRowId;
       }
       db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[station,beneficiaryId,irrigationId,'consumption',liters,dieselPrice,dieselAmount,now,'استهلاك السقاية',userId]);
     }
