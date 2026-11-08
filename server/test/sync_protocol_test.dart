@@ -44,6 +44,18 @@ void main() {
         .sign(SecretKey(secret));
   });
 
+    database.execute('''CREATE TABLE queue_entries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, beneficiary_id INTEGER NOT NULL,
+      position INTEGER NOT NULL, cycle_number INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL, last_served_at TEXT, postponed_count INTEGER NOT NULL DEFAULT 0,
+      skip_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE booking_requests(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, beneficiary_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL, status TEXT NOT NULL, scheduled_date TEXT,
+      scheduled_start TEXT, scheduled_end TEXT, priority INTEGER, notes TEXT,
+      cancel_reason TEXT, reviewed_by INTEGER, reviewed_at TEXT
+    )''');
   tearDown(() => database.dispose());
 
   Future<Map<String, dynamic>> postEvents(
@@ -297,6 +309,69 @@ void main() {
       },
     };
   }
+
+  test('sync applies queue and booking creates using station-owned global beneficiary refs', () async {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'A','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1,'2026-11-08T00:00:00Z')");
+    final queueGlobal = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    final bookingGlobal = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    final results = await postEvents(stationOneToken, [
+      {
+        'event_id':'12111111-1111-4111-8111-111111111111',
+        'entity_type':'queue_entries',
+        'entity_key':'queue_entries:$queueGlobal',
+        'operation':'create',
+        'base_version':0,
+        'payload':{
+          '_global_id':queueGlobal, 'position':1, 'cycle_number':1,
+          'status':'waiting', 'postponed_count':0,
+          '_global_refs':{
+            'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          },
+        },
+      },
+      {
+        'event_id':'13111111-1111-4111-8111-111111111111',
+        'entity_type':'booking_requests',
+        'entity_key':'booking_requests:$bookingGlobal',
+        'operation':'create',
+        'base_version':0,
+        'payload':{
+          '_global_id':bookingGlobal, 'status':'new',
+          'scheduled_date':'2026-11-09',
+          '_global_refs':{
+            'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          },
+        },
+      },
+    ]);
+    final statuses = (results['results'] as List).map((x) => x['status']).toList();
+    expect(statuses, everyElement('accepted'));
+    expect(database.select("SELECT COUNT(*) n FROM queue_entries WHERE beneficiary_id=1 AND status='waiting'").first['n'], 1);
+    expect(database.select("SELECT COUNT(*) n FROM booking_requests WHERE beneficiary_id=1 AND status='new'").first['n'], 1);
+    expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type IN ('queue_entries','booking_requests')").first['n'], 2);
+  });
+
+  test('sync rejects queue and booking references owned by another station', () async {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(2,2,'B','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'beneficiaries','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',2,'2026-11-08T00:00:00Z')");
+    final global = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    final result = await postEvents(stationOneToken, [{
+      'event_id':'14111111-1111-4111-8111-111111111111',
+      'entity_type':'queue_entries',
+      'entity_key':'queue_entries:$global',
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':global, 'position':1, 'status':'waiting',
+        '_global_refs':{
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+        },
+      },
+    }]);
+    expect(result['results'][0]['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM queue_entries').first['n'], 0);
+  });
 
   test('worker and partner opening debts create balanced central journals once', () async {
     preparePartyDebtFixture();
