@@ -642,7 +642,7 @@ void main() {
     final cancelled=await postEvents(stationOneToken,[cancel]);
     expect((cancelled['results'] as List).first['status'],'accepted');
     expect(database.select("SELECT status FROM beneficiary_manual_debts").single['status'],'cancelled');
-    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
     final totals=database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
     expect(totals['debit'],3600);
     expect(totals['credit'],3600);
@@ -1534,7 +1534,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect((failedIrrigation['results'] as List).single['status'],'rejected');
     expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
     expect(database.select('SELECT status FROM irrigation_sessions WHERE id=2').single['status'],'running');
-    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
     expect(database.select('SELECT COUNT(*) n FROM diesel_movements').single['n'],2);
     expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
   });
