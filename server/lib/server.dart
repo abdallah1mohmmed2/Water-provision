@@ -330,6 +330,322 @@ class SaqiaServer {
     )''');
   }
 
+  String _ensureProjectionTargetIdentity({
+    required int station,
+    required String entityType,
+    required int localId,
+    required String now,
+  }) {
+    final existing = db.select(
+      'SELECT global_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND local_id=? LIMIT 1',
+      [station, entityType, localId],
+    );
+    if (existing.isNotEmpty) return existing.first['global_id'].toString();
+    if (!_hasTable(entityType)) {
+      throw StateError('جدول مرجع الإسقاط غير موجود: $entityType');
+    }
+    final columns = db.select('PRAGMA table_info($entityType)')
+        .map((row) => row['name'].toString()).toSet();
+    final rows = db.select('SELECT * FROM $entityType WHERE id=? LIMIT 1', [localId]);
+    if (rows.isEmpty) throw StateError('مرجع الإسقاط غير موجود: $entityType/$localId');
+    if (columns.contains('station_id') &&
+        (rows.first['station_id'] as num?)?.toInt() != station) {
+      throw StateError('مرجع الإسقاط يتبع محطة أخرى: $entityType/$localId');
+    }
+    final globalId = const Uuid().v4();
+    db.execute(
+      'INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',
+      [station, entityType, globalId, localId, now],
+    );
+    return globalId;
+  }
+
+  Map<String, Object?> _projectionReference({
+    required int station,
+    required String targetTable,
+    required int localId,
+    required String now,
+  }) {
+    final globalId = _ensureProjectionTargetIdentity(
+      station: station,
+      entityType: targetTable,
+      localId: localId,
+      now: now,
+    );
+    final reference = <String, Object?>{
+      'table': targetTable,
+      'global_id': globalId,
+    };
+    final naturalColumns = switch (targetTable) {
+      'accounts' => const ['code'],
+      'cashboxes' => const ['name', 'currency'],
+      'pumps' => const ['name', 'system_type'],
+      'payment_methods' => const ['name', 'type'],
+      _ => const <String>[],
+    };
+    if (naturalColumns.isNotEmpty) {
+      final row = db.select(
+        'SELECT ${naturalColumns.join(',')} FROM $targetTable WHERE id=? LIMIT 1',
+        [localId],
+      );
+      if (row.isNotEmpty) {
+        for (final column in naturalColumns) {
+          reference[column] = row.first[column];
+        }
+      }
+    }
+    return reference;
+  }
+
+  void _appendSyncProjectionRow({
+    required int station,
+    required String sourceDevice,
+    required bool publishToOrigin,
+    required String now,
+    required String table,
+    required int localId,
+    String? requestedGlobalId,
+  }) {
+    if (!_syncEntityTypes.contains(table) || !_hasTable(table)) {
+      throw StateError('نوع إسقاط غير مدعوم: $table');
+    }
+    final columns = db.select('PRAGMA table_info($table)')
+        .map((row) => row['name'].toString()).toSet();
+    if (!columns.contains('id')) throw StateError('سجل الإسقاط بلا مفتاح محلي: $table');
+    final rows = db.select('SELECT * FROM $table WHERE id=? LIMIT 1', [localId]);
+    if (rows.isEmpty) throw StateError('سجل الإسقاط غير موجود: $table/$localId');
+    final row = rows.first;
+    if (columns.contains('station_id') &&
+        (row['station_id'] as num?)?.toInt() != station) {
+      throw StateError('سجل الإسقاط لا يتبع المحطة الحالية: $table/$localId');
+    }
+    final existing = db.select(
+      'SELECT global_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND local_id=? LIMIT 1',
+      [station, table, localId],
+    );
+    final existingGlobalId = existing.isEmpty ? null : existing.first['global_id'].toString();
+    if (requestedGlobalId != null && existingGlobalId != null &&
+        requestedGlobalId != existingGlobalId) {
+      throw StateError('الهوية المحلية للأثر التابع لا تطابق هوية الخادم: $table/$localId');
+    }
+    final globalId = existingGlobalId ?? requestedGlobalId ?? const Uuid().v4();
+    if (existing.isEmpty) {
+      db.execute(
+        'INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',
+        [station, table, globalId, localId, now],
+      );
+    }
+
+    const relations = <String, Map<String, String>>{
+      'cloud_periods': {'irrigation_id': 'irrigations'},
+      'journal_lines': {
+        'journal_entry_id': 'journal_entries',
+        'account_id': 'accounts',
+        'beneficiary_id': 'beneficiaries',
+        'worker_id': 'workers',
+        'partner_id': 'partners',
+      },
+      'worker_transactions': {
+        'worker_id': 'workers',
+        'cashbox_id': 'cashboxes',
+      },
+      'partner_transactions': {'partner_id': 'partners'},
+      'diesel_movements': {
+        'beneficiary_id': 'beneficiaries',
+        'irrigation_id': 'irrigations',
+        'cashbox_id': 'cashboxes',
+      },
+      'irrigation_sessions': {
+        'beneficiary_id': 'beneficiaries',
+        'pump_id': 'pumps',
+        'queue_entry_id': 'queue_entries',
+        'booking_id': 'booking_requests',
+      },
+      'queue_entries': {'beneficiary_id': 'beneficiaries'},
+      'booking_requests': {'beneficiary_id': 'beneficiaries'},
+    };
+    final refs = <String, Object?>{};
+    for (final entry in (relations[table] ?? const <String, String>{}).entries) {
+      if (!columns.contains(entry.key) || row[entry.key] == null) continue;
+      final targetId = (row[entry.key] as num).toInt();
+      refs[entry.key] = _projectionReference(
+        station: station,
+        targetTable: entry.value,
+        localId: targetId,
+        now: now,
+      );
+    }
+
+    final payload = <String, Object?>{
+      for (final column in columns)
+        if (!const {'id', 'station_id', 'created_by', 'reference_id'}.contains(column))
+          column: row[column],
+      '_global_id': globalId,
+      '_global_refs': refs,
+      '_unresolved_refs': const <String, Object?>{},
+    };
+    final entityKey = '$table:$globalId';
+    final versions = db.select(
+      'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
+      [station, table, entityKey],
+    );
+    final currentVersion = versions.isEmpty
+        ? 0
+        : (versions.first['version'] as num).toInt();
+    final nextVersion = currentVersion + 1;
+    final operation = existing.isEmpty ? 'create' : 'update';
+    db.execute('''INSERT INTO sync_event_log
+      (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,'accepted',?)''', [
+      station,
+      const Uuid().v4(),
+      publishToOrigin ? '__server_projection__' : sourceDevice,
+      table,
+      entityKey,
+      operation,
+      _canonicalSyncJson(payload),
+      currentVersion,
+      nextVersion,
+      now,
+    ]);
+    db.execute('''INSERT INTO sync_entity_versions
+      (station_id,entity_type,entity_key,version,updated_at)
+      VALUES(?,?,?,?,?) ON CONFLICT(station_id,entity_type,entity_key)
+      DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at''',
+      [station, table, entityKey, nextVersion, now]);
+  }
+
+  void _appendSyncProjectionQuery({
+    required int station,
+    required String sourceDevice,
+    required bool publishToOrigin,
+    required String now,
+    required String table,
+    required String sql,
+    required List<Object?> args,
+    required List<String>? requestedIds,
+  }) {
+    final rows = db.select(sql, args);
+    if (requestedIds != null && requestedIds.length != rows.length) {
+      throw StateError('عدد هويات الإسقاط لا يطابق عدد السجلات: $table');
+    }
+    for (var index = 0; index < rows.length; index++) {
+      _appendSyncProjectionRow(
+        station: station,
+        sourceDevice: sourceDevice,
+        publishToOrigin: publishToOrigin,
+        now: now,
+        table: table,
+        localId: (rows[index]['id'] as num).toInt(),
+        requestedGlobalId: requestedIds == null ? null : requestedIds[index],
+      );
+    }
+  }
+
+  void _appendBusinessEffectProjections({
+    required int station,
+    required String sourceDevice,
+    required String entityType,
+    required int businessId,
+    required Map payload,
+    required String now,
+  }) {
+    final rawIds = payload['_derived_global_ids'];
+    final ids = rawIds is Map ? Map<String, dynamic>.from(rawIds) : const <String, dynamic>{};
+    List<String>? requested(String table) {
+      final value = ids[table];
+      if (value == null) return null;
+      if (value is! List || value.any((item) => item is! String)) {
+        throw StateError('قائمة هويات الإسقاط غير صالحة: $table');
+      }
+      return value.cast<String>();
+    }
+    final publishToOrigin = rawIds is Map;
+    void append(String table, String sql, List<Object?> args) {
+      _appendSyncProjectionQuery(
+        station: station,
+        sourceDevice: sourceDevice,
+        publishToOrigin: publishToOrigin,
+        now: now,
+        table: table,
+        sql: sql,
+        args: args,
+        requestedIds: requested(table),
+      );
+    }
+
+    if (entityType == 'irrigations') {
+      append('cloud_periods',
+        'SELECT cp.id FROM cloud_periods cp JOIN irrigations i ON i.id=cp.irrigation_id WHERE i.station_id=? AND cp.irrigation_id=? ORDER BY cp.start_datetime,cp.id',
+        [station, businessId]);
+      append('journal_entries',
+        "SELECT id FROM journal_entries WHERE station_id=? AND reference_type='irrigation' AND reference_id=? ORDER BY id",
+        [station, businessId]);
+      append('journal_lines',
+        "SELECT jl.id FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.station_id=? AND je.reference_type='irrigation' AND je.reference_id=? ORDER BY jl.id",
+        [station, businessId]);
+      append('worker_transactions',
+        "SELECT id FROM worker_transactions WHERE station_id=? AND reference_type='irrigation' AND reference_id=? ORDER BY id",
+        [station, businessId]);
+      append('partner_transactions',
+        "SELECT id FROM partner_transactions WHERE station_id=? AND reference_type='irrigation' AND reference_id=? ORDER BY id",
+        [station, businessId]);
+      append('diesel_movements',
+        'SELECT id FROM diesel_movements WHERE station_id=? AND irrigation_id=? ORDER BY id',
+        [station, businessId]);
+      final irrigation = db.select(
+        'SELECT session_id,queue_entry_id,booking_id FROM irrigations WHERE id=? AND station_id=? LIMIT 1',
+        [businessId, station],
+      );
+      if (irrigation.isEmpty) throw StateError('السقاية غير موجودة عند نشر آثارها');
+      final values = irrigation.first;
+      final sessionId = (values['session_id'] as num?)?.toInt();
+      if (sessionId != null) append('irrigation_sessions',
+        'SELECT s.id FROM irrigation_sessions s JOIN beneficiaries b ON b.id=s.beneficiary_id JOIN pumps p ON p.id=s.pump_id WHERE s.id=? AND b.station_id=? AND p.station_id=?',
+        [sessionId, station, station]);
+      final queueId = (values['queue_entry_id'] as num?)?.toInt();
+      if (queueId != null) append('queue_entries',
+        'SELECT q.id FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE q.id=? AND b.station_id=?',
+        [queueId, station]);
+      final bookingId = (values['booking_id'] as num?)?.toInt();
+      if (bookingId != null) append('booking_requests',
+        'SELECT bq.id FROM booking_requests bq JOIN beneficiaries b ON b.id=bq.beneficiary_id WHERE bq.id=? AND b.station_id=?',
+        [bookingId, station]);
+      return;
+    }
+    if (entityType == 'payments') {
+      final payment = db.select(
+        'SELECT cashbox_id FROM payments WHERE id=? AND station_id=? LIMIT 1',
+        [businessId, station],
+      );
+      if (payment.isEmpty) throw StateError('سند القبض غير موجود عند نشر آثاره');
+      final cashboxId = (payment.first['cashbox_id'] as num).toInt();
+      append('journal_entries',
+        "SELECT id FROM journal_entries WHERE station_id=? AND reference_type='payment' AND reference_id=? ORDER BY id",
+        [station, businessId]);
+      append('journal_lines',
+        "SELECT jl.id FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.station_id=? AND je.reference_type='payment' AND je.reference_id=? ORDER BY jl.id",
+        [station, businessId]);
+      append('cashboxes',
+        'SELECT id FROM cashboxes WHERE id=? AND station_id=?',
+        [cashboxId, station]);
+    }
+  }
+
+  bool _isDerivedSyncEvent(String entityType, Map payload) {
+    if (const {'journal_entries', 'journal_lines', 'cloud_periods'}.contains(entityType)) {
+      return true;
+    }
+    if (entityType == 'diesel_movements' && payload['irrigation_id'] != null) {
+      return true;
+    }
+    if (const {'worker_transactions', 'partner_transactions'}.contains(entityType) &&
+        payload['reference_type'] == 'irrigation') {
+      return true;
+    }
+    return false;
+  }
+
   int _resolveSyncReference({
     required int station, required String entityType, required String column, required Map references,
   }) {
