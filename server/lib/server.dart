@@ -688,7 +688,12 @@ class SaqiaServer {
     }
   }
 
-  bool _isDerivedSyncEvent(String entityType, Map payload) {
+  bool _isDerivedSyncEvent(
+    int station,
+    String entityType,
+    String operation,
+    Map payload,
+  ) {
     if (const {'journal_entries', 'journal_lines', 'cloud_periods'}.contains(entityType)) {
       return true;
     }
@@ -702,6 +707,29 @@ class SaqiaServer {
     if (entityType == 'partner_transactions' &&
         payload['reference_type'] == 'irrigation_profit') {
       return true;
+    }
+    // A completed session is closed by the accepted irrigation command. A
+    // legacy queued update for the same completion is acknowledged as covered.
+    if (entityType == 'irrigation_sessions' &&
+        operation == 'update' && payload['status'] == 'completed') {
+      final globalId = (payload['_global_id'] ?? '').toString();
+      final links = db.select(
+        "SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='irrigation_sessions' AND global_id=? LIMIT 1",
+        [station, globalId],
+      );
+      if (links.isNotEmpty) {
+        final localId = (links.first['local_id'] as num).toInt();
+        final current = db.select(
+          'SELECT status,actual_end,timer_stopped_at FROM irrigation_sessions WHERE id=? LIMIT 1',
+          [localId],
+        );
+        if (current.isNotEmpty &&
+            current.first['status'] == 'completed' &&
+            current.first['actual_end'] == payload['actual_end'] &&
+            current.first['timer_stopped_at'] == payload['timer_stopped_at']) {
+          return true;
+        }
+      }
     }
     return false;
   }
@@ -2350,7 +2378,7 @@ class SaqiaServer {
             }
           }
         }
-        if (_isDerivedSyncEvent(entityType, payload)) {
+        if (_isDerivedSyncEvent(station, entityType, operation, payload)) {
           final versionRows = db.select(
             'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
             [station, entityType, entityKey],
