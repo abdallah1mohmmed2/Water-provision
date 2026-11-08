@@ -48,6 +48,28 @@ class SyncInboxApplier {
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
   );
 
+  static bool _isServerDerivedProjection(
+    String table,
+    Map<String, dynamic> payload,
+  ) {
+    if (const {'cloud_periods', 'journal_entries', 'journal_lines'}.contains(table)) {
+      return true;
+    }
+    if (table == 'diesel_movements' && payload['irrigation_id'] != null) {
+      return true;
+    }
+    if (table == 'worker_transactions' &&
+        payload['reference_type'] == 'irrigation') {
+      return true;
+    }
+    if (table == 'partner_transactions' &&
+        payload['reference_type'] == 'irrigation_profit') {
+      return true;
+    }
+    return table == 'irrigation_sessions' &&
+        payload['status'] == 'completed';
+  }
+
   static Future<InboxApplyResult> apply(
     Transaction tx,
     Map<String, dynamic> event,
@@ -115,6 +137,18 @@ class SyncInboxApplier {
         : (identityRows.single['local_id'] as num).toInt();
 
     if (localId != null) {
+      if (event['source_device'] == '__server_projection__' &&
+          _isServerDerivedProjection(table, payload)) {
+        // The server projection is the authoritative replacement for any
+        // legacy child Outbox event created before the parent-only contract.
+        // Remove only that same derived row's pending events, in this Inbox
+        // transaction, so a failed projection cannot discard local work.
+        await tx.delete(
+          'sync_queue',
+          'table_name=? AND record_id=? AND status IN (\'pending\',\'sending\',\'conflict\')',
+          [table, localId],
+        );
+      }
       final pending = await tx.rawQuery(
         "SELECT COUNT(*) AS n FROM sync_queue WHERE table_name=? AND record_id=? AND status IN ('pending','sending','conflict')",
         [table, localId],
