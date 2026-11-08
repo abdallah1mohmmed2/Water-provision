@@ -135,7 +135,7 @@ class SyncService {
         )) OR
         (je.reference_type='partner' AND je.reference_id IN (
           SELECT pt.id FROM partner_transactions pt
-          WHERE pt.reference_type='irrigation_profit' AND pt.reference_id=?
+          WHERE pt.reference_type IN ('irrigation_profit','irrigation') AND pt.reference_id=?
         )) OR
         (je.reference_type='diesel_advance' AND je.reference_id IN (
           SELECT dm.id FROM diesel_movements dm WHERE dm.irrigation_id=?
