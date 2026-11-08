@@ -1674,4 +1674,40 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select("SELECT COUNT(*) n FROM journal_entries WHERE reference_type='reversal'").single['n'],1);
   });
 
+
+  test('sync cancellation reverses an opening cashbox transfer against opening equity', () async {
+    prepareExpenseAndTransferFixture();
+    const globalId = 'cccccccc-3333-4333-8333-333333333333';
+    final created = await postEvents(stationOneToken,[{
+      'event_id':'cccccccc-3333-4333-8333-333333333334',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:$globalId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':globalId,'from_cashbox_id':null,'to_cashbox_id':2,'amount':500,
+        'date':'2026-11-08T11:00:00.000','is_opening_transfer':true,
+        '_global_refs':{
+          'to_cashbox_id':{'table':'cashboxes','global_id':'33333333-3333-4333-8333-333333333333'},
+        },
+      },
+    }]);
+    expect((created['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],2500);
+    final cancelled = await postEvents(stationOneToken,[{
+      'event_id':'cccccccc-3333-4333-8333-333333333335',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:$globalId',
+      'operation':'update','base_version':1,
+      'payload':{
+        '_global_id':globalId,'status':'cancelled','cancelled_at':'2026-11-08T13:00:00.000',
+        'cancel_reason':'تصحيح الرصيد الافتتاحي',
+      },
+    }]);
+    expect((cancelled['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],2000);
+    final lines=database.select('SELECT jl.debit,jl.credit,a.code FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id ORDER BY jl.id');
+    expect(lines.where((line)=>line['code']=='3000').length,2);
+    final totals=database.select('SELECT SUM(debit) d,SUM(credit) c FROM journal_lines').single;
+    expect(totals['d'],1000);
+    expect(totals['c'],1000);
+  });
+
 }
