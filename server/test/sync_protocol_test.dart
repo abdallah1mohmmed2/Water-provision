@@ -1289,6 +1289,56 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect((replay['results'] as List).single['status'],'duplicate');
     final foreign = await postEvents(stationTwoToken,[{...event,'event_id':'ffffffff-ffff-4fff-8fff-ffffffffffff'}]);
     expect((foreign['results'] as List).single['status'],'rejected');
+    const secondSessionGlobalId = '11111111-2222-4222-8222-222222222222';
+    final secondSession = await postEvents(stationOneToken,[{
+      'event_id':'11111111-3333-4333-8333-333333333333',
+      'entity_type':'irrigation_sessions',
+      'entity_key':'irrigation_sessions:' + secondSessionGlobalId,
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':secondSessionGlobalId,
+        'beneficiary_id':1,
+        'pump_id':1,
+        'status':'running',
+        'actual_start':'2026-11-08T10:00:00.000',
+        'timer_started_at':'2026-11-08T10:00:00.000',
+        '_global_refs':{
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          'pump_id':{'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+      },
+    }]);
+    expect((secondSession['results'] as List).single['status'],'accepted');
+    database.execute("DELETE FROM accounts WHERE code='4010'");
+    const failedIrrigationGlobalId = '22222222-3333-4333-8333-333333333333';
+    final failedIrrigation = await postEvents(stationOneToken,[{
+      'event_id':'22222222-4444-4444-8444-444444444444',
+      'entity_type':'irrigations',
+      'entity_key':'irrigations:' + failedIrrigationGlobalId,
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':failedIrrigationGlobalId,
+        'session_id':2,
+        '_global_refs':{
+          'pump_id':{'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          'session_id':{'table':'irrigation_sessions','global_id':secondSessionGlobalId},
+        },
+        'start_datetime':'2026-11-08T10:00:00.000',
+        'end_datetime':'2026-11-08T11:00:00.000',
+        'system_type':'diesel',
+        'cloud_minutes':0,
+        'cloud_periods':[],
+        'paid_amount':0,
+      },
+    }]);
+    expect((failedIrrigation['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
+    expect(database.select('SELECT status FROM irrigation_sessions WHERE id=2').single['status'],'running');
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+    expect(database.select('SELECT COUNT(*) n FROM diesel_movements').single['n'],2);
     expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
   });
 
