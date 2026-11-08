@@ -401,11 +401,47 @@ class SaqiaServer {
             });
             continue;
           }
-          results.add({'event_id':eventId,'status':previous['status']=='conflict'?'conflict':'duplicate',
-            'server_sequence':previous['server_sequence'],
-            'server_version':previous['server_version'],
-            'current_version':previous['server_version'],
-            'message':previous['status']=='conflict'?'الحدث مسجل كتعارض سابق':'الحدث مسجل مسبقاً'});
+          if (previous['status'] == 'conflict') {
+            results.add({
+              'event_id': eventId,
+              'status': 'conflict',
+              'server_sequence': previous['server_sequence'],
+              'server_version': previous['server_version'],
+              'current_version': previous['server_version'],
+              'message': 'الحدث مسجل كتعارض سابق',
+            });
+            continue;
+          }
+          final appliedLink = entityType == 'beneficiaries' &&
+                  payload is Map && payload['_global_id'] != null
+              ? db.select(
+                  'SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',
+                  [station, entityType, payload['_global_id'].toString()],
+                )
+              : const <Row>[];
+          if (appliedLink.isNotEmpty) {
+            final linkedId = (appliedLink.first['local_id'] as num).toInt();
+            final businessRow = db.select(
+              'SELECT id FROM beneficiaries WHERE id=? AND station_id=? LIMIT 1',
+              [linkedId, station],
+            );
+            if (businessRow.isNotEmpty) {
+              results.add({
+                'event_id': eventId,
+                'status': 'duplicate',
+                'server_sequence': previous['server_sequence'],
+                'server_version': previous['server_version'],
+                'current_version': previous['server_version'],
+                'message': 'الحدث مطبق مسبقاً على سجل الأعمال',
+              });
+              continue;
+            }
+          }
+          results.add({
+            'event_id': eventId,
+            'status': 'rejected',
+            'message': 'هذا الحدث مسجل من إصدار سابق دون إثبات تطبيقه على قاعدة الأعمال؛ يلزم تسوية السجل وإرسال حدث جديد.',
+          });
           continue;
         }
         // New clients identify entities by UUID. Bridge the previous
