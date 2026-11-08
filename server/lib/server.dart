@@ -797,6 +797,13 @@ class SaqiaServer {
                 WHERE l.station_id=? AND l.entity_type='beneficiary_manual_debts'
                   AND l.global_id=? LIMIT 1
               ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'worker_transactions' || entityType == 'partner_transactions') {
+              final partyTable = entityType == 'worker_transactions' ? 'workers' : 'partners';
+              final partyColumn = entityType == 'worker_transactions' ? 'worker_id' : 'partner_id';
+              businessRowExists = db.select(
+                'SELECT 1 FROM sync_entity_links l JOIN ' + entityType + ' t ON t.id=l.local_id AND t.station_id=l.station_id JOIN ' + partyTable + ' p ON p.id=t.' + partyColumn + ' AND p.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=? AND l.global_id=? LIMIT 1',
+                [station,entityType,globalId],
+              ).isNotEmpty;
             }
           }
           if (!businessRowExists) {
