@@ -1602,6 +1602,140 @@ class SaqiaServer {
     if (waterAmount>0) lines.add({'account_id':_accountId('4000'),'debit':0,'credit':waterAmount,'memo':'إيراد الماء'});
     if (dieselAmount>0) lines.add({'account_id':_accountId('4010'),'debit':0,'credit':dieselAmount,'memo':'قيمة الديزل'});
     _journal(description:'سقاية رقم ' + irrigationId.toString(),referenceType:'irrigation',referenceId:irrigationId,lines:lines,userId:userId);
+
+    // The server is the sole owner of irrigation-linked worker and partner
+    // accruals. Clients send only the irrigation command; these rows and their
+    // journals are published later as projections.
+    var totalWorkerEntitlement = 0;
+    if (_hasTable('workers') && _hasTable('worker_transactions')) {
+      final workers = db.select(
+        "SELECT id,pay_type,hourly_rate,percentage_rate FROM workers WHERE station_id=? AND active=1 AND pay_type IN ('hourly','percentage') ORDER BY id",
+        [station],
+      );
+      for (final worker in workers) {
+        final workerId = (worker['id'] as num).toInt();
+        final payType = worker['pay_type'].toString();
+        final hourlyRate = (worker['hourly_rate'] as num?)?.round() ?? 0;
+        final percentageRate = (worker['percentage_rate'] as num?)?.toDouble() ?? 0;
+        final entitlement = payType == 'hourly'
+            ? (chargeable / 60.0 * hourlyRate).round()
+            : (total * percentageRate / 100).round();
+        final amount = entitlement.clamp(0, total).toInt();
+        if (amount <= 0) continue;
+        db.execute('''INSERT INTO worker_transactions
+          (station_id,worker_id,date,type,hours,rate_snapshot,percentage_snapshot,amount,reference_type,reference_id,notes,created_by)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''', [
+          station, workerId, start.toIso8601String(), 'irrigation',
+          chargeable / 60.0, hourlyRate, percentageRate, amount,
+          'irrigation', irrigationId,
+          payType == 'hourly' ? 'استحقاق بالساعة من السقاية' : 'استحقاق نسبة من السقاية',
+          userId,
+        ]);
+        final transactionId = db.lastInsertRowId;
+        _journal(
+          description: 'أجر العامل عن السقاية $irrigationId',
+          referenceType: 'worker',
+          referenceId: transactionId,
+          userId: userId,
+          date: start,
+          lines: [
+            {'account_id': _accountId('5000'), 'worker_id': workerId, 'debit': amount, 'credit': 0},
+            {'account_id': _syncWorkerAccountId(workerId), 'worker_id': workerId, 'debit': 0, 'credit': amount},
+          ],
+        );
+        totalWorkerEntitlement += amount;
+      }
+    }
+
+    final partnerPool = (total - totalWorkerEntitlement).clamp(0, total).toInt();
+    if (partnerPool > 0 && _hasTable('partners') && _hasTable('partner_transactions')) {
+      final partners = db.select(
+        'SELECT id,ownership_mode,shares_count,ownership_percentage FROM partners WHERE station_id=? AND active=1 ORDER BY id',
+        [station],
+      );
+      final percentagePartners = partners
+          .where((partner) => partner['ownership_mode'] == 'percentage')
+          .toList();
+      final sharePartners = partners
+          .where((partner) => partner['ownership_mode'] != 'percentage')
+          .toList();
+      final percentageTotal = percentagePartners.fold<double>(0, (sum, partner) {
+        final value = (partner['ownership_percentage'] as num?)?.toDouble() ?? 0;
+        if (value < 0) throw StateError('نسبة ملكية الشريك لا يمكن أن تكون سالبة');
+        return sum + value;
+      });
+      if (percentageTotal > 100.0000001) {
+        throw StateError('مجموع نسب ملكية الشركاء يتجاوز 100%');
+      }
+      final percentagePool = (partnerPool * percentageTotal / 100)
+          .floor().clamp(0, partnerPool).toInt();
+      var percentageAllocated = 0;
+      for (final partner in percentagePartners) {
+        final partnerId = (partner['id'] as num).toInt();
+        final percentage = (partner['ownership_percentage'] as num?)?.toDouble() ?? 0;
+        final amount = percentageTotal <= 0
+            ? 0
+            : (percentagePool * percentage / percentageTotal)
+                .floor().clamp(0, percentagePool - percentageAllocated).toInt();
+        percentageAllocated += amount;
+        if (amount <= 0) continue;
+        db.execute('''INSERT INTO partner_transactions
+          (station_id,partner_id,date,type,amount,ownership_snapshot,reference_type,reference_id,created_by)
+          VALUES(?,?,?,?,?,?,?,?,?)''', [
+          station, partnerId, start.toIso8601String(), 'share_accrual',
+          amount, percentage, 'irrigation_profit', irrigationId, userId,
+        ]);
+        final transactionId = db.lastInsertRowId;
+        _journal(
+          description: 'نصيب الشريك من صافي السقاية $irrigationId',
+          referenceType: 'partner',
+          referenceId: transactionId,
+          userId: userId,
+          date: start,
+          lines: [
+            {'account_id': _accountId('3200'), 'partner_id': partnerId, 'debit': amount, 'credit': 0},
+            {'account_id': _syncPartnerAccountId(partnerId), 'partner_id': partnerId, 'debit': 0, 'credit': amount},
+          ],
+        );
+      }
+      if (sharePartners.isNotEmpty) {
+        final totalShares = sharePartners.fold<double>(0, (sum, partner) {
+          final value = (partner['shares_count'] as num?)?.toDouble() ?? 0;
+          if (value < 0) throw StateError('عدد حصص الشريك لا يمكن أن يكون سالباً');
+          return sum + value;
+        });
+        if (totalShares <= 0) throw StateError('إجمالي حصص الشركاء يجب أن يكون أكبر من صفر');
+        final sharePool = partnerPool - percentagePool;
+        var sharesAllocated = 0;
+        for (final partner in sharePartners) {
+          final partnerId = (partner['id'] as num).toInt();
+          final shares = (partner['shares_count'] as num?)?.toDouble() ?? 0;
+          final amount = (sharePool * shares / totalShares)
+              .floor().clamp(0, sharePool - sharesAllocated).toInt();
+          sharesAllocated += amount;
+          if (amount <= 0) continue;
+          db.execute('''INSERT INTO partner_transactions
+            (station_id,partner_id,date,type,amount,ownership_snapshot,reference_type,reference_id,created_by)
+            VALUES(?,?,?,?,?,?,?,?,?)''', [
+            station, partnerId, start.toIso8601String(), 'share_accrual',
+            amount, shares, 'irrigation_profit', irrigationId, userId,
+          ]);
+          final transactionId = db.lastInsertRowId;
+          _journal(
+            description: 'نصيب الشريك من صافي السقاية $irrigationId',
+            referenceType: 'partner',
+            referenceId: transactionId,
+            userId: userId,
+            date: start,
+            lines: [
+              {'account_id': _accountId('3200'), 'partner_id': partnerId, 'debit': amount, 'credit': 0},
+              {'account_id': _syncPartnerAccountId(partnerId), 'partner_id': partnerId, 'debit': 0, 'credit': amount},
+            ],
+          );
+        }
+      }
+    }
+
     if (system=='diesel' && liters>0) {
       final stock = (db.select("SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements WHERE station_id=?",[station]).first['stock'] as num).toDouble();
       final shortage = liters-stock;
