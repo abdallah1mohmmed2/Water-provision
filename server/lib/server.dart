@@ -917,6 +917,7 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
           values[key] = key == 'is_needy' && value is bool ? (value ? 1 : 0) : value;
         }
       }
+      values['name'] = '${values['name']}'.trim();
       final names = values.keys.toList();
       db.execute(
         'INSERT INTO beneficiaries(${names.join(',')}) VALUES(${List.filled(names.length, '?').join(',')})',
