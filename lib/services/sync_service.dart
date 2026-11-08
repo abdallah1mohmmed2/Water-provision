@@ -163,7 +163,7 @@ class SyncService {
           'worker_transactions',
         ),
         'partner_transactions': await _globalIdsForQuery(
-          "SELECT id FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=? ORDER BY id",
+          "SELECT id FROM partner_transactions WHERE reference_type IN ('irrigation_profit','irrigation') AND reference_id=? ORDER BY id",
           [recordId],
           'partner_transactions',
         ),
