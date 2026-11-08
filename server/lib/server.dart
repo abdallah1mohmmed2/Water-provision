@@ -1002,6 +1002,7 @@ class SaqiaServer {
     for (final key in ['status','actual_end','timer_stopped_at','postponement_reason','notes']) { if (payload.containsKey(key)) values[key]=payload[key]; }
     if (nextStatus=='postponed' && (values['postponement_reason']??current.first['postponement_reason']??'').toString().trim().isEmpty) throw StateError('سبب تأجيل الجلسة مطلوب');
     if (nextStatus=='completed') { final start=DateTime.tryParse(current.first['actual_start'].toString()); final end=DateTime.tryParse((values['actual_end']??current.first['actual_end']??'').toString()); if (start==null || end==null || !end.isAfter(start)) throw StateError('وقت إنهاء الجلسة غير صالح'); values['actual_end']=end.toIso8601String(); values['timer_stopped_at']=values['timer_stopped_at']??end.toIso8601String(); }
+    if (nextStatus=='completed') { final linked=db.select("SELECT id FROM irrigations WHERE station_id=? AND session_id=? AND status='posted' AND start_datetime=? AND end_datetime=? LIMIT 2",[station,localId,current.first['actual_start'],values['actual_end']]); if (linked.length!=1) throw StateError('لا يمكن اعتماد إنهاء الجلسة دون سقاية مالية مرتبطة ومطبقة'); }
     if (values.isEmpty) throw StateError('لا توجد حقول جلسة قابلة للتحديث');
     if (oldStatus=='completed' && values.entries.any((entry)=>entry.value!=current.first[entry.key])) throw StateError('لا يمكن تعديل بيانات جلسة مكتملة');
     db.execute('UPDATE irrigation_sessions SET '+values.keys.map((k)=>k+'=?').join(',')+' WHERE id=?',[...values.values,localId]);
