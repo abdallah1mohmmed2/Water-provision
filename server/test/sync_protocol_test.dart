@@ -115,7 +115,7 @@ void main() {
     expect((replay['results'] as List).first['status'], 'rejected');
     expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').first['n'], 1);
     expect(database.select('SELECT payload_json FROM sync_event_log').first['payload_json'],
-        '{"name":"Test Beneficiary"}');
+        '{"_global_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"Test Beneficiary"}');
   });
 
   test('unsupported entity types are rejected before entering the event log', () async {
@@ -146,7 +146,7 @@ void main() {
     final result = await postEvents(stationOneToken,[stale],device:'device-c');
     expect((result['results'] as List).first['status'],'conflict');
     expect(database.select(
-      "SELECT version FROM sync_entity_versions WHERE station_id=1 AND entity_key='beneficiary-42'",
+      "SELECT version FROM sync_entity_versions WHERE station_id=1 AND entity_key='beneficiaries:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'",
     ).first['version'],1);
   });
 
