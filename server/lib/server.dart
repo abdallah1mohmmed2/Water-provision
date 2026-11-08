@@ -406,7 +406,7 @@ class SaqiaServer {
     db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND station_id=?',[amountValue.toInt(),cashboxId,station]);
     if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر تحديث رصيد الصندوق');
     final cashCode = (cashbox['ledger_account_code'] ?? method['ledger_account_code'] ?? '1000').toString();
-    _journal(description:'قبض من مستفيد رقم ' + paymentId.toString(),referenceType:'payment',referenceId:paymentId,userId:userId,lines:[
+    _journal(description:'قبض من مستفيد رقم ' + paymentId.toString(),referenceType:'payment',referenceId:paymentId,userId:userId,date:date,lines:[
       {'account_id':_accountId(cashCode),'debit':amountValue.toInt(),'credit':0},
       {'account_id':_accountId('1200'),'beneficiary_id':beneficiaryId,'debit':0,'credit':amountValue.toInt()},
     ]);
@@ -2225,30 +2225,37 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
       db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=? AND station_id=?',[amount,cashboxId,station]);
       if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر تحديث رصيد صندوق شراء الديزل');
       final box = db.select('SELECT ledger_account_code FROM cashboxes WHERE id=? AND station_id=?',[cashboxId,station]).first;
-      final code = (box['ledger_account_code'] ?? '1000').toString();
-      _journal(description:'شراء/إضافة ديزل للمخزون',referenceType:'diesel_receipt',referenceId:movementId,userId:userId,lines:[
+      var code = (box['ledger_account_code'] ?? '').toString();
+      if (code.isEmpty) {
+        final methods = db.select('SELECT ledger_account_code,type FROM payment_methods WHERE cashbox_id=? AND station_id=? AND active=1 ORDER BY id LIMIT 1',[cashboxId,station]);
+        if (methods.isNotEmpty) {
+          final configured = (methods.first['ledger_account_code'] ?? '').toString();
+          code = configured.isNotEmpty ? configured : switch (methods.first['type'].toString()) {'bank_transfer' => '1100', 'wallet' => '1120', _ => '1000'};
+        } else { code = '1000'; }
+      }
+      _journal(description:'شراء/إضافة ديزل للمخزون',referenceType:'diesel_receipt',referenceId:movementId,userId:userId,date:date,lines:[
         {'account_id':_accountId('1300'),'debit':amount,'credit':0},
         {'account_id':_accountId(code),'debit':0,'credit':amount},
       ]);
     }
-    if (kind == 'consumption') _journal(description:'استهلاك ديزل',referenceType:'diesel_consumption',referenceId:movementId,userId:userId,lines:[
+    if (kind == 'consumption') _journal(description:'استهلاك ديزل',referenceType:'diesel_consumption',referenceId:movementId,userId:userId,date:date,lines:[
       {'account_id':_accountId('5010'),'debit':amount,'credit':0},
       {'account_id':_accountId('1300'),'debit':0,'credit':amount},
     ]);
-    if (kind == 'correction') _journal(description:'تصحيح زيادة مخزون الديزل',referenceType:'diesel_correction',referenceId:movementId,userId:userId,lines:[
+    if (kind == 'correction') _journal(description:'تصحيح زيادة مخزون الديزل',referenceType:'diesel_correction',referenceId:movementId,userId:userId,date:date,lines:[
       {'account_id':_accountId('1300'),'debit':amount,'credit':0},
       {'account_id':_accountId('5010'),'debit':0,'credit':amount},
     ]);
-    if (kind == 'opening_balance') _journal(description:'رصيد افتتاحي لمخزون الديزل',referenceType:'diesel_opening_balance',referenceId:movementId,userId:userId,lines:[
+    if (kind == 'opening_balance') _journal(description:'رصيد افتتاحي لمخزون الديزل',referenceType:'diesel_opening_balance',referenceId:movementId,userId:userId,date:date,lines:[
       {'account_id':_accountId('1300'),'debit':amount,'credit':0},
       {'account_id':_accountId('3000'),'debit':0,'credit':amount},
     ]);
     final settings = _settingsForStation(station);
-    if (kind == 'delivery' && beneficiaryId != null && settings['diesel_delivery_financial_credit'] == 'true') _journal(description:'تسليم ديزل من المستفيد (رصيد مالي)',referenceType:'diesel',referenceId:movementId,userId:userId,lines:[
+    if (kind == 'delivery' && beneficiaryId != null && settings['diesel_delivery_financial_credit'] == 'true') _journal(description:'تسليم ديزل من المستفيد (رصيد مالي)',referenceType:'diesel',referenceId:movementId,userId:userId,date:date,lines:[
       {'account_id':_accountId('1300'),'debit':amount,'credit':0},
       {'account_id':_accountId('1200'),'beneficiary_id':beneficiaryId,'debit':0,'credit':amount},
     ]);
-    if (kind == 'advance' && beneficiaryId != null) _journal(description:'سلفة ديزل للمستفيد',referenceType:'diesel_advance',referenceId:movementId,userId:userId,lines:[
+    if (kind == 'advance' && beneficiaryId != null) _journal(description:'سلفة ديزل للمستفيد',referenceType:'diesel_advance',referenceId:movementId,userId:userId,date:date,lines:[
       {'account_id':_accountId('1200'),'beneficiary_id':beneficiaryId,'debit':amount,'credit':0},
       {'account_id':_accountId('1300'),'debit':0,'credit':amount},
     ]);
