@@ -976,6 +976,8 @@ class SaqiaServer {
     if (!required.every(columns.contains)) throw StateError('مخطط جلسات التشغيل غير مكتمل');
     final queueId=payload['queue_entry_id']==null?null:_resolveOperationalSyncRef(station:station,entityType:'queue_entries',column:'queue_entry_id',references:refs,beneficiaryId:beneficiaryId);
     final bookingId=payload['booking_id']==null?null:_resolveOperationalSyncRef(station:station,entityType:'booking_requests',column:'booking_id',references:refs,beneficiaryId:beneficiaryId);
+    if (operation=='create' && queueId!=null && db.select("SELECT 1 FROM queue_entries WHERE id=? AND status IN ('waiting','postponed')",[queueId]).isEmpty) throw StateError('عنصر الطابور لم يعد متاحاً لبدء الجلسة');
+    if (operation=='create' && bookingId!=null && db.select("SELECT 1 FROM booking_requests WHERE id=? AND status IN ('new','under_review','scheduled','accepted','notified')",[bookingId]).isEmpty) throw StateError('الحجز لم يعد متاحاً لبدء الجلسة');
     final links=db.select("SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='irrigation_sessions' AND global_id=?",[station,globalId]);
     final localId=links.isEmpty?null:(links.first['local_id'] as num).toInt();
     if (operation=='create') {
