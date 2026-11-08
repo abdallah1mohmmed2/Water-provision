@@ -500,7 +500,7 @@ class SaqiaServer {
             _ => null,
           },
         'worker_transactions' when referenceType == 'irrigation' => 'irrigations',
-        'partner_transactions' when referenceType == 'irrigation_profit' => 'irrigations',
+        'partner_transactions' when const {'irrigation_profit', 'irrigation'}.contains(referenceType) => 'irrigations',
         _ => null,
       };
       if (referenceTable != null) {
