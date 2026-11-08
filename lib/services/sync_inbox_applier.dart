@@ -260,6 +260,16 @@ class SyncInboxApplier {
           if (start == null || end == null || !end.isAfter(start)) {
             throw StateError('وقت إنهاء جلسة التشغيل الواردة غير صالح.');
           }
+          final linkedIrrigation = await tx.query(
+            'irrigations',
+            columns: ['id'],
+            where: "session_id=? AND start_datetime=? AND end_datetime=? AND status='posted'",
+            whereArgs: [localId, existing.single['actual_start'], end.toIso8601String()],
+            limit: 2,
+          );
+          if (linkedIrrigation.length != 1) {
+            throw StateError('لا يمكن تطبيق إنهاء الجلسة قبل وصول السقاية المرتبطة بها.');
+          }
         }
       }
     }
