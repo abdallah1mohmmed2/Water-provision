@@ -113,3 +113,33 @@ dart run bin/inspect_schema.dart /path/to/saqia_station_v2.db
 ```
 
 تُخرج JSON يحتوي إصدار SQLite، والجداول، وSQL الإنشاء، والأعمدة، والمفاتيح الأجنبية، والفهارس، والمشغلات. لا تقرأ صفوف الأعمال ولا تعدّل ملف القاعدة؛ وتفتح الملف بوضع القراءة فقط. يجب تشغيلها على **نسخة** من قاعدة المحطة، ثم مراجعة الناتج قبل كتابة PostgreSQL migrations. لا ترفع ملف قاعدة المحطة أو ناتجاً يتضمن بيانات حساسة إلى مستودع عام.
+
+
+## نتائج فحص نسخة قاعدة فعلية — 8 نوفمبر 2026
+
+تم استلام نسخة قاعدة المحطة باسم `نسخة_المنظومة_2026-11-08_08-37-10.db` وفحصها محلياً بوضع SQLite للقراءة فقط. لم تُقرأ صفوف الأعمال ولم يُعدّل الملف ولم يُرفع إلى المستودع.
+
+### نتائج التحقق
+
+- `PRAGMA user_version`: القيمة **28**، مطابقة لإصدار `AppDatabase` الحالي.
+- `PRAGMA integrity_check`: النتيجة `ok`.
+- `PRAGMA foreign_key_check`: لم يُرجع مخالفات.
+- حجم الملف: 401,408 بايت.
+- كائنات المخطط: **46 جدولاً** (بما فيها `android_metadata`)، و**17 فهرساً صريحاً**، و**78 Trigger**.
+- توجد Triggers تسجيل مزامنة على 26 جدولاً؛ ولا يعني غيابها عن الجداول الأخرى أنها يجب أن تُضاف تلقائياً، بل يلزم تحديد سياسة المزامنة لكل جدول.
+
+### الجداول الموجودة فعلياً
+
+`accountant_reconciliation_months`, `accounts`, `android_metadata`, `app_users`, `audit_logs`, `backup_records`, `beneficiaries`, `beneficiary_auth_codes`, `beneficiary_manual_debts`, `beneficiary_sessions`, `booking_requests`, `cash_reconciliations`, `cashbox_transfers`, `cashboxes`, `cloud_periods`, `diesel_movements`, `expenses`, `general_account_transactions`, `general_accounts`, `irrigation_sessions`, `irrigations`, `journal_entries`, `journal_lines`, `notification_templates`, `notifications`, `partner_transactions`, `partners`, `payment_methods`, `payments`, `performance_metrics`, `period_closures`, `pumps`, `queue_entries`, `report_runs`, `settings`, `station_settings`, `stations`, `sync_change_log`, `sync_entity_versions`, `sync_global_identities`, `sync_global_relations`, `sync_inbox`, `sync_metadata`, `sync_queue`, `worker_transactions`, `workers`.
+
+### فروقات يجب استكمالها قبل PostgreSQL DDL
+
+1. الجدولان `auth_rate_limits` و`sync_event_log` اللذان ينشئهما الخادم غير موجودين في نسخة تطبيق المحطة هذه؛ يجب إدراجهما ضمن مخطط الخادم المركزي من تعريفاتهما الفعلية في كود الخادم، لا افتراض وجودهما في قاعدة التطبيق.
+2. النسخة تحتوي جداول هوية عالمية وعلاقات ومزامنة (`sync_global_identities`, `sync_global_relations`, `sync_inbox`, `sync_queue`) لم تكن مفصلة كلها في قائمة الجداول الأولية؛ يجب أن تدخل في المرجع النهائي مع تحديد ما هو محلي وما هو مركزي.
+3. يوجد 78 Trigger، ويجب مراجعة SQL لكل واحد وتحديد ما إذا كان منطق مزامنة SQLite سيبقى على الجهاز فقط أم سيعاد تمثيله كقيود/منطق PostgreSQL. لا تُنقل Triggers حرفياً.
+4. نتيجة فحص المفاتيح الأجنبية خالية من المخالفات في هذه النسخة، لكن يلزم كذلك فحص القيود المنطقية، وملكية `station_id`، والمراجع المتقاطعة بين المحطات قبل أي استيراد.
+5. هذا الفحص يثبت بنية هذه النسخة فقط؛ لا يثبت أنها أحدث نسخة تشغيلية على كل جهاز أو أنها تحتوي كل بيانات المحطة.
+
+### القرار التالي
+
+اعتماد هذه النسخة كمرجع بنيوي أولي لمخطط SQLite v28، ثم إكمال استخراج SQL التفصيلي للجداول والفهارس والقيود وTriggers ومقارنته بمصدر التطبيق والخادم. بعد ذلك فقط تُكتب PostgreSQL migrations إصداريّة مع اختبارات، دون تنفيذ نقل بيانات حقيقي في هذه المرحلة.
