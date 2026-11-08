@@ -497,7 +497,7 @@ class StationRepository {
           if (from != null) 'from': from.toIso8601String(),
           if (to != null) 'to': to.toIso8601String(),
         };
-        final suffix = query.isEmpty ? '' : '?\${Uri(queryParameters: query).query}';
+        final suffix = query.isEmpty ? '' : '?${Uri(queryParameters: query).query}';
         try {
           final remote = await api.get(
             '/beneficiaries/$globalId/statement$suffix',
