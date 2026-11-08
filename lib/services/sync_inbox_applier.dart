@@ -229,7 +229,7 @@ class SyncInboxApplier {
       final nextStatus = (values['status'] ?? (operation == 'create' ? 'running' : '')).toString();
       if (operation == 'create') {
         if (nextStatus != 'running' ||
-            DateTime.tryParse('\${values['actual_start'] ?? ''}') == null) {
+            DateTime.tryParse('${values['actual_start'] ?? ''}') == null) {
           throw StateError('إنشاء جلسة التشغيل الواردة يجب أن يبدأ بوقت وحالة running.');
         }
       } else if (localId != null) {
@@ -241,7 +241,7 @@ class SyncInboxApplier {
           limit: 1,
         );
         if (existing.isEmpty) throw StateError('جلسة التشغيل المحلية غير موجودة.');
-        final oldStatus = '\${existing.single['status']}';
+        final oldStatus = '${existing.single['status']}';
         final transitions = <String, Set<String>>{
           'running': {'running', 'postponed', 'completed'},
           'postponed': {'postponed'},
@@ -251,12 +251,12 @@ class SyncInboxApplier {
           throw StateError('انتقال حالة جلسة التشغيل الواردة غير مسموح.');
         }
         if (nextStatus == 'postponed' &&
-            '\${values['postponement_reason'] ?? ''}'.trim().isEmpty) {
+            '${values['postponement_reason'] ?? ''}'.trim().isEmpty) {
           throw StateError('سبب تأجيل جلسة التشغيل الواردة مطلوب.');
         }
         if (nextStatus == 'completed') {
-          final start = DateTime.tryParse('\${existing.single['actual_start'] ?? ''}');
-          final end = DateTime.tryParse('\${values['actual_end'] ?? existing.single['actual_end'] ?? ''}');
+          final start = DateTime.tryParse('${existing.single['actual_start'] ?? ''}');
+          final end = DateTime.tryParse('${values['actual_end'] ?? existing.single['actual_end'] ?? ''}');
           if (start == null || end == null || !end.isAfter(start)) {
             throw StateError('وقت إنهاء جلسة التشغيل الواردة غير صالح.');
           }
