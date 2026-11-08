@@ -470,3 +470,23 @@
 **حالة التحقق:** تشغيل Shelf tests على commit `d4cc0da90b460fd812cdece6f33f8a10a7288e85` اجتاز اختبارات الخادم، وتشغيل SonarCloud على commit نفسه اجتاز اختبارات Flutter والتغطية. كشف Analyze بعد ذلك lint واحداً في اختبار Outbox وتم إصلاحه في `41ef663c69ec9a9e7eef3120ecbcb552855b932c`. ثم أضيفت إعدادات SQLite Linux وإصلاح YAML workflows، وتوثق هذه الشريحة في commit `6dd0054b851d99dc2f20f05cbf28e30ff04bfb4b`.
 
 **لا تزال بوابة CI النهائية وAPK على رأس الفرع الأحدث قيد الانتظار.** لا تعتمد نتائج commit أقدم كدليل لنجاح الرأس الحالي، ولا تعلن جاهزية APK حتى يوجد Artifact فعلي من تشغيل ناجح على الرأس النهائي. لا دمج إلى `main`.
+
+
+## تحديث بوابة CI — 2026-11-08 — الرأس 01ab849e1be473103d783f76edf14d1c6d43bd48
+
+تم التحقق من رأس الفرع مباشرة من Git refs، ثم مراجعة Actions وسجل وظيفة APK:
+
+| Workflow | Run ID | SHA | النتيجة |
+|---|---:|---|---|
+| SonarCloud | 42469347879 | 01ab849 | success |
+| Flutter Analyze | 42469347884 | 01ab849 | success |
+| Build Flutter APK | 42469344440 | 01ab849 | failure |
+| Build / SonarQube | 42469347857 | 01ab849 | failure |
+
+تشخيص SQLite: خطوة إعداد مصدر SQLite الرسمي نجحت في تشغيل Release وسجلت التحقق من SQLite 3.53.4 بواسطة SHA3-256؛ لم يظهر خطأ SHA256 القديم على هذا الرأس. يظل Android على custom source build ولا يستخدم مكتبة نظام Android. يحافظ Linux FFI على source: system مع حزمة libsqlite3-dev في CI، بينما Windows يبقى على binary الافتراضي للحزمة.
+
+سبب فشل APK الفعلي: Gradle لم يتمكن من تنزيل kotlin-compiler-embeddable-2.2.21.jar. السجل يوضح أن الطلب بدأ من Maven Central ثم اتجه إلى GitHub Releases وانتهى باستجابة HTTP 504. لم يصل البناء إلى إنتاج APK، وتخطت خطوة Upload Artifact.
+
+الإجراء التالي: إضافة Huawei Cloud Maven Central قبل Maven Central في مستودعات plugin management ومستودعات المشاريع، مع إبقاء المستودعات الأصلية كاحتياط. هذا إصلاح لمصدر تنزيل تبعيات Kotlin وليس تغييراً في كود التطبيق أو نسخاً احتياطياً من Gradle. يجب إعادة تشغيل جميع بوابات CI على commit الإصلاح، وقراءة السجل الجديد إن ظهر فشل آخر.
+
+لا تعتبر هذه الخطوة مكتملة ولا توجد Artifact Release معتمدة لهذا الرأس. لا دمج إلى main.
