@@ -37,8 +37,13 @@ void main() {
     const testBeneficiaries = "(SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')";
     const testIrrigations = "(SELECT id FROM irrigations WHERE beneficiary_id IN $testBeneficiaries)";
     await database.delete(
+      'beneficiary_manual_debts',
+      'beneficiary_id IN $testBeneficiaries',
+      const [],
+    );
+    await database.delete(
       'journal_lines',
-      "journal_entry_id IN (SELECT id FROM journal_entries WHERE reference_type='irrigation' AND reference_id IN $testIrrigations)",
+      "beneficiary_id IN $testBeneficiaries OR journal_entry_id IN (SELECT id FROM journal_entries WHERE reference_type='irrigation' AND reference_id IN $testIrrigations)",
       const [],
     );
     await database.delete(
@@ -46,14 +51,17 @@ void main() {
       "reference_type='irrigation' AND reference_id IN $testIrrigations",
       const [],
     );
+    await database.delete('notifications', 'beneficiary_id IN $testBeneficiaries', const []);
+    await database.delete('beneficiary_auth_codes', 'beneficiary_id IN $testBeneficiaries', const []);
+    await database.delete('beneficiary_sessions', 'beneficiary_id IN $testBeneficiaries', const []);
+    await database.delete('payments', 'beneficiary_id IN $testBeneficiaries', const []);
+    await database.delete('expenses', 'beneficiary_id IN $testBeneficiaries', const []);
+    await database.delete('diesel_movements', 'beneficiary_id IN $testBeneficiaries OR irrigation_id IN $testIrrigations', const []);
     await database.delete('cloud_periods', 'irrigation_id IN $testIrrigations', const []);
-    await database.delete('diesel_movements', 'irrigation_id IN $testIrrigations', const []);
     await database.delete('irrigations', 'id IN $testIrrigations', const []);
-    await database.delete(
-      'beneficiary_manual_debts',
-      "beneficiary_id IN (SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')",
-      const [],
-    );
+    await database.delete('irrigation_sessions', 'beneficiary_id IN $testBeneficiaries', const []);
+    await database.delete('queue_entries', 'beneficiary_id IN $testBeneficiaries', const []);
+    await database.delete('booking_requests', 'beneficiary_id IN $testBeneficiaries', const []);
     await database.delete(
       'journal_lines',
       "beneficiary_id IN (SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')",
