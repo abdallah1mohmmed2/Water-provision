@@ -701,7 +701,7 @@ void main() {
         'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc',
         'cccccccc-cccc-4ccc-8ccc-cccccccccccd',
       ],
-      'cashboxes': ['eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeef'],
+      'cashboxes': ['eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'],
     };
     command['payload'] = payload;
     final accepted = await postEvents(stationOneToken, [command], device: 'device-a');
