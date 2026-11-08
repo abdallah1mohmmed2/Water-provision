@@ -769,7 +769,14 @@ class SaqiaServer {
       final type = (raw['type'] ?? '').toString().trim();
       if (name.isNotEmpty && type.isNotEmpty) {
         final rows = db.select('SELECT id FROM payment_methods WHERE station_id=? AND name=? AND type=? AND active=1 LIMIT 2',[station,name,type]);
-        if (rows.length == 1) return (rows.first['id'] as num).toInt();
+        if (rows.length == 1) {
+          final localId = (rows.first['id'] as num).toInt();
+          db.execute(
+            'INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',
+            [station, entityType, globalId, localId, DateTime.now().toUtc().toIso8601String()],
+          );
+          return localId;
+        }
       }
     }
     if (entityType == 'cashboxes') {
@@ -777,7 +784,14 @@ class SaqiaServer {
       final currency = (raw['currency'] ?? '').toString().trim();
       if (name.isNotEmpty && currency.isNotEmpty) {
         final rows = db.select('SELECT id FROM cashboxes WHERE station_id=? AND name=? AND currency=? AND active=1 LIMIT 2',[station,name,currency]);
-        if (rows.length == 1) return (rows.first['id'] as num).toInt();
+        if (rows.length == 1) {
+          final localId = (rows.first['id'] as num).toInt();
+          db.execute(
+            'INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',
+            [station, entityType, globalId, localId, DateTime.now().toUtc().toIso8601String()],
+          );
+          return localId;
+        }
       }
     }
     throw StateError('لم يُعثر على مرجع ' + entityType + ' داخل المحطة');
