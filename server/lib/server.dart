@@ -367,8 +367,9 @@ class SaqiaServer {
 
   void _applySyncPaymentReceipt({
     required int station, required String entityKey, required Map payload,
-    required String now, required int? userId,
+    required String now, required int? userId, required String? role,
   }) {
+    if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بقبض المستفيد');
     final globalId = (payload['_global_id'] ?? '').toString();
     final validGlobalId = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId);
     if (!validGlobalId || entityKey != 'payments:' + globalId) throw StateError('هوية عملية القبض العالمية غير صالحة');
@@ -407,11 +408,11 @@ class SaqiaServer {
 
   void _applySyncBusinessEvent({
     required int station, required String entityType, required String entityKey,
-    required String operation, required Map payload, required String now, required int? userId,
+    required String operation, required Map payload, required String now, required int? userId, required String? role,
   }) {
     if (entityType == 'payments') {
       if (operation != 'create') throw UnsupportedError('تعديل أو حذف القبض يحتاج معالج عكس محاسبي مخصصاً');
-      _applySyncPaymentReceipt(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId);
+      _applySyncPaymentReceipt(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
       return;
     }
     if (entityType != 'beneficiaries') throw UnsupportedError('معالج المزامنة لهذا المجال غير منفذ بعد');
@@ -701,6 +702,7 @@ class SaqiaServer {
             payload: Map.from(payload),
             now: now,
             userId: (claims['userId'] as num?)?.toInt(),
+            role: claims['role']?.toString(),
           );
           db.execute('''INSERT INTO sync_event_log
             (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
