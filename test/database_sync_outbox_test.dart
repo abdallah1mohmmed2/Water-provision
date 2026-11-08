@@ -269,9 +269,9 @@ void main() {
     final now = DateTime.now().toIso8601String();
 
     Future<int> createParty(String table, String partyName) async {
-      final columns = await database.rawQuery('PRAGMA table_info(' + table + ')');
+      final columns = await database.rawQuery('PRAGMA table_info($table)');
       final values = <String,Object?>{'name':partyName,'station_id':stationId,'active':1};
-      final foreignKeys = await database.rawQuery('PRAGMA foreign_key_list(' + table + ')');
+      final foreignKeys = await database.rawQuery('PRAGMA foreign_key_list($table)');
       for (final fk in foreignKeys) {
         final columnName = fk['from'] as String;
         if (values.containsKey(columnName)) continue;
@@ -285,12 +285,19 @@ void main() {
             (column['notnull'] as num).toInt() == 0 ||
             column['dflt_value'] != null) continue;
         final type = (column['type'] ?? '').toString().toUpperCase();
-        if (type.contains('INT')) values[columnName]=0;
-        else if (type.contains('REAL') || type.contains('FLOA') || type.contains('DOUB')) values[columnName]=0.0;
-        else if (columnName == 'created_at' || columnName == 'updated_at') values[columnName]=now;
-        else if (columnName == 'pay_type' || columnName == 'salary_type') values[columnName]='fixed';
-        else if (columnName == 'ownership_mode') values[columnName]='shares';
-        else values[columnName]='';
+        if (type.contains('INT')) {
+          values[columnName] = 0;
+        } else if (type.contains('REAL') || type.contains('FLOA') || type.contains('DOUB')) {
+          values[columnName] = 0.0;
+        } else if (columnName == 'created_at' || columnName == 'updated_at') {
+          values[columnName] = now;
+        } else if (columnName == 'pay_type' || columnName == 'salary_type') {
+          values[columnName] = 'fixed';
+        } else if (columnName == 'ownership_mode') {
+          values[columnName] = 'shares';
+        } else {
+          values[columnName] = '';
+        }
       }
       return database.insert(table,values);
     }
