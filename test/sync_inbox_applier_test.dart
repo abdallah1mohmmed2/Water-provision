@@ -119,14 +119,16 @@ void main() {
 
   test('applies station-owned irrigation session lifecycle and rejects reopening a completed session', () async {
     final now = DateTime.now().toUtc().toIso8601String();
-    final beneficiaryId = await database.insert('beneficiaries', {
-      'name': 'INBOX-SESSION-BENEFICIARY',
-      'status': 'active',
-      'created_at': now,
-      'updated_at': now,
-    });
-    final localDb = await database.db;
-    await GlobalIdentity.ensureRecord(localDb, 'beneficiaries', beneficiaryId);
+    final beneficiaryId = await database.transaction((tx) async {
+      final id = await tx.insert('beneficiaries', {
+        'name': 'INBOX-SESSION-BENEFICIARY',
+        'status': 'active',
+        'created_at': now,
+        'updated_at': now,
+      });
+      await GlobalIdentity.ensureRecord(tx, 'beneficiaries', id);
+      return id;
+    }, captureSync: false);
     final pump = (await database.query('pumps', where: 'id=?', whereArgs: [1], limit: 1)).single;
     final beneficiaryIdentity = (await database.query(
       'sync_global_identities',
