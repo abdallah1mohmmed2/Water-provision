@@ -302,7 +302,6 @@ void main() {
     for (final worker in [true,false]) {
       final command = partyDebtEvent(worker:worker);
       final first = await postEvents(stationOneToken,[command]);
-      print('PARTY DEBT APPLY RESPONSE: ' + jsonEncode(first));
       final replay = await postEvents(stationOneToken,[command]);
       final table = worker ? 'worker_transactions' : 'partner_transactions';
       expect((first['results'] as List).first['status'],'accepted');
