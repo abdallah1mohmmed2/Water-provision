@@ -34,6 +34,21 @@ void main() {
   });
 
   setUp(() async {
+    const testBeneficiaries = "(SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')";
+    const testIrrigations = "(SELECT id FROM irrigations WHERE beneficiary_id IN $testBeneficiaries)";
+    await database.delete(
+      'journal_lines',
+      "journal_entry_id IN (SELECT id FROM journal_entries WHERE reference_type='irrigation' AND reference_id IN $testIrrigations)",
+      const [],
+    );
+    await database.delete(
+      'journal_entries',
+      "reference_type='irrigation' AND reference_id IN $testIrrigations",
+      const [],
+    );
+    await database.delete('cloud_periods', 'irrigation_id IN $testIrrigations', const []);
+    await database.delete('diesel_movements', 'irrigation_id IN $testIrrigations', const []);
+    await database.delete('irrigations', 'id IN $testIrrigations', const []);
     await database.delete(
       'beneficiary_manual_debts',
       "beneficiary_id IN (SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')",
@@ -202,6 +217,8 @@ void main() {
   });
 
   test('irrigation outbox contains only the business command while derived rows keep identities', () async {
+    await database.update('settings', {'value': 'solar'}, 'key=?', ['system_type']);
+    await database.update('settings', {'value': '1000'}, 'key=?', ['solar_hourly_rate']);
     await database.update('pumps', {'system_type': 'solar'}, 'id=?', [1]);
     await database.update('workers', {'active': 0}, 'id>? ', [0]);
     await database.update('partners', {'active': 0}, 'id>? ', [0]);
