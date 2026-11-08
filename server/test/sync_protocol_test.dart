@@ -37,13 +37,6 @@ void main() {
       id INTEGER PRIMARY KEY, station_id INTEGER, role TEXT, active INTEGER
     )''');
     database.execute("INSERT INTO app_users(id,station_id,role,active) VALUES(11,1,'manager',1),(22,2,'manager',1)");
-    server = SaqiaServer(database, jwtSecret: secret);
-    stationOneToken = JWT({'kind':'admin','userId':11,'stationId':1,'role':'manager'})
-        .sign(SecretKey(secret));
-    stationTwoToken = JWT({'kind':'admin','userId':22,'stationId':2,'role':'manager'})
-        .sign(SecretKey(secret));
-  });
-
     database.execute('''CREATE TABLE queue_entries(
       id INTEGER PRIMARY KEY AUTOINCREMENT, beneficiary_id INTEGER NOT NULL,
       position INTEGER NOT NULL, cycle_number INTEGER NOT NULL DEFAULT 1,
@@ -56,6 +49,13 @@ void main() {
       scheduled_start TEXT, scheduled_end TEXT, priority INTEGER, notes TEXT,
       cancel_reason TEXT, reviewed_by INTEGER, reviewed_at TEXT
     )''');
+    server = SaqiaServer(database, jwtSecret: secret);
+    stationOneToken = JWT({'kind':'admin','userId':11,'stationId':1,'role':'manager'})
+        .sign(SecretKey(secret));
+    stationTwoToken = JWT({'kind':'admin','userId':22,'stationId':2,'role':'manager'})
+        .sign(SecretKey(secret));
+  });
+
   tearDown(() => database.dispose());
 
   Future<Map<String, dynamic>> postEvents(
