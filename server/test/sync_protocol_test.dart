@@ -1577,4 +1577,101 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT COUNT(*) AS n FROM cashbox_transfers').single['n'],0);
   });
 
+
+  test('sync cancellation refunds expense cashbox and posts one balanced reversal', () async {
+    prepareExpenseAndTransferFixture();
+    const globalId = 'aaaaaaaa-1111-4111-8111-111111111111';
+    final created = await postEvents(stationOneToken,[{
+      'event_id':'aaaaaaaa-1111-4111-8111-111111111112',
+      'entity_type':'expenses','entity_key':'expenses:$globalId','operation':'create','base_version':0,
+      'payload':{
+        '_global_id':globalId,'category':'fuel','title':'Fuel','amount':750,
+        'date':'2026-11-08T10:00:00.000','status':'posted','payment_method_id':1,'cashbox_id':1,
+        '_global_refs':{
+          'payment_method_id':{'table':'payment_methods','global_id':'11111111-1111-4111-8111-111111111111'},
+          'cashbox_id':{'table':'cashboxes','global_id':'22222222-2222-4222-8222-222222222222'},
+        },
+      },
+    }]);
+    expect((created['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],4250);
+    final cancelled = await postEvents(stationOneToken,[{
+      'event_id':'aaaaaaaa-1111-4111-8111-111111111113',
+      'entity_type':'expenses','entity_key':'expenses:$globalId','operation':'update','base_version':1,
+      'payload':{
+        '_global_id':globalId,'status':'cancelled','cancelled_at':'2026-11-08T12:00:00.000',
+        'cancel_reason':'إدخال بالخطأ',
+      },
+    }]);
+    expect((cancelled['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+    expect(database.select('SELECT status FROM expenses').single['status'],'cancelled');
+    expect(database.select("SELECT COUNT(*) n FROM journal_entries WHERE reference_type='reversal'").single['n'],1);
+    final totals=database.select('SELECT SUM(debit) d,SUM(credit) c FROM journal_lines').single;
+    expect(totals['d'],1500);
+    expect(totals['c'],1500);
+    final repeated=await postEvents(stationOneToken,[{
+      'event_id':'aaaaaaaa-1111-4111-8111-111111111114',
+      'entity_type':'expenses','entity_key':'expenses:$globalId','operation':'update','base_version':2,
+      'payload':{
+        '_global_id':globalId,'status':'cancelled','cancelled_at':'2026-11-08T12:01:00.000',
+        'cancel_reason':'إلغاء مكرر',
+      },
+    }]);
+    expect((repeated['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+    expect(database.select("SELECT COUNT(*) n FROM journal_entries WHERE reference_type='reversal'").single['n'],1);
+  });
+
+  test('sync cancellation reverses normal and opening cashbox transfers exactly once', () async {
+    prepareExpenseAndTransferFixture();
+    const globalId = 'bbbbbbbb-2222-4222-8222-222222222222';
+    final created = await postEvents(stationOneToken,[{
+      'event_id':'bbbbbbbb-2222-4222-8222-222222222223',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:$globalId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':globalId,'from_cashbox_id':1,'to_cashbox_id':2,'amount':1200,
+        'date':'2026-11-08T11:00:00.000','is_opening_transfer':false,
+        '_global_refs':{
+          'from_cashbox_id':{'table':'cashboxes','global_id':'22222222-2222-4222-8222-222222222222'},
+          'to_cashbox_id':{'table':'cashboxes','global_id':'33333333-3333-4333-8333-333333333333'},
+        },
+      },
+    }]);
+    expect((created['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],3800);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],3200);
+    final cancelled = await postEvents(stationOneToken,[{
+      'event_id':'bbbbbbbb-2222-4222-8222-222222222224',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:$globalId',
+      'operation':'update','base_version':1,
+      'payload':{
+        '_global_id':globalId,'status':'cancelled','cancelled_at':'2026-11-08T13:00:00.000',
+        'cancel_reason':'تحويل غير مقصود',
+      },
+    }]);
+    expect((cancelled['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],2000);
+    expect(database.select('SELECT status FROM cashbox_transfers').single['status'],'cancelled');
+    expect(database.select("SELECT COUNT(*) n FROM journal_entries WHERE reference_type='reversal'").single['n'],1);
+    final totals=database.select('SELECT SUM(debit) d,SUM(credit) c FROM journal_lines').single;
+    expect(totals['d'],2400);
+    expect(totals['c'],2400);
+    final repeated=await postEvents(stationOneToken,[{
+      'event_id':'bbbbbbbb-2222-4222-8222-222222222225',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:$globalId',
+      'operation':'update','base_version':2,
+      'payload':{
+        '_global_id':globalId,'status':'cancelled','cancelled_at':'2026-11-08T13:01:00.000',
+        'cancel_reason':'إلغاء مكرر',
+      },
+    }]);
+    expect((repeated['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],2000);
+    expect(database.select("SELECT COUNT(*) n FROM journal_entries WHERE reference_type='reversal'").single['n'],1);
+  });
+
 }
