@@ -191,3 +191,8 @@
 بعد تجاوز تنزيل مكتبة SQLite، أظهر تشغيل Debug أن Gradle Wrapper كان يُحوّل طلب `services.gradle.org` إلى GitHub Releases، ثم يتلقى HTTP 504. لذلك عُدّل `android/gradle/wrapper/gradle-wrapper.properties` إلى مضيف التوزيع المباشر الرسمي `downloads.gradle.org`، واختيرت حزمة `bin` الأصغر من `all` مع تثبيت SHA-256 الرسمي المعروف لتوزيعة Gradle 9.3.1. كما أضيف `gradle/actions/setup-gradle@v4` لتخزين Gradle wrapper والتبعيات في workflows الخاصة ببناء APK.
 
 لا يزال نجاح البناء النهائي معلقاً حتى يكتمل Workflow Release على رأس واحد ويُرفع ملف APK فعلياً.
+
+
+### معالجة استمرار تحويل Gradle إلى GitHub Releases
+
+بيّن سجل Debug أن `downloads.gradle.org` نفسه أعاد توجيه الطلب إلى GitHub Releases، حيث استمر HTTP 504. تم تحويل Gradle Wrapper إلى مرآة Huawei Cloud لتوزيعات Gradle (`repo.huaweicloud.com/repository/toolkit/gradle`) مع الإبقاء على `distributionSha256Sum` الرسمي لتوزيعة Gradle 9.3.1؛ أي ملف غير مطابق للبصمة يرفضه Wrapper. يجب أن يثبت تشغيل Debug على الرأس الجديد نجاح هذا التنزيل والبناء.
