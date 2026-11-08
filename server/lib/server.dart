@@ -2142,6 +2142,25 @@ class SaqiaServer {
             }
           }
         }
+        if (_isDerivedSyncEvent(entityType, payload)) {
+          final versionRows = db.select(
+            'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
+            [station, entityType, entityKey],
+          );
+          final current = versionRows.isEmpty
+              ? 0
+              : (versionRows.first['version'] as num).toInt();
+          // Legacy clients may still have child rows in their Outbox. They are
+          // acknowledged as superseded, never applied as a second command.
+          results.add({
+            'event_id': eventId,
+            'status': 'accepted',
+            'server_version': current,
+            'current_version': current,
+            'message': 'أثر تابع؛ أنشأه أمر العمل الأصلي على الخادم ولم يُنفذ كأمر مستقل.',
+          });
+          continue;
+        }
         final currentRows = db.select(
           'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
           [station,entityType,entityKey],
@@ -2191,6 +2210,24 @@ class SaqiaServer {
             VALUES(?,?,?,?,?) ON CONFLICT(station_id,entity_type,entity_key)
             DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at''',
             [station,entityType,entityKey,nextVersion,now]);
+          if (entityType == 'irrigations' || entityType == 'payments') {
+            final globalId = (payload['_global_id'] ?? '').toString();
+            final linked = db.select(
+              'SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',
+              [station, entityType, globalId],
+            );
+            if (linked.isEmpty) {
+              throw StateError('تعذر العثور على سجل أمر العمل لنشر آثاره التابعة');
+            }
+            _appendBusinessEffectProjections(
+              station: station,
+              sourceDevice: device,
+              entityType: entityType,
+              businessId: (linked.first['local_id'] as num).toInt(),
+              payload: payload,
+              now: now,
+            );
+          }
           db.execute('RELEASE SAVEPOINT apply_sync_event');
           results.add({
             'event_id':eventId,
