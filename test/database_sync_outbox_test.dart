@@ -49,6 +49,13 @@ void main() {
       "beneficiary_id IN (SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')",
       const [],
     );
+    await database.delete('worker_transactions', "notes LIKE 'SYNC-TEST-PREVIOUS-DEBT-%'", const []);
+    await database.delete('partner_transactions', "notes LIKE 'SYNC-TEST-PREVIOUS-DEBT-%'", const []);
+    await database.delete('journal_lines', "journal_entry_id IN (SELECT id FROM journal_entries WHERE reference_type IN ('worker_opening','partner_opening'))", const []);
+    await database.delete('journal_entries', "reference_type IN ('worker_opening','partner_opening')", const []);
+    await database.delete('accounts', "code LIKE '2100.W%' OR code LIKE '2200.P%'", const []);
+    await database.delete('workers', "name LIKE 'SYNC-TEST-PREVIOUS-DEBT-%'", const []);
+    await database.delete('partners', "name LIKE 'SYNC-TEST-PREVIOUS-DEBT-%'", const []);
     await database.delete('beneficiaries', "name LIKE 'SYNC-TEST-%'", const []);
     await database.delete('sync_queue', '1=1', const []);
   });
@@ -255,6 +262,67 @@ void main() {
     expect(cancelPayload['cancel_reason'],'إلغاء سند اختبار');
     expect(await database.query('sync_queue',where:'table_name IN (?,?)',whereArgs:['journal_entries','journal_lines']),isEmpty);
   });
+
+
+  test('previous worker and partner debts emit only their own ledger outbox events', () async {
+    final stationId = await AccountingService(database).currentStationId();
+    final now = DateTime.now().toIso8601String();
+
+    Future<int> createParty(String table, String partyName) async {
+      final columns = await database.rawQuery('PRAGMA table_info(' + table + ')');
+      final values = <String,Object?>{'name':partyName,'station_id':stationId,'active':1};
+      final foreignKeys = await database.rawQuery('PRAGMA foreign_key_list(' + table + ')');
+      for (final fk in foreignKeys) {
+        final columnName = fk['from'] as String;
+        if (values.containsKey(columnName)) continue;
+        final target = fk['table'] as String;
+        final targetRows = await database.query(target,columns:['id'],limit:1);
+        if (targetRows.isNotEmpty) values[columnName]=targetRows.first['id'];
+      }
+      for (final column in columns) {
+        final columnName = column['name'] as String;
+        if (columnName == 'id' || values.containsKey(columnName) ||
+            (column['notnull'] as num).toInt() == 0 ||
+            column['dflt_value'] != null) continue;
+        final type = (column['type'] ?? '').toString().toUpperCase();
+        if (type.contains('INT')) values[columnName]=0;
+        else if (type.contains('REAL') || type.contains('FLOA') || type.contains('DOUB')) values[columnName]=0.0;
+        else if (columnName == 'created_at' || columnName == 'updated_at') values[columnName]=now;
+        else if (columnName == 'pay_type' || columnName == 'salary_type') values[columnName]='fixed';
+        else values[columnName]='';
+      }
+      return database.insert(table,values);
+    }
+
+    final workerId = await createParty('workers','SYNC-TEST-PREVIOUS-DEBT-worker');
+    final partnerId = await createParty('partners','SYNC-TEST-PREVIOUS-DEBT-partner');
+    await database.delete('sync_queue','1=1',const []);
+    final service = AccountingService(database);
+    await service.addPreviousPartyDebt(
+      partyType:'worker',partyId:workerId,amount:4200,
+      date:DateTime(2026,11,7,9),notes:'SYNC-TEST-PREVIOUS-DEBT-worker debt',
+    );
+    await service.addPreviousPartyDebt(
+      partyType:'partner',partyId:partnerId,amount:5200,
+      date:DateTime(2026,11,7,10),notes:'SYNC-TEST-PREVIOUS-DEBT-partner debt',
+    );
+
+    final events = await database.query('sync_queue',where:'status=?',whereArgs:['pending'],orderBy:'id');
+    expect(events.map((e)=>e['table_name']).toList(),['worker_transactions','partner_transactions']);
+    expect(events.map((e)=>e['operation']).toList(),['create','create']);
+    final workerPayload = jsonDecode(events[0]['payload'] as String) as Map<String,dynamic>;
+    final partnerPayload = jsonDecode(events[1]['payload'] as String) as Map<String,dynamic>;
+    expect(workerPayload['type'],'opening_balance');
+    expect(workerPayload['reference_type'],'previous_debt');
+    expect(workerPayload['_global_id'],isA<String>());
+    expect((workerPayload['_global_refs'] as Map)['worker_id']['table'],'workers');
+    expect(partnerPayload['type'],'opening_balance');
+    expect(partnerPayload['reference_type'],'previous_debt');
+    expect(partnerPayload['_global_id'],isA<String>());
+    expect((partnerPayload['_global_refs'] as Map)['partner_id']['table'],'partners');
+    expect(await database.query('sync_queue',where:'table_name IN (?,?)',whereArgs:['journal_entries','journal_lines']),isEmpty);
+  });
+
 
   test('global identities are unique across tables and stable across updates', () async {
     final now = DateTime.now().toIso8601String();
