@@ -192,6 +192,77 @@ class SyncInboxApplier {
     values.remove('created_by');
     values.remove('reference_id');
     _validateDomainValues(table, values);
+    if (table == 'irrigation_sessions') {
+      final beneficiaryId = (values['beneficiary_id'] as num?)?.toInt();
+      final pumpId = (values['pump_id'] as num?)?.toInt();
+      if (beneficiaryId == null || pumpId == null) {
+        throw StateError('جلسة التشغيل الواردة بلا مستفيد أو مضخة.');
+      }
+      final ownership = await tx.rawQuery(
+        'SELECT b.station_id beneficiary_station,p.station_id pump_station,p.active '
+        'FROM beneficiaries b JOIN pumps p ON p.id=? WHERE b.id=? LIMIT 1',
+        [pumpId, beneficiaryId],
+      );
+      if (ownership.isEmpty ||
+          ownership.single['beneficiary_station'] != ownership.single['pump_station'] ||
+          (ownership.single['active'] as num?)?.toInt() != 1) {
+        throw StateError('جلسة التشغيل الواردة تربط أطرافاً من محطات مختلفة أو مضخة غير نشطة.');
+      }
+      for (final relation in const [
+        ('queue_entry_id', 'queue_entries'),
+        ('booking_id', 'booking_requests'),
+      ]) {
+        final relatedId = (values[relation.$1] as num?)?.toInt();
+        if (relatedId == null) continue;
+        final related = await tx.query(
+          relation.$2,
+          columns: ['beneficiary_id'],
+          where: 'id=?',
+          whereArgs: [relatedId],
+          limit: 1,
+        );
+        if (related.isEmpty ||
+            (related.single['beneficiary_id'] as num).toInt() != beneficiaryId) {
+          throw StateError('جلسة التشغيل الواردة مرتبطة بحجز أو دور لمستفيد آخر.');
+        }
+      }
+      final nextStatus = (values['status'] ?? (operation == 'create' ? 'running' : '')).toString();
+      if (operation == 'create') {
+        if (nextStatus != 'running' ||
+            DateTime.tryParse('\${values['actual_start'] ?? ''}') == null) {
+          throw StateError('إنشاء جلسة التشغيل الواردة يجب أن يبدأ بوقت وحالة running.');
+        }
+      } else if (localId != null) {
+        final existing = await tx.query(
+          'irrigation_sessions',
+          columns: ['status', 'actual_start', 'actual_end'],
+          where: 'id=?',
+          whereArgs: [localId],
+          limit: 1,
+        );
+        if (existing.isEmpty) throw StateError('جلسة التشغيل المحلية غير موجودة.');
+        final oldStatus = '\${existing.single['status']}';
+        final transitions = <String, Set<String>>{
+          'running': {'running', 'postponed', 'completed'},
+          'postponed': {'postponed'},
+          'completed': {'completed'},
+        };
+        if (!(transitions[oldStatus]?.contains(nextStatus) ?? false)) {
+          throw StateError('انتقال حالة جلسة التشغيل الواردة غير مسموح.');
+        }
+        if (nextStatus == 'postponed' &&
+            '\${values['postponement_reason'] ?? ''}'.trim().isEmpty) {
+          throw StateError('سبب تأجيل جلسة التشغيل الواردة مطلوب.');
+        }
+        if (nextStatus == 'completed') {
+          final start = DateTime.tryParse('\${existing.single['actual_start'] ?? ''}');
+          final end = DateTime.tryParse('\${values['actual_end'] ?? existing.single['actual_end'] ?? ''}');
+          if (start == null || end == null || !end.isAfter(start)) {
+            throw StateError('وقت إنهاء جلسة التشغيل الواردة غير صالح.');
+          }
+        }
+      }
+    }
 
     int appliedLocalId;
     if (localId == null) {
