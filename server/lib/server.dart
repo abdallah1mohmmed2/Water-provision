@@ -616,6 +616,14 @@ class SaqiaServer {
                   ON p.id=l.local_id AND p.station_id=l.station_id
                 WHERE l.station_id=? AND l.entity_type='payments' AND l.global_id=? AND p.status='posted' LIMIT 1
               ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'beneficiary_manual_debts') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l
+                JOIN beneficiary_manual_debts md ON md.id=l.local_id
+                JOIN beneficiaries b ON b.id=md.beneficiary_id AND b.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='beneficiary_manual_debts'
+                  AND l.global_id=? LIMIT 1
+              ''', [station, globalId]).isNotEmpty;
             }
           }
           if (!businessRowExists) {
