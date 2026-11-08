@@ -556,25 +556,62 @@ class SaqiaServer {
         final currentVersion = currentRows.isEmpty ? 0 : (currentRows.first['version'] as num).toInt();
         final conflict = baseVersion != currentVersion;
         final nextVersion = conflict ? currentVersion : currentVersion + 1;
-        db.execute('''INSERT INTO sync_event_log
-          (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?)''',[
-          station,eventId,device,entityType,entityKey,operation,
-          _canonicalSyncJson(payload),baseVersion,nextVersion,conflict?'conflict':'accepted',now
-        ]);
-        if (!conflict) {
+        if (conflict) {
+          db.execute('''INSERT INTO sync_event_log
+            (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)''',[
+            station,eventId,device,entityType,entityKey,operation,
+            _canonicalSyncJson(payload),baseVersion,nextVersion,'conflict',now
+          ]);
+          results.add({
+            'event_id':eventId,
+            'status':'conflict',
+            'server_version':nextVersion,
+            'current_version':currentVersion,
+            'message':'تعارض إصدار؛ لم يتم اعتماد الحدث تلقائياً',
+          });
+          continue;
+        }
+
+        // A successful acknowledgement means the business row, event log and
+        // entity version were all committed together. A failed domain handler
+        // rolls back only this event and never advances its version.
+        db.execute('SAVEPOINT apply_sync_event');
+        try {
+          _applySyncBusinessEvent(
+            station: station,
+            entityType: entityType,
+            entityKey: entityKey,
+            operation: operation,
+            payload: Map.from(payload),
+            now: now,
+          );
+          db.execute('''INSERT INTO sync_event_log
+            (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)''',[
+            station,eventId,device,entityType,entityKey,operation,
+            _canonicalSyncJson(payload),baseVersion,nextVersion,'accepted',now
+          ]);
           db.execute('''INSERT INTO sync_entity_versions(station_id,entity_type,entity_key,version,updated_at)
             VALUES(?,?,?,?,?) ON CONFLICT(station_id,entity_type,entity_key)
             DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at''',
             [station,entityType,entityKey,nextVersion,now]);
+          db.execute('RELEASE SAVEPOINT apply_sync_event');
+          results.add({
+            'event_id':eventId,
+            'status':'accepted',
+            'server_version':nextVersion,
+            'current_version':currentVersion,
+          });
+        } catch (error) {
+          db.execute('ROLLBACK TO SAVEPOINT apply_sync_event');
+          db.execute('RELEASE SAVEPOINT apply_sync_event');
+          results.add({
+            'event_id':eventId,
+            'status':'rejected',
+            'message':'لم يطبق الخادم سجل الأعمال؛ لم يتم اعتماد الحدث: $error',
+          });
         }
-        results.add({
-          'event_id':eventId,
-          'status':conflict?'conflict':'accepted',
-          'server_version':nextVersion,
-          'current_version':currentVersion,
-          if(conflict) 'message':'تعارض إصدار؛ لم يتم اعتماد الحدث تلقائياً',
-        });
       }
       db.execute('COMMIT');
     } catch (error) {
