@@ -970,12 +970,12 @@ class SaqiaServer {
         if ((values['position'] as num).toInt() < 1 ||
             (values['cycle_number'] as num).toInt() < 1 ||
             (values['postponed_count'] as num).toInt() < 0 ||
-            !const {'waiting', 'postponed'}.contains(values['status'])) {
-          throw StateError('بيانات عنصر الطابور أو حالته غير صالحة');
+            values['status'] != 'waiting') {
+          throw StateError('بيانات عنصر الطابور الجديد غير صالحة؛ يجب أن يبدأ بحالة انتظار');
         }
       } else {
-        if (!const {'new', 'under_review', 'scheduled'}.contains(values['status'])) {
-          throw StateError('حالة الحجز عند الإنشاء غير صالحة');
+        if (values['status'] != 'new') {
+          throw StateError('يجب أن يبدأ الحجز الجديد بحالة جديد');
         }
         final start = values['scheduled_start'];
         final end = values['scheduled_end'];
@@ -1013,13 +1013,28 @@ class SaqiaServer {
       if (payload.containsKey(key) && columns.contains(key)) values[key] = payload[key];
     }
     if (values.isEmpty) throw StateError('لا توجد حقول تشغيل قابلة للتحديث');
-    if (entityType == 'queue_entries' && values.containsKey('status') &&
-        !const {'waiting', 'postponed', 'completed', 'skipped'}.contains(values['status'])) {
-      throw StateError('انتقال حالة الطابور غير صالح');
-    }
-    if (entityType == 'booking_requests' && values.containsKey('status') &&
-        !const {'new', 'under_review', 'scheduled', 'cancelled', 'completed'}.contains(values['status'])) {
-      throw StateError('انتقال حالة الحجز غير صالح');
+    if (values.containsKey('status')) {
+      final current = db.select('SELECT status FROM $entityType WHERE id=? AND beneficiary_id=? LIMIT 1', [localId, beneficiaryId]);
+      if (current.isEmpty) throw StateError('سجل التشغيل غير موجود');
+      final oldStatus = current.first['status'].toString();
+      final nextStatus = values['status'].toString();
+      final allowedTransitions = entityType == 'queue_entries'
+          ? <String, Set<String>>{
+              'waiting': {'waiting', 'postponed', 'completed', 'skipped'},
+              'postponed': {'postponed', 'waiting', 'completed', 'skipped'},
+              'completed': {'completed'},
+              'skipped': {'skipped'},
+            }
+          : <String, Set<String>>{
+              'new': {'new', 'under_review', 'cancelled'},
+              'under_review': {'under_review', 'scheduled', 'cancelled'},
+              'scheduled': {'scheduled', 'cancelled', 'completed'},
+              'cancelled': {'cancelled'},
+              'completed': {'completed'},
+            };
+      if (!(allowedTransitions[oldStatus]?.contains(nextStatus) ?? false)) {
+        throw StateError('انتقال الحالة من $oldStatus إلى $nextStatus غير مسموح');
+      }
     }
     if (entityType == 'queue_entries' && columns.contains('updated_at')) values['updated_at'] = now;
     final names = values.keys.toList();
