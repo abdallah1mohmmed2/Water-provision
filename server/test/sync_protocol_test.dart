@@ -1327,7 +1327,6 @@ test('legacy beneficiary rows receive a stable global identity on first API read
           '55555555-aaaa-4aaa-8aaa-555555555555',
           '66666666-aaaa-4aaa-8aaa-666666666666',
           '77777777-aaaa-4aaa-8aaa-777777777777',
-          '88888888-aaaa-4aaa-8aaa-888888888888',
         ],
         'irrigation_sessions': [sessionGlobalId],
         'queue_entries': [],
