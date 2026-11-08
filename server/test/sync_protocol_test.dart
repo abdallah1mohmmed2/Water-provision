@@ -245,7 +245,13 @@ void main() {
     ]);
     database.execute('''CREATE TABLE irrigations(
       id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
-      beneficiary_id INTEGER NOT NULL, start_datetime TEXT NOT NULL,
+      beneficiary_id INTEGER NOT NULL, date TEXT NOT NULL DEFAULT '2026-11-08',
+      start_datetime TEXT NOT NULL, end_datetime TEXT,
+      system_type TEXT, minutes INTEGER NOT NULL DEFAULT 0,
+      cloud_minutes INTEGER NOT NULL DEFAULT 0,
+      chargeable_minutes INTEGER NOT NULL DEFAULT 0,
+      total_amount INTEGER NOT NULL DEFAULT 0,
+      paid_amount INTEGER NOT NULL DEFAULT 0, notes TEXT,
       status TEXT NOT NULL
     )''');
     database.execute("INSERT INTO irrigations(id,station_id,beneficiary_id,start_datetime,status) VALUES(1,1,1,'2026-11-08T08:00:00','posted')");
@@ -327,7 +333,7 @@ void main() {
     expect(first.map((row) => '${row['type']}:${row['id']}').toSet(), hasLength(9));
     expect(first.last['balance'], 140); // 45 + 100 - 30 + 10 + 20 - 5.
     expect(first.map((row) => row['type']), containsAll([
-      's','p','diesel_advance','manual_debt','manual_debt_reversal','diesel_delivery',
+      's','p','a','manual_debt','manual_debt_reversal','d',
     ]));
     final period = await read(
       stationOneToken,
