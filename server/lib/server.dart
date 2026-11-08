@@ -426,9 +426,14 @@ class SaqiaServer {
       final lines = db.select('SELECT account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo FROM journal_lines WHERE journal_entry_id=? ORDER BY id',[originalId]);
       final debit = lines.fold<int>(0,(sum,line)=>sum+(line['debit'] as num).toInt());
       final credit = lines.fold<int>(0,(sum,line)=>sum+(line['credit'] as num).toInt());
-      if (lines.length != 2 || debit != amount || credit != amount ||
+      final cashAccountId = _accountId(_syncCashboxLedgerCode(station,cashboxId));
+      final cashLineValid = lines.any((line) => (line['account_id'] as num).toInt()==cashAccountId &&
+          (line['debit'] as num).toInt()==0 && (line['credit'] as num).toInt()==amount);
+      final expenseLineValid = lines.any((line) => (line['debit'] as num).toInt()==amount &&
+          (line['credit'] as num).toInt()==0);
+      if (lines.length != 2 || debit != amount || credit != amount || !cashLineValid || !expenseLineValid ||
           db.select("SELECT 1 FROM journal_entries WHERE reference_type='reversal' AND reference_id=? LIMIT 1",[originalId]).isNotEmpty) {
-        throw StateError('القيد الأصلي غير متوازن أو سبق عكسه أو لا يطابق قيمة المصروف');
+        throw StateError('القيد الأصلي غير متوازن أو لا يطابق حساب الصندوق وقيمة المصروف أو سبق عكسه');
       }
       db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND station_id=?',[amount,cashboxId,station]);
       if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر رد مبلغ المصروف إلى الصندوق');
@@ -523,9 +528,15 @@ class SaqiaServer {
       final lines = db.select('SELECT account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo FROM journal_lines WHERE journal_entry_id=? ORDER BY id',[originalId]);
       final debit = lines.fold<int>(0,(sum,line)=>sum+(line['debit'] as num).toInt());
       final credit = lines.fold<int>(0,(sum,line)=>sum+(line['credit'] as num).toInt());
-      if (lines.length != 2 || debit != amount || credit != amount ||
+      final expectedDebitAccount = _accountId(_syncCashboxLedgerCode(station,toId));
+      final expectedCreditAccount = _accountId(opening ? '3000' : _syncCashboxLedgerCode(station,fromId!));
+      final debitLineValid = lines.any((line) => (line['account_id'] as num).toInt()==expectedDebitAccount &&
+          (line['debit'] as num).toInt()==amount && (line['credit'] as num).toInt()==0);
+      final creditLineValid = lines.any((line) => (line['account_id'] as num).toInt()==expectedCreditAccount &&
+          (line['debit'] as num).toInt()==0 && (line['credit'] as num).toInt()==amount);
+      if (lines.length != 2 || debit != amount || credit != amount || !debitLineValid || !creditLineValid ||
           db.select("SELECT 1 FROM journal_entries WHERE reference_type='reversal' AND reference_id=? LIMIT 1",[originalId]).isNotEmpty) {
-        throw StateError('القيد الأصلي غير متوازن أو سبق عكسه أو لا يطابق قيمة التحويل');
+        throw StateError('القيد الأصلي غير متوازن أو لا يطابق حسابي التحويل وقيمته أو سبق عكسه');
       }
       if (fromId != null) {
         db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND station_id=?',[amount,fromId,station]);
