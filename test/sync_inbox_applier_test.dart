@@ -152,9 +152,9 @@ void main() {
         'updated_at': now,
       });
       await GlobalIdentity.ensureRecord(tx, 'irrigations', irrigationId);
-      irrigationGlobalId = (await tx.query(
+      irrigationGlobalId = (await tx.rawQuery(
         'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
-        whereArgs: ['irrigations', irrigationId],
+        ['irrigations', irrigationId],
       )).single['global_id'] as String;
     }, captureSync: false);
 
@@ -167,7 +167,7 @@ void main() {
     });
     cloudGlobalId = (await database.query(
       'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
-      whereArgs: ['cloud_periods', cloudPeriodId],
+      args: ['cloud_periods', cloudPeriodId],
     )).single['global_id'] as String;
     expect(
       await database.query(
@@ -653,9 +653,9 @@ void main() {
         ('journal_entries', partnerJournalId),
       ]) {
         await GlobalIdentity.ensureRecord(tx, item.$1, item.$2);
-        final identity = await tx.query(
+        final identity = await tx.rawQuery(
           'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
-          whereArgs: [item.$1, item.$2],
+          [item.$1, item.$2],
         );
         ids['${item.$1}:${item.$2}'] = identity.single['global_id'] as String;
       }
@@ -777,19 +777,19 @@ void main() {
     }, captureSync: false);
 
     expect(
-      (await database.query('SELECT reference_id FROM worker_transactions WHERE id=?', whereArgs: [workerTransactionId])).single['reference_id'],
+      (await database.query('SELECT reference_id FROM worker_transactions WHERE id=?', args: [workerTransactionId])).single['reference_id'],
       irrigationId,
     );
     expect(
-      (await database.query('SELECT reference_id FROM partner_transactions WHERE id=?', whereArgs: [partnerTransactionId])).single['reference_id'],
+      (await database.query('SELECT reference_id FROM partner_transactions WHERE id=?', args: [partnerTransactionId])).single['reference_id'],
       irrigationId,
     );
     expect(
-      (await database.query('SELECT reference_id FROM journal_entries WHERE id=?', whereArgs: [workerJournalId])).single['reference_id'],
+      (await database.query('SELECT reference_id FROM journal_entries WHERE id=?', args: [workerJournalId])).single['reference_id'],
       workerTransactionId,
     );
     expect(
-      (await database.query('SELECT reference_id FROM journal_entries WHERE id=?', whereArgs: [partnerJournalId])).single['reference_id'],
+      (await database.query('SELECT reference_id FROM journal_entries WHERE id=?', args: [partnerJournalId])).single['reference_id'],
       partnerTransactionId,
     );
     expect(await database.query('sync_queue'), isEmpty);
@@ -830,7 +830,7 @@ void main() {
     Future<String> globalId(String table, int id) async =>
         (await database.query(
           'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
-          whereArgs: [table, id],
+          args: [table, id],
         )).single['global_id'] as String;
 
     beneficiaryGlobalId = await globalId('beneficiaries', beneficiaryId);
@@ -838,7 +838,7 @@ void main() {
     paymentMethodGlobalId = await globalId('payment_methods', paymentMethodId);
     cashboxGlobalId = await globalId('cashboxes', cashboxId);
 
-    final irrigationId = 'abababab-abab-4bab-8bab-abababababab';
+    const irrigationId = 'abababab-abab-4bab-8bab-abababababab';
     final irrigationResult = await database.transaction(
       (tx) => SyncInboxApplier.apply(
         tx,
