@@ -415,10 +415,14 @@ class SaqiaServer {
     if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بإدارة مديونية المستفيد');
     if (userId == null || userId <= 0 || _stationForUser(userId) != station) throw StateError('مستخدم المديونية لا يتبع المحطة الموثقة');
     final globalId = (payload['_global_id'] ?? '').toString();
+    final compactGlobalId = globalId.replaceAll('-', '');
     final validGlobalId = globalId.length == 36 &&
         globalId[8] == '-' && globalId[13] == '-' &&
         globalId[18] == '-' && globalId[23] == '-' &&
-        RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId);
+        compactGlobalId.length == 32 &&
+        RegExp(r'^[0-9a-fA-F]{32}').hasMatch(compactGlobalId) &&
+        compactGlobalId[12] == '4' &&
+        '89abAB'.contains(compactGlobalId[16]);
     if (!validGlobalId || entityKey != 'beneficiary_manual_debts:' + globalId) throw StateError('هوية سند المديونية العالمية غير صالحة');
     if (!_hasTable('beneficiary_manual_debts')) throw StateError('جدول المديونيات اليدوية غير موجود');
     final refs = payload['_global_refs'];
