@@ -447,11 +447,37 @@ class StationRepository {
     if (serverSessionActive) SyncCoordinator.instance.requestSync();
   }
   Future<Map<String, Object?>> beneficiaryDetails(int id) async {
-    final b = (await db.rawQuery(
+    final api = SyncCoordinator.instance.apiClient;
+    if (api != null) {
+      final identities = await db.query(
+        "SELECT global_id FROM sync_global_identities WHERE table_name='beneficiaries' AND local_id=? LIMIT 1",
+        args: [id],
+      );
+      // A local optimistic create has no server identity yet; retain its local
+      // details until the Outbox has been accepted by Shelf.
+      if (identities.isNotEmpty) {
+        final globalId = Uri.encodeComponent('${identities.first['global_id']}');
+        try {
+          final remote = await api.get('/beneficiaries/$globalId');
+          if (remote is! Map) {
+            throw StateError('استجابة تفاصيل المستفيد من الخادم غير صالحة.');
+          }
+          return Map<String, Object?>.from(remote)
+            ..['id'] = id
+            ..['_source'] = 'server';
+        } on ApiConnectionException {
+          // A transport outage may use the last local snapshot. HTTP errors
+          // (including 401/403/404/500) must remain visible to the caller.
+        }
+      }
+    }
+    final rows = await db.rawQuery(
       'SELECT * FROM beneficiaries WHERE id=?',
       [id],
-    )).first;
-    return {...b, 'balance': await accounting.beneficiaryBalance(id)};
+    );
+    if (rows.isEmpty) throw StateError('المستفيد غير موجود محلياً.');
+    final b = rows.first;
+    return {...b, 'balance': await accounting.beneficiaryBalance(id), '_source': 'local'};
   }
 
   Future<List<Map<String, Object?>>> beneficiaryStatement(
