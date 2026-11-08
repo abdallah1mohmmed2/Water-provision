@@ -753,6 +753,20 @@ class SaqiaServer {
     return switch (methods.first['type'].toString()) {'bank_transfer' => '1100', 'wallet' => '1120', _ => '1000'};
   }
 
+  int _syncWorkerAccountId(int workerId) {
+    final worker = db.select('SELECT name FROM workers WHERE id=? LIMIT 1', [workerId]);
+    if (worker.isEmpty) throw StateError('العامل غير موجود');
+    final code = '2100.W' + workerId.toString();
+    final existing = db.select('SELECT id FROM accounts WHERE code=? LIMIT 1', [code]);
+    if (existing.isNotEmpty) return (existing.first['id'] as num).toInt();
+    final parent = _accountId('2100');
+    db.execute(
+      'INSERT INTO accounts(parent_id,code,name,type) VALUES(?,?,?,?)',
+      [parent, code, 'حساب العامل الشخصي: ' + worker.first['name'].toString(), 'liability'],
+    );
+    return db.lastInsertRowId;
+  }
+
   int _syncPartnerAccountId(int partnerId) {
     final partner = db.select('SELECT name FROM partners WHERE id=? LIMIT 1',[partnerId]);
     if (partner.isEmpty) throw StateError('الشريك غير موجود');
