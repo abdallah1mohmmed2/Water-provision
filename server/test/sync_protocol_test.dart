@@ -1383,7 +1383,8 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     }]);
     expect((sessionReplay['results'] as List).single['status'],'duplicate');
     final response = await postEvents(stationOneToken,[event]);
-    expect((response['results'] as List).single['status'],'accepted');
+    final irrigationResult = (response['results'] as List).single;
+    expect(irrigationResult['status'],'accepted', reason: irrigationResult.toString());
     final irrigation = database.select('SELECT * FROM irrigations WHERE station_id=1').single;
     expect(irrigation['minutes'],60);
     expect(irrigation['cloud_minutes'],10);
