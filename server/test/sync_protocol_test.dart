@@ -711,7 +711,7 @@ void main() {
     final originEvents = originInbox['events'] as List;
     expect(
       originEvents.map((event) => (event as Map)['entity_type']).toList(),
-      ['journal_entries', 'journal_lines', 'cashboxes'],
+      ['journal_entries', 'journal_lines', 'journal_lines', 'cashboxes'],
     );
 
     final secondDeviceInbox = await getInbox(stationOneToken, device: 'device-b');
