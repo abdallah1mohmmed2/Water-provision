@@ -688,24 +688,15 @@ class SaqiaServer {
     }
   }
 
-  bool _isDerivedJournalEntry(int station, String referenceType, Object? referenceId) {
-    if (const {'irrigation', 'payment', 'diesel_advance'}.contains(referenceType)) {
-      return true;
+  bool _hasSyncProjectionLink(int station, String entityType, Map payload) {
+    final globalId = (payload['_global_id'] ?? '').toString();
+    if (!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId)) {
+      return false;
     }
-    if (referenceId is! num) return false;
-    if (referenceType == 'worker' && _hasTable('worker_transactions')) {
-      return db.select(
-        "SELECT 1 FROM worker_transactions WHERE id=? AND station_id=? AND reference_type='irrigation' LIMIT 1",
-        [referenceId.toInt(), station],
-      ).isNotEmpty;
-    }
-    if (referenceType == 'partner' && _hasTable('partner_transactions')) {
-      return db.select(
-        "SELECT 1 FROM partner_transactions WHERE id=? AND station_id=? AND reference_type='irrigation_profit' LIMIT 1",
-        [referenceId.toInt(), station],
-      ).isNotEmpty;
-    }
-    return false;
+    return db.select(
+      'SELECT 1 FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',
+      [station, entityType, globalId],
+    ).isNotEmpty;
   }
 
   bool _isDerivedSyncEvent(
@@ -714,47 +705,23 @@ class SaqiaServer {
     String operation,
     Map payload,
   ) {
-    if (entityType == 'cloud_periods') return true;
-    if (entityType == 'journal_entries') {
-      return _isDerivedJournalEntry(
-        station,
-        (payload['reference_type'] ?? '').toString(),
-        payload['reference_id'],
-      );
+    // A child command is superseded only after the parent handler has created
+    // and linked that exact child row. This prevents early child events from
+    // being silently acknowledged before their parent arrives.
+    if (const {'journal_entries', 'journal_lines', 'cloud_periods'}.contains(entityType)) {
+      return _hasSyncProjectionLink(station, entityType, payload);
     }
-    if (entityType == 'journal_lines') {
-      final refs = payload['_global_refs'];
-      final journalRef = refs is Map ? refs['journal_entry_id'] : null;
-      if (journalRef is! Map || journalRef['table'] != 'journal_entries') {
-        return false;
-      }
-      final journalGlobalId = (journalRef['global_id'] ?? '').toString();
-      final linked = db.select(
-        "SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='journal_entries' AND global_id=? LIMIT 1",
-        [station, journalGlobalId],
-      );
-      if (linked.isEmpty) return false;
-      final journal = db.select(
-        'SELECT reference_type,reference_id FROM journal_entries WHERE id=? AND station_id=? LIMIT 1',
-        [(linked.first['local_id'] as num).toInt(), station],
-      );
-      if (journal.isEmpty) return false;
-      return _isDerivedJournalEntry(
-        station,
-        (journal.first['reference_type'] ?? '').toString(),
-        journal.first['reference_id'],
-      );
-    }
-    if (entityType == 'diesel_movements' && payload['irrigation_id'] != null) {
-      return true;
+    if (entityType == 'diesel_movements' &&
+        payload['irrigation_id'] != null) {
+      return _hasSyncProjectionLink(station, entityType, payload);
     }
     if (entityType == 'worker_transactions' &&
         payload['reference_type'] == 'irrigation') {
-      return true;
+      return _hasSyncProjectionLink(station, entityType, payload);
     }
     if (entityType == 'partner_transactions' &&
         payload['reference_type'] == 'irrigation_profit') {
-      return true;
+      return _hasSyncProjectionLink(station, entityType, payload);
     }
     // A completed session is closed by the accepted irrigation command. A
     // legacy queued update for the same completion is acknowledged as covered.
