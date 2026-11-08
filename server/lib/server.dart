@@ -1126,6 +1126,8 @@ class SaqiaServer {
               'new': {'new', 'under_review', 'cancelled'},
               'under_review': {'under_review', 'scheduled', 'cancelled'},
               'scheduled': {'scheduled', 'cancelled', 'completed'},
+              'accepted': {'accepted', 'notified', 'cancelled', 'completed'},
+              'notified': {'notified', 'cancelled', 'completed'},
               'cancelled': {'cancelled'},
               'completed': {'completed'},
             };
