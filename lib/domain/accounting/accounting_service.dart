@@ -1625,7 +1625,7 @@ class AccountingService {
         );
       }
       return id;
-    }));
+    }, captureSyncTables: const {'irrigations', 'payments'}));
   }
 
   Future<int> _paymentInTx(
