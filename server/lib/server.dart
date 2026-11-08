@@ -493,6 +493,10 @@ class SaqiaServer {
       _applySyncPaymentReceipt(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
       return;
     }
+    if (entityType == 'beneficiary_manual_debts') {
+      _applySyncBeneficiaryManualDebt(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
     if (entityType != 'beneficiaries') throw UnsupportedError('معالج المزامنة لهذا المجال غير منفذ بعد');
     final globalId = '${payload['_global_id'] ?? ''}';
     final validGlobalId = globalId.length == 36 &&
