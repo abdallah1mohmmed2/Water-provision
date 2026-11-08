@@ -210,4 +210,25 @@ void main() {
     expect(database.select('SELECT COUNT(*) AS n FROM beneficiaries WHERE station_id=2').single['n'], 1);
   });
 
+
+  test('beneficiary API reads expose the stable global identity for client mapping', () async {
+    const globalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    final created = await postEvents(stationOneToken, [
+      event(globalId: globalId, payload: {'name': 'Mapped Beneficiary'}),
+    ]);
+    expect((created['results'] as List).first['status'], 'accepted');
+
+    final response = await server.router().call(Request(
+      'GET',
+      Uri.parse('http://localhost/api/v1/beneficiaries'),
+      headers: {'authorization': 'Bearer $stationOneToken'},
+    ));
+    expect(response.statusCode, 200);
+    final rows = jsonDecode(await response.readAsString()) as List;
+    expect(rows, hasLength(1));
+    expect(rows.single['_global_id'], globalId);
+    expect(rows.single['name'], 'Mapped Beneficiary');
+  });
+
+
 }
