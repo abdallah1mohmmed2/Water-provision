@@ -85,13 +85,16 @@ class StationRepository {
           whereArgs: [globalId],
           limit: 1,
         );
+        final now = DateTime.now().toUtc().toIso8601String();
         final values = <String, Object?>{
           for (final key in const [
             'name', 'phone', 'address', 'location', 'jerba_number', 'area',
             'is_needy', 'opening_balance', 'carried_balance',
             'opening_diesel_liters', 'notes', 'status', 'created_at', 'updated_at',
           ])
-            if (remote.containsKey(key)) key: remote[key],
+            if (remote.containsKey(key) && remote[key] != null) key: remote[key],
+          'created_at': remote['created_at'] ?? now,
+          'updated_at': remote['updated_at'] ?? now,
         };
         final int localId;
         var hasPendingLocalWrite = false;
