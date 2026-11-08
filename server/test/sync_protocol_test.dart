@@ -1220,7 +1220,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(irrigation['total_amount'],7000);
     expect(irrigation['session_id'],1);
     expect(database.select('SELECT status,actual_end,diesel_consumed FROM irrigation_sessions WHERE id=1').single['status'],'completed');
-    expect((database.select('SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type='irrigation_sessions' AND global_id=?',[sessionGlobalId]).single['n'] as num).toInt(),1);
+    expect((database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type='irrigation_sessions' AND global_id=?",[sessionGlobalId]).single['n'] as num).toInt(),1);
     final sessionFinish = await postEvents(stationOneToken,[{
       'event_id':'eeeeeeee-3333-4333-8333-333333333333',
       'entity_type':'irrigation_sessions',
