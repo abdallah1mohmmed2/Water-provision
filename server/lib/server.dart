@@ -836,10 +836,78 @@ class SaqiaServer {
     """, args)));
   }
   Future<Response> _beneficiaryCreate(Request r,Map<String,dynamic> c) async { final b=await _body(r); if('${b['name']??''}'.trim().isEmpty)return _json({'error':'اسم المستفيد مطلوب'},status:422); final now=DateTime.now().toIso8601String(); final id=db.lastInsertRowId; db.execute('INSERT INTO beneficiaries(station_id,name,phone,address,location,jerba_number,area,is_needy,opening_balance,carried_balance,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,\'active\',?,?)',[_stationId(c),b['name'],b['phone'],b['address'],b['location'],b['jerba_number'],b['area'],b['is_needy']==true?1:0,(b['opening_balance'] as num?)?.round()??0,(b['carried_balance'] as num?)?.round()??0,now,now]); return _json({'id':db.lastInsertRowId}); }
-  Future<Response> _beneficiary(Request r,Map<String,dynamic> c) async { final id=int.parse(r.params['id']!); final rows=db.select('SELECT * FROM beneficiaries WHERE id=? AND station_id=?',[id,_stationId(c)]); return rows.isEmpty?_json({'error':'المستفيد غير موجود'},status:404):_json(_rows(rows).first); }
-  Future<Response> _beneficiaryUpdate(Request r,Map<String,dynamic> c) async { final id=int.parse(r.params['id']!); final b=await _body(r); const allowed=['name','phone','address','location','jerba_number','area','is_needy','notes']; final sets=<String>[];final args=<Object?>[];for(final k in allowed){if(b.containsKey(k)){sets.add('$k=?');args.add(b[k] is bool?(b[k]?1:0):b[k]);}}if(sets.isEmpty)return _json({'error':'لا توجد حقول قابلة للتعديل'},status:422);args.add(DateTime.now().toIso8601String());args.add(id);args.add(_stationId(c)); db.execute('UPDATE beneficiaries SET ${sets.join(',')},updated_at=? WHERE id=? AND station_id=?',args);return _beneficiary(r,c); }
-  Future<Response> _beneficiaryDelete(Request r,Map<String,dynamic> c) async { final id=int.parse(r.params['id']!); final b=await _body(r); if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب الحذف المنطقي مطلوب'},status:422); db.execute("UPDATE beneficiaries SET status='deleted',updated_at=? WHERE id=? AND station_id=?",[DateTime.now().toIso8601String(),id,_stationId(c)]); return _json({'ok':true}); }
-  Future<Response> _beneficiaryStatement(Request r,Map<String,dynamic> c) async { final id=int.parse(r.params['id']!); final station=_stationId(c); if(!_owns('beneficiaries',id,station)) return _json({'error':'المستفيد غير موجود'},status:404); return _json(_rows(db.select('SELECT * FROM irrigations WHERE beneficiary_id=? AND station_id=? AND status!=\'cancelled\' ORDER BY start_datetime DESC',[id,station]))); }
+  int? _resolveBeneficiaryRouteId(String routeId, int stationId) {
+    // API clients address entities by their stable global UUID. Numeric IDs
+    // remain supported for legacy admin clients, but are always station-scoped.
+    final localId = int.tryParse(routeId);
+    if (localId != null) {
+      return _owns('beneficiaries', localId, stationId) ? localId : null;
+    }
+    final rows = db.select('''
+      SELECT b.id
+      FROM sync_entity_links l
+      JOIN beneficiaries b ON b.id=l.local_id AND b.station_id=l.station_id
+      WHERE l.station_id=? AND l.entity_type='beneficiaries'
+        AND l.global_id=? AND b.status='active'
+      LIMIT 1
+    ''', [stationId, routeId]);
+    return rows.isEmpty ? null : (rows.first['id'] as num).toInt();
+  }
+  Future<Response> _beneficiary(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final rows = db.select('''
+      SELECT b.*, l.global_id AS _global_id,
+        ${_beneficiaryBalanceExpression()} AS balance
+      FROM beneficiaries b
+      JOIN sync_entity_links l
+        ON l.station_id=b.station_id AND l.entity_type='beneficiaries'
+        AND l.local_id=b.id
+      WHERE b.id=? AND b.station_id=? AND b.status='active'
+      LIMIT 1
+    ''', [id, station]);
+    return rows.isEmpty
+        ? _json({'error':'المستفيد غير موجود'},status:404)
+        : _json(_rows(rows).first);
+  }
+  Future<Response> _beneficiaryUpdate(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final b=await _body(r);
+    const allowed=['name','phone','address','location','jerba_number','area','is_needy','notes'];
+    final sets=<String>[];
+    final args=<Object?>[];
+    for(final k in allowed){if(b.containsKey(k)){sets.add('$k=?');args.add(b[k] is bool?(b[k]?1:0):b[k]);}}
+    if(sets.isEmpty)return _json({'error':'لا توجد حقول قابلة للتعديل'},status:422);
+    args.add(DateTime.now().toIso8601String());args.add(id);args.add(station);
+    db.execute('UPDATE beneficiaries SET ${sets.join(',')},updated_at=? WHERE id=? AND station_id=?',args);
+    return _beneficiary(r,c);
+  }
+  Future<Response> _beneficiaryDelete(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final b=await _body(r);
+    if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب الحذف المنطقي مطلوب'},status:422);
+    db.execute("UPDATE beneficiaries SET status='deleted',updated_at=? WHERE id=? AND station_id=?",[DateTime.now().toIso8601String(),id,station]);
+    return _json({'ok':true});
+  }
+  Future<Response> _beneficiaryStatement(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    return _json(_rows(db.select('''
+      SELECT i.*
+      FROM irrigations i
+      JOIN beneficiaries b
+        ON b.id=i.beneficiary_id AND b.station_id=i.station_id
+      WHERE i.beneficiary_id=? AND i.station_id=?
+        AND b.status='active' AND i.status!='cancelled'
+      ORDER BY i.start_datetime DESC,i.id DESC
+    ''', [id, station])));
+  }
 
   int _minutes(DateTime start,DateTime end,bool midnight){var e=end;if(!e.isAfter(start)){if(!midnight)throw StateError('وقت النهاية يجب أن يكون بعد وقت البداية');e=e.add(const Duration(days:1));}final m=e.difference(start).inMinutes;if(m<=0)throw StateError('مدة السقي غير صالحة');return m;}
   Future<Response> _irrigationCreateUnsafe(Request r,Map<String,dynamic> c) async { final b=await _body(r); try { _requireOwn('beneficiaries',(b['beneficiary_id'] as num?)?.toInt(),_stationId(c),'المستفيد'); _requireOwn('pumps',(b['pump_id'] as num?)?.toInt()??1,_stationId(c),'المضخة'); final start=DateTime.parse('${b['start']}');final end=DateTime.parse('${b['end']}');final settings=_settingsForStation(_stationId(c));final system='${b['system_type']??settings['system_type']??'diesel'}';final mins=_minutes(start,end,settings['allow_midnight_crossing']=='true');final cloud=(b['cloud_minutes'] as num?)?.round()??0;final charge=system=='solar'?((mins-cloud).clamp(0,mins)):mins;final waterRate=system=='diesel'?(int.tryParse(settings['diesel_hourly_water_rate']??'0')??0):system=='solar'?(int.tryParse(settings['solar_hourly_rate']??'0')??0):(int.tryParse(settings['third_type_hourly_rate']??'0')??0);final water=_round(charge/60*waterRate,settings['rounding']??'nearest');final liters=system=='diesel'?charge/60*(double.tryParse(settings['diesel_liters_per_hour']??'0')??0):0.0;final fuel=_round(liters*(int.tryParse(settings['diesel_price_per_liter']??'0')??0),settings['rounding']??'nearest');final total=water+fuel;final paid=(b['paid_amount'] as num?)?.round()??0;if(paid<0||paid>total)throw StateError('المدفوع يجب أن يكون بين صفر وإجمالي السقاية');final now=DateTime.now().toIso8601String();db.execute('INSERT INTO irrigations(station_id,pump_id,beneficiary_id,date,start_datetime,end_datetime,minutes,system_type,water_hourly_rate_snapshot,diesel_liters_per_hour_snapshot,diesel_price_snapshot,solar_hourly_rate_snapshot,third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,water_amount,diesel_amount,total_amount,paid_amount,status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['pump_id']??1,b['beneficiary_id'],start.toIso8601String().substring(0,10),start.toIso8601String(),end.toIso8601String(),mins,system,int.tryParse(settings['diesel_hourly_water_rate']??'0')??0,double.tryParse(settings['diesel_liters_per_hour']??'0')??0,int.tryParse(settings['diesel_price_per_liter']??'0')??0,int.tryParse(settings['solar_hourly_rate']??'0')??0,int.tryParse(settings['third_type_hourly_rate']??'0')??0,cloud,charge,water,fuel,total,paid,'posted',c['userId'],now,now]);final irrigationId=db.lastInsertRowId;final rec=_accountId('1200'),waterRev=_accountId('4000'),fuelRev=_accountId('4010');final lines=<Map<String,Object?>>[{'account_id':rec,'beneficiary_id':b['beneficiary_id'],'debit':total,'credit':0,'memo':'استحقاق سقاية'}];if(water>0)lines.add({'account_id':waterRev,'debit':0,'credit':water,'memo':'إيراد الماء'});if(fuel>0)lines.add({'account_id':fuelRev,'debit':0,'credit':fuel,'memo':'قيمة الديزل'});_journal(description:'سقاية رقم $irrigationId',referenceType:'irrigation',referenceId:irrigationId,lines:lines,userId:c['userId']);if(system=='diesel'&&liters>0){final stock=(db.select("SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements dm WHERE dm.station_id=?",[_stationId(c)]).first['stock'] as num).toDouble();final shortage=liters-stock;if(shortage>0){final advanceAmount=(shortage*(int.tryParse(settings['diesel_price_per_liter']??'0')??0)).round();db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['beneficiary_id'],irrigationId,'advance',shortage,int.tryParse(settings['diesel_price_per_liter']??'0')??0,advanceAmount,now,'سلفة ديزل تلقائية',c['userId']]);final d=_accountId('1200'),cash=_accountId('1000');_journal(description:'سلفة ديزل تلقائية',referenceType:'diesel_advance',referenceId:db.lastInsertRowId,lines:[{'account_id':d,'beneficiary_id':b['beneficiary_id'],'debit':advanceAmount,'credit':0},{'account_id':cash,'debit':0,'credit':advanceAmount}],userId:c['userId']);}db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['beneficiary_id'],irrigationId,'consumption',liters,int.tryParse(settings['diesel_price_per_liter']??'0')??0,fuel,now,'استهلاك السقاية',c['userId']]);}
