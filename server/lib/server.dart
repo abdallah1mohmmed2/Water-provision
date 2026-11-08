@@ -1564,15 +1564,49 @@ class SaqiaServer {
     if (userId == null || _stationForUser(userId) != station) throw StateError('مستخدم السقاية لا يتبع المحطة الموثقة');
     final refs = payload['_global_refs'];
     if (refs is! Map) throw StateError('مراجع السقاية العالمية مفقودة');
+    final partyType = (payload['party_type'] ?? 'beneficiary').toString();
+    if (!const {'beneficiary', 'worker', 'partner'}.contains(partyType)) {
+      throw StateError('نوع صاحب السقاية غير مدعوم');
+    }
+    int? beneficiaryId;
+    int? workerId;
+    int? partnerId;
+    if (partyType == 'beneficiary') {
+      beneficiaryId = _resolveSyncReference(
+        station: station, entityType: 'beneficiaries',
+        column: 'beneficiary_id', references: refs,
+      );
+    } else if (partyType == 'worker') {
+      workerId = _resolveSyncReference(
+        station: station, entityType: 'workers',
+        column: 'worker_id', references: refs,
+      );
+    } else {
+      partnerId = _resolveSyncReference(
+        station: station, entityType: 'partners',
+        column: 'partner_id', references: refs,
+      );
+    }
     final pumpId = _resolveSyncReference(station:station,entityType:'pumps',column:'pump_id',references:refs);
-    final beneficiaryId = _resolveSyncReference(station:station,entityType:'beneficiaries',column:'beneficiary_id',references:refs);
     final pump = db.select('SELECT system_type,active FROM pumps WHERE id=? AND station_id=? LIMIT 1',[pumpId,station]);
-    final beneficiary = db.select('SELECT status FROM beneficiaries WHERE id=? AND station_id=? LIMIT 1',[beneficiaryId,station]);
     if (pump.isEmpty || (pump.first['active'] as num?)?.toInt()!=1) throw StateError('المضخة غير نشطة أو لا تتبع المحطة');
-    if (beneficiary.isEmpty || beneficiary.first['status'] != 'active') throw StateError('المستفيد غير نشط أو لا يتبع المحطة');
-    final sessionId = payload['session_id'] == null ? null : _resolveOperationalSyncRef(station:station,entityType:'irrigation_sessions',column:'session_id',references:refs,beneficiaryId:beneficiaryId);
-    final queueId = payload['queue_entry_id'] == null ? null : _resolveOperationalSyncRef(station:station,entityType:'queue_entries',column:'queue_entry_id',references:refs,beneficiaryId:beneficiaryId);
-    final bookingId = payload['booking_id'] == null ? null : _resolveOperationalSyncRef(station:station,entityType:'booking_requests',column:'booking_id',references:refs,beneficiaryId:beneficiaryId);
+    if (beneficiaryId != null) {
+      final beneficiary = db.select('SELECT status FROM beneficiaries WHERE id=? AND station_id=? LIMIT 1',[beneficiaryId,station]);
+      if (beneficiary.isEmpty || beneficiary.first['status'] != 'active') throw StateError('المستفيد غير نشط أو لا يتبع المحطة');
+    }
+    if (workerId != null && db.select('SELECT 1 FROM workers WHERE id=? AND station_id=? AND active=1 LIMIT 1',[workerId,station]).isEmpty) {
+      throw StateError('العامل غير نشط أو لا يتبع المحطة');
+    }
+    if (partnerId != null && db.select('SELECT 1 FROM partners WHERE id=? AND station_id=? AND active=1 LIMIT 1',[partnerId,station]).isEmpty) {
+      throw StateError('الشريك غير نشط أو لا يتبع المحطة');
+    }
+    if (partyType != 'beneficiary' &&
+        [payload['session_id'], payload['queue_entry_id'], payload['booking_id']].any((value) => value != null)) {
+      throw StateError('جلسات التشغيل والطابور والحجز متاحة لسقايات المستفيد فقط');
+    }
+    final sessionId = payload['session_id'] == null ? null : _resolveOperationalSyncRef(station:station,entityType:'irrigation_sessions',column:'session_id',references:refs,beneficiaryId:beneficiaryId!);
+    final queueId = payload['queue_entry_id'] == null ? null : _resolveOperationalSyncRef(station:station,entityType:'queue_entries',column:'queue_entry_id',references:refs,beneficiaryId:beneficiaryId!);
+    final bookingId = payload['booking_id'] == null ? null : _resolveOperationalSyncRef(station:station,entityType:'booking_requests',column:'booking_id',references:refs,beneficiaryId:beneficiaryId!);
     final startText = (payload['start_datetime'] ?? '').toString();
     final endText = (payload['end_datetime'] ?? '').toString();
     final start = DateTime.tryParse(startText);
