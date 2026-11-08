@@ -141,6 +141,22 @@ class SyncService {
           [row['id']],
         );
       }
+      if (table == 'irrigations' && recordId != null) {
+        final cloudRows = await db.query(
+          'SELECT start_datetime,end_datetime FROM cloud_periods WHERE irrigation_id=? ORDER BY start_datetime',
+          args: [recordId],
+        );
+        payload['cloud_periods'] = cloudRows.map((period) => {
+          'start_datetime': period['start_datetime'],
+          'end_datetime': period['end_datetime'],
+        }).toList();
+        await db.update(
+          'sync_queue',
+          {'payload': jsonEncode(payload)},
+          'id=?',
+          [row['id']],
+        );
+      }
       final unresolved = payload['_unresolved_refs'];
       if (unresolved is Map && unresolved.isNotEmpty) {
         await db.update(
