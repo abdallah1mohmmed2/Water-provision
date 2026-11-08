@@ -15,13 +15,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Install Linux SQLite development library
         run: |
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
-
-        with:
-          fetch-depth: 0
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
