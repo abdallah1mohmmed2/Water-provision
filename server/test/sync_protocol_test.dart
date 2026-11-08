@@ -1391,7 +1391,11 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect((sessionFinish['results'] as List).single['status'],'accepted');
     expect(database.select('SELECT * FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]),hasLength(1));
     expect(database.select('SELECT kind FROM diesel_movements WHERE station_id=1 ORDER BY id').map((r)=>r['kind']).toList(),['advance','consumption']);
-    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],4);
+    expect(database.select("SELECT amount FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=?",[irrigation['id']]).single['amount'],100);
+    expect(database.select("SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?",[irrigation['id']]).single['amount'],6900);
+    final ledgerTotals = database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
+    expect(ledgerTotals['debit'], ledgerTotals['credit']);
 
     final peerInbox = await getInbox(stationOneToken, device: 'device-b');
     final peerTypes = (peerInbox['events'] as List)
@@ -1399,9 +1403,15 @@ test('legacy beneficiary rows receive a stable global identity on first API read
         .toList();
     expect(peerTypes.indexOf('irrigations'), greaterThanOrEqualTo(0));
     expect(peerTypes.indexOf('cloud_periods'), greaterThan(peerTypes.indexOf('irrigations')));
-    expect(peerTypes.indexOf('journal_entries'), greaterThan(peerTypes.indexOf('irrigations')));
-    expect(peerTypes.indexOf('journal_lines'), greaterThan(peerTypes.indexOf('journal_entries')));
+    expect(peerTypes.indexOf('worker_transactions'), greaterThan(peerTypes.indexOf('irrigations')));
+    expect(peerTypes.indexOf('partner_transactions'), greaterThan(peerTypes.indexOf('worker_transactions')));
     expect(peerTypes.indexOf('diesel_movements'), greaterThan(peerTypes.indexOf('irrigations')));
+    expect(peerTypes.indexOf('journal_entries'), greaterThan(peerTypes.indexOf('diesel_movements')));
+    expect(peerTypes.indexOf('journal_lines'), greaterThan(peerTypes.indexOf('journal_entries')));
+    expect(peerTypes.where((type) => type == 'worker_transactions'), hasLength(1));
+    expect(peerTypes.where((type) => type == 'partner_transactions'), hasLength(1));
+    expect(peerTypes.where((type) => type == 'journal_entries'), hasLength(4));
+    expect(peerTypes.where((type) => type == 'journal_lines'), hasLength(9));
     expect(peerTypes.lastIndexOf('irrigation_sessions'), greaterThan(peerTypes.indexOf('irrigations')));
     final projectionLogCount = database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'];
 
