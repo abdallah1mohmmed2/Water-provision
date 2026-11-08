@@ -142,6 +142,38 @@ void main() {
   }
 
 
+  void prepareDieselFixture() {
+    database.execute('''CREATE TABLE diesel_movements(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, irrigation_id INTEGER, cashbox_id INTEGER,
+      kind TEXT NOT NULL, liters REAL NOT NULL, unit_price INTEGER NOT NULL,
+      amount INTEGER NOT NULL, date TEXT NOT NULL, notes TEXT, created_by INTEGER
+    )''');
+    database.execute('''CREATE TABLE cashboxes(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL,
+      current_balance INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
+      ledger_account_code TEXT, currency TEXT NOT NULL DEFAULT 'YER'
+    )''');
+    database.execute('''CREATE TABLE payment_methods(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL,
+      type TEXT NOT NULL, cashbox_id INTEGER, ledger_account_code TEXT, active INTEGER NOT NULL DEFAULT 1
+    )''');
+    database.execute('CREATE TABLE station_settings(station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
+    database.execute('CREATE TABLE accounts(id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL)');
+    database.execute('''CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL, date TEXT NOT NULL,
+      reference_type TEXT, reference_id INTEGER, description TEXT NOT NULL,
+      status TEXT NOT NULL, created_by INTEGER, created_at TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, journal_entry_id INTEGER NOT NULL,
+      account_id INTEGER NOT NULL, beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER,
+      debit INTEGER NOT NULL DEFAULT 0, credit INTEGER NOT NULL DEFAULT 0, memo TEXT
+    )''');
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1000','Cash','asset'),(2,'1200','Receivables','asset'),(3,'1300','Diesel inventory','asset'),(4,'3000','Opening balances','equity'),(5,'5010','Fuel expense','expense')");
+    database.execute("INSERT INTO cashboxes(id,station_id,name,current_balance,active,ledger_account_code) VALUES(1,1,'Main',5000,1,'1000'),(2,2,'Foreign',5000,1,'1000')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'cashboxes','eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',2,'2026-11-08T00:00:00Z')");
+  }
   void prepareManualDebtFixture({
     String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   }) {
@@ -1340,6 +1372,71 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
     expect(database.select('SELECT COUNT(*) n FROM diesel_movements').single['n'],2);
     expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
+  });
+
+  test('sync applies independent diesel opening stock once with balanced journal', () async {
+    prepareDieselFixture();
+    const globalId = 'abababab-abab-4bab-8bab-abababababab';
+    final event = {
+      'event_id':'abababab-abab-4bab-8bab-abababababac',
+      'entity_type':'diesel_movements', 'entity_key':'diesel_movements:' + globalId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':globalId, '_global_refs':{},
+        'kind':'opening_balance', 'liters':20.0, 'unit_price':100,
+        'amount':2000, 'date':'2026-11-08T08:00:00.000', 'notes':'opening stock',
+      },
+    };
+    final first = await postEvents(stationOneToken,[event]);
+    expect((first['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT SUM(liters) AS stock FROM diesel_movements WHERE station_id=1').single['stock'],20);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'],1);
+    expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['debit'],2000);
+    expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['credit'],2000);
+    final replay = await postEvents(stationOneToken,[event]);
+    expect((replay['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT COUNT(*) AS n FROM diesel_movements').single['n'],1);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'],1);
+  });
+
+  test('sync debits purchase cashbox and journals diesel receipt exactly once', () async {
+    prepareDieselFixture();
+    const cashboxGlobalId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeef';
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'cashboxes',?,1,'2026-11-08T00:00:00Z')",[cashboxGlobalId]);
+    const globalId = 'abababab-abab-4bab-8bab-abababababac';
+    final result = await postEvents(stationOneToken,[{
+      'event_id':'abababab-abab-4bab-8bab-abababababad',
+      'entity_type':'diesel_movements', 'entity_key':'diesel_movements:' + globalId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':globalId, 'kind':'receipt', 'liters':10.0, 'unit_price':100,
+        'amount':1000, 'cashbox_id':1, 'date':'2026-11-08T09:00:00.000',
+        '_global_refs':{'cashbox_id':{'table':'cashboxes','global_id':cashboxGlobalId,'name':'Main','currency':'YER'}},
+      },
+    }]);
+    expect((result['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],4000);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries WHERE reference_type=\'diesel_receipt\'').single['n'],1);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['d'],1000);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['c'],1000);
+  });
+
+  test('sync rejects diesel movement references from another station', () async {
+    prepareDieselFixture();
+    const globalId = 'abababab-abab-4bab-8bab-abababababab';
+    final result = await postEvents(stationOneToken,[{
+      'event_id':'abababab-abab-4bab-8bab-abababababac',
+      'entity_type':'diesel_movements', 'entity_key':'diesel_movements:' + globalId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':globalId, 'kind':'receipt', 'liters':10.0, 'unit_price':100,
+        'amount':1000, 'cashbox_id':2, 'date':'2026-11-08T09:00:00.000',
+        '_global_refs':{'cashbox_id':{'table':'cashboxes','global_id':'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}},
+      },
+    }]);
+    expect((result['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM diesel_movements').single['n'],0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],5000);
   });
 
 }
