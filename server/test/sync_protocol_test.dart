@@ -264,6 +264,74 @@ void main() {
     expect(crossStation.statusCode, 404);
   });
 
+  test('complete beneficiary statement is station-isolated and does not duplicate ledger movements', () async {
+    const globalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN carried_balance INTEGER NOT NULL DEFAULT 0');
+    await postEvents(stationOneToken, [
+      event(globalId: globalId, payload: {'name': 'Statement Beneficiary'}),
+    ]);
+    database.execute("UPDATE beneficiaries SET opening_balance=40,carried_balance=5 WHERE station_id=1");
+    database.execute('''CREATE TABLE irrigations(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER NOT NULL, date TEXT NOT NULL,
+      start_datetime TEXT, end_datetime TEXT, system_type TEXT,
+      minutes INTEGER, cloud_minutes INTEGER, chargeable_minutes INTEGER,
+      total_amount INTEGER NOT NULL, paid_amount INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL, notes TEXT
+    )''');
+    database.execute('''CREATE TABLE payments(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, date TEXT NOT NULL, amount INTEGER NOT NULL,
+      status TEXT NOT NULL, notes TEXT
+    )''');
+    database.execute('''CREATE TABLE diesel_movements(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, irrigation_id INTEGER, kind TEXT NOT NULL,
+      amount INTEGER NOT NULL, date TEXT NOT NULL, notes TEXT
+    )''');
+    database.execute('''CREATE TABLE beneficiary_manual_debts(
+      id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL,
+      date TEXT NOT NULL, amount INTEGER NOT NULL, notes TEXT,
+      status TEXT NOT NULL, cancelled_at TEXT, cancel_reason TEXT
+    )''');
+    database.execute('''CREATE TABLE station_settings(
+      station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+      PRIMARY KEY(station_id,key)
+    )''');
+    database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'diesel_delivery_financial_credit','true')");
+    database.execute("INSERT INTO irrigations(id,station_id,beneficiary_id,date,start_datetime,end_datetime,system_type,minutes,cloud_minutes,chargeable_minutes,total_amount,paid_amount,status,notes) VALUES(1,1,1,'2026-11-01','2026-11-01T08:00:00','2026-11-01T09:00:00','diesel',60,0,60,100,0,'posted','first irrigation')");
+    database.execute("INSERT INTO payments(id,station_id,beneficiary_id,date,amount,status,notes) VALUES(1,1,1,'2026-11-02',30,'posted','cash receipt')");
+    database.execute("INSERT INTO diesel_movements(id,station_id,beneficiary_id,irrigation_id,kind,amount,date,notes) VALUES(1,1,1,NULL,'advance',10,'2026-11-03','diesel advance'),(2,1,1,NULL,'delivery',5,'2026-11-04','diesel delivery')");
+    database.execute("INSERT INTO beneficiary_manual_debts(id,beneficiary_id,date,amount,notes,status) VALUES(1,1,'2026-11-02',20,'manual balance','posted')");
+
+    Future<List<dynamic>> read(String token, String suffix) async {
+      final response = await server.router().call(Request(
+        'GET',
+        Uri.parse('http://localhost/api/v1/beneficiaries/$globalId/statement$suffix'),
+        headers: {'authorization': 'Bearer $token'},
+      ));
+      expect(response.statusCode, 200);
+      return jsonDecode(await response.readAsString()) as List<dynamic>;
+    }
+
+    final first = await read(stationOneToken, '');
+    final replay = await read(stationOneToken, '');
+    expect(first, hasLength(7)); // 2 opening rows + 5 distinct source movements.
+    expect(replay, first);
+    expect(first.map((row) => '${row['type']}:${row['id']}').toSet(), hasLength(7));
+    expect(first.last['balance'], 140); // 45 + 100 - 30 + 10 + 20 - 5.
+    expect(first.map((row) => row['type']), containsAll([
+      's','p','diesel_advance','manual_debt','diesel_delivery',
+    ]));
+    final foreign = await server.router().call(Request(
+      'GET',
+      Uri.parse('http://localhost/api/v1/beneficiaries/$globalId/statement'),
+      headers: {'authorization': 'Bearer $stationTwoToken'},
+    ));
+    expect(foreign.statusCode, 404);
+  });
+
 test('legacy beneficiary rows receive a stable global identity on first API read', () async {
     database.execute(
       "INSERT INTO beneficiaries(station_id,name,status) VALUES(1,'Legacy Beneficiary','active')",
