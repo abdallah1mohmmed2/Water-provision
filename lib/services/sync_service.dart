@@ -93,8 +93,120 @@ class SyncService {
     });
   }
 
+  Future<List<String>> _globalIdsForQuery(
+    String sql,
+    List<Object?> args,
+    String table,
+  ) async {
+    final rows = await db.query(sql, args: args);
+    final result = <String>[];
+    for (final row in rows) {
+      final localId = (row['id'] as num).toInt();
+      final identity = await db.query(
+        'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=? LIMIT 1',
+        args: [table, localId],
+      );
+      if (identity.isEmpty) {
+        throw StateError('الهوية العالمية للأثر التابع مفقودة: $table:$localId');
+      }
+      result.add(identity.single['global_id'] as String);
+    }
+    return result;
+  }
+
+  /// Stable child identities let the server publish its authoritative effects
+  /// back to every device, including the origin, without creating duplicates.
+  Future<Map<String, List<String>>> _derivedGlobalIds(
+    String table,
+    int recordId,
+  ) async {
+    if (table == 'irrigations') {
+      final irrigationRows = await db.query(
+        'SELECT session_id,queue_entry_id,booking_id FROM irrigations WHERE id=? LIMIT 1',
+        args: [recordId],
+      );
+      if (irrigationRows.isEmpty) return const {};
+      final irrigation = irrigationRows.single;
+      const journalFilter = "reference_type='irrigation' AND reference_id=?";
+      final entries = await _globalIdsForQuery(
+        'SELECT id FROM journal_entries WHERE $journalFilter ORDER BY id',
+        [recordId],
+        'journal_entries',
+      );
+      final result = <String, List<String>>{
+        'cloud_periods': await _globalIdsForQuery(
+          'SELECT id FROM cloud_periods WHERE irrigation_id=? ORDER BY start_datetime,id',
+          [recordId],
+          'cloud_periods',
+        ),
+        'journal_entries': entries,
+        'journal_lines': await _globalIdsForQuery(
+          'SELECT id FROM journal_lines WHERE journal_entry_id IN (SELECT id FROM journal_entries WHERE $journalFilter) ORDER BY id',
+          [recordId],
+          'journal_lines',
+        ),
+        'worker_transactions': await _globalIdsForQuery(
+          "SELECT id FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=? ORDER BY id",
+          [recordId],
+          'worker_transactions',
+        ),
+        'partner_transactions': await _globalIdsForQuery(
+          "SELECT id FROM partner_transactions WHERE reference_type='irrigation' AND reference_id=? ORDER BY id",
+          [recordId],
+          'partner_transactions',
+        ),
+        'diesel_movements': await _globalIdsForQuery(
+          'SELECT id FROM diesel_movements WHERE irrigation_id=? ORDER BY id',
+          [recordId],
+          'diesel_movements',
+        ),
+      };
+      for (final relation in const [
+        ('irrigation_sessions', 'session_id'),
+        ('queue_entries', 'queue_entry_id'),
+        ('booking_requests', 'booking_id'),
+      ]) {
+        final value = irrigation[relation.$2];
+        result[relation.$1] = value == null
+            ? const []
+            : await _globalIdsForQuery(
+                'SELECT id FROM ${relation.$1} WHERE id=? ORDER BY id',
+                [(value as num).toInt()],
+                relation.$1,
+              );
+      }
+      return result;
+    }
+    if (table == 'payments') {
+      final paymentRows = await db.query(
+        'SELECT cashbox_id FROM payments WHERE id=? LIMIT 1',
+        args: [recordId],
+      );
+      if (paymentRows.isEmpty) return const {};
+      final cashboxId = (paymentRows.single['cashbox_id'] as num).toInt();
+      return {
+        'journal_entries': await _globalIdsForQuery(
+          "SELECT id FROM journal_entries WHERE reference_type='payment' AND reference_id=? ORDER BY id",
+          [recordId],
+          'journal_entries',
+        ),
+        'journal_lines': await _globalIdsForQuery(
+          "SELECT id FROM journal_lines WHERE journal_entry_id IN (SELECT id FROM journal_entries WHERE reference_type='payment' AND reference_id=?) ORDER BY id",
+          [recordId],
+          'journal_lines',
+        ),
+        'cashboxes': await _globalIdsForQuery(
+          'SELECT id FROM cashboxes WHERE id=?',
+          [cashboxId],
+          'cashboxes',
+        ),
+      };
+    }
+    return const {};
+  }
+
   /// Sends immutable event IDs. Retrying a request can never create a second
-  /// second event-log entry because the server enforces (station_id,event_id).
+  /// event-log entry because the server enforces (station_id,event_id).
   Future<void> push() async {
     final deviceId = await _deviceId();
     final rows = await db.query(
@@ -150,6 +262,10 @@ class SyncService {
           'start_datetime': period['start_datetime'],
           'end_datetime': period['end_datetime'],
         }).toList();
+      }
+      if ((table == 'irrigations' || table == 'payments') && recordId != null) {
+        payload['_derived_global_ids'] =
+            await _derivedGlobalIds(table, recordId);
         await db.update(
           'sync_queue',
           {'payload': jsonEncode(payload)},
