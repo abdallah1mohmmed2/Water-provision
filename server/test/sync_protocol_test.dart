@@ -304,6 +304,7 @@ void main() {
     database.execute("INSERT INTO payments(id,station_id,beneficiary_id,date,amount,status,notes) VALUES(1,1,1,'2026-11-02',30,'posted','cash receipt')");
     database.execute("INSERT INTO diesel_movements(id,station_id,beneficiary_id,irrigation_id,kind,amount,date,notes) VALUES(1,1,1,NULL,'advance',10,'2026-11-03','diesel advance'),(2,1,1,NULL,'delivery',5,'2026-11-04','diesel delivery')");
     database.execute("INSERT INTO beneficiary_manual_debts(id,beneficiary_id,date,amount,notes,status) VALUES(1,1,'2026-11-02',20,'manual balance','posted')");
+    database.execute("INSERT INTO beneficiary_manual_debts(id,beneficiary_id,date,amount,notes,status,cancelled_at,cancel_reason) VALUES(2,1,'2026-11-01',7,'cancelled debt','cancelled','2026-11-05','duplicate entry')");
 
     Future<List<dynamic>> read(String token, String suffix) async {
       final response = await server.router().call(Request(
@@ -317,20 +318,20 @@ void main() {
 
     final first = await read(stationOneToken, '');
     final replay = await read(stationOneToken, '');
-    expect(first, hasLength(7)); // 2 opening rows + 5 distinct source movements.
+    expect(first, hasLength(9)); // 2 opening rows + 7 distinct source movements.
     expect(replay, first);
-    expect(first.map((row) => '${row['type']}:${row['id']}').toSet(), hasLength(7));
+    expect(first.map((row) => '${row['type']}:${row['id']}').toSet(), hasLength(9));
     expect(first.last['balance'], 140); // 45 + 100 - 30 + 10 + 20 - 5.
     expect(first.map((row) => row['type']), containsAll([
-      's','p','diesel_advance','manual_debt','diesel_delivery',
+      's','p','diesel_advance','manual_debt','manual_debt_reversal','diesel_delivery',
     ]));
     final period = await read(
       stationOneToken,
       '?from=2026-11-02&to=2026-11-03',
     );
     expect(period.first['type'], 'opening_balance');
-    expect(period.first['balance'], 145); // Balance after the 1 November irrigation.
-    expect(period.last['balance'], 145); // 145 - 30 + 20 + 10.
+    expect(period.first['balance'], 152); // Includes the cancelled debt until its 5 November reversal.
+    expect(period.last['balance'], 152); // 152 - 30 + 20 + 10.
     final foreign = await server.router().call(Request(
       'GET',
       Uri.parse('http://localhost/api/v1/beneficiaries/$globalId/statement'),
