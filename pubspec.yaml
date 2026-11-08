@@ -43,3 +43,8 @@ flutter:
     - assets/fonts/NotoNaskhArabic-Regular.ttf
     - assets/fonts/NotoNaskhArabic-Bold.ttf
     - assets/images/report_logo.png.b64
+hooks:
+  user_defines:
+    sqlite3:
+      source:
+        linux: system
