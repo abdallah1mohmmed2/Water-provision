@@ -4285,7 +4285,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
           const Align(
             alignment: Alignment.centerRight,
             child: Text(
-              'مصدر قائمة المستفيدين: خادم Shelf • تم تحديث النسخة المحلية المؤقتة',
+              'القائمة والرصيد من خادم Shelf؛ التفاصيل وكشوف الحركات ما زالت تعتمد على بيانات الجهاز حتى ترحيلها.',
               style: TextStyle(fontSize: 12, color: Colors.green),
             ),
           )
