@@ -863,7 +863,7 @@ class SaqiaServer {
     if (!_hasTable('cloud_periods') || !_hasTable('diesel_movements')) throw StateError('جداول الغيم والديزل غير متاحة');
     final columns = db.select('PRAGMA table_info(irrigations)').map((r)=>r['name'].toString()).toSet();
     final required = {'station_id','pump_id','beneficiary_id','party_type','date','start_datetime','end_datetime','minutes','system_type','water_hourly_rate_snapshot','diesel_liters_per_hour_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot','cloud_minutes','chargeable_minutes','water_amount','diesel_amount','total_amount','paid_amount','status','created_by','created_at','updated_at'};
-    if (!required.every(columns.contains)) throw StateError('مخطط السقايات لا يدعم الترحيل الآمن');
+    if (!requiredColumns.every(columns.contains)) throw StateError('مخطط السقايات لا يدعم الترحيل الآمن');
     final irrigationValues=<String,Object?>{
       'station_id':station,'pump_id':pumpId,'beneficiary_id':beneficiaryId,'party_type':'beneficiary',
       'date':startText.substring(0,10),'start_datetime':startText,'end_datetime':endText,'minutes':minutes,
@@ -2155,7 +2155,7 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
     if (!validGlobalId || entityKey != 'diesel_movements:' + globalId) throw StateError('هوية حركة الديزل العالمية غير صالحة');
     if (!_hasTable('diesel_movements')) throw StateError('جدول حركات الديزل غير موجود');
     final columns = db.select('PRAGMA table_info(diesel_movements)').map((row) => row['name'].toString()).toSet();
-    const required = {'id','station_id','beneficiary_id','irrigation_id','cashbox_id','kind','liters','unit_price','amount','date','notes','created_by'};
+    const requiredColumns = {'id','station_id','beneficiary_id','irrigation_id','cashbox_id','kind','liters','unit_price','amount','date','notes','created_by'};
     if (!required.every(columns.contains)) throw StateError('مخطط حركات الديزل لا يدعم المزامنة الآمنة');
     final existingLink = db.select("SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='diesel_movements' AND global_id=? LIMIT 1", [station, globalId]);
     final refs = payload['_global_refs'];
@@ -2189,6 +2189,8 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
     final date = DateTime.tryParse((payload['date'] ?? '').toString());
     if (date == null) throw StateError('تاريخ حركة الديزل غير صالح');
     final notes = payload['notes']?.toString();
+    final requiresJournal = kind == 'consumption' || kind == 'correction' || kind == 'opening_balance' || (kind == 'receipt' && cashboxId != null) || (kind == 'advance' && beneficiaryId != null) || (kind == 'delivery' && beneficiaryId != null && _settingsForStation(station)['diesel_delivery_financial_credit'] == 'true');
+    if (requiresJournal && amount <= 0) throw StateError('الحركة التي تتطلب قيداً محاسبياً يجب أن تكون قيمتها موجبة');
     if (operation == 'delete') throw UnsupportedError('إلغاء حركة الديزل يتطلب القيد العكسي؛ لم يُسمح بحذفها مباشرة');
     if (operation == 'update') {
       if (existingLink.isEmpty) throw StateError('لا توجد حركة ديزل مرتبطة لتحديثها');
