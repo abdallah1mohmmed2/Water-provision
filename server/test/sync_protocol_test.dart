@@ -236,6 +236,10 @@ void main() {
     const globalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0');
     database.execute('ALTER TABLE beneficiaries ADD COLUMN carried_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('''CREATE TABLE station_settings(
+      station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+      PRIMARY KEY(station_id,key)
+    )''');
     await postEvents(stationOneToken, [
       event(globalId: globalId, payload: {'name': 'Global Detail'}),
     ]);
