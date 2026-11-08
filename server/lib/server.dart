@@ -388,6 +388,14 @@ class SaqiaServer {
     return db.lastInsertRowId;
   }
 
+  void _ensureSyncCancellationColumns(String table) {
+    if (!const {'expenses','cashbox_transfers'}.contains(table)) throw StateError('جدول الإلغاء غير مسموح');
+    final columns = db.select('PRAGMA table_info($table)').map((row)=>(row['name'] ?? '').toString()).toSet();
+    if (!columns.contains('status')) db.execute("ALTER TABLE $table ADD COLUMN status TEXT NOT NULL DEFAULT 'posted'");
+    if (!columns.contains('cancelled_at')) db.execute('ALTER TABLE $table ADD COLUMN cancelled_at TEXT');
+    if (!columns.contains('cancel_reason')) db.execute('ALTER TABLE $table ADD COLUMN cancel_reason TEXT');
+  }
+
   void _applySyncExpense({required int station, required String entityKey, required String operation, required Map payload, required String now, required int? userId, required String? role}) {
     if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بمزامنة المصروفات');
     if (userId == null || _stationForUser(userId) != station) throw StateError('مستخدم المصروف لا يتبع المحطة الموثقة');
@@ -395,7 +403,44 @@ class SaqiaServer {
     final valid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId);
     if (!valid || entityKey != 'expenses:' + globalId) throw StateError('الهوية العالمية للمصروف غير صالحة');
     final links = db.select("SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='expenses' AND global_id=? LIMIT 1",[station,globalId]);
-    if (operation == 'delete') throw UnsupportedError('إلغاء المصروف يتطلب رد المبلغ للصندوق وقيداً عكسياً؛ الحذف المباشر ممنوع');
+    _ensureSyncCancellationColumns('expenses');
+    if (operation == 'delete') throw UnsupportedError('استخدم تحديث status=cancelled مع سبب الإلغاء وتاريخه؛ الحذف المباشر ممنوع');
+    if (operation == 'update' && payload['status'] == 'cancelled') {
+      if (links.isEmpty) throw StateError('المصروف غير مرتبط بهذه الهوية العالمية');
+      final id = (links.first['local_id'] as num).toInt();
+      final rows = db.select("SELECT * FROM expenses WHERE id=? AND station_id=? LIMIT 1",[id,station]);
+      if (rows.isEmpty || rows.first['status'] != 'posted') throw StateError('المصروف غير موجود أو سبق إلغاؤه');
+      final expense = rows.first;
+      final reason = (payload['cancel_reason'] ?? '').toString().trim();
+      final cancelledAt = DateTime.tryParse((payload['cancelled_at'] ?? '').toString());
+      if (reason.isEmpty || cancelledAt == null) throw StateError('سبب الإلغاء وتاريخه مطلوبان');
+      for (final key in const ['amount','category','date','cashbox_id','payment_method_id','partner_id','title']) {
+        if (payload.containsKey(key) && payload[key] != expense[key]) throw StateError('لا يسمح بتغيير بيانات المصروف أثناء الإلغاء');
+      }
+      final amount = (expense['amount'] as num).toInt();
+      final cashboxId = (expense['cashbox_id'] as num?)?.toInt();
+      if (cashboxId == null) throw StateError('الصندوق الأصلي للمصروف غير محدد');
+      final original = db.select("SELECT id FROM journal_entries WHERE station_id=? AND reference_type='expense' AND reference_id=? AND status='posted' ORDER BY id",[station,id]);
+      if (original.length != 1) throw StateError('يجب وجود قيد أصلي واحد مرحّل للمصروف');
+      final originalId = (original.single['id'] as num).toInt();
+      final lines = db.select('SELECT account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo FROM journal_lines WHERE journal_entry_id=? ORDER BY id',[originalId]);
+      final debit = lines.fold<int>(0,(sum,line)=>sum+(line['debit'] as num).toInt());
+      final credit = lines.fold<int>(0,(sum,line)=>sum+(line['credit'] as num).toInt());
+      if (lines.length != 2 || debit != amount || credit != amount ||
+          db.select("SELECT 1 FROM journal_entries WHERE reference_type='reversal' AND reference_id=? LIMIT 1",[originalId]).isNotEmpty) {
+        throw StateError('القيد الأصلي غير متوازن أو سبق عكسه أو لا يطابق قيمة المصروف');
+      }
+      db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND station_id=?',[amount,cashboxId,station]);
+      if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر رد مبلغ المصروف إلى الصندوق');
+      db.execute("INSERT INTO journal_entries(station_id,date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)",[station,cancelledAt.toIso8601String(),'reversal',originalId,'عكس مصروف رقم $id: $reason','posted',userId,now]);
+      final reversalId = db.lastInsertRowId;
+      for (final line in lines) {
+        db.execute('INSERT INTO journal_lines(journal_entry_id,account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo) VALUES(?,?,?,?,?,?,?,?)',[reversalId,line['account_id'],line['beneficiary_id'],line['worker_id'],line['partner_id'],line['credit'],line['debit'],'عكس: ${line['memo'] ?? ''}']);
+      }
+      db.execute("UPDATE expenses SET status='cancelled',cancelled_at=?,cancel_reason=? WHERE id=? AND station_id=? AND status='posted'",[cancelledAt.toIso8601String(),reason,id,station]);
+      if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر تثبيت إلغاء المصروف');
+      return;
+    }
     if (operation == 'update') {
       if (links.isEmpty) throw StateError('المصروف غير مرتبط بهذه الهوية العالمية');
       final id = (links.first['local_id'] as num).toInt();
@@ -454,7 +499,49 @@ class SaqiaServer {
     final valid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId);
     if (!valid || entityKey != 'cashbox_transfers:' + globalId) throw StateError('الهوية العالمية للتحويل غير صالحة');
     final links = db.select("SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='cashbox_transfers' AND global_id=? LIMIT 1",[station,globalId]);
-    if (operation == 'delete') throw UnsupportedError('إلغاء التحويل يتطلب رد أثر الصندوق وقيداً عكسياً؛ الحذف المباشر ممنوع');
+    _ensureSyncCancellationColumns('cashbox_transfers');
+    if (operation == 'delete') throw UnsupportedError('استخدم تحديث status=cancelled مع سبب الإلغاء وتاريخه؛ الحذف المباشر ممنوع');
+    if (operation == 'update' && payload['status'] == 'cancelled') {
+      if (links.isEmpty) throw StateError('التحويل غير مرتبط بهذه الهوية العالمية');
+      final id = (links.first['local_id'] as num).toInt();
+      final rows = db.select("SELECT * FROM cashbox_transfers WHERE id=? AND station_id=? LIMIT 1",[id,station]);
+      if (rows.isEmpty || rows.first['status'] != 'posted') throw StateError('التحويل غير موجود أو سبق إلغاؤه');
+      final transfer = rows.first;
+      final reason = (payload['cancel_reason'] ?? '').toString().trim();
+      final cancelledAt = DateTime.tryParse((payload['cancelled_at'] ?? '').toString());
+      if (reason.isEmpty || cancelledAt == null) throw StateError('سبب الإلغاء وتاريخه مطلوبان');
+      for (final key in const ['amount','from_cashbox_id','to_cashbox_id','is_opening_transfer','date']) {
+        if (payload.containsKey(key) && payload[key] != transfer[key]) throw StateError('لا يسمح بتغيير بيانات التحويل أثناء الإلغاء');
+      }
+      final amount = (transfer['amount'] as num).toInt();
+      final fromId = (transfer['from_cashbox_id'] as num?)?.toInt();
+      final toId = (transfer['to_cashbox_id'] as num).toInt();
+      final opening = (transfer['is_opening_transfer'] as num).toInt() == 1;
+      final original = db.select("SELECT id FROM journal_entries WHERE station_id=? AND reference_type='cashbox_transfer' AND reference_id=? AND status='posted' ORDER BY id",[station,id]);
+      if (original.length != 1) throw StateError('يجب وجود قيد أصلي واحد مرحّل للتحويل');
+      final originalId = (original.single['id'] as num).toInt();
+      final lines = db.select('SELECT account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo FROM journal_lines WHERE journal_entry_id=? ORDER BY id',[originalId]);
+      final debit = lines.fold<int>(0,(sum,line)=>sum+(line['debit'] as num).toInt());
+      final credit = lines.fold<int>(0,(sum,line)=>sum+(line['credit'] as num).toInt());
+      if (lines.length != 2 || debit != amount || credit != amount ||
+          db.select("SELECT 1 FROM journal_entries WHERE reference_type='reversal' AND reference_id=? LIMIT 1",[originalId]).isNotEmpty) {
+        throw StateError('القيد الأصلي غير متوازن أو سبق عكسه أو لا يطابق قيمة التحويل');
+      }
+      if (fromId != null) {
+        db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND station_id=?',[amount,fromId,station]);
+        if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر رد المبلغ إلى صندوق المصدر');
+      }
+      db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=? AND station_id=?',[amount,toId,station]);
+      if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر خصم المبلغ المعاد من صندوق الوجهة');
+      db.execute("INSERT INTO journal_entries(station_id,date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)",[station,cancelledAt.toIso8601String(),'reversal',originalId,'عكس تحويل صندوق رقم $id: $reason','posted',userId,now]);
+      final reversalId = db.lastInsertRowId;
+      for (final line in lines) {
+        db.execute('INSERT INTO journal_lines(journal_entry_id,account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo) VALUES(?,?,?,?,?,?,?,?)',[reversalId,line['account_id'],line['beneficiary_id'],line['worker_id'],line['partner_id'],line['credit'],line['debit'],'عكس: ${line['memo'] ?? ''}']);
+      }
+      db.execute("UPDATE cashbox_transfers SET status='cancelled',cancelled_at=?,cancel_reason=? WHERE id=? AND station_id=? AND status='posted'",[cancelledAt.toIso8601String(),reason,id,station]);
+      if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر تثبيت إلغاء التحويل');
+      return;
+    }
     if (operation == 'update') {
       if (links.isEmpty) throw StateError('التحويل غير مرتبط بهذه الهوية العالمية');
       final id = (links.first['local_id'] as num).toInt();
