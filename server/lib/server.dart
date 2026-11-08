@@ -429,10 +429,17 @@ class SaqiaServer {
       throw StateError('الهوية المحلية للأثر التابع لا تطابق هوية الخادم: $table/$localId');
     }
     final globalId = existingGlobalId ?? requestedGlobalId ?? const Uuid().v4();
-    if (globalId.length != 36 || !RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId) ||
-        globalId[8] != '-' || globalId[13] != '-' ||
-        globalId[18] != '-' || globalId[23] != '-' ||
-        globalId[14] != '4' || !'89abAB'.contains(globalId[19])) {
+    final uuidParts = globalId.split('-');
+    final validGlobalUuid = uuidParts.length == 5 &&
+        uuidParts[0].length == 8 &&
+        uuidParts[1].length == 4 &&
+        uuidParts[2].length == 4 &&
+        uuidParts[3].length == 4 &&
+        uuidParts[4].length == 12 &&
+        uuidParts.every((part) => int.tryParse(part, radix: 16) != null) &&
+        uuidParts[2].startsWith('4') &&
+        '89abAB'.contains(uuidParts[3][0]);
+    if (!validGlobalUuid) {
       throw StateError('هوية الإسقاط العالمية غير صالحة: ' + table + '/' + localId.toString());
     }
     if (existing.isEmpty) {
