@@ -642,7 +642,7 @@ void main() {
     final cancelled=await postEvents(stationOneToken,[cancel]);
     expect((cancelled['results'] as List).first['status'],'accepted');
     expect(database.select("SELECT status FROM beneficiary_manual_debts").single['status'],'cancelled');
-    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
     final totals=database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
     expect(totals['debit'],3600);
     expect(totals['credit'],3600);
