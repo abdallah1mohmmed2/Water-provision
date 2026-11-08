@@ -184,3 +184,10 @@
 تكرر في سجلات CI نفس SHA256 الفعلي `bef140a1a96994029153dca8c00b1750b9a5a764fb9db2dc68d7bb40e8a29e8a` رغم تغيير إصدار حزمة sqlite3، بينما اختلفت البصمة المتوقعة. هذا التطابق عبر الإصدارات يدل على أن التنزيل أعاد صفحة HTTP 504 بدلاً من مكتبة ELF المطلوبة؛ لذلك لم يكن تخفيض إصدار الحزمة علاجاً.
 
 المعالجة الجديدة لا تعتمد على GitHub Release asset في Android: تُنزّل amalgamation من sqlite.org، وتتحقق من SHA3-256 المنشور رسمياً (`628a44cfe82c66aed1ccbbe85a562d2e33ebe64b3288981ed76285612227934e` لملف SQLite 3.53.4)، ثم يبني hook المكتبة عبر Android NDK. أُضيفت خطوة تجهيز المصدر قبل بناء APK في workflows الثلاثة (`build-apk.yml`, `buildr.yml`, `test-apk.yml`). لا يُعلن نجاح الإصلاح حتى يكتمل APK Release وتُرفع artifact من commit واحد نهائي.
+
+
+### عائق Gradle 504 في CI
+
+بعد تجاوز تنزيل مكتبة SQLite، أظهر تشغيل Debug أن Gradle Wrapper كان يُحوّل طلب `services.gradle.org` إلى GitHub Releases، ثم يتلقى HTTP 504. لذلك عُدّل `android/gradle/wrapper/gradle-wrapper.properties` إلى مضيف التوزيع المباشر الرسمي `downloads.gradle.org`، واختيرت حزمة `bin` الأصغر من `all` مع تثبيت SHA-256 الرسمي المعروف لتوزيعة Gradle 9.3.1. كما أضيف `gradle/actions/setup-gradle@v4` لتخزين Gradle wrapper والتبعيات في workflows الخاصة ببناء APK.
+
+لا يزال نجاح البناء النهائي معلقاً حتى يكتمل Workflow Release على رأس واحد ويُرفع ملف APK فعلياً.
