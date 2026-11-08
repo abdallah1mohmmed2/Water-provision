@@ -232,3 +232,24 @@
 سبب HTTP 504 السابق كان تنزيل `kotlin-compiler-embeddable-2.2.21.jar` عبر تحويل Maven Central إلى GitHub Releases. بعد تقديم Huawei Cloud Maven mirror في pluginManagement ومستودعات المشاريع، اكتمل بناء Release بنجاح. لم يُعطل أي تحقق SHA256/SHA3، ولم تُضف بصمات تخمينية. بقي SQLite Android مبنياً من المصدر الرسمي المتحقق منه، ولم تُستخدم مكتبة Android النظامية.
 
 هذه النتائج تخص commit `a337ad0`. أُضيف هذا السجل التوثيقي بعد التحقق؛ لذلك يجب انتظار CI الجديد على رأس الفرع الذي يحتوي هذا التحديث قبل اعتماد آخر رأس نهائي.
+
+
+## تحقق Release على رأس الفرع — 2026-11-08
+
+تم فحص رأس الفرع مباشرة، وكان commit `5e1be3d43e8a9e13aab3d679083112086f757bd1` على `feature/firebase-station-foundation`. نجحت وظيفة Release كاملة على الرأس نفسه، بما في ذلك جلب الحزم، اختبارات Shelf، اختبارات إعداد Firebase، Flutter Analyze، اختبارات Flutter، تجهيز NDK، تجهيز SQLite من المصدر الرسمي والتحقق من SHA3-256، بناء APK ورفع Artifact.
+
+- Build Flutter APK Run: `42474648916` — success.
+- Flutter Analyze Run: `42474653710` — success.
+- SonarCloud Run: `42474653799` — success.
+- Build / SonarQube Run: `42474653935` — success.
+- Release Artifact: `Saqia-App-Release`, ID `13615301107`, ZIP size `36,369,429` bytes.
+- تم تنزيل الأرشيف وفحصه: يحتوي `app-release.apk` بحجم `78,813,080` bytes.
+- SHA-256 للأرشيف: `970bed551454654a84c1843b1bbcbcb1eaa7f747f4865b865e6e25e87e590b0e`.
+- SHA-256 لملف APK المستخرج: `75504644574e629d66b9e847b285fbbc7fd3a7475702771cafa82a74450a748e`.
+- رابط Artifact: https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42474648916/artifacts/13615301107
+
+أكد سجل البناء أن `tooling/prepare_android_sqlite.py` نزّل SQLite 3.53.4 من مصادر SQLite الرسمية، وقارن SHA3-256 الفعلي بالقيمة المثبتة في أداة التحقق قبل استخراج `sqlite3.c` و`sqlite3.h` إلى `.ci/sqlite3`. ثم استخدم build hook إعداد `source: source` على Android. لم تُعطّل فحوص السلامة ولم تستخدم مكتبة Android النظامية. إعداد Linux `system` منفصل، بينما Windows يظل على إعداد الحزمة الافتراضي.
+
+ملاحظة حالة الإصدار: نجح `flutter build apk --release` ورفع Artifact. لكن إعداد `android/app/build.gradle.kts` الحالي يربط نوع Release بتوقيع debug؛ لذلك هذا إثبات لنجاح بناء Release ووجود APK، وليس اعتماداً لتوقيع إنتاجي للنشر في المتجر.
+
+النتائج أعلاه تخص commit `5e1be3d` فقط. يجب إعادة التحقق من الرأس وتشغيل CI بعد أي تعديل لاحق. لا دمج إلى `main`.
