@@ -793,12 +793,138 @@ class SaqiaServer {
     }
   }
 
+  void _applySyncIrrigation({
+    required int station, required String entityKey, required Map payload,
+    required String now, required int? userId, required String? role,
+  }) {
+    if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بترحيل السقايات');
+    final globalId = (payload['_global_id'] ?? '').toString();
+    final valid = globalId.length == 36 && RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId) && globalId[8] == '-' && globalId[13] == '-' && globalId[18] == '-' && globalId[23] == '-' && globalId[14] == '4' && '89abAB'.contains(globalId[19]);
+    if (!valid || entityKey != 'irrigations:' + globalId) throw StateError('هوية السقاية العالمية غير صالحة');
+    if (db.select("SELECT 1 FROM sync_entity_links WHERE station_id=? AND entity_type='irrigations' AND global_id=? LIMIT 1",[station,globalId]).isNotEmpty) throw StateError('السقاية موجودة مسبقاً');
+    if (userId == null || _stationForUser(userId) != station) throw StateError('مستخدم السقاية لا يتبع المحطة الموثقة');
+    final refs = payload['_global_refs'];
+    if (refs is! Map) throw StateError('مراجع السقاية العالمية مفقودة');
+    final pumpId = _resolveSyncReference(station:station,entityType:'pumps',column:'pump_id',references:refs);
+    final beneficiaryId = _resolveSyncReference(station:station,entityType:'beneficiaries',column:'beneficiary_id',references:refs);
+    final pump = db.select('SELECT system_type,active FROM pumps WHERE id=? AND station_id=? LIMIT 1',[pumpId,station]);
+    final beneficiary = db.select('SELECT status FROM beneficiaries WHERE id=? AND station_id=? LIMIT 1',[beneficiaryId,station]);
+    if (pump.isEmpty || (pump.first['active'] as num?)?.toInt()!=1) throw StateError('المضخة غير نشطة أو لا تتبع المحطة');
+    if (beneficiary.isEmpty || beneficiary.first['status'] != 'active') throw StateError('المستفيد غير نشط أو لا يتبع المحطة');
+    final startText = (payload['start_datetime'] ?? '').toString();
+    final endText = (payload['end_datetime'] ?? '').toString();
+    final start = DateTime.tryParse(startText);
+    final end = DateTime.tryParse(endText);
+    if (start == null || end == null || !end.isAfter(start)) throw StateError('وقت بداية أو نهاية السقاية غير صالح');
+    final settings = _settingsForStation(station);
+    final minutes = _minutes(start,end,settings['allow_midnight_crossing']=='true');
+    if (minutes <= 0 || minutes > 1440) throw StateError('مدة السقاية خارج النطاق المسموح');
+    final system = (payload['system_type'] ?? pump.first['system_type'] ?? settings['system_type'] ?? 'diesel').toString();
+    if (!const {'diesel','solar','equivalent_hybrid'}.contains(system) || system != pump.first['system_type'].toString()) throw StateError('نوع النظام لا يطابق نوع المضخة');
+    final rawCloud = payload['cloud_periods'];
+    if (rawCloud != null && rawCloud is! List) throw StateError('فترات الغيم غير صالحة');
+    final cloudPeriods = rawCloud == null ? <Map>[] : rawCloud.map((x) { if (x is! Map) throw StateError('فترة غيم غير صالحة'); return x; }).toList();
+    final ranges = <List<DateTime>>[];
+    var cloudMinutes = 0;
+    for (final item in cloudPeriods) {
+      final a = DateTime.tryParse((item['start_datetime'] ?? '').toString());
+      final b = DateTime.tryParse((item['end_datetime'] ?? '').toString());
+      if (a == null || b == null || !b.isAfter(a) || a.isBefore(start) || b.isAfter(end)) throw StateError('فترة الغيم يجب أن تقع داخل زمن السقاية');
+      if (ranges.any((r) => a.isBefore(r[1]) && b.isAfter(r[0]))) throw StateError('فترات الغيم متداخلة');
+      ranges.add([a,b]);
+      cloudMinutes += b.difference(a).inMinutes;
+    }
+    final cloudReported = (payload['cloud_minutes'] as num?)?.toInt() ?? cloudMinutes;
+    if (cloudReported != cloudMinutes || cloudMinutes > minutes) throw StateError('مجموع فترات الغيم لا يطابق دقائق الغيم أو يتجاوز مدة السقاية');
+    final chargeable = system == 'solar' ? minutes-cloudMinutes : minutes;
+    final waterRate = system == 'diesel' ? (int.tryParse(settings['diesel_hourly_water_rate'] ?? '0') ?? 0) : system == 'solar' ? (int.tryParse(settings['solar_hourly_rate'] ?? '0') ?? 0) : (int.tryParse(settings['third_type_hourly_rate'] ?? '0') ?? 0);
+    final litersPerHour = system == 'diesel' ? (double.tryParse(settings['diesel_liters_per_hour'] ?? '0') ?? 0) : 0.0;
+    final dieselPrice = int.tryParse(settings['diesel_price_per_liter'] ?? '0') ?? 0;
+    if (waterRate < 0 || litersPerHour < 0 || dieselPrice < 0) throw StateError('إعدادات أسعار السقاية غير صالحة');
+    final rounding = settings['rounding'] ?? 'nearest';
+    final waterAmount = _round(chargeable/60*waterRate,rounding);
+    final liters = chargeable/60*litersPerHour;
+    final dieselAmount = _round(liters*dieselPrice,rounding);
+    final total = waterAmount+dieselAmount;
+    if (total <= 0) throw StateError('إجمالي السقاية المحسوب غير صالح');
+    final paidValue = payload['paid_amount'] ?? 0;
+    if (paidValue is! num || paidValue != 0) throw StateError('يجب مزامنة القبض كحدث مستقل؛ لا يقبل paid_amount داخل السقاية');
+    if (db.select("SELECT 1 FROM irrigations WHERE station_id=? AND pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",[station,pumpId,endText,startText]).isNotEmpty) throw StateError('وقت السقاية يتداخل مع تشغيل آخر للمضخة');
+    if (!_hasTable('cloud_periods') || !_hasTable('diesel_movements')) throw StateError('جداول الغيم والديزل غير متاحة');
+    final columns = db.select('PRAGMA table_info(irrigations)').map((r)=>r['name'].toString()).toSet();
+    final required = {'station_id','pump_id','beneficiary_id','party_type','date','start_datetime','end_datetime','minutes','system_type','water_hourly_rate_snapshot','diesel_liters_per_hour_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot','cloud_minutes','chargeable_minutes','water_amount','diesel_amount','total_amount','paid_amount','status','created_by','created_at','updated_at'};
+    if (!required.every(columns.contains)) throw StateError('مخطط السقايات لا يدعم الترحيل الآمن');
+    db.execute('INSERT INTO irrigations(station_id,pump_id,beneficiary_id,party_type,date,start_datetime,end_datetime,minutes,system_type,water_hourly_rate_snapshot,diesel_liters_per_hour_snapshot,diesel_price_snapshot,solar_hourly_rate_snapshot,third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,water_amount,diesel_amount,total_amount,paid_amount,status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[station,pumpId,beneficiaryId,'beneficiary',startText.substring(0,10),startText,endText,minutes,system,system=='diesel'?waterRate:0,litersPerHour,dieselPrice,system=='solar'?waterRate:0,system=='equivalent_hybrid'?waterRate:0,cloudMinutes,chargeable,waterAmount,dieselAmount,total,0,'posted',userId,now,now]);
+    final irrigationId = db.lastInsertRowId;
+    for (final item in cloudPeriods) {
+      final aText = item['start_datetime'].toString();
+      final bText = item['end_datetime'].toString();
+      final a = DateTime.parse(aText);
+      final b = DateTime.parse(bText);
+      db.execute('INSERT INTO cloud_periods(irrigation_id,start_datetime,end_datetime,minutes,created_at) VALUES(?,?,?,?,?)',[irrigationId,aText,bText,b.difference(a).inMinutes,now]);
+    }
+    final receivable = _accountId('1200');
+    final lines = <Map<String,Object?>>[{'account_id':receivable,'beneficiary_id':beneficiaryId,'debit':total,'credit':0,'memo':'استحقاق سقاية'}];
+    if (waterAmount>0) lines.add({'account_id':_accountId('4000'),'debit':0,'credit':waterAmount,'memo':'إيراد الماء'});
+    if (dieselAmount>0) lines.add({'account_id':_accountId('4010'),'debit':0,'credit':dieselAmount,'memo':'قيمة الديزل'});
+    _journal(description:'سقاية رقم ' + irrigationId.toString(),referenceType:'irrigation',referenceId:irrigationId,lines:lines,userId:userId);
+    if (system=='diesel' && liters>0) {
+      final stock = (db.select("SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements WHERE station_id=?",[station]).first['stock'] as num).toDouble();
+      final shortage = liters-stock;
+      if (shortage>0) {
+        final advanceAmount = _round(shortage*dieselPrice,rounding);
+        db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[station,beneficiaryId,irrigationId,'advance',shortage,dieselPrice,advanceAmount,now,'سلفة ديزل تلقائية',userId]);
+        final movementId = db.lastInsertRowId;
+        _journal(description:'سلفة ديزل تلقائية',referenceType:'diesel_advance',referenceId:movementId,lines:[{'account_id':receivable,'beneficiary_id':beneficiaryId,'debit':advanceAmount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':advanceAmount}],userId:userId);
+      }
+      db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[station,beneficiaryId,irrigationId,'consumption',liters,dieselPrice,dieselAmount,now,'استهلاك السقاية',userId]);
+    }
+    db.execute('INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',[station,'irrigations',globalId,irrigationId,now]);
+  }
+
+  void _applySyncCloudPeriod({
+    required int station, required String entityKey, required Map payload,
+    required String now, required int? userId, required String? role,
+  }) {
+    if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بمزامنة فترات الغيم');
+    final globalId = (payload['_global_id'] ?? '').toString();
+    final valid = globalId.length == 36 && RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId) && globalId[8] == '-' && globalId[13] == '-' && globalId[18] == '-' && globalId[23] == '-' && globalId[14] == '4' && '89abAB'.contains(globalId[19]);
+    if (!valid || entityKey != 'cloud_periods:' + globalId) throw StateError('هوية فترة الغيم العالمية غير صالحة');
+    if (db.select("SELECT 1 FROM sync_entity_links WHERE station_id=? AND entity_type='cloud_periods' AND global_id=? LIMIT 1",[station,globalId]).isNotEmpty) throw StateError('فترة الغيم موجودة مسبقاً');
+    final refs = payload['_global_refs'];
+    if (refs is! Map) throw StateError('مرجع السقاية العالمي مفقود لفترة الغيم');
+    final irrigationId = _resolveSyncReference(station:station,entityType:'irrigations',column:'irrigation_id',references:refs);
+    final parent = db.select("SELECT start_datetime,end_datetime FROM irrigations WHERE id=? AND station_id=? AND status='posted' LIMIT 1",[irrigationId,station]);
+    if (parent.isEmpty) throw StateError('السقاية المرتبطة بفترة الغيم غير موجودة أو غير مرحلة');
+    final startText = (payload['start_datetime'] ?? '').toString();
+    final endText = (payload['end_datetime'] ?? '').toString();
+    final start = DateTime.tryParse(startText);
+    final end = DateTime.tryParse(endText);
+    if (start == null || end == null || !end.isAfter(start)) throw StateError('نطاق فترة الغيم غير صالح');
+    if (start.isBefore(DateTime.parse(parent.first['start_datetime'].toString())) || end.isAfter(DateTime.parse(parent.first['end_datetime'].toString()))) throw StateError('فترة الغيم خارج نطاق السقاية');
+    final minutes = end.difference(start).inMinutes;
+    if (minutes <= 0 || (payload['minutes'] is num && (payload['minutes'] as num).toInt()!=minutes)) throw StateError('عدد دقائق فترة الغيم غير مطابق للوقت');
+    final matching = db.select('SELECT id FROM cloud_periods WHERE irrigation_id=? AND start_datetime=? AND end_datetime=? AND minutes=? LIMIT 2',[irrigationId,startText,endText,minutes]);
+    if (matching.length != 1) throw StateError('فترة الغيم يجب أن تطابق الفترات التي تحقق منها الخادم مع السقاية');
+    db.execute('INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',[station,'cloud_periods',globalId,matching.first['id'],now]);
+  }
+
   void _applySyncBusinessEvent({
     required int station, required String entityType, required String entityKey,
     required String operation, required Map payload, required String now, required int? userId, required String? role,
   }) {
     if (const {'pumps','partners','workers','payment_methods','cashboxes'}.contains(entityType)) {
       _applySyncMasterData(station:station,entityType:entityType,entityKey:entityKey,operation:operation,payload:payload,now:now,role:role);
+      return;
+    }
+    if (entityType == 'cloud_periods') {
+      if (operation != 'create') throw UnsupportedError('فترة الغيم لا تقبل التعديل المباشر بعد ترحيل السقاية');
+      _applySyncCloudPeriod(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'irrigations') {
+      if (operation != 'create') throw UnsupportedError('تعديل أو حذف السقاية يحتاج معالج عكس محاسبي مخصصاً');
+      _applySyncIrrigation(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
       return;
     }
     if (entityType == 'payments') {
@@ -997,6 +1123,10 @@ class SaqiaServer {
                   ON b.id=l.local_id AND b.station_id=l.station_id
                 WHERE l.station_id=? AND l.entity_type='beneficiaries' AND l.global_id=? LIMIT 1
               ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'irrigations') {
+              businessRowExists = db.select('SELECT 1 FROM sync_entity_links l JOIN irrigations i ON i.id=l.local_id AND i.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=\'irrigations\' AND l.global_id=? LIMIT 1',[station,globalId]).isNotEmpty;
+            } else if (entityType == 'cloud_periods') {
+              businessRowExists = db.select('SELECT 1 FROM sync_entity_links l JOIN cloud_periods cp ON cp.id=l.local_id JOIN irrigations i ON i.id=cp.irrigation_id AND i.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=\'cloud_periods\' AND l.global_id=? LIMIT 1',[station,globalId]).isNotEmpty;
             } else if (entityType == 'payments') {
               businessRowExists = db.select('''
                 SELECT 1 FROM sync_entity_links l JOIN payments p
