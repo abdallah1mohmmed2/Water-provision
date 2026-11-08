@@ -278,7 +278,7 @@ void main() {
       'base_version':0,
       'payload':{
         '_global_id':globalId,
-        partyColumn:1,
+        [partyColumn]:1,
         'type':'opening_balance',
         'date':'2026-11-07T09:00:00.000',
         'amount':amount,
@@ -290,7 +290,7 @@ void main() {
         if(worker) 'percentage_snapshot':0,
         if(!worker) 'ownership_snapshot':null,
         '_global_refs':{
-          partyColumn:{'table':worker?'workers':'partners','global_id':partyId},
+          [partyColumn]:{'table':worker?'workers':'partners','global_id':partyId},
         },
         '_unresolved_refs':{},
       },
