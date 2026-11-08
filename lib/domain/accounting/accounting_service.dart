@@ -3814,7 +3814,7 @@ class AccountingService {
         reason: 'مديونية سابقة مستحقة للمحطة، دون قبض نقدي أو إثبات إيراد جديد',
       );
       return debtId;
-    });
+    }, captureSyncTables: {'beneficiary_manual_debts'});
   }
 
   /// إضافة مديونية سابقة من مركز المدفوعات دون أي حركة صندوق.
@@ -3973,7 +3973,7 @@ class AccountingService {
         newValues: {'status': 'cancelled'},
         reason: reason.trim(),
       );
-    });
+    }, captureSyncTables: {'beneficiary_manual_debts'});
   }
 
   /// يقيّد الفرق بين الأرصدة الافتتاحية/المرحَّلة القديمة والجديدة للمستفيد في الأستاذ:
