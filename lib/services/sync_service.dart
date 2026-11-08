@@ -136,6 +136,9 @@ class SyncService {
         (je.reference_type='partner' AND je.reference_id IN (
           SELECT pt.id FROM partner_transactions pt
           WHERE pt.reference_type='irrigation_profit' AND pt.reference_id=?
+        )) OR
+        (je.reference_type='diesel_advance' AND je.reference_id IN (
+          SELECT dm.id FROM diesel_movements dm WHERE dm.irrigation_id=?
         ))
       """;
       final result = <String, List<String>>{
@@ -146,12 +149,12 @@ class SyncService {
         ),
         'journal_entries': await _globalIdsForQuery(
           'SELECT je.id FROM journal_entries je WHERE $journalFilter ORDER BY je.id',
-          [recordId, recordId, recordId],
+          [recordId, recordId, recordId, recordId],
           'journal_entries',
         ),
         'journal_lines': await _globalIdsForQuery(
           'SELECT jl.id FROM journal_lines jl WHERE jl.journal_entry_id IN (SELECT je.id FROM journal_entries je WHERE $journalFilter) ORDER BY jl.id',
-          [recordId, recordId, recordId],
+          [recordId, recordId, recordId, recordId],
           'journal_lines',
         ),
         'worker_transactions': await _globalIdsForQuery(
