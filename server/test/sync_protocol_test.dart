@@ -129,6 +129,67 @@ void main() {
     database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1000','Cash','asset'),(2,'1200','Beneficiary receivables','asset')");
   }
 
+
+  void prepareManualDebtFixture({
+    String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  }) {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'Debt Beneficiary','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries',?,1,'2026-11-08T00:00:00Z')",[beneficiaryGlobalId]);
+    database.execute("""CREATE TABLE beneficiary_manual_debts(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, beneficiary_id INTEGER NOT NULL,
+      date TEXT NOT NULL, amount INTEGER NOT NULL, notes TEXT NOT NULL,
+      status TEXT NOT NULL, journal_entry_id INTEGER, created_by INTEGER,
+      created_at TEXT NOT NULL, cancelled_at TEXT, cancel_reason TEXT
+    )""");
+    database.execute("CREATE TABLE accounts(id INTEGER PRIMARY KEY,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,type TEXT NOT NULL)");
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1200','Beneficiary receivables','asset'),(2,'3100','Carried balances','equity')");
+    database.execute("""CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL, date TEXT NOT NULL,
+      reference_type TEXT, reference_id INTEGER, description TEXT NOT NULL,
+      status TEXT NOT NULL, created_by INTEGER, created_at TEXT NOT NULL
+    )""");
+    database.execute("""CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, journal_entry_id INTEGER NOT NULL,
+      account_id INTEGER NOT NULL, beneficiary_id INTEGER, worker_id INTEGER,
+      partner_id INTEGER, debit INTEGER NOT NULL DEFAULT 0,
+      credit INTEGER NOT NULL DEFAULT 0, memo TEXT
+    )""");
+  }
+
+  Map<String,dynamic> manualDebtEvent({
+    String id = '55555555-5555-4555-8555-555555555555',
+    String debtGlobalId = 'abababab-abab-4bab-8bab-abababababab',
+    String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    int amount = 1800,
+    String operation = 'create',
+    String status = 'posted',
+    String? cancelledAt,
+    String? cancelReason,
+  }) => {
+    'event_id': id,
+    'entity_type': 'beneficiary_manual_debts',
+    'entity_key': 'beneficiary_manual_debts:$debtGlobalId',
+    'operation': operation,
+    'base_version': operation == 'create' ? 0 : 1,
+    'payload': {
+      '_global_id': debtGlobalId,
+      'beneficiary_id': 1,
+      'date': '2026-11-07T09:00:00.000',
+      'amount': amount,
+      'notes': 'رصيد سابق مثبت',
+      'status': status,
+      'journal_entry_id': 1,
+      'created_by': 11,
+      'created_at': '2026-11-08T00:00:00.000',
+      if (cancelledAt != null) 'cancelled_at': cancelledAt,
+      if (cancelReason != null) 'cancel_reason': cancelReason,
+      '_global_refs': {
+        'beneficiary_id': {'table':'beneficiaries','global_id':beneficiaryGlobalId},
+      },
+      '_unresolved_refs': {},
+    },
+  };
+
   Map<String,dynamic> receiptEvent({
     String id = '33333333-3333-4333-8333-333333333333',
     String paymentGlobalId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
@@ -152,6 +213,117 @@ void main() {
       '_unresolved_refs': {},
     },
   };
+
+
+  test('manual beneficiary debt creates one balanced journal and replay is idempotent', () async {
+    prepareManualDebtFixture();
+    final command = manualDebtEvent();
+    final first = await postEvents(stationOneToken,[command]);
+    final replay = await postEvents(stationOneToken,[command]);
+    expect((first['results'] as List).first['status'],'accepted');
+    expect((replay['results'] as List).first['status'],'duplicate');
+    expect(database.select('SELECT COUNT(*) n FROM beneficiary_manual_debts').single['n'],1);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],1);
+    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'],2);
+    final totals=database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
+    expect(totals['debit'],1800);
+    expect(totals['credit'],1800);
+    expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type='beneficiary_manual_debts'").single['n'],1);
+  });
+
+  test('manual beneficiary debt rejects a beneficiary owned by another station', () async {
+    prepareManualDebtFixture();
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(2,2,'Foreign Debt Beneficiary','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'beneficiaries','ffffffff-ffff-4fff-8fff-ffffffffffff',2,'2026-11-08T00:00:00Z')");
+    final result=await postEvents(stationOneToken,[manualDebtEvent(beneficiaryGlobalId:'ffffffff-ffff-4fff-8fff-ffffffffffff')]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM beneficiary_manual_debts').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type=' + "'beneficiary_manual_debts'").single['n'],0);
+  });
+
+  test('manual beneficiary debt rejects non-positive or fractional amounts', () async {
+    prepareManualDebtFixture();
+    for (final amount in [0,-5]) {
+      final result=await postEvents(stationOneToken,[manualDebtEvent(id:amount==0?'56565656-5656-4565-8565-565656565656':'57575757-5757-4575-8575-575757575757',amount:amount)]);
+      expect((result['results'] as List).first['status'],'rejected');
+    }
+    final fractional=manualDebtEvent(id:'58585858-5858-4585-8585-585858585858');
+    (fractional['payload'] as Map<String,dynamic>)['amount']=12.5;
+    final result=await postEvents(stationOneToken,[fractional]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM beneficiary_manual_debts').single['n'],0);
+  });
+
+  test('operations role cannot create manual beneficiary debt', () async {
+    prepareManualDebtFixture();
+    database.execute("UPDATE app_users SET role='operations' WHERE id=11");
+    final token=JWT({'kind':'admin','userId':11,'stationId':1,'role':'operations'}).sign(SecretKey(secret));
+    final result=await postEvents(token,[manualDebtEvent()]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM beneficiary_manual_debts').single['n'],0);
+  });
+
+  test('manual beneficiary debt rolls back fully when journal creation fails', () async {
+    prepareManualDebtFixture();
+    database.execute("""CREATE TRIGGER reject_manual_debt_journal BEFORE INSERT ON journal_entries
+      BEGIN SELECT RAISE(ABORT,'journal unavailable'); END""");
+    final result=await postEvents(stationOneToken,[manualDebtEvent()]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM beneficiary_manual_debts').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM sync_entity_versions').single['n'],0);
+    expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type='beneficiary_manual_debts'").single['n'],0);
+  });
+
+  test('manual beneficiary debt cancellation reverses the journal exactly once', () async {
+    prepareManualDebtFixture();
+    final create=manualDebtEvent();
+    final accepted=await postEvents(stationOneToken,[create]);
+    expect((accepted['results'] as List).first['status'],'accepted');
+    final cancel=manualDebtEvent(
+      id:'59595959-5959-4595-8595-595959595959',
+      operation:'update',
+      status:'cancelled',
+      cancelledAt:'2026-11-08T10:00:00.000',
+      cancelReason:'إدخال مكرر',
+    );
+    final cancelled=await postEvents(stationOneToken,[cancel]);
+    expect((cancelled['results'] as List).first['status'],'accepted');
+    expect(database.select("SELECT status FROM beneficiary_manual_debts").single['status'],'cancelled');
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+    final totals=database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
+    expect(totals['debit'],3600);
+    expect(totals['credit'],3600);
+    final repeated=manualDebtEvent(
+      id:'60606060-6060-4606-8606-606060606060',
+      operation:'update',
+      status:'cancelled',
+      cancelledAt:'2026-11-08T10:01:00.000',
+      cancelReason:'إلغاء مكرر',
+    );
+    final rejected=await postEvents(stationOneToken,[repeated]);
+    expect((rejected['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+  });
+
+  test('manual debt cancellation cannot alter the amount', () async {
+    prepareManualDebtFixture();
+    await postEvents(stationOneToken,[manualDebtEvent()]);
+    final altered=manualDebtEvent(
+      id:'61616161-6161-4616-8616-616161616161',
+      amount:9999,
+      operation:'update',
+      status:'cancelled',
+      cancelledAt:'2026-11-08T10:00:00.000',
+      cancelReason:'tamper',
+    );
+    final result=await postEvents(stationOneToken,[altered]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select("SELECT status FROM beneficiary_manual_debts").single['status'],'posted');
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],1);
+  });
 
   test('beneficiary receipt applies once and replay returns duplicate without double posting', () async {
     prepareReceiptFixture();
