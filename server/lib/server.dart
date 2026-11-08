@@ -613,7 +613,7 @@ class SaqiaServer {
         "SELECT id FROM worker_transactions WHERE station_id=? AND reference_type='irrigation' AND reference_id=? ORDER BY id",
         [station, businessId]);
       append('partner_transactions',
-        "SELECT id FROM partner_transactions WHERE station_id=? AND reference_type='irrigation_profit' AND reference_id=? ORDER BY id",
+        "SELECT id FROM partner_transactions WHERE station_id=? AND reference_type IN ('irrigation_profit','irrigation') AND reference_id=? ORDER BY id",
         [station, businessId]);
       append('diesel_movements',
         'SELECT id FROM diesel_movements WHERE station_id=? AND irrigation_id=? ORDER BY id',
@@ -720,7 +720,7 @@ class SaqiaServer {
       return _hasSyncProjectionLink(station, entityType, payload);
     }
     if (entityType == 'partner_transactions' &&
-        payload['reference_type'] == 'irrigation_profit') {
+        const {'irrigation_profit', 'irrigation'}.contains(payload['reference_type'])) {
       return _hasSyncProjectionLink(station, entityType, payload);
     }
     // A completed session is closed by the accepted irrigation command. A
