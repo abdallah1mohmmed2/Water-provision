@@ -3843,18 +3843,24 @@ class AccountingService {
     if (partyType != 'worker' && partyType != 'partner') {
       throw ArgumentError('نوع الطرف غير صالح لإضافة المديونية');
     }
+    final isWorker = partyType == 'worker';
+    final transactionTable = isWorker ? 'worker_transactions' : 'partner_transactions';
     return database.transaction((tx) async {
-      await _assertPeriodOpen(tx, date);
-      final isWorker = partyType == 'worker';
+      final stationId = await _selectedStationIdTx(tx);
+      await _assertPeriodOpen(tx, date, stationId: stationId);
       final table = isWorker ? 'workers' : 'partners';
       final partyRows = await tx.query(
         table,
-        columns: ['id', 'name'],
-        where: 'id=?',
-        whereArgs: [partyId],
+        columns: ['id', 'name', 'station_id', 'active'],
+        where: 'id=? AND station_id=?',
+        whereArgs: [partyId, stationId],
         limit: 1,
       );
-      if (partyRows.isEmpty) throw StateError('الطرف المحدد غير موجود');
+      if (partyRows.isEmpty ||
+          (partyRows.first['active'] != null &&
+              (partyRows.first['active'] as num).toInt() != 1)) {
+        throw StateError('الطرف المحدد غير موجود أو لا يتبع محطة العمل الحالية');
+      }
       final name = '${partyRows.first['name'] ?? ''}';
       final partyAccount = isWorker
           ? await _workerAccountIdTx(tx, partyId)
@@ -3866,6 +3872,7 @@ class AccountingService {
         referenceType: isWorker ? 'worker_opening' : 'partner_opening',
         referenceId: partyId,
         date: date,
+        stationId: stationId,
         userId: userId,
         lines: [
           {
@@ -3886,6 +3893,7 @@ class AccountingService {
       if (isWorker) {
         await tx.insert('worker_transactions', {
           'worker_id': partyId,
+          'station_id': stationId,
           'date': date.toIso8601String(),
           'type': 'opening_balance',
           'hours': 0,
@@ -3900,6 +3908,7 @@ class AccountingService {
       } else {
         await tx.insert('partner_transactions', {
           'partner_id': partyId,
+          'station_id': stationId,
           'date': date.toIso8601String(),
           'type': 'opening_balance',
           'amount': amount,
@@ -3927,7 +3936,7 @@ class AccountingService {
         reason: 'إضافة مديونية سابقة دون حركة نقدية',
       );
       return entryId;
-    });
+    }, captureSyncTables: {transactionTable});
   }
 
   /// يلغي سند مديونية سابقاً بعكس قيده مع إبقاء السند الأصلي للتدقيق.
