@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:saqia_station/data/local/database.dart';
+import 'package:saqia_station/data/local/global_identity.dart';
 import 'package:saqia_station/services/sync_inbox_applier.dart';
 
 void main() {
@@ -114,6 +115,125 @@ void main() {
       where: 'table_name=? AND global_id=?',
       whereArgs: ['booking_requests', bookingGlobalId],
     ), hasLength(1));
+  });
+
+  test('applies station-owned irrigation session lifecycle and rejects reopening a completed session', () async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final beneficiaryId = await database.insert('beneficiaries', {
+      'name': 'INBOX-SESSION-BENEFICIARY',
+      'status': 'active',
+      'created_at': now,
+      'updated_at': now,
+    });
+    final localDb = await database.db;
+    await GlobalIdentity.ensureRecord(localDb, 'beneficiaries', beneficiaryId);
+    final pump = (await database.query('pumps', where: 'id=?', whereArgs: [1], limit: 1)).single;
+    final beneficiaryIdentity = (await database.query(
+      'sync_global_identities',
+      columns: ['global_id'],
+      where: 'table_name=? AND local_id=?',
+      whereArgs: ['beneficiaries', beneficiaryId],
+      limit: 1,
+    )).single['global_id'] as String;
+    final pumpIdentity = (await database.query(
+      'sync_global_identities',
+      columns: ['global_id'],
+      where: 'table_name=? AND local_id=?',
+      whereArgs: ['pumps', pump['id']],
+      limit: 1,
+    )).single['global_id'] as String;
+    const sessionId = 'abababab-1111-4111-8111-111111111111';
+    const started = '2026-11-08T08:00:00.000';
+    const ended = '2026-11-08T09:00:00.000';
+
+    final created = await database.transaction(
+      (tx) => SyncInboxApplier.apply(
+        tx,
+        event(
+          table: 'irrigation_sessions',
+          id: sessionId,
+          operation: 'create',
+          version: 1,
+          payload: {
+            'beneficiary_id': beneficiaryId,
+            'pump_id': pump['id'],
+            'actual_start': started,
+            'timer_started_at': started,
+            'status': 'running',
+            '_global_refs': {
+              'beneficiary_id': {'table': 'beneficiaries', 'global_id': beneficiaryIdentity},
+              'pump_id': {'table': 'pumps', 'global_id': pumpIdentity},
+            },
+          },
+        ),
+      ),
+      captureSync: false,
+    );
+    expect(created, InboxApplyResult.applied);
+
+    final localSession = (await database.query(
+      'irrigation_sessions',
+      where: 'status=?',
+      whereArgs: ['running'],
+      orderBy: 'id DESC',
+      limit: 1,
+    )).single;
+    final finished = await database.transaction(
+      (tx) => SyncInboxApplier.apply(
+        tx,
+        event(
+          table: 'irrigation_sessions',
+          id: sessionId,
+          operation: 'update',
+          version: 2,
+          payload: {
+            'status': 'completed',
+            'actual_end': ended,
+            'timer_stopped_at': ended,
+            'beneficiary_id': beneficiaryId,
+            'pump_id': pump['id'],
+            '_global_refs': {
+              'beneficiary_id': {'table': 'beneficiaries', 'global_id': beneficiaryIdentity},
+              'pump_id': {'table': 'pumps', 'global_id': pumpIdentity},
+            },
+          },
+        ),
+      ),
+      captureSync: false,
+    );
+    expect(finished, InboxApplyResult.applied);
+    expect((await database.query(
+      'irrigation_sessions',
+      where: 'id=?',
+      whereArgs: [localSession['id']],
+      limit: 1,
+    )).single['status'], 'completed');
+
+    await expectLater(
+      database.transaction(
+        (tx) => SyncInboxApplier.apply(
+          tx,
+          event(
+            table: 'irrigation_sessions',
+            id: sessionId,
+            operation: 'update',
+            version: 3,
+            payload: {
+              'status': 'running',
+              'beneficiary_id': beneficiaryId,
+              'pump_id': pump['id'],
+              '_global_refs': {
+                'beneficiary_id': {'table': 'beneficiaries', 'global_id': beneficiaryIdentity},
+                'pump_id': {'table': 'pumps', 'global_id': pumpIdentity},
+              },
+            },
+          ),
+        ),
+        captureSync: false,
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(await database.query('sync_queue'), isEmpty);
   });
 
   test('does not overwrite a locally edited record with an unacknowledged outbox event', () async {
