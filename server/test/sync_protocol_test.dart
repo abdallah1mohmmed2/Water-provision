@@ -128,6 +128,16 @@ void main() {
     expect(database.select('SELECT COUNT(*) AS n FROM sync_entity_versions').first['n'], 0);
   });
 
+  test('recognized but unimplemented financial events are rejected without acknowledgement', () async {
+    final invalid = event();
+    invalid['entity_type'] = 'payments';
+    invalid['entity_key'] = 'payments:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    final response = await postEvents(stationOneToken, [invalid]);
+    expect((response['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').isEmpty, isTrue);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').single['n'], 0);
+  });
+
   test('stale base version is recorded as conflict without advancing version', () async {
     await postEvents(stationOneToken,[event()]);
     final stale = event(
