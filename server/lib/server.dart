@@ -278,13 +278,13 @@ class SaqiaServer {
     return stationId;
   }
 
-  void _journal({required String description, required String referenceType, int? referenceId, required List<Map<String,Object?>> lines, int? userId}) {
+  void _journal({required String description, required String referenceType, int? referenceId, required List<Map<String,Object?>> lines, int? userId, DateTime? date}) {
     final debit=lines.fold<int>(0,(s,x)=>s+((x['debit'] as num?)?.round()??0));
     final credit=lines.fold<int>(0,(s,x)=>s+((x['credit'] as num?)?.round()??0));
     if(debit<=0 || debit!=credit) throw StateError('القيد غير متوازن');
     final stationId = _stationForUser(userId);
     final now=DateTime.now().toIso8601String();
-    db.execute('INSERT INTO journal_entries(station_id,date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',[stationId,now,referenceType,referenceId,description,'posted',userId,now]);
+    db.execute('INSERT INTO journal_entries(station_id,date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',[stationId,(date ?? DateTime.now()).toIso8601String(),referenceType,referenceId,description,'posted',userId,now]);
     final id=db.lastInsertRowId;
     for(final line in lines){db.execute('INSERT INTO journal_lines(journal_entry_id,account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo) VALUES(?,?,?,?,?,?,?,?)',[id,line['account_id'],line['beneficiary_id'],line['worker_id'],line['partner_id'],line['debit'],line['credit'],line['memo']]);}
   }
@@ -452,13 +452,13 @@ class SaqiaServer {
           code = configured.isNotEmpty ? configured : (methods.first['type'] == 'bank_transfer' ? '1100' : methods.first['type'] == 'wallet' ? '1120' : '1000');
         } else { code = '1000'; }
       }
-      _journal(description:'شراء/إضافة ديزل للمخزون',referenceType:'diesel_receipt',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId(code),'debit':0,'credit':amount}]);
+      _journal(description:'شراء/إضافة ديزل للمخزون',referenceType:'diesel_receipt',referenceId:movementId,userId:userId,date:date,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId(code),'debit':0,'credit':amount}]);
     }
-    if (kind == 'consumption') _journal(description:'استهلاك ديزل',referenceType:'diesel_consumption',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('5010'),'debit':amount,'credit':0},{'account_id':_accountId('1300'),'debit':0,'credit':amount}]);
-    if (kind == 'correction') _journal(description:'تصحيح زيادة مخزون الديزل',referenceType:'diesel_correction',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('5010'),'debit':0,'credit':amount}]);
-    if (kind == 'opening_balance') _journal(description:'رصيد افتتاحي لمخزون الديزل',referenceType:'diesel_opening_balance',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('3000'),'debit':0,'credit':amount}]);
-    if (kind == 'delivery' && beneficiaryId != null && financialCredit) _journal(description:'تسليم ديزل من المستفيد (رصيد مالي)',referenceType:'diesel',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('1200'),'beneficiary_id':beneficiaryId,'debit':0,'credit':amount}]);
-    if (kind == 'advance' && beneficiaryId != null) _journal(description:'سلفة ديزل للمستفيد',referenceType:'diesel_advance',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('1200'),'beneficiary_id':beneficiaryId,'debit':amount,'credit':0},{'account_id':_accountId('1300'),'debit':0,'credit':amount}]);
+    if (kind == 'consumption') _journal(description:'استهلاك ديزل',referenceType:'diesel_consumption',referenceId:movementId,userId:userId,date:date,lines:[{'account_id':_accountId('5010'),'debit':amount,'credit':0},{'account_id':_accountId('1300'),'debit':0,'credit':amount}]);
+    if (kind == 'correction') _journal(description:'تصحيح زيادة مخزون الديزل',referenceType:'diesel_correction',referenceId:movementId,userId:userId,date:date,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('5010'),'debit':0,'credit':amount}]);
+    if (kind == 'opening_balance') _journal(description:'رصيد افتتاحي لمخزون الديزل',referenceType:'diesel_opening_balance',referenceId:movementId,userId:userId,date:date,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('3000'),'debit':0,'credit':amount}]);
+    if (kind == 'delivery' && beneficiaryId != null && financialCredit) _journal(description:'تسليم ديزل من المستفيد (رصيد مالي)',referenceType:'diesel',referenceId:movementId,userId:userId,date:date,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('1200'),'beneficiary_id':beneficiaryId,'debit':0,'credit':amount}]);
+    if (kind == 'advance' && beneficiaryId != null) _journal(description:'سلفة ديزل للمستفيد',referenceType:'diesel_advance',referenceId:movementId,userId:userId,date:date,lines:[{'account_id':_accountId('1200'),'beneficiary_id':beneficiaryId,'debit':amount,'credit':0},{'account_id':_accountId('1300'),'debit':0,'credit':amount}]);
     db.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'diesel_movements',?,?,?)",[station,globalId,movementId,now]);
   }
   void _applySyncPaymentReceipt({
@@ -1474,6 +1474,8 @@ class SaqiaServer {
                   ON b.id=l.local_id AND b.station_id=l.station_id
                 WHERE l.station_id=? AND l.entity_type='beneficiaries' AND l.global_id=? LIMIT 1
               ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'diesel_movements') {
+              businessRowExists = db.select('''SELECT 1 FROM sync_entity_links l JOIN diesel_movements d ON d.id=l.local_id AND d.station_id=l.station_id WHERE l.station_id=? AND l.entity_type='diesel_movements' AND l.global_id=? LIMIT 1''',[station,globalId]).isNotEmpty;
             } else if (entityType == 'irrigations') {
               businessRowExists = db.select('SELECT 1 FROM sync_entity_links l JOIN irrigations i ON i.id=l.local_id AND i.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=\'irrigations\' AND l.global_id=? LIMIT 1',[station,globalId]).isNotEmpty;
             } else if (entityType == 'irrigation_sessions') {
