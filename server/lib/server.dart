@@ -735,13 +735,12 @@ class SaqiaServer {
       if (links.isNotEmpty) {
         final localId = (links.first['local_id'] as num).toInt();
         final current = db.select(
-          'SELECT status,actual_end,timer_stopped_at FROM irrigation_sessions WHERE id=? LIMIT 1',
+          'SELECT status,actual_end FROM irrigation_sessions WHERE id=? LIMIT 1',
           [localId],
         );
         if (current.isNotEmpty &&
             current.first['status'] == 'completed' &&
-            current.first['actual_end'] == payload['actual_end'] &&
-            current.first['timer_stopped_at'] == payload['timer_stopped_at']) {
+            current.first['actual_end'] == payload['actual_end']) {
           return true;
         }
       }
