@@ -688,14 +688,62 @@ class SaqiaServer {
     }
   }
 
+  bool _isDerivedJournalEntry(int station, String referenceType, Object? referenceId) {
+    if (const {'irrigation', 'payment', 'diesel_advance'}.contains(referenceType)) {
+      return true;
+    }
+    if (referenceId is! num) return false;
+    if (referenceType == 'worker' && _hasTable('worker_transactions')) {
+      return db.select(
+        "SELECT 1 FROM worker_transactions WHERE id=? AND station_id=? AND reference_type='irrigation' LIMIT 1",
+        [referenceId.toInt(), station],
+      ).isNotEmpty;
+    }
+    if (referenceType == 'partner' && _hasTable('partner_transactions')) {
+      return db.select(
+        "SELECT 1 FROM partner_transactions WHERE id=? AND station_id=? AND reference_type='irrigation_profit' LIMIT 1",
+        [referenceId.toInt(), station],
+      ).isNotEmpty;
+    }
+    return false;
+  }
+
   bool _isDerivedSyncEvent(
     int station,
     String entityType,
     String operation,
     Map payload,
   ) {
-    if (const {'journal_entries', 'journal_lines', 'cloud_periods'}.contains(entityType)) {
-      return true;
+    if (entityType == 'cloud_periods') return true;
+    if (entityType == 'journal_entries') {
+      return _isDerivedJournalEntry(
+        station,
+        (payload['reference_type'] ?? '').toString(),
+        payload['reference_id'],
+      );
+    }
+    if (entityType == 'journal_lines') {
+      final refs = payload['_global_refs'];
+      final journalRef = refs is Map ? refs['journal_entry_id'] : null;
+      if (journalRef is! Map || journalRef['table'] != 'journal_entries') {
+        return false;
+      }
+      final journalGlobalId = (journalRef['global_id'] ?? '').toString();
+      final linked = db.select(
+        "SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='journal_entries' AND global_id=? LIMIT 1",
+        [station, journalGlobalId],
+      );
+      if (linked.isEmpty) return false;
+      final journal = db.select(
+        'SELECT reference_type,reference_id FROM journal_entries WHERE id=? AND station_id=? LIMIT 1',
+        [(linked.first['local_id'] as num).toInt(), station],
+      );
+      if (journal.isEmpty) return false;
+      return _isDerivedJournalEntry(
+        station,
+        (journal.first['reference_type'] ?? '').toString(),
+        journal.first['reference_id'],
+      );
     }
     if (entityType == 'diesel_movements' && payload['irrigation_id'] != null) {
       return true;
