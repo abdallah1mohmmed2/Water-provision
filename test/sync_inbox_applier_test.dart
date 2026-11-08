@@ -208,7 +208,7 @@ void main() {
       captureSync: false,
     );
     expect(finished, InboxApplyResult.applied);
-    await database.update('sync_entity_versions', {'server_version': 2}, where: 'entity_type=? AND entity_key=?', whereArgs: ['irrigation_sessions', 'irrigation_sessions:$sessionId']);
+    await database.update('sync_entity_versions', {'server_version': 2}, 'entity_type=? AND entity_key=?', ['irrigation_sessions', 'irrigation_sessions:$sessionId']);
     expect((await database.query(
       'irrigation_sessions',
       where: 'id=?',
