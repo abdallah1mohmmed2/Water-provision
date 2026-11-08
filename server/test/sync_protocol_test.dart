@@ -1156,7 +1156,6 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     database.execute("ALTER TABLE irrigations ADD COLUMN booking_id INTEGER");
     database.execute("INSERT INTO irrigation_sessions(id,beneficiary_id,pump_id,actual_start,status,timer_started_at) VALUES(1,1,1,'2026-11-08T08:00:00.000','running','2026-11-08T08:00:00.000')");
     const sessionGlobalId = 'eeeeeeee-1111-4111-8111-111111111111';
-    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'irrigation_sessions',?,1,'2026-11-08T00:00:00Z')",[sessionGlobalId]);
 
     database.execute("CREATE TABLE station_settings(station_id INTEGER NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(station_id,key))");
     database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'diesel_hourly_water_rate','6000'),(1,'diesel_liters_per_hour','2'),(1,'diesel_price_per_liter','500')");
