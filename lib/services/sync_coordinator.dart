@@ -57,6 +57,7 @@ class SyncCoordinator with WidgetsBindingObserver {
   final _connectivity = Connectivity();
 
   SyncService? _service;
+  ApiClient? get apiClient => _service?.api;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Timer? _retryTimer;
   bool _observing = false;
