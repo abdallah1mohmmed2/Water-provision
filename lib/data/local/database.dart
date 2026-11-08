@@ -815,6 +815,7 @@ class AppDatabase {
   Future<T> transaction<T>(
     Future<T> Function(Transaction tx) action, {
     bool captureSync = true,
+    Set<String>? captureSyncTables,
   }) async {
     final database = await db;
     return database.transaction((tx) async {
@@ -824,7 +825,12 @@ class AppDatabase {
         await tx.delete('sync_change_log');
         return result;
       }
-      final changes = await tx.query('sync_change_log', orderBy: 'rowid');
+      final allChanges = await tx.query('sync_change_log', orderBy: 'rowid');
+      final changes = captureSyncTables == null
+          ? allChanges
+          : allChanges
+                .where((change) => captureSyncTables.contains('${change['table_name']}'))
+                .toList();
       // Assign identities to every changed row first so references between
       // records created in the same transaction can always be resolved.
       for (final change in changes) {
