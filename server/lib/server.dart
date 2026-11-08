@@ -501,11 +501,45 @@ class SaqiaServer {
             });
             continue;
           }
-          results.add({'event_id':eventId,'status':previous['status']=='conflict'?'conflict':'duplicate',
-            'server_sequence':previous['server_sequence'],
-            'server_version':previous['server_version'],
-            'current_version':previous['server_version'],
-            'message':previous['status']=='conflict'?'الحدث مسجل كتعارض سابق':'الحدث مسجل مسبقاً'});
+          if (previous['status'] == 'conflict') {
+            results.add({
+              'event_id': eventId,
+              'status': 'conflict',
+              'server_sequence': previous['server_sequence'],
+              'server_version': previous['server_version'],
+              'current_version': previous['server_version'],
+              'message': 'الحدث مسجل كتعارض سابق',
+            });
+            continue;
+          }
+          // Do not replay legacy "accepted" log entries as success unless
+          // the corresponding business row can still be proven to exist.
+          var businessRowExists = false;
+          if (entityType == 'beneficiaries' && payload is Map) {
+            final globalId = '${payload['_global_id'] ?? ''}';
+            businessRowExists = db.select('''
+              SELECT 1 FROM sync_entity_links l
+              JOIN beneficiaries b ON b.id=l.local_id AND b.station_id=l.station_id
+              WHERE l.station_id=? AND l.entity_type='beneficiaries'
+                AND l.global_id=? LIMIT 1
+            ''', [station, globalId]).isNotEmpty;
+          }
+          if (!businessRowExists) {
+            results.add({
+              'event_id': eventId,
+              'status': 'rejected',
+              'message': 'الحدث مسجل قديماً دون دليل كافٍ على تطبيقه في سجل الأعمال؛ يحتاج مراجعة.',
+            });
+          } else {
+            results.add({
+              'event_id': eventId,
+              'status': 'duplicate',
+              'server_sequence': previous['server_sequence'],
+              'server_version': previous['server_version'],
+              'current_version': previous['server_version'],
+              'message': 'الحدث مسجل ومطبق مسبقاً',
+            });
+          }
           continue;
         }
         // New clients identify entities by UUID. Bridge the previous
