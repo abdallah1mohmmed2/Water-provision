@@ -170,6 +170,12 @@ void main() {
       captureSync: false,
     );
     expect(created, InboxApplyResult.applied);
+    await database.insert('sync_entity_versions', {
+      'entity_type': 'irrigation_sessions',
+      'entity_key': 'irrigation_sessions:$sessionId',
+      'server_version': 1,
+      'updated_at': now,
+    });
 
     final localSession = (await database.query(
       'irrigation_sessions',
@@ -202,6 +208,7 @@ void main() {
       captureSync: false,
     );
     expect(finished, InboxApplyResult.applied);
+    await database.update('sync_entity_versions', {'server_version': 2}, where: 'entity_type=? AND entity_key=?', whereArgs: ['irrigation_sessions', 'irrigation_sessions:$sessionId']);
     expect((await database.query(
       'irrigation_sessions',
       where: 'id=?',
