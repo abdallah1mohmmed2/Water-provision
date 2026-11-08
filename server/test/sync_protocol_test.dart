@@ -231,4 +231,30 @@ void main() {
   });
 
 
+
+  test('legacy beneficiary rows receive a stable global identity on first API read', () async {
+    database.execute(
+      "INSERT INTO beneficiaries(station_id,name,status) VALUES(1,'Legacy Beneficiary','active')",
+    );
+    Future<Map<String, dynamic>> read() async {
+      final response = await server.router().call(Request(
+        'GET',
+        Uri.parse('http://localhost/api/v1/beneficiaries'),
+        headers: {'authorization': 'Bearer $stationOneToken'},
+      ));
+      expect(response.statusCode, 200);
+      final rows = jsonDecode(await response.readAsString()) as List;
+      return Map<String, dynamic>.from(
+        rows.singleWhere((row) => row['name'] == 'Legacy Beneficiary') as Map,
+      );
+    }
+    final first = await read();
+    final second = await read();
+    expect(first['_global_id'], isA<String>());
+    expect(first['_global_id'], isNotEmpty);
+    expect(second['_global_id'], first['_global_id']);
+    expect(first['balance'], 0);
+  });
+
+
 }
