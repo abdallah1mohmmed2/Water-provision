@@ -196,6 +196,15 @@ void main() {
     expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],500);
   });
 
+  test('operations role cannot submit beneficiary receipt commands', () async {
+    prepareReceiptFixture();
+    final operationsToken = JWT({'kind':'admin','userId':11,'stationId':1,'role':'operations'}).sign(SecretKey(secret));
+    final result = await postEvents(operationsToken,[receiptEvent()]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'],0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],500);
+  });
+
   test('receipt rejects zero amount without creating any financial rows', () async {
     prepareReceiptFixture();
     final result = await postEvents(stationOneToken,[receiptEvent(amount:0)]);
