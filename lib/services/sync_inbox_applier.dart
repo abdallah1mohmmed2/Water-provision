@@ -192,7 +192,9 @@ class SyncInboxApplier {
         ? <String, dynamic>{}
         : Map<String, dynamic>.from(rawRefs as Map);
     for (final key in refs.keys) {
-      if (!fkByColumn.containsKey(key)) {
+      final isPolymorphicReference = key == 'reference_id' &&
+          const {'journal_entries', 'worker_transactions', 'partner_transactions'}.contains(table);
+      if (!isPolymorphicReference && !fkByColumn.containsKey(key)) {
         throw StateError('مرجع غير معلن في مخطط $table: $key');
       }
     }
