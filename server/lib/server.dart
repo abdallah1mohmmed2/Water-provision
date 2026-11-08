@@ -330,16 +330,87 @@ class SaqiaServer {
     )''');
   }
 
-  int _resolveSyncReference({
-    required int station,
-    required String entityType,
-    required String column,
-    required Map references,
+    int _resolveSyncReference({
+    required int station, required String entityType, required String column, required Map references,
   }) {
     final raw = references[column];
-    if (raw is! Map || '${raw['table']}' != entityType) {
-      throw StateError('مرجع ${column} العالمي غير موجود أو لا يطابق المجال');
+    if (raw is! Map || raw['table'] != entityType) throw StateError('مرجع ' + column + ' العالمي غير صالح');
+    final globalId = (raw['global_id'] ?? '').toString();
+    if (!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId)) throw StateError('هوية مرجع ' + column + ' غير صالحة');
+    final linked = db.select('SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1', [station,entityType,globalId]);
+    if (linked.isNotEmpty) {
+      final id = (linked.first['local_id'] as num).toInt();
+      if (!_owns(entityType,id,station)) throw StateError('مرجع ' + column + ' لا يتبع المحطة الحالية');
+      return id;
     }
+    if (entityType == 'payment_methods') {
+      final name = (raw['name'] ?? '').toString().trim();
+      final type = (raw['type'] ?? '').toString().trim();
+      if (name.isNotEmpty && type.isNotEmpty) {
+        final rows = db.select('SELECT id FROM payment_methods WHERE station_id=? AND name=? AND type=? AND active=1 LIMIT 2',[station,name,type]);
+        if (rows.length == 1) return (rows.first['id'] as num).toInt();
+      }
+    }
+    if (entityType == 'cashboxes') {
+      final name = (raw['name'] ?? '').toString().trim();
+      final currency = (raw['currency'] ?? '').toString().trim();
+      if (name.isNotEmpty && currency.isNotEmpty) {
+        final rows = db.select('SELECT id FROM cashboxes WHERE station_id=? AND name=? AND currency=? AND active=1 LIMIT 2',[station,name,currency]);
+        if (rows.length == 1) return (rows.first['id'] as num).toInt();
+      }
+    }
+    throw StateError('لم يُعثر على مرجع ' + entityType + ' داخل المحطة');
+  }
+
+  void _applySyncPaymentReceipt({
+    required int station, required String entityKey, required Map payload,
+    required String now, required int? userId,
+  }) {
+    final globalId = (payload['_global_id'] ?? '').toString();
+    if (!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId) || entityKey != 'payments:' + globalId) throw StateError('هوية عملية القبض العالمية غير صالحة');
+    if (db.select("SELECT 1 FROM sync_entity_links WHERE station_id=? AND entity_type='payments' AND global_id=? LIMIT 1",[station,globalId]).isNotEmpty) throw StateError('عملية القبض موجودة مسبقاً');
+    if (userId == null || userId <= 0 || _stationForUser(userId) != station) throw StateError('مستخدم عملية القبض لا يتبع المحطة الموثقة');
+    final amountValue = payload['amount'];
+    if (amountValue is! num || amountValue <= 0 || amountValue != amountValue.round()) throw StateError('مبلغ القبض يجب أن يكون عدداً صحيحاً أكبر من صفر');
+    final date = DateTime.tryParse((payload['date'] ?? '').toString());
+    if (date == null) throw StateError('تاريخ القبض غير صالح');
+    if ((payload['status'] ?? 'posted') != 'posted') throw StateError('لا يقبل معالج القبض إلا عملية posted جديدة');
+    if (payload['beneficiary_id'] == null || payload['partner_id'] != null || payload['worker_id'] != null) throw StateError('هذه الشريحة مخصصة لقبض المستفيد فقط');
+    final references = payload['_global_refs'];
+    if (references is! Map) throw StateError('مراجع عملية القبض العالمية مفقودة');
+    final beneficiaryId = _resolveSyncReference(station:station,entityType:'beneficiaries',column:'beneficiary_id',references:references);
+    final methodId = _resolveSyncReference(station:station,entityType:'payment_methods',column:'payment_method_id',references:references);
+    final cashboxId = _resolveSyncReference(station:station,entityType:'cashboxes',column:'cashbox_id',references:references);
+    final method = db.select('SELECT station_id,ledger_account_code,cashbox_id,active FROM payment_methods WHERE id=? LIMIT 1',[methodId]).single;
+    final cashbox = db.select('SELECT station_id,ledger_account_code,active FROM cashboxes WHERE id=? LIMIT 1',[cashboxId]).single;
+    if ((method['station_id'] as num).toInt()!=station || (cashbox['station_id'] as num).toInt()!=station || (method['active'] as num).toInt()!=1 || (cashbox['active'] as num).toInt()!=1) throw StateError('طريقة الدفع أو الصندوق غير نشط أو لا يتبع المحطة');
+    final configuredCashbox = (method['cashbox_id'] as num?)?.toInt();
+    if (configuredCashbox != null && configuredCashbox != cashboxId) throw StateError('الصندوق لا يطابق طريقة الدفع');
+    final columns = db.select('PRAGMA table_info(payments)').map((row)=>(row['name'] ?? '').toString()).toSet();
+    const requiredColumns = {'id','station_id','beneficiary_id','amount','date','payment_method_id','cashbox_id','status','created_by'};
+    if (!requiredColumns.every(columns.contains)) throw StateError('مخطط payments لا يدعم القبض الآمن');
+    db.execute('INSERT INTO payments(station_id,beneficiary_id,amount,date,payment_method_id,cashbox_id,reference_number,notes,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[station,beneficiaryId,amountValue.toInt(),date.toIso8601String(),methodId,cashboxId,payload['reference_number'],payload['notes'],'posted',userId]);
+    final paymentId = db.lastInsertRowId;
+    db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND station_id=?',[amountValue.toInt(),cashboxId,station]);
+    if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر تحديث رصيد الصندوق');
+    final cashCode = (cashbox['ledger_account_code'] ?? method['ledger_account_code'] ?? '1000').toString();
+    _journal(description:'قبض من مستفيد رقم ' + paymentId.toString(),referenceType:'payment',referenceId:paymentId,userId:userId,lines:[
+      {'account_id':_accountId(cashCode),'debit':amountValue.toInt(),'credit':0},
+      {'account_id':_accountId('1200'),'beneficiary_id':beneficiaryId,'debit':0,'credit':amountValue.toInt()},
+    ]);
+    db.execute('INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',[station,'payments',globalId,paymentId,now]);
+  }
+
+  void _applySyncBusinessEvent({
+    required int station, required String entityType, required String entityKey,
+    required String operation, required Map payload, required String now, required int? userId,
+  }) {
+    if (entityType == 'payments') {
+      if (operation != 'create') throw UnsupportedError('تعديل أو حذف القبض يحتاج معالج عكس محاسبي مخصصاً');
+      _applySyncPaymentReceipt(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId);
+      return;
+    }
+    if (entityType != 'beneficiaries') throw UnsupportedError('معالج المزامنة لهذا المجال غير منفذ بعد');
     final globalId = '${raw['global_id'] ?? ''}';
     if (!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}
     final globalId = '${payload['_global_id'] ?? ''}';
