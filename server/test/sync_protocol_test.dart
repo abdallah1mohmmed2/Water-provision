@@ -198,6 +198,9 @@ void main() {
 
   test('operations role cannot submit beneficiary receipt commands', () async {
     prepareReceiptFixture();
+    // Keep the database account role consistent with the signed JWT so the
+    // request reaches the payment-domain authorization check.
+    database.execute("UPDATE app_users SET role='operations' WHERE id=11");
     final operationsToken = JWT({'kind':'admin','userId':11,'stationId':1,'role':'operations'}).sign(SecretKey(secret));
     final result = await postEvents(operationsToken,[receiptEvent()]);
     expect((result['results'] as List).first['status'],'rejected');
