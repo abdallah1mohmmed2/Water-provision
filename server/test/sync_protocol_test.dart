@@ -162,6 +162,7 @@ void main() {
     String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     int amount = 1800,
     String operation = 'create',
+    int? baseVersion,
     String status = 'posted',
     String? cancelledAt,
     String? cancelReason,
@@ -170,7 +171,7 @@ void main() {
     'entity_type': 'beneficiary_manual_debts',
     'entity_key': 'beneficiary_manual_debts:$debtGlobalId',
     'operation': operation,
-    'base_version': operation == 'create' ? 0 : 1,
+    'base_version': baseVersion ?? (operation == 'create' ? 0 : 1),
     'payload': {
       '_global_id': debtGlobalId,
       'beneficiary_id': 1,
@@ -299,6 +300,7 @@ void main() {
     final repeated=manualDebtEvent(
       id:'60606060-6060-4606-8606-606060606060',
       operation:'update',
+      baseVersion:2,
       status:'cancelled',
       cancelledAt:'2026-11-08T10:01:00.000',
       cancelReason:'إلغاء مكرر',
