@@ -525,6 +525,12 @@ class SaqiaServer {
     required List<Object?> args,
     required List<String>? requestedIds,
   }) {
+    if (!_hasTable(table)) {
+      if (requestedIds != null && requestedIds.isNotEmpty) {
+        throw StateError('جدول الإسقاط المطلوب غير موجود: $table');
+      }
+      return;
+    }
     final rows = db.select(sql, args);
     if (requestedIds != null && requestedIds.length != rows.length) {
       throw StateError('عدد هويات الإسقاط لا يطابق عدد السجلات: $table');
