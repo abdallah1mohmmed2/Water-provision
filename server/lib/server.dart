@@ -705,7 +705,42 @@ class SaqiaServer {
     for(final e in b.entries){db.execute('INSERT INTO station_settings(station_id,key,value,updated_at) VALUES(?,?,?,?) ON CONFLICT(station_id,key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at',[station,e.key,'${e.value}',now]);}
     return _settings(r,c);
   }
-  Future<Response> _beneficiaries(Request r,Map<String,dynamic> c) async => _json(_rows(db.select("SELECT b.*,l.global_id AS _global_id FROM beneficiaries b LEFT JOIN sync_entity_links l ON l.station_id=b.station_id AND l.entity_type='beneficiaries' AND l.local_id=b.id WHERE b.status='active' AND b.station_id=? ORDER BY b.name",[_stationId(c)])));
+  String _beneficiaryBalanceExpression() {
+    final columns = db.select('PRAGMA table_info(beneficiaries)')
+        .map((row) => '${row['name']}').toSet();
+    final parts = <String>[];
+    if (columns.contains('opening_balance')) parts.add('COALESCE(b.opening_balance,0)');
+    if (columns.contains('carried_balance')) parts.add('COALESCE(b.carried_balance,0)');
+    if (_hasTable('beneficiary_manual_debts')) {
+      parts.add("(SELECT COALESCE(SUM(md.amount),0) FROM beneficiary_manual_debts md WHERE md.beneficiary_id=b.id AND md.status='posted')");
+    }
+    if (_hasTable('irrigations')) {
+      parts.add("(SELECT COALESCE(SUM(i.total_amount),0) FROM irrigations i WHERE i.beneficiary_id=b.id AND i.station_id=b.station_id AND i.status!='cancelled')");
+    }
+    if (_hasTable('diesel_movements')) {
+      parts.add("(SELECT COALESCE(SUM(d.amount),0) FROM diesel_movements d WHERE d.beneficiary_id=b.id AND d.station_id=b.station_id AND d.kind='advance' AND d.irrigation_id IS NULL)");
+    }
+    if (_hasTable('payments')) {
+      parts.add("(SELECT -COALESCE(SUM(p.amount),0) FROM payments p WHERE p.beneficiary_id=b.id AND p.station_id=b.station_id AND p.status='posted')");
+    }
+    if (_hasTable('diesel_movements') && _hasTable('station_settings')) {
+      parts.add("""CASE WHEN (SELECT value FROM station_settings WHERE station_id=b.station_id AND key='diesel_delivery_financial_credit')='true' THEN -(SELECT COALESCE(SUM(d2.amount),0) FROM diesel_movements d2 WHERE d2.beneficiary_id=b.id AND d2.station_id=b.station_id AND d2.kind='delivery') ELSE 0 END""");
+    }
+    return parts.isEmpty ? '0' : '(${parts.join(' + ')})';
+  }
+
+  Future<Response> _beneficiaries(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final balance = _beneficiaryBalanceExpression();
+    return _json(_rows(db.select("""
+      SELECT b.*, l.global_id AS _global_id, $balance AS balance
+      FROM beneficiaries b
+      LEFT JOIN sync_entity_links l
+        ON l.station_id=b.station_id AND l.entity_type='beneficiaries' AND l.local_id=b.id
+      WHERE b.status='active' AND b.station_id=?
+      ORDER BY b.name
+    """, [station])));
+  }
   Future<Response> _beneficiaryCreate(Request r,Map<String,dynamic> c) async { final b=await _body(r); if('${b['name']??''}'.trim().isEmpty)return _json({'error':'اسم المستفيد مطلوب'},status:422); final now=DateTime.now().toIso8601String(); final id=db.lastInsertRowId; db.execute('INSERT INTO beneficiaries(station_id,name,phone,address,location,jerba_number,area,is_needy,opening_balance,carried_balance,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,\'active\',?,?)',[_stationId(c),b['name'],b['phone'],b['address'],b['location'],b['jerba_number'],b['area'],b['is_needy']==true?1:0,(b['opening_balance'] as num?)?.round()??0,(b['carried_balance'] as num?)?.round()??0,now,now]); return _json({'id':db.lastInsertRowId}); }
   Future<Response> _beneficiary(Request r,Map<String,dynamic> c) async { final id=int.parse(r.params['id']!); final rows=db.select('SELECT * FROM beneficiaries WHERE id=? AND station_id=?',[id,_stationId(c)]); return rows.isEmpty?_json({'error':'المستفيد غير موجود'},status:404):_json(_rows(rows).first); }
   Future<Response> _beneficiaryUpdate(Request r,Map<String,dynamic> c) async { final id=int.parse(r.params['id']!); final b=await _body(r); const allowed=['name','phone','address','location','jerba_number','area','is_needy','notes']; final sets=<String>[];final args=<Object?>[];for(final k in allowed){if(b.containsKey(k)){sets.add('$k=?');args.add(b[k] is bool?(b[k]?1:0):b[k]);}}if(sets.isEmpty)return _json({'error':'لا توجد حقول قابلة للتعديل'},status:422);args.add(DateTime.now().toIso8601String());args.add(id);args.add(_stationId(c)); db.execute('UPDATE beneficiaries SET ${sets.join(',')},updated_at=? WHERE id=? AND station_id=?',args);return _beneficiary(r,c); }
