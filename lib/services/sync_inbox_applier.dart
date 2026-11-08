@@ -166,7 +166,30 @@ class SyncInboxApplier {
     final values = <String, Object?>{};
     for (final entry in payload.entries) {
       final column = entry.key;
-      if (_reserved.contains(column) || _localOnly.contains(column)) continue;
+      if (_reserved.contains(column)) continue;
+      if (column == 'reference_id' && entry.value != null) {
+        final referenceType = '${payload['reference_type'] ?? ''}';
+        final referenceTable = switch (table) {
+          'journal_entries' => switch (referenceType) {
+              'irrigation' => 'irrigations',
+              'payment' => 'payments',
+              'worker' => 'worker_transactions',
+              'partner' => 'partner_transactions',
+              'diesel_advance' => 'diesel_movements',
+              _ => null,
+            },
+          'worker_transactions' when referenceType == 'irrigation' => 'irrigations',
+          'partner_transactions' when referenceType == 'irrigation_profit' => 'irrigations',
+          _ => null,
+        };
+        if (referenceTable != null) {
+          values[column] = await _resolveForeignKey(
+            tx, table, column, referenceTable, entry.value, refs[column],
+          );
+        }
+        continue;
+      }
+      if (_localOnly.contains(column)) continue;
       if (!allowed.contains(column)) {
         throw StateError('عمود غير معروف في حمولة $table: $column');
       }
