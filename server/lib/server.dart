@@ -746,14 +746,23 @@ class SaqiaServer {
       );
     }
     final balance = _beneficiaryBalanceExpression();
+    final term = (r.url.queryParameters['q'] ?? '').trim();
+    final args = <Object?>[station];
+    var where = "b.status='active' AND b.station_id=?";
+    if (term.isNotEmpty) {
+      where += " AND (b.name LIKE ? OR COALESCE(b.phone,'') LIKE ?"
+          " OR COALESCE(b.jerba_number,'') LIKE ? OR COALESCE(b.location,'') LIKE ?)";
+      final pattern = '%$term%';
+      args.addAll([pattern, pattern, pattern, pattern]);
+    }
     return _json(_rows(db.select("""
       SELECT b.*, l.global_id AS _global_id, $balance AS balance
       FROM beneficiaries b
       JOIN sync_entity_links l
         ON l.station_id=b.station_id AND l.entity_type='beneficiaries' AND l.local_id=b.id
-      WHERE b.status='active' AND b.station_id=?
+      WHERE $where
       ORDER BY b.name
-    """, [station])));
+    """, args)));
   }
   Future<Response> _beneficiaryCreate(Request r,Map<String,dynamic> c) async { final b=await _body(r); if('${b['name']??''}'.trim().isEmpty)return _json({'error':'اسم المستفيد مطلوب'},status:422); final now=DateTime.now().toIso8601String(); final id=db.lastInsertRowId; db.execute('INSERT INTO beneficiaries(station_id,name,phone,address,location,jerba_number,area,is_needy,opening_balance,carried_balance,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,\'active\',?,?)',[_stationId(c),b['name'],b['phone'],b['address'],b['location'],b['jerba_number'],b['area'],b['is_needy']==true?1:0,(b['opening_balance'] as num?)?.round()??0,(b['carried_balance'] as num?)?.round()??0,now,now]); return _json({'id':db.lastInsertRowId}); }
   Future<Response> _beneficiary(Request r,Map<String,dynamic> c) async { final id=int.parse(r.params['id']!); final rows=db.select('SELECT * FROM beneficiaries WHERE id=? AND station_id=?',[id,_stationId(c)]); return rows.isEmpty?_json({'error':'المستفيد غير موجود'},status:404):_json(_rows(rows).first); }
