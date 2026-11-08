@@ -180,6 +180,41 @@ void main() {
     expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').single['n'], 0);
   });
 
+  test('receipt rejects a globally identified payment method from another station', () async {
+    prepareReceiptFixture();
+    database.execute("INSERT INTO payment_methods(id,station_id,name,type,cashbox_id,ledger_account_code,active) VALUES(2,2,'Cash','cash',NULL,'1000',1)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'payment_methods','ffffffff-ffff-4fff-8fff-ffffffffffff',2,'2026-11-08T00:00:00Z')");
+    final command = receiptEvent();
+    final payload = Map<String,dynamic>.from(command['payload'] as Map);
+    final refs = Map<String,dynamic>.from(payload['_global_refs'] as Map);
+    refs['payment_method_id'] = {'table':'payment_methods','global_id':'ffffffff-ffff-4fff-8fff-ffffffffffff','name':'Cash','type':'cash'};
+    payload['_global_refs'] = refs;
+    command['payload'] = payload;
+    final result = await postEvents(stationOneToken,[command]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'],0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],500);
+  });
+
+  test('receipt rejects zero amount without creating any financial rows', () async {
+    prepareReceiptFixture();
+    final result = await postEvents(stationOneToken,[receiptEvent(amount:0)]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'],0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],500);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'],0);
+  });
+
+  test('receipt event id cannot be reused with a changed amount', () async {
+    prepareReceiptFixture();
+    final first = await postEvents(stationOneToken,[receiptEvent()]);
+    final changed = await postEvents(stationOneToken,[receiptEvent(amount:999)]);
+    expect((first['results'] as List).first['status'],'accepted');
+    expect((changed['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'],1);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],750);
+  });
+
   test('receipt journal failure rolls back payment and cashbox balance', () async {
     prepareReceiptFixture();
     database.execute("DELETE FROM accounts WHERE code='1200'");
