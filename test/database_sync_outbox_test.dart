@@ -35,6 +35,16 @@ void main() {
 
   setUp(() async {
     await database.delete(
+      'beneficiary_manual_debts',
+      "beneficiary_id IN (SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')",
+      const [],
+    );
+    await database.delete(
+      'journal_lines',
+      "beneficiary_id IN (SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')",
+      const [],
+    );
+    await database.delete(
       'booking_requests',
       "beneficiary_id IN (SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')",
       const [],
