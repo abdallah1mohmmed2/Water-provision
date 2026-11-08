@@ -738,6 +738,29 @@ void main() {
     expect(totals['credit'], 250);
   });
 
+  test('receipt rejects an incomplete derived identity manifest atomically', () async {
+    prepareReceiptFixture();
+    final command = receiptEvent();
+    final payload = Map<String, dynamic>.from(command['payload'] as Map);
+    payload['_derived_global_ids'] = {
+      'journal_entries': ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab'],
+      'journal_lines': [
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc',
+        'cccccccc-cccc-4ccc-8ccc-cccccccccccd',
+      ],
+      // cashboxes intentionally omitted: every projected effect must have
+      // a stable client identity before the command can be committed.
+    };
+    command['payload'] = payload;
+
+    final result = await postEvents(stationOneToken, [command], device: 'device-a');
+    expect((result['results'] as List).single['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM payments').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'], 0);
+  });
+
   test('receipt rejects a beneficiary identity owned by another station without writes', () async {
     prepareReceiptFixture();
     database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(2,2,'Foreign Beneficiary','active')");
