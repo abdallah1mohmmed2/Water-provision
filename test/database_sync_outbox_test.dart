@@ -211,6 +211,7 @@ void main() {
       'created_at': now.toIso8601String(),
       'updated_at': now.toIso8601String(),
     });
+    await database.delete('sync_queue', '1=1', const []);
     final irrigationId = await AccountingService(database).recordIrrigation(
       stationId: 1,
       pumpId: 1,
