@@ -1031,4 +1031,59 @@ test('legacy beneficiary rows receive a stable global identity on first API read
   });
 
 
+  test('irrigation sync recalculates charges and posts diesel effects atomically', () async {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'Irrigation Beneficiary','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1,'2026-11-08T00:00:00Z')");
+    database.execute("CREATE TABLE pumps(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,system_type TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1)");
+    database.execute("INSERT INTO pumps(id,station_id,name,system_type,active) VALUES(1,1,'Pump A','diesel',1)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'pumps','cccccccc-cccc-4ccc-8ccc-cccccccccccc',1,'2026-11-08T00:00:00Z')");
+    database.execute("CREATE TABLE station_settings(station_id INTEGER NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(station_id,key))");
+    database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'diesel_hourly_water_rate','6000'),(1,'diesel_liters_per_hour','2'),(1,'diesel_price_per_liter','500')");
+    database.execute("CREATE TABLE accounts(id INTEGER PRIMARY KEY,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,type TEXT NOT NULL)");
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1200','Receivables','asset'),(2,'4000','Water Revenue','income'),(3,'4010','Diesel Revenue','income'),(4,'1000','Cash','asset')");
+    database.execute("CREATE TABLE journal_entries(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,date TEXT NOT NULL,reference_type TEXT,reference_id INTEGER,description TEXT NOT NULL,status TEXT NOT NULL,created_by INTEGER,created_at TEXT NOT NULL)");
+    database.execute("CREATE TABLE journal_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,journal_entry_id INTEGER NOT NULL,account_id INTEGER NOT NULL,beneficiary_id INTEGER,worker_id INTEGER,partner_id INTEGER,debit INTEGER NOT NULL DEFAULT 0,credit INTEGER NOT NULL DEFAULT 0,memo TEXT)");
+    database.execute("CREATE TABLE cloud_periods(id INTEGER PRIMARY KEY AUTOINCREMENT,irrigation_id INTEGER NOT NULL,start_datetime TEXT NOT NULL,end_datetime TEXT NOT NULL,minutes INTEGER NOT NULL,created_at TEXT NOT NULL)");
+    database.execute("CREATE TABLE diesel_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER,beneficiary_id INTEGER,irrigation_id INTEGER,cashbox_id INTEGER,kind TEXT NOT NULL,liters REAL NOT NULL,unit_price INTEGER NOT NULL DEFAULT 0,amount INTEGER NOT NULL DEFAULT 0,date TEXT NOT NULL,notes TEXT,created_by INTEGER)");
+    const globalId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    final payload = {
+      '_global_id': globalId,
+      '_global_refs': {
+        'pump_id': {'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        'beneficiary_id': {'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+      },
+      'start_datetime':'2026-11-08T08:00:00.000',
+      'end_datetime':'2026-11-08T09:00:00.000',
+      'system_type':'diesel',
+      'cloud_minutes':10,
+      'cloud_periods':[{'start_datetime':'2026-11-08T08:20:00.000','end_datetime':'2026-11-08T08:30:00.000'}],
+      'paid_amount':0,
+    };
+    final event = {
+      'event_id':'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      'entity_type':'irrigations',
+      'entity_key':'irrigations:$globalId',
+      'operation':'create',
+      'base_version':0,
+      'payload':payload,
+    };
+    final response = await postEvents(stationOneToken,[event]);
+    expect((response['results'] as List).single['status'],'accepted');
+    final irrigation = database.select('SELECT * FROM irrigations WHERE station_id=1').single;
+    expect(irrigation['minutes'],60);
+    expect(irrigation['cloud_minutes'],10);
+    expect(irrigation['chargeable_minutes'],60); // Diesel billing is not reduced by cloud periods.
+    expect(irrigation['water_amount'],6000);
+    expect(irrigation['diesel_amount'],1000);
+    expect(irrigation['total_amount'],7000);
+    expect(database.select('SELECT * FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]),hasLength(1));
+    expect(database.select('SELECT kind FROM diesel_movements WHERE station_id=1 ORDER BY id').map((r)=>r['kind']).toList(),['advance','consumption']);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+    final replay = await postEvents(stationOneToken,[event]);
+    expect((replay['results'] as List).single['status'],'duplicate');
+    final foreign = await postEvents(stationTwoToken,[{...event,'event_id':'ffffffff-ffff-4fff-8fff-ffffffffffff'}]);
+    expect((foreign['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
+  });
+
 }
