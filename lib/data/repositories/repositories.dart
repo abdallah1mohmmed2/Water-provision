@@ -140,14 +140,20 @@ class StationRepository {
         if (localRows.isEmpty) {
           throw StateError('تعذر تثبيت نسخة المستفيد المحلية.');
         }
+        final localBalanceRows = hasPendingLocalWrite
+            ? await tx.rawQuery(
+                "SELECT ${BalanceSql.beneficiary('b')} AS balance FROM beneficiaries b WHERE b.id=?",
+                [localId],
+              )
+            : const <Map<String, Object?>>[];
         final result = <String, Object?>{
           ...localRows.single,
           'id': localId,
           'balance': hasPendingLocalWrite
-              ? null
+              ? (localBalanceRows.first['balance'] as num?)?.round() ?? 0
               : (remote['balance'] as num?)?.round() ?? 0,
           '_global_id': globalId,
-          '_source': 'server',
+          '_source': hasPendingLocalWrite ? 'local_pending' : 'server',
         };
         if (_matchesBeneficiary(result, term)) results.add(result);
       }
