@@ -811,6 +811,9 @@ class SaqiaServer {
     final beneficiary = db.select('SELECT status FROM beneficiaries WHERE id=? AND station_id=? LIMIT 1',[beneficiaryId,station]);
     if (pump.isEmpty || (pump.first['active'] as num?)?.toInt()!=1) throw StateError('المضخة غير نشطة أو لا تتبع المحطة');
     if (beneficiary.isEmpty || beneficiary.first['status'] != 'active') throw StateError('المستفيد غير نشط أو لا يتبع المحطة');
+    final sessionId = payload['session_id'] == null ? null : _resolveSyncOperationalReference(station:station,entityType:'irrigation_sessions',column:'session_id',references:refs,beneficiaryId:beneficiaryId);
+    final queueId = payload['queue_entry_id'] == null ? null : _resolveSyncOperationalReference(station:station,entityType:'queue_entries',column:'queue_entry_id',references:refs,beneficiaryId:beneficiaryId);
+    final bookingId = payload['booking_id'] == null ? null : _resolveSyncOperationalReference(station:station,entityType:'booking_requests',column:'booking_id',references:refs,beneficiaryId:beneficiaryId);
     final startText = (payload['start_datetime'] ?? '').toString();
     final endText = (payload['end_datetime'] ?? '').toString();
     final start = DateTime.tryParse(startText);
@@ -854,7 +857,33 @@ class SaqiaServer {
     final columns = db.select('PRAGMA table_info(irrigations)').map((r)=>r['name'].toString()).toSet();
     final required = {'station_id','pump_id','beneficiary_id','party_type','date','start_datetime','end_datetime','minutes','system_type','water_hourly_rate_snapshot','diesel_liters_per_hour_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot','cloud_minutes','chargeable_minutes','water_amount','diesel_amount','total_amount','paid_amount','status','created_by','created_at','updated_at'};
     if (!required.every(columns.contains)) throw StateError('مخطط السقايات لا يدعم الترحيل الآمن');
-    db.execute('INSERT INTO irrigations(station_id,pump_id,beneficiary_id,party_type,date,start_datetime,end_datetime,minutes,system_type,water_hourly_rate_snapshot,diesel_liters_per_hour_snapshot,diesel_price_snapshot,solar_hourly_rate_snapshot,third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,water_amount,diesel_amount,total_amount,paid_amount,status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[station,pumpId,beneficiaryId,'beneficiary',startText.substring(0,10),startText,endText,minutes,system,system=='diesel'?waterRate:0,litersPerHour,dieselPrice,system=='solar'?waterRate:0,system=='equivalent_hybrid'?waterRate:0,cloudMinutes,chargeable,waterAmount,dieselAmount,total,0,'posted',userId,now,now]);
+    final irrigationValues = <String,Object?>{
+      'station_id':station,'pump_id':pumpId,'beneficiary_id':beneficiaryId,
+      'party_type':'beneficiary','date':startText.substring(0,10),
+      'start_datetime':startText,'end_datetime':endText,'minutes':minutes,
+      'system_type':system,'water_hourly_rate_snapshot':system=='diesel'?waterRate:0,
+      'diesel_liters_per_hour_snapshot':litersPerHour,
+      'diesel_price_snapshot':dieselPrice,
+      'solar_hourly_rate_snapshot':system=='solar'?waterRate:0,
+      'third_type_hourly_rate_snapshot':system=='equivalent_hybrid'?waterRate:0,
+      'cloud_minutes':cloudMinutes,'chargeable_minutes':chargeable,
+      'water_amount':waterAmount,'diesel_amount':dieselAmount,
+      'total_amount':total,'paid_amount':0,'status':'posted',
+      'created_by':userId,'created_at':now,'updated_at':now,
+    };
+    if (columns.contains('session_id')) irrigationValues['session_id']=sessionId;
+    if (columns.contains('queue_entry_id')) irrigationValues['queue_entry_id']=queueId;
+    if (columns.contains('booking_id')) irrigationValues['booking_id']=bookingId;
+    if ((sessionId!=null && !columns.contains('session_id')) ||
+        (queueId!=null && !columns.contains('queue_entry_id')) ||
+        (bookingId!=null && !columns.contains('booking_id'))) {
+      throw StateError('مخطط السقايات لا يدعم مراجع الجلسة أو الحجز أو الطابور');
+    }
+    final irrigationNames=irrigationValues.keys.toList();
+    db.execute(
+      'INSERT INTO irrigations(\${irrigationNames.join(',')}) VALUES(\${List.filled(irrigationNames.length,'?').join(',')})',
+      irrigationNames.map((key)=>irrigationValues[key]).toList(),
+    );
     final irrigationId = db.lastInsertRowId;
     for (final item in cloudPeriods) {
       final aText = item['start_datetime'].toString();
@@ -878,6 +907,25 @@ class SaqiaServer {
         _journal(description:'سلفة ديزل تلقائية',referenceType:'diesel_advance',referenceId:movementId,lines:[{'account_id':receivable,'beneficiary_id':beneficiaryId,'debit':advanceAmount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':advanceAmount}],userId:userId);
       }
       db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[station,beneficiaryId,irrigationId,'consumption',liters,dieselPrice,dieselAmount,now,'استهلاك السقاية',userId]);
+    }
+    if (sessionId != null) {
+      final session = db.select(
+        'SELECT status,actual_start,actual_end FROM irrigation_sessions WHERE id=? LIMIT 1',
+        [sessionId],
+      );
+      if (session.isEmpty || DateTime.tryParse(session.first['actual_start'].toString())?.toIso8601String()!=start.toIso8601String()) {
+        throw StateError('جلسة التشغيل لا تطابق وقت السقاية');
+      }
+      final status = session.first['status'].toString();
+      if (status == 'running') {
+        db.execute(
+          "UPDATE irrigation_sessions SET status='completed',actual_end=?,timer_stopped_at=?,diesel_consumed=? WHERE id=? AND status='running'",
+          [end.toIso8601String(),end.toIso8601String(),liters,sessionId],
+        );
+      } else if (status != 'completed' ||
+          DateTime.tryParse((session.first['actual_end']??'').toString())?.toIso8601String()!=end.toIso8601String()) {
+        throw StateError('جلسة التشغيل ليست قابلة للإقفال بهذه السقاية');
+      }
     }
     db.execute('INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',[station,'irrigations',globalId,irrigationId,now]);
   }
@@ -1034,6 +1082,7 @@ class SaqiaServer {
               'waiting': {'waiting', 'postponed', 'completed', 'skipped'},
               'postponed': {'postponed', 'waiting', 'completed', 'skipped'},
               'completed': {'completed'},
+              'served': {'served'},
               'skipped': {'skipped'},
             }
           : <String, Set<String>>{
