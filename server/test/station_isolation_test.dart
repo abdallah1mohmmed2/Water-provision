@@ -493,6 +493,47 @@ void main() {
     expect(body['rows'], isNull);
   });
 
+  test('income and system comparison reports isolate irrigation rows by JWT station', () async {
+    database.execute('ALTER TABLE irrigations ADD COLUMN system_type TEXT');
+    database.execute('ALTER TABLE irrigations ADD COLUMN minutes INTEGER');
+    database.execute('ALTER TABLE irrigations ADD COLUMN water_amount INTEGER');
+    database.execute('ALTER TABLE irrigations ADD COLUMN diesel_amount INTEGER');
+    database.execute('ALTER TABLE irrigations ADD COLUMN total_amount INTEGER');
+    database.execute("UPDATE irrigations SET system_type='diesel',minutes=60,water_amount=100,total_amount=100,diesel_amount=0 WHERE id=1000");
+    database.execute("UPDATE irrigations SET system_type='solar',minutes=120,water_amount=900,total_amount=900,diesel_amount=0 WHERE id=2000");
+    final token = await login();
+    for (final report in ['income', 'system_comparison']) {
+      final response = await request('GET', '/api/v1/reports/$report', token);
+      final body = jsonDecode(await response.readAsString()) as Map;
+      expect(response.statusCode, 200);
+      final rows = body['rows'] as List;
+      expect(rows, hasLength(1));
+      expect(rows.single['system_type'], 'diesel');
+      expect(rows.single['total'], 100);
+    }
+  });
+
+  test('journal and ledger reports isolate entries and their lines by station', () async {
+    database.execute('''CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, date TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY, journal_entry_id INTEGER NOT NULL, memo TEXT
+    )''');
+    database.execute("INSERT INTO journal_entries(id,station_id,date) VALUES(1,7,'2026-11-01'),(2,8,'2026-11-02')");
+    database.execute("INSERT INTO journal_lines(id,journal_entry_id,memo) VALUES(11,1,'سطر أ'),(22,2,'سطر ب')");
+    final token = await login();
+    final journal = await request('GET', '/api/v1/reports/journal', token);
+    final journalBody = jsonDecode(await journal.readAsString()) as Map;
+    expect(journal.statusCode, 200);
+    expect((journalBody['rows'] as List).map((row) => row['id']), [1]);
+
+    final ledger = await request('GET', '/api/v1/reports/ledger', token);
+    final ledgerBody = jsonDecode(await ledger.readAsString()) as Map;
+    expect(ledger.statusCode, 200);
+    expect((ledgerBody['rows'] as List).map((row) => row['id']), [11]);
+  });
+
   test('cash flow report includes only the authenticated station financial rows', () async {
     database.execute('''CREATE TABLE payments (
       id INTEGER PRIMARY KEY, station_id INTEGER, date TEXT NOT NULL,
