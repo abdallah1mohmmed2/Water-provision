@@ -259,6 +259,7 @@ void main() {
     String? transactionGlobalId,
     String? partyGlobalId,
     int amount = 4200,
+    int baseVersion = 0,
   }) {
     final table = worker ? 'worker_transactions' : 'partner_transactions';
     final partyColumn = worker ? 'worker_id' : 'partner_id';
@@ -275,7 +276,7 @@ void main() {
       'entity_type':table,
       'entity_key':'$table:$globalId',
       'operation':'create',
-      'base_version':0,
+      'base_version':baseVersion,
       'payload':{
         '_global_id':globalId,
         if(worker) 'worker_id':1 else 'partner_id':1,
@@ -309,6 +310,7 @@ void main() {
       final duplicateIdentity = partyDebtEvent(
         worker:worker,
         eventId:worker?'99999999-aaaa-4999-8999-999999999999':'aaaaaaaa-bbbb-4aaa-8aaa-aaaaaaaaaaaa',
+        baseVersion:1,
       );
       final duplicateIdentityResult = await postEvents(stationOneToken,[duplicateIdentity]);
       expect((duplicateIdentityResult['results'] as List).first['status'],'rejected');
