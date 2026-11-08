@@ -365,6 +365,138 @@ class SaqiaServer {
     throw StateError('لم يُعثر على مرجع ' + entityType + ' داخل المحطة');
   }
 
+  String _syncCashboxLedgerCode(int station, int cashboxId) {
+    final rows = db.select('SELECT ledger_account_code FROM cashboxes WHERE id=? AND station_id=? AND active=1 LIMIT 1',[cashboxId,station]);
+    if (rows.isEmpty) throw StateError('الصندوق غير موجود أو غير مفعّل داخل المحطة');
+    final own = (rows.first['ledger_account_code'] ?? '').toString();
+    if (own.isNotEmpty) return own;
+    final methods = db.select('SELECT ledger_account_code,type FROM payment_methods WHERE cashbox_id=? AND station_id=? AND active=1 ORDER BY id LIMIT 1',[cashboxId,station]);
+    if (methods.isEmpty) return '1000';
+    final configured = (methods.first['ledger_account_code'] ?? '').toString();
+    if (configured.isNotEmpty) return configured;
+    return switch (methods.first['type'].toString()) {'bank_transfer' => '1100', 'wallet' => '1120', _ => '1000'};
+  }
+
+  int _syncPartnerAccountId(int partnerId) {
+    final partner = db.select('SELECT name FROM partners WHERE id=? LIMIT 1',[partnerId]);
+    if (partner.isEmpty) throw StateError('الشريك غير موجود');
+    final code = '2200.P' + partnerId.toString();
+    final existing = db.select('SELECT id FROM accounts WHERE code=? LIMIT 1',[code]);
+    if (existing.isNotEmpty) return (existing.first['id'] as num).toInt();
+    final parent = _accountId('2200');
+    db.execute('INSERT INTO accounts(parent_id,code,name,type) VALUES(?,?,?,?)',[parent,code,'حساب الشريك الشخصي: ' + partner.first['name'].toString(),'liability']);
+    return db.lastInsertRowId;
+  }
+
+  void _applySyncExpense({required int station, required String entityKey, required String operation, required Map payload, required String now, required int? userId, required String? role}) {
+    if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بمزامنة المصروفات');
+    if (userId == null || _stationForUser(userId) != station) throw StateError('مستخدم المصروف لا يتبع المحطة الموثقة');
+    final globalId = (payload['_global_id'] ?? '').toString();
+    final valid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId);
+    if (!valid || entityKey != 'expenses:' + globalId) throw StateError('الهوية العالمية للمصروف غير صالحة');
+    final links = db.select("SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='expenses' AND global_id=? LIMIT 1",[station,globalId]);
+    if (operation == 'delete') throw UnsupportedError('إلغاء المصروف يتطلب رد المبلغ للصندوق وقيداً عكسياً؛ الحذف المباشر ممنوع');
+    if (operation == 'update') {
+      if (links.isEmpty) throw StateError('المصروف غير مرتبط بهذه الهوية العالمية');
+      final id = (links.first['local_id'] as num).toInt();
+      final rows = db.select("SELECT title,notes,amount,category,date,cashbox_id,payment_method_id,partner_id FROM expenses WHERE id=? AND station_id=? AND status='posted' LIMIT 1",[id,station]);
+      if (rows.isEmpty) throw StateError('المصروف غير موجود أو غير مرحّل ضمن المحطة');
+      final row = rows.first;
+      for (final key in const ['amount','category','date','cashbox_id','payment_method_id','partner_id']) {
+        if (payload.containsKey(key) && payload[key] != row[key]) throw StateError('يسمح بتعديل عنوان المصروف وملاحظاته فقط دون تغيير أثره المالي');
+      }
+      final title = (payload['title'] ?? row['title']).toString().trim();
+      if (title.isEmpty) throw StateError('عنوان المصروف مطلوب');
+      db.execute('UPDATE expenses SET title=?,notes=? WHERE id=? AND station_id=?',[title,payload.containsKey('notes') ? payload['notes'] : row['notes'],id,station]);
+      return;
+    }
+    if (operation != 'create' || links.isNotEmpty) throw StateError('هوية المصروف مستخدمة أو العملية غير مدعومة');
+    if (!_hasTable('expenses')) throw StateError('جدول المصروفات غير موجود');
+    final refs = payload['_global_refs'];
+    if (refs is! Map) throw StateError('مراجع المصروف العالمية مفقودة');
+    final methodId = _resolveSyncReference(station:station,entityType:'payment_methods',column:'payment_method_id',references:refs);
+    final cashboxId = _resolveSyncReference(station:station,entityType:'cashboxes',column:'cashbox_id',references:refs);
+    final method = db.select('SELECT cashbox_id,active FROM payment_methods WHERE id=? AND station_id=? LIMIT 1',[methodId,station]);
+    final cash = db.select('SELECT active FROM cashboxes WHERE id=? AND station_id=? LIMIT 1',[cashboxId,station]);
+    if (method.isEmpty || (method.first['active'] as num?)?.toInt()!=1 || cash.isEmpty || (cash.first['active'] as num?)?.toInt()!=1) throw StateError('طريقة الدفع أو الصندوق غير نشط أو لا يتبع المحطة');
+    final methodCashbox = (method.first['cashbox_id'] as num?)?.toInt();
+    if (methodCashbox != null && methodCashbox != cashboxId) throw StateError('الصندوق المختار لا يطابق الصندوق المرتبط بطريقة الدفع');
+    int? beneficiaryId, workerId, partnerId;
+    if (payload['beneficiary_id'] != null) beneficiaryId = _resolveSyncReference(station:station,entityType:'beneficiaries',column:'beneficiary_id',references:refs);
+    if (payload['worker_id'] != null) workerId = _resolveSyncReference(station:station,entityType:'workers',column:'worker_id',references:refs);
+    if (payload['partner_id'] != null) partnerId = _resolveSyncReference(station:station,entityType:'partners',column:'partner_id',references:refs);
+    final category = (payload['category'] ?? 'other').toString();
+    if (!const {'workers','partners','fuel','oil','grease','maintenance','parts','transport','admin','other'}.contains(category)) throw StateError('تصنيف المصروف غير صالح');
+    if (category == 'workers' && partnerId == null) throw StateError('أجور العاملين تسجل كاستحقاق عامل ثم تسوى بالدفع، ولا تسجل كمصروف عام');
+    final amountValue = payload['amount'];
+    if (amountValue is! num || amountValue <= 0 || amountValue != amountValue.round()) throw StateError('قيمة المصروف يجب أن تكون عدداً صحيحاً أكبر من صفر');
+    final amount = amountValue.toInt();
+    final title = (payload['title'] ?? 'مصروف').toString().trim();
+    if (title.isEmpty) throw StateError('عنوان المصروف مطلوب');
+    final date = DateTime.tryParse((payload['date'] ?? '').toString());
+    if (date == null) throw StateError('تاريخ المصروف غير صالح');
+    if (payload['status'] != null && payload['status'] != 'posted') throw StateError('لا تقبل مزامنة مصروف غير مرحّل كإنشاء مالي');
+    db.execute('INSERT INTO expenses(station_id,category,title,amount,date,payment_method_id,cashbox_id,beneficiary_id,worker_id,partner_id,attachment_path,notes,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[station,category,title,amount,date.toIso8601String(),methodId,cashboxId,beneficiaryId,workerId,partnerId,payload['attachment_path'],payload['notes'],'posted',userId]);
+    final expenseId = db.lastInsertRowId;
+    db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=? AND station_id=? AND active=1',[amount,cashboxId,station]);
+    if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر تحديث رصيد صندوق المصروف');
+    final expenseCode = switch(category) {'workers' => '5000', 'partners' => '5030', 'fuel' || 'diesel' => '5010', 'oil' || 'grease' => '5020', 'maintenance' || 'parts' => '5030', _ => '5030'};
+    final debitAccount = partnerId == null ? _accountId(expenseCode) : _syncPartnerAccountId(partnerId);
+    final cashAccount = _accountId(_syncCashboxLedgerCode(station,cashboxId));
+    _journal(description:partnerId == null ? title : title + ' (مصروف خاص بالشريك)',referenceType:'expense',referenceId:expenseId,userId:userId,date:date,lines:[{'account_id':debitAccount,'partner_id':partnerId,'debit':amount,'credit':0},{'account_id':cashAccount,'debit':0,'credit':amount}]);
+    db.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'expenses',?,?,?)",[station,globalId,expenseId,now]);
+  }
+
+  void _applySyncCashboxTransfer({required int station, required String entityKey, required String operation, required Map payload, required String now, required int? userId, required String? role}) {
+    if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بمزامنة التحويلات');
+    if (userId == null || _stationForUser(userId) != station) throw StateError('مستخدم التحويل لا يتبع المحطة الموثقة');
+    final globalId = (payload['_global_id'] ?? '').toString();
+    final valid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId);
+    if (!valid || entityKey != 'cashbox_transfers:' + globalId) throw StateError('الهوية العالمية للتحويل غير صالحة');
+    final links = db.select("SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='cashbox_transfers' AND global_id=? LIMIT 1",[station,globalId]);
+    if (operation == 'delete') throw UnsupportedError('إلغاء التحويل يتطلب رد أثر الصندوق وقيداً عكسياً؛ الحذف المباشر ممنوع');
+    if (operation == 'update') {
+      if (links.isEmpty) throw StateError('التحويل غير مرتبط بهذه الهوية العالمية');
+      final id = (links.first['local_id'] as num).toInt();
+      final rows = db.select('SELECT reference,notes FROM cashbox_transfers WHERE id=? AND station_id=? LIMIT 1',[id,station]);
+      if (rows.isEmpty) throw StateError('التحويل غير موجود ضمن المحطة');
+      db.execute('UPDATE cashbox_transfers SET reference=?,notes=? WHERE id=? AND station_id=?',[payload['reference'] ?? rows.first['reference'],payload['notes'] ?? rows.first['notes'],id,station]);
+      return;
+    }
+    if (operation != 'create' || links.isNotEmpty) throw StateError('هوية التحويل مستخدمة أو العملية غير مدعومة');
+    final refs = payload['_global_refs'];
+    if (refs is! Map) throw StateError('مراجع التحويل العالمية مفقودة');
+    final toId = _resolveSyncReference(station:station,entityType:'cashboxes',column:'to_cashbox_id',references:refs);
+    final fromId = payload['from_cashbox_id'] == null ? null : _resolveSyncReference(station:station,entityType:'cashboxes',column:'from_cashbox_id',references:refs);
+    final target = db.select('SELECT active,currency FROM cashboxes WHERE id=? AND station_id=? LIMIT 1',[toId,station]);
+    if (target.isEmpty || (target.first['active'] as num?)?.toInt()!=1) throw StateError('صندوق الوجهة غير نشط أو لا يتبع المحطة');
+    if (fromId != null) {
+      final source = db.select('SELECT active,currency FROM cashboxes WHERE id=? AND station_id=? LIMIT 1',[fromId,station]);
+      if (source.isEmpty || (source.first['active'] as num?)?.toInt()!=1) throw StateError('صندوق المصدر غير نشط أو لا يتبع المحطة');
+      if (fromId == toId) throw StateError('لا يمكن التحويل إلى الصندوق نفسه');
+      if (source.first['currency'] != target.first['currency']) throw StateError('لا يمكن التحويل بين صندوقين بعملتين مختلفتين');
+    }
+    final openingValue = payload['is_opening_transfer'];
+    final opening = openingValue == true || openingValue == 1;
+    if ((fromId == null) != opening) throw StateError('التحويل الافتتاحي يجب أن يكون بلا صندوق مصدر، والتحويل العادي يتطلب مصدراً');
+    final amountValue = payload['amount'];
+    if (amountValue is! num || amountValue <= 0 || amountValue != amountValue.round()) throw StateError('قيمة التحويل يجب أن تكون عدداً صحيحاً أكبر من صفر');
+    final amount = amountValue.toInt();
+    final date = DateTime.tryParse((payload['date'] ?? '').toString());
+    if (date == null) throw StateError('تاريخ التحويل غير صالح');
+    db.execute('INSERT INTO cashbox_transfers(station_id,from_cashbox_id,to_cashbox_id,amount,date,is_opening_transfer,reference,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?)',[station,fromId,toId,amount,date.toIso8601String(),opening ? 1 : 0,payload['reference'],payload['notes'],userId]);
+    final transferId = db.lastInsertRowId;
+    if (fromId != null) {
+      db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=? AND station_id=? AND active=1',[amount,fromId,station]);
+      if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر تحديث رصيد صندوق المصدر');
+    }
+    db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND station_id=? AND active=1',[amount,toId,station]);
+    if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر تحديث رصيد صندوق الوجهة');
+    final debitAccount = _accountId(_syncCashboxLedgerCode(station,toId));
+    final creditAccount = _accountId(opening ? '3000' : _syncCashboxLedgerCode(station,fromId!));
+    _journal(description:opening ? 'تحويل افتتاحي' : 'تحويل بين الصناديق',referenceType:'cashbox_transfer',referenceId:transferId,userId:userId,date:date,lines:[{'account_id':debitAccount,'debit':amount,'credit':0},{'account_id':creditAccount,'debit':0,'credit':amount}]);
+    db.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'cashbox_transfers',?,?,?)",[station,globalId,transferId,now]);
+  }
   void _applySyncDieselMovement({
     required int station, required String entityKey, required String operation,
     required Map payload, required String now, required int? userId, required String? role,
@@ -1274,6 +1406,14 @@ class SaqiaServer {
       _applySyncIrrigation(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
       return;
     }
+    if (entityType == 'expenses') {
+      _applySyncExpense(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'cashbox_transfers') {
+      _applySyncCashboxTransfer(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
     if (entityType == 'diesel_movements') {
       _applySyncDieselMovement(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
       return;
@@ -1474,6 +1614,10 @@ class SaqiaServer {
                   ON b.id=l.local_id AND b.station_id=l.station_id
                 WHERE l.station_id=? AND l.entity_type='beneficiaries' AND l.global_id=? LIMIT 1
               ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'expenses') {
+              businessRowExists = db.select("SELECT 1 FROM sync_entity_links l JOIN expenses e ON e.id=l.local_id AND e.station_id=l.station_id WHERE l.station_id=? AND l.entity_type='expenses' AND l.global_id=? LIMIT 1",[station,globalId]).isNotEmpty;
+            } else if (entityType == 'cashbox_transfers') {
+              businessRowExists = db.select("SELECT 1 FROM sync_entity_links l JOIN cashbox_transfers t ON t.id=l.local_id AND t.station_id=l.station_id WHERE l.station_id=? AND l.entity_type='cashbox_transfers' AND l.global_id=? LIMIT 1",[station,globalId]).isNotEmpty;
             } else if (entityType == 'diesel_movements') {
               businessRowExists = db.select('''SELECT 1 FROM sync_entity_links l JOIN diesel_movements d ON d.id=l.local_id AND d.station_id=l.station_id WHERE l.station_id=? AND l.entity_type='diesel_movements' AND l.global_id=? LIMIT 1''',[station,globalId]).isNotEmpty;
             } else if (entityType == 'irrigations') {
