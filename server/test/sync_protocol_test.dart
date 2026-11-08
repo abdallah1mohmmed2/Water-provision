@@ -918,4 +918,117 @@ test('legacy beneficiary rows receive a stable global identity on first API read
   });
 
 
+
+  test('master-data events apply atomically with station ownership and soft deletion', () async {
+    database.execute('''CREATE TABLE pumps(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL,
+      name TEXT NOT NULL, system_type TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+      notes TEXT, created_at TEXT, updated_at TEXT
+    )''');
+    const globalId = 'abababab-abab-4bab-8bab-abababababab';
+    Map<String, dynamic> masterEvent({
+      required String eventId,
+      required String operation,
+      required int baseVersion,
+      required Map<String, dynamic> payload,
+    }) => {
+      'event_id': eventId,
+      'entity_type': 'pumps',
+      'entity_key': 'pumps:$globalId',
+      'operation': operation,
+      'base_version': baseVersion,
+      'payload': {'_global_id': globalId, ...payload},
+    };
+
+    final created = await postEvents(stationOneToken, [
+      masterEvent(
+        eventId: '12111111-1111-4111-8111-111111111111',
+        operation: 'create',
+        baseVersion: 0,
+        payload: {'name': 'Pump A', 'system_type': 'diesel'},
+      ),
+    ]);
+    expect((created['results'] as List).single['status'], 'accepted');
+    final row = database.select(
+      'SELECT * FROM pumps WHERE station_id=1 AND name=?',
+      ['Pump A'],
+    ).single;
+    expect(row['active'], 1);
+    expect(database.select(
+      "SELECT local_id FROM sync_entity_links WHERE station_id=1 AND entity_type='pumps' AND global_id=?",
+      [globalId],
+    ), hasLength(1));
+
+    final updated = await postEvents(stationOneToken, [
+      masterEvent(
+        eventId: '13111111-1111-4111-8111-111111111111',
+        operation: 'update',
+        baseVersion: 1,
+        payload: {'name': 'Pump A Updated'},
+      ),
+    ]);
+    expect((updated['results'] as List).single['status'], 'accepted');
+    expect(database.select('SELECT name FROM pumps WHERE id=?', [row['id']]).single['name'],
+        'Pump A Updated');
+
+    final deleted = await postEvents(stationOneToken, [
+      masterEvent(
+        eventId: '14111111-1111-4111-8111-111111111111',
+        operation: 'delete',
+        baseVersion: 2,
+        payload: const {},
+      ),
+    ]);
+    expect((deleted['results'] as List).single['status'], 'accepted');
+    expect(database.select('SELECT active FROM pumps WHERE id=?', [row['id']]).single['active'], 0);
+
+    final replay = await postEvents(stationOneToken, [
+      masterEvent(
+        eventId: '14111111-1111-4111-8111-111111111111',
+        operation: 'delete',
+        baseVersion: 2,
+        payload: const {},
+      ),
+    ]);
+    expect((replay['results'] as List).single['status'], 'duplicate');
+
+    final crossStation = await postEvents(stationTwoToken, [
+      masterEvent(
+        eventId: '15111111-1111-4111-8111-111111111111',
+        operation: 'create',
+        baseVersion: 0,
+        payload: {'name': 'Foreign Pump', 'system_type': 'diesel'},
+      ),
+    ]);
+    expect((crossStation['results'] as List).single['status'], 'rejected');
+    expect(database.select("SELECT * FROM pumps WHERE name='Foreign Pump'"), isEmpty);
+  });
+
+  test('cashbox master sync cannot initialize or overwrite financial balances', () async {
+    database.execute('''CREATE TABLE cashboxes(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL,
+      name TEXT NOT NULL, opening_balance INTEGER NOT NULL DEFAULT 0,
+      current_balance INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'YER',
+      active INTEGER NOT NULL DEFAULT 1, ledger_account_code TEXT
+    )''');
+    const globalId = 'acacacac-acac-4cac-8cac-acacacacacac';
+    final response = await postEvents(stationOneToken, [{
+      'event_id': '16111111-1111-4111-8111-111111111111',
+      'entity_type': 'cashboxes',
+      'entity_key': 'cashboxes:$globalId',
+      'operation': 'create',
+      'base_version': 0,
+      'payload': {
+        '_global_id': globalId,
+        'name': 'Cashbox Injected',
+        'currency': 'YER',
+        'opening_balance': 900000,
+        'current_balance': 900000,
+      },
+    }]);
+    expect((response['results'] as List).single['status'], 'rejected');
+    expect(database.select("SELECT * FROM cashboxes WHERE name='Cashbox Injected'"), isEmpty);
+  });
+
+
 }
