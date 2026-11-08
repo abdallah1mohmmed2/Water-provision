@@ -898,15 +898,153 @@ class SaqiaServer {
     final station = _stationId(c);
     final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
     if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
-    return _json(_rows(db.select('''
-      SELECT i.*
-      FROM irrigations i
-      JOIN beneficiaries b
-        ON b.id=i.beneficiary_id AND b.station_id=i.station_id
-      WHERE i.beneficiary_id=? AND i.station_id=?
-        AND b.status='active' AND i.status!='cancelled'
-      ORDER BY i.start_datetime DESC,i.id DESC
-    ''', [id, station])));
+    final beneficiaryRows = db.select('''
+      SELECT opening_balance,carried_balance
+      FROM beneficiaries WHERE id=? AND station_id=? AND status='active'
+      LIMIT 1
+    ''', [id, station]);
+    if (beneficiaryRows.isEmpty) {
+      return _json({'error':'المستفيد غير موجود'},status:404);
+    }
+    final opening = (beneficiaryRows.first['opening_balance'] as num?)?.round() ?? 0;
+    final carried = (beneficiaryRows.first['carried_balance'] as num?)?.round() ?? 0;
+    final initialBalance = opening + carried;
+    final creditDelivery =
+        _settingsForStation(station)['diesel_delivery_financial_credit'] == 'true';
+
+    // Every source is explicitly scoped to the authenticated station. Manual
+    // debts inherit station ownership through their beneficiary relation.
+    final events = db.select('''
+      SELECT * FROM (
+        SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.system_type,
+          i.minutes,i.cloud_minutes,i.chargeable_minutes,i.total_amount,
+          i.paid_amount,'s' AS type,i.total_amount AS debit,0 AS credit,
+          0 AS lah,i.total_amount AS alayh,'سقاية' AS description,
+          'posted' AS status,i.notes AS notes,10 AS event_order
+        FROM irrigations i
+        WHERE i.beneficiary_id=? AND i.station_id=? AND i.status!='cancelled'
+
+        UNION ALL
+        SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,
+          'p',0,p.amount,p.amount,0,'قبض','posted',p.notes,20
+        FROM payments p
+        WHERE p.beneficiary_id=? AND p.station_id=? AND p.status='posted'
+
+        UNION ALL
+        SELECT d.id,d.date,d.date,d.date,'diesel_advance',0,0,0,0,0,
+          'a',d.amount,0,0,d.amount,'سلفة ديزل','posted',d.notes,30
+        FROM diesel_movements d
+        WHERE d.beneficiary_id=? AND d.station_id=? AND d.kind='advance'
+          AND d.irrigation_id IS NULL
+
+        UNION ALL
+        SELECT md.id,md.date,md.date,md.date,'manual_debt',0,0,0,0,0,
+          'manual_debt',md.amount,0,0,md.amount,'إضافة مديونية',
+          md.status,md.notes,40
+        FROM beneficiary_manual_debts md
+        JOIN beneficiaries owner ON owner.id=md.beneficiary_id
+        WHERE md.beneficiary_id=? AND owner.station_id=?
+
+        UNION ALL
+        SELECT -md.id,md.cancelled_at,md.cancelled_at,md.cancelled_at,
+          'manual_debt_reversal',0,0,0,0,0,'manual_debt_reversal',
+          0,md.amount,md.amount,0,'إلغاء مديونية','cancelled',
+          md.cancel_reason,50
+        FROM beneficiary_manual_debts md
+        JOIN beneficiaries owner ON owner.id=md.beneficiary_id
+        WHERE md.beneficiary_id=? AND owner.station_id=?
+          AND md.status='cancelled' AND md.cancelled_at IS NOT NULL
+
+        ${creditDelivery ? '''
+        UNION ALL
+        SELECT d.id,d.date,d.date,d.date,'diesel_delivery',0,0,0,0,0,
+          'd',0,d.amount,d.amount,0,'تسليم ديزل','posted',d.notes,60
+        FROM diesel_movements d
+        WHERE d.beneficiary_id=? AND d.station_id=? AND d.kind='delivery'
+        ''' : ''}
+      ) timeline
+      ORDER BY COALESCE(date,''),event_order,id
+    ''', [
+      id, station,
+      id, station,
+      id, station,
+      id, station,
+      id, station,
+      if (creditDelivery) id, if (creditDelivery) station,
+    ]);
+
+    final fromText = r.url.queryParameters['from'];
+    final toText = r.url.queryParameters['to'];
+    final fromParsed = fromText == null ? null : DateTime.tryParse(fromText);
+    final toParsed = toText == null ? null : DateTime.tryParse(toText);
+    if (fromText != null && fromParsed == null ||
+        toText != null && toParsed == null) {
+      return _json({'error':'نطاق التاريخ غير صالح'},status:422);
+    }
+    final fromDay = fromParsed == null
+        ? null
+        : DateTime(fromParsed.year,fromParsed.month,fromParsed.day);
+    final toExclusive = toParsed == null
+        ? null
+        : DateTime(toParsed.year,toParsed.month,toParsed.day)
+            .add(const Duration(days:1));
+
+    var running = initialBalance;
+    var periodOpeningBalance = initialBalance;
+    final result = <Map<String,Object?>>[];
+    for (final row in events) {
+      final event = Map<String,Object?>.from(row);
+      final debit = (event['debit'] as num?)?.round() ?? 0;
+      final credit = (event['credit'] as num?)?.round() ?? 0;
+      running += debit-credit;
+      final date = DateTime.tryParse('${event['date'] ?? ''}');
+      if (fromDay != null && (date == null || date.isBefore(fromDay))) {
+        periodOpeningBalance = running;
+        continue;
+      }
+      if (toExclusive != null && (date == null || !date.isBefore(toExclusive))) {
+        continue;
+      }
+      final note = '${event['notes'] ?? ''}'.trim();
+      final description = '${event['description'] ?? ''}'.trim();
+      event['description'] = note.isEmpty || description.isEmpty
+          ? description : '$description - $note';
+      event['balance'] = running;
+      event.remove('event_order');
+      result.add(event);
+    }
+
+    if (fromDay != null) {
+      result.insert(0, {
+        'id':-3,'date':fromDay.toIso8601String(),
+        'type':'opening_balance','description':'الرصيد المرحّل قبل الفترة',
+        'debit':periodOpeningBalance>0?periodOpeningBalance:0,
+        'credit':periodOpeningBalance<0?-periodOpeningBalance:0,
+        'lah':periodOpeningBalance<0?-periodOpeningBalance:0,
+        'alayh':periodOpeningBalance>0?periodOpeningBalance:0,
+        'balance':periodOpeningBalance,
+      });
+    } else {
+      if (opening != 0) {
+        result.insert(0, {
+          'id':-1,'date':null,'type':'opening_balance',
+          'description':'رصيد افتتاحي',
+          'debit':opening>0?opening:0,'credit':opening<0?-opening:0,
+          'lah':opening<0?-opening:0,'alayh':opening>0?opening:0,
+          'balance':opening,
+        });
+      }
+      if (carried != 0) {
+        result.insert(opening != 0 ? 1 : 0, {
+          'id':-2,'date':null,'type':'carried_balance',
+          'description':'رصيد مرحّل',
+          'debit':carried>0?carried:0,'credit':carried<0?-carried:0,
+          'lah':carried<0?-carried:0,'alayh':carried>0?carried:0,
+          'balance':initialBalance,
+        });
+      }
+    }
+    return _json(result);
   }
 
   int _minutes(DateTime start,DateTime end,bool midnight){var e=end;if(!e.isAfter(start)){if(!midnight)throw StateError('وقت النهاية يجب أن يكون بعد وقت البداية');e=e.add(const Duration(days:1));}final m=e.difference(start).inMinutes;if(m<=0)throw StateError('مدة السقي غير صالحة');return m;}
