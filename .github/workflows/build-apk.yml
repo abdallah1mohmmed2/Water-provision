@@ -11,6 +11,11 @@ jobs:
     steps:
       - name: جلب الكود المصدري
         uses: actions/checkout@v4
+      - name: Install Linux SQLite development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+
 
       - name: إعداد بيئة Java مع التخزين المؤقت
         uses: actions/setup-java@v3
