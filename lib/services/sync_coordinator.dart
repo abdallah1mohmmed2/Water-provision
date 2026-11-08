@@ -183,6 +183,11 @@ class SyncCoordinator with WidgetsBindingObserver {
     }
   }
 
+  /// Request an immediate best-effort Outbox drain after a local business write.
+  void requestSync() {
+    if (_service != null) unawaited(_syncQuietly());
+  }
+
   Future<void> syncNow() async {
     final service = _service;
     if (service == null || _running) return;
