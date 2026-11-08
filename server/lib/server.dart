@@ -429,7 +429,12 @@ class SaqiaServer {
       throw StateError('الهوية المحلية للأثر التابع لا تطابق هوية الخادم: $table/$localId');
     }
     final globalId = existingGlobalId ?? requestedGlobalId ?? const Uuid().v4();
-    if (!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}
+    if (globalId.length != 36 || !RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId) ||
+        globalId[8] != '-' || globalId[13] != '-' ||
+        globalId[18] != '-' || globalId[23] != '-') {
+      throw StateError('هوية الإسقاط العالمية غير صالحة: ' + table + '/' + localId.toString());
+    }
+    if (existing.isEmpty) {
       db.execute(
         'INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',
         [station, table, globalId, localId, now],
