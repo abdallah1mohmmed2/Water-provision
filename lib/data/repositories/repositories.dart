@@ -305,7 +305,7 @@ class StationRepository {
         (values.containsKey('opening_balance') || values.containsKey('carried_balance'))) {
       final currentRows = await db.query(
         'SELECT opening_balance,carried_balance FROM beneficiaries WHERE id=? LIMIT 1',
-        [id],
+        args: [id],
       );
       if (currentRows.isEmpty) throw StateError('المستفيد غير موجود');
       for (final key in const ['opening_balance', 'carried_balance']) {
