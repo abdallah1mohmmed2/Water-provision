@@ -654,7 +654,7 @@ class SaqiaServer {
       if (_hasTable('partner_transactions')) {
         journalClauses.add("""(je.reference_type='partner' AND je.reference_id IN (
           SELECT pt.id FROM partner_transactions pt
-          WHERE pt.station_id=? AND pt.reference_type='irrigation_profit' AND pt.reference_id=?
+          WHERE pt.station_id=? AND pt.reference_type IN ('irrigation_profit','irrigation') AND pt.reference_id=?
         ))""");
         journalArgs.addAll([station, businessId]);
       }
