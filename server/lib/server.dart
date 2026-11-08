@@ -431,7 +431,8 @@ class SaqiaServer {
     final globalId = existingGlobalId ?? requestedGlobalId ?? const Uuid().v4();
     if (globalId.length != 36 || !RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId) ||
         globalId[8] != '-' || globalId[13] != '-' ||
-        globalId[18] != '-' || globalId[23] != '-') {
+        globalId[18] != '-' || globalId[23] != '-' ||
+        globalId[14] != '4' || !'89abAB'.contains(globalId[19])) {
       throw StateError('هوية الإسقاط العالمية غير صالحة: ' + table + '/' + localId.toString());
     }
     if (existing.isEmpty) {
