@@ -18,6 +18,21 @@ void main() {
     database = sqlite3.openInMemory();
     database.execute('CREATE TABLE stations(id INTEGER PRIMARY KEY, name TEXT NOT NULL)');
     database.execute('INSERT INTO stations(id,name) VALUES(1,\'Station One\'),(2,\'Station Two\')');
+    database.execute('''CREATE TABLE beneficiaries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      station_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      phone TEXT,
+      address TEXT,
+      location TEXT,
+      jerba_number TEXT,
+      area TEXT,
+      is_needy INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT,
+      updated_at TEXT
+    )''');
     database.execute('''CREATE TABLE app_users(
       id INTEGER PRIMARY KEY, station_id INTEGER, role TEXT, active INTEGER
     )''');
@@ -62,15 +77,21 @@ void main() {
 
   Map<String,dynamic> event({
     String id = '11111111-1111-4111-8111-111111111111',
-    String key = 'beneficiary-42',
+    String globalId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     int baseVersion = 0,
+    String operation = 'create',
+    Map<String,dynamic>? payload,
   }) => {
     'event_id':id,
     'entity_type':'beneficiaries',
-    'entity_key':key,
-    'operation':'update',
+    'entity_key':'beneficiaries:$globalId',
+    'operation':operation,
     'base_version':baseVersion,
-    'payload':{'name':'Test Beneficiary'},
+    'payload':{
+      '_global_id':globalId,
+      'name':'Test Beneficiary',
+      ...?payload,
+    },
   };
 
   test('replayed event is acknowledged as duplicate and stored once', () async {
@@ -79,12 +100,16 @@ void main() {
     expect((first['results'] as List).first['status'],'accepted');
     expect((replay['results'] as List).first['status'],'duplicate');
     expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').first['n'],1);
+    expect(database.select('SELECT COUNT(*) AS n FROM beneficiaries WHERE station_id=1').first['n'],1);
   });
 
   test('reusing an event id with a different payload is rejected', () async {
     final first = await postEvents(stationOneToken, [event()]);
     final changed = event();
-    changed['payload'] = {'name': 'Tampered Beneficiary'};
+    changed['payload'] = {
+      '_global_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'name': 'Tampered Beneficiary',
+    };
     final replay = await postEvents(stationOneToken, [changed]);
     expect((first['results'] as List).first['status'], 'accepted');
     expect((replay['results'] as List).first['status'], 'rejected');
@@ -129,44 +154,51 @@ void main() {
     final inbox = await getInbox(stationOneToken,device:'device-a');
     expect((inbox['events'] as List),isEmpty);
   });
-  test('global key adoption preserves the existing local-key server version', () async {
-    final legacy = {
-      'event_id':'33333333-3333-4333-8333-333333333333',
-      'entity_type':'beneficiaries',
-      'entity_key':'beneficiaries:42',
-      'operation':'update',
-      'base_version':0,
-      'payload':{'id':42,'name':'Existing Beneficiary'},
-    };
-    final first = await postEvents(stationOneToken,[legacy]);
-    expect((first['results'] as List).first['status'],'accepted');
-
+  test('beneficiary create and update are applied atomically to business rows', () async {
     const globalId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    final adopted = {
-      'event_id':'44444444-4444-4444-8444-444444444444',
-      'entity_type':'beneficiaries',
-      'entity_key':'beneficiaries:$globalId',
-      'operation':'update',
-      'base_version':1,
-      'payload':{
-        'id':42,
-        '_global_id':globalId,
-        '_global_refs':{},
-        'name':'Existing Beneficiary updated',
-      },
-    };
-    final second = await postEvents(stationOneToken,[adopted]);
-    expect((second['results'] as List).first['status'],'accepted');
-    expect((second['results'] as List).first['server_version'],2);
+    final first = await postEvents(stationOneToken, [
+      event(globalId: globalId, payload: {'phone': '777'}),
+    ]);
+    expect((first['results'] as List).first['status'], 'accepted');
+    final row = database.select(
+      "SELECT id,name,phone,station_id FROM beneficiaries WHERE station_id=1",
+    ).single;
+    expect(row['name'], 'Test Beneficiary');
+    expect(row['phone'], '777');
+    expect(row['station_id'], 1);
+
+    final second = await postEvents(stationOneToken, [
+      event(
+        id: '44444444-4444-4444-8444-444444444444',
+        globalId: globalId,
+        baseVersion: 1,
+        operation: 'update',
+        payload: {'name': 'Updated Beneficiary'},
+      ),
+    ]);
+    expect((second['results'] as List).first['status'], 'accepted');
     expect(database.select(
-      "SELECT version FROM sync_entity_versions WHERE station_id=1 AND entity_type='beneficiaries' AND entity_key='beneficiaries:$globalId'",
-    ).single['version'],2);
+      "SELECT name FROM beneficiaries WHERE station_id=1",
+    ).single['name'], 'Updated Beneficiary');
     expect(database.select(
-      "SELECT COUNT(*) AS n FROM sync_entity_versions WHERE station_id=1 AND entity_key='beneficiaries:42'",
-    ).single['n'],0);
-    expect(database.select(
-      "SELECT entity_key FROM sync_event_log WHERE event_id='33333333-3333-4333-8333-333333333333'",
-    ).single['entity_key'],'beneficiaries:$globalId');
+      "SELECT version FROM sync_entity_versions WHERE station_id=1 AND entity_key='beneficiaries:$globalId'",
+    ).single['version'], 2);
+  });
+
+  test('failed business application rolls back event log and entity version', () async {
+    final invalid = event(payload: {'name': ''});
+    final response = await postEvents(stationOneToken, [invalid]);
+    expect((response['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM beneficiaries').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_entity_versions').single['n'], 0);
+  });
+
+  test('event from another station cannot create a row in the first station', () async {
+    final response = await postEvents(stationTwoToken, [event()]);
+    expect((response['results'] as List).first['status'], 'accepted');
+    expect(database.select('SELECT COUNT(*) AS n FROM beneficiaries WHERE station_id=1').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM beneficiaries WHERE station_id=2').single['n'], 1);
   });
 
 }
