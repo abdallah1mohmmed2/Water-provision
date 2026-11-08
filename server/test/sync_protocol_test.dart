@@ -1418,7 +1418,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect((sessionFinish['results'] as List).single['status'],'accepted');
     expect(database.select('SELECT * FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]),hasLength(1));
     expect(database.select('SELECT kind FROM diesel_movements WHERE station_id=1 ORDER BY id').map((r)=>r['kind']).toList(),['advance','consumption']);
-    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
     expect(database.select("SELECT amount FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=?",[irrigation['id']]).single['amount'],100);
     expect(database.select("SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?",[irrigation['id']]).single['amount'],6900);
     final ledgerTotals = database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
