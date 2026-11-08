@@ -485,6 +485,36 @@ class StationRepository {
     DateTime? from,
     DateTime? to,
   }) async {
+    final api = SyncCoordinator.instance.apiClient;
+    if (api != null) {
+      final identities = await db.query(
+        "SELECT global_id FROM sync_global_identities WHERE table_name='beneficiaries' AND local_id=? LIMIT 1",
+        args: [id],
+      );
+      if (identities.isNotEmpty) {
+        final globalId = Uri.encodeComponent('${identities.first['global_id']}');
+        final query = <String,String>{
+          if (from != null) 'from': from.toIso8601String(),
+          if (to != null) 'to': to.toIso8601String(),
+        };
+        final suffix = query.isEmpty ? '' : '?\${Uri(queryParameters: query).query}';
+        try {
+          final remote = await api.get(
+            '/beneficiaries/$globalId/statement$suffix',
+          );
+          if (remote is! List) {
+            throw StateError('استجابة كشف حساب المستفيد من الخادم غير صالحة.');
+          }
+          return remote
+              .map((row) => Map<String,Object?>.from(row as Map)
+                ..['_source'] = 'server')
+              .toList();
+        } on ApiConnectionException {
+          // Use the local ledger only for a transport outage. HTTP failures
+          // remain visible so stale balances are never presented as current.
+        }
+      }
+    }
     final baseRows = await db.rawQuery(
       'SELECT opening_balance,carried_balance FROM beneficiaries WHERE id=?',
       [id],
