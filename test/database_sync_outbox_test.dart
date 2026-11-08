@@ -289,6 +289,7 @@ void main() {
         else if (type.contains('REAL') || type.contains('FLOA') || type.contains('DOUB')) values[columnName]=0.0;
         else if (columnName == 'created_at' || columnName == 'updated_at') values[columnName]=now;
         else if (columnName == 'pay_type' || columnName == 'salary_type') values[columnName]='fixed';
+        else if (columnName == 'ownership_mode') values[columnName]='shares';
         else values[columnName]='';
       }
       return database.insert(table,values);
