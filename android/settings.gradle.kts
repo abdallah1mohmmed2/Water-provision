@@ -12,6 +12,9 @@ pluginManagement {
 
     repositories {
         google()
+        // Prefer the Huawei Cloud Maven Central mirror to avoid transient
+        // GitHub Releases 504 redirects for Kotlin compiler artifacts.
+        maven { url = uri("https://repo.huaweicloud.com/repository/maven/") }
         mavenCentral()
         gradlePluginPortal()
     }
