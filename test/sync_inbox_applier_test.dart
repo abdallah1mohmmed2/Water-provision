@@ -901,7 +901,6 @@ void main() {
             'payment_method_id': paymentMethodId,
             'cashbox_id': cashboxId,
             'status': 'posted',
-            'created_at': nowText,
             '_derived_global_ids': {
               'journal_entries': <String>[],
               'journal_lines': <String>[],
