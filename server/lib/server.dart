@@ -2823,7 +2823,7 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
     if (start.isBefore(irrigationStart) || end.isAfter(irrigationEnd)) throw StateError('فترة الغيم خارج نطاق السقاية');
     final minutes = end.difference(start).inMinutes;
     if (minutes <= 0 || (payload['minutes'] is num && (payload['minutes'] as num).toInt()!=minutes)) throw StateError('عدد دقائق فترة الغيم غير مطابق للوقت');
-    final matching = db.select('SELECT id FROM cloud_periods WHERE irrigation_id=? AND start_datetime=? AND end_datetime=? AND minutes=? LIMIT 2',[irrigationId,start.toIso8601String(),end.toIso8601String(),minutes]);
+    final matching = db.select('SELECT id FROM cloud_periods WHERE irrigation_id=? AND start_datetime=? AND end_datetime=? AND minutes=? LIMIT 2',[irrigationId,payload['start_datetime'].toString(),payload['end_datetime'].toString(),minutes]);
     if (matching.length != 1) throw StateError('فترة الغيم يجب أن تكون جزءاً من قائمة الفترات التي احتسبها الخادم مع السقاية');
     db.execute('INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',[station,'cloud_periods',globalId,matching.first['id'],now]);
   }
