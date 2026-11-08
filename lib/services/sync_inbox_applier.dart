@@ -145,8 +145,8 @@ class SyncInboxApplier {
         // transaction, so a failed projection cannot discard local work.
         await tx.delete(
           'sync_queue',
-          'table_name=? AND record_id=? AND status IN (\'pending\',\'sending\',\'conflict\')',
-          [table, localId],
+          where: 'table_name=? AND record_id=? AND status IN (\'pending\',\'sending\',\'conflict\')',
+          whereArgs: [table, localId],
         );
       }
       final pending = await tx.rawQuery(
