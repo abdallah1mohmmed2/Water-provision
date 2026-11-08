@@ -56,6 +56,9 @@ jobs:
       - name: Analyze project
         run: flutter analyze .
 
+      - name: Prepare SHA3-verified Android SQLite source
+        run: python3 tooling/prepare_android_sqlite.py
+
       - name: Build release APK
         run: flutter build apk --release
 
