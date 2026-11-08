@@ -201,6 +201,77 @@ void main() {
     expect(globalRefs['beneficiary_id']['global_id'], beneficiaryGlobalId);
   });
 
+  test('irrigation outbox contains only the business command while derived rows keep identities', () async {
+    await database.update('pumps', {'system_type': 'solar'}, 'id=?', [1]);
+    await database.update('workers', {'active': 0}, 'id>? ', [0]);
+    await database.update('partners', {'active': 0}, 'id>? ', [0]);
+    final now = DateTime(2099, 5, 6, 8);
+    final beneficiaryId = await database.insert('beneficiaries', {
+      'name': 'SYNC-TEST-projection-beneficiary',
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+    });
+    final irrigationId = await AccountingService(database).recordIrrigation(
+      stationId: 1,
+      pumpId: 1,
+      beneficiaryId: beneficiaryId,
+      start: now,
+      end: now.add(const Duration(hours: 1)),
+      systemType: 'solar',
+      waterRate: 0,
+      litersPerHour: 0,
+      dieselPrice: 0,
+      solarRate: 1000,
+      thirdRate: 0,
+      cloudMinutes: 10,
+      paidAmount: 0,
+      cloudPeriods: [
+        {
+          'start': now.add(const Duration(minutes: 10)).toIso8601String(),
+          'end': now.add(const Duration(minutes: 20)).toIso8601String(),
+        },
+      ],
+    );
+
+    final outbox = await database.query(
+      'SELECT table_name FROM sync_queue ORDER BY id',
+    );
+    expect(outbox.map((row) => row['table_name']).toList(), ['irrigations']);
+
+    for (final relation in const [
+      ('cloud_periods', 'irrigation_id'),
+      ('journal_entries', 'reference_id'),
+    ]) {
+      final rows = await database.query(
+        'SELECT id FROM ${relation.$1} WHERE ${relation.$2}=?',
+        args: [irrigationId],
+      );
+      expect(rows, isNotEmpty);
+      for (final row in rows) {
+        final identity = await database.query(
+          'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
+          whereArgs: [relation.$1, row['id']],
+        );
+        expect(identity, hasLength(1));
+      }
+    }
+    final journalLines = await database.query(
+      'SELECT jl.id FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.reference_type=? AND je.reference_id=?',
+      args: ['irrigation', irrigationId],
+    );
+    expect(journalLines, isNotEmpty);
+    for (final line in journalLines) {
+      expect(
+        await database.query(
+          'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
+          whereArgs: ['journal_lines', line['id']],
+        ),
+        hasLength(1),
+      );
+    }
+    await database.update('pumps', {'system_type': 'diesel'}, 'id=?', [1]);
+  });
+
   test('remote repository writes can opt out of echoing into the outbox', () async {
     final now = DateTime.now().toIso8601String();
     await database.transaction((tx) async {
