@@ -94,6 +94,103 @@ void main() {
     },
   };
 
+  void prepareReceiptFixture({String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}) {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'Receipt Beneficiary','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries',?,1,'2026-11-08T00:00:00Z')", [beneficiaryGlobalId]);
+    database.execute('''CREATE TABLE cashboxes(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL,
+      opening_balance INTEGER NOT NULL DEFAULT 0, current_balance INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'YER', active INTEGER NOT NULL DEFAULT 1,
+      ledger_account_code TEXT
+    )''');
+    database.execute('''CREATE TABLE payment_methods(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL,
+      type TEXT NOT NULL, cashbox_id INTEGER, ledger_account_code TEXT, active INTEGER NOT NULL DEFAULT 1
+    )''');
+    database.execute('''CREATE TABLE payments(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, beneficiary_id INTEGER,
+      partner_id INTEGER, worker_id INTEGER, amount INTEGER NOT NULL, date TEXT NOT NULL,
+      payment_method_id INTEGER NOT NULL, cashbox_id INTEGER NOT NULL, reference_number TEXT,
+      notes TEXT, status TEXT NOT NULL, created_by INTEGER
+    )''');
+    database.execute('CREATE TABLE accounts(id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL)');
+    database.execute('''CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY, station_id INTEGER, date TEXT NOT NULL, reference_type TEXT,
+      reference_id INTEGER, description TEXT NOT NULL, status TEXT NOT NULL,
+      created_by INTEGER, created_at TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY, journal_entry_id INTEGER NOT NULL, account_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER, debit INTEGER NOT NULL DEFAULT 0,
+      credit INTEGER NOT NULL DEFAULT 0, memo TEXT
+    )''');
+    database.execute("INSERT INTO cashboxes(id,station_id,name,current_balance,currency,active,ledger_account_code) VALUES(1,1,'Main Cashbox',500,'YER',1,'1000')");
+    database.execute("INSERT INTO payment_methods(id,station_id,name,type,cashbox_id,ledger_account_code,active) VALUES(1,1,'Cash','cash',1,'1000',1)");
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1000','Cash','asset'),(2,'1200','Beneficiary receivables','asset')");
+  }
+
+  Map<String,dynamic> receiptEvent({
+    String id = '33333333-3333-4333-8333-333333333333',
+    String paymentGlobalId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    int amount = 250,
+  }) => {
+    'event_id': id,
+    'entity_type': 'payments',
+    'entity_key': 'payments:$paymentGlobalId',
+    'operation': 'create',
+    'base_version': 0,
+    'payload': {
+      '_global_id': paymentGlobalId, 'beneficiary_id': 1, 'partner_id': null, 'worker_id': null,
+      'amount': amount, 'date': '2026-11-08T08:30:00.000', 'status': 'posted',
+      'payment_method_id': 1, 'cashbox_id': 1, 'reference_number': 'RCPT-001', 'notes': 'test receipt',
+      '_global_refs': {
+        'beneficiary_id': {'table':'beneficiaries','global_id':beneficiaryGlobalId},
+        'payment_method_id': {'table':'payment_methods','global_id':'dddddddd-dddd-4ddd-8ddd-dddddddddddd','name':'Cash','type':'cash'},
+        'cashbox_id': {'table':'cashboxes','global_id':'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','name':'Main Cashbox','currency':'YER'},
+      },
+      '_unresolved_refs': {},
+    },
+  };
+
+  test('beneficiary receipt applies once and replay returns duplicate without double posting', () async {
+    prepareReceiptFixture();
+    final command = receiptEvent();
+    final first = await postEvents(stationOneToken, [command]);
+    final replay = await postEvents(stationOneToken, [command]);
+    expect((first['results'] as List).first['status'], 'accepted');
+    expect((replay['results'] as List).first['status'], 'duplicate');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'], 1);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'], 750);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'], 1);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_lines').single['n'], 2);
+    expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['debit'], 250);
+    expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['credit'], 250);
+  });
+
+  test('receipt rejects a beneficiary identity owned by another station without writes', () async {
+    prepareReceiptFixture();
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(2,2,'Foreign Beneficiary','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'beneficiaries','ffffffff-ffff-4fff-8fff-ffffffffffff',2,'2026-11-08T00:00:00Z')");
+    final result = await postEvents(stationOneToken, [receiptEvent(beneficiaryGlobalId:'ffffffff-ffff-4fff-8fff-ffffffffffff')]);
+    expect((result['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'], 0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'], 500);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').single['n'], 0);
+  });
+
+  test('receipt journal failure rolls back payment and cashbox balance', () async {
+    prepareReceiptFixture();
+    database.execute("DELETE FROM accounts WHERE code='1200'");
+    final result = await postEvents(stationOneToken, [receiptEvent()]);
+    expect((result['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'], 0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'], 500);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').single['n'], 0);
+  });
+
   test('replayed event is acknowledged as duplicate and stored once', () async {
     final first = await postEvents(stationOneToken,[event()]);
     final replay = await postEvents(stationOneToken,[event()]);
