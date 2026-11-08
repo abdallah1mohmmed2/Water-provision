@@ -718,7 +718,7 @@ void main() {
     final events = secondDeviceInbox['events'] as List;
     expect(
       events.map((event) => (event as Map)['entity_type']).toList(),
-      ['payments', 'journal_entries', 'journal_lines', 'cashboxes'],
+      ['payments', 'journal_entries', 'journal_lines', 'journal_lines', 'cashboxes'],
     );
     expect(
       events.skip(1).map((event) => (event as Map)['source_device']).toSet(),
@@ -730,7 +730,7 @@ void main() {
     expect(database.select('SELECT COUNT(*) n FROM payments').single['n'], 1);
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'], 1);
     expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'], 2);
-    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'], 4);
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'], 5);
     final totals = database.select(
       'SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines',
     ).single;
