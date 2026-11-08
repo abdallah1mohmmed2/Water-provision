@@ -365,6 +365,102 @@ class SaqiaServer {
     throw StateError('لم يُعثر على مرجع ' + entityType + ' داخل المحطة');
   }
 
+  void _applySyncDieselMovement({
+    required int station, required String entityKey, required String operation,
+    required Map payload, required String now, required int? userId, required String? role,
+  }) {
+    if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بمزامنة حركات الديزل');
+    if (userId == null || _stationForUser(userId) != station) throw StateError('مستخدم حركة الديزل لا يتبع المحطة الموثقة');
+    final globalId = (payload['_global_id'] ?? '').toString();
+    final validId = globalId.length == 36 && globalId[8] == '-' && globalId[13] == '-' && globalId[18] == '-' && globalId[23] == '-' && RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId);
+    if (!validId || entityKey != 'diesel_movements:' + globalId) throw StateError('هوية حركة الديزل العالمية غير صالحة');
+    final columns = db.select('PRAGMA table_info(diesel_movements)').map((row) => row['name'].toString()).toSet();
+    const requiredColumns = {'id','station_id','beneficiary_id','irrigation_id','cashbox_id','kind','liters','unit_price','amount','date','notes','created_by'};
+    if (!requiredColumns.every(columns.contains)) throw StateError('مخطط حركات الديزل لا يدعم المزامنة الآمنة');
+    final links = db.select("SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='diesel_movements' AND global_id=? LIMIT 1", [station,globalId]);
+    final refs = payload['_global_refs'];
+    if (refs is! Map) throw StateError('مراجع حركة الديزل العالمية مفقودة');
+    final beneficiaryId = payload['beneficiary_id'] == null ? null : _resolveSyncReference(station:station,entityType:'beneficiaries',column:'beneficiary_id',references:refs);
+    final irrigationId = payload['irrigation_id'] == null ? null : _resolveSyncReference(station:station,entityType:'irrigations',column:'irrigation_id',references:refs);
+    int? cashboxId;
+    if (payload['cashbox_id'] != null) {
+      final ref = refs['cashbox_id'];
+      if (ref is! Map || ref['table'] != 'cashboxes') throw StateError('مرجع صندوق حركة الديزل غير صالح');
+      cashboxId = _resolveSyncReference(station:station,entityType:'cashboxes',column:'cashbox_id',references:refs);
+      final box = db.select('SELECT active FROM cashboxes WHERE id=? AND station_id=? LIMIT 1',[cashboxId,station]);
+      if (box.isEmpty || (box.first['active'] as num?)?.toInt()!=1) throw StateError('صندوق حركة الديزل غير نشط أو لا يتبع المحطة');
+    }
+    if (beneficiaryId != null) _requireOwn('beneficiaries',beneficiaryId,station,'المستفيد');
+    if (irrigationId != null) _requireOwn('irrigations',irrigationId,station,'السقاية');
+    final kind = (payload['kind'] ?? '').toString();
+    if (!const {'receipt','delivery','advance','consumption','correction','opening_balance'}.contains(kind)) throw StateError('نوع حركة الديزل غير صالح');
+    if ((kind == 'correction' || kind == 'opening_balance') && beneficiaryId != null) throw StateError('التصحيح والرصيد الافتتاحي يخصان مخزون المحطة فقط');
+    final litersValue = payload['liters'];
+    final priceValue = payload['unit_price'];
+    final amountValue = payload['amount'];
+    if (litersValue is! num || !litersValue.toDouble().isFinite || litersValue <= 0 || priceValue is! num || priceValue < 0 || priceValue != priceValue.round() || amountValue is! num || amountValue < 0 || amountValue != amountValue.round()) throw StateError('كمية أو سعر أو قيمة حركة الديزل غير صالحة');
+    final liters = litersValue.toDouble();
+    final unitPrice = priceValue.toInt();
+    final amount = amountValue.toInt();
+    if ((liters * unitPrice).round() != amount) throw StateError('قيمة حركة الديزل لا تطابق الكمية وسعر اللتر');
+    final date = DateTime.tryParse((payload['date'] ?? '').toString());
+    if (date == null) throw StateError('تاريخ حركة الديزل غير صالح');
+    final notes = payload['notes']?.toString();
+    final financialCredit = _settingsForStation(station)['diesel_delivery_financial_credit'] == 'true';
+    final requiresJournal = kind == 'consumption' || kind == 'correction' || kind == 'opening_balance' || (kind == 'receipt' && cashboxId != null) || (kind == 'advance' && beneficiaryId != null) || (kind == 'delivery' && beneficiaryId != null && financialCredit);
+    if (requiresJournal && amount <= 0) throw StateError('الحركة التي تتطلب قيداً محاسبياً يجب أن تكون قيمتها موجبة');
+    if (operation == 'delete') throw UnsupportedError('إلغاء حركة الديزل يتطلب القيد العكسي؛ لم يُسمح بحذفها مباشرة');
+    if (operation == 'update') {
+      if (links.isEmpty) throw StateError('لا توجد حركة ديزل مرتبطة لتحديثها');
+      final id = (links.first['local_id'] as num).toInt();
+      final rows = db.select('SELECT * FROM diesel_movements WHERE id=? AND station_id=? LIMIT 1',[id,station]);
+      if (rows.isEmpty) throw StateError('حركة الديزل لا تتبع المحطة الحالية');
+      final row = rows.first;
+      if (row['kind'] != kind || (row['liters'] as num).toDouble() != liters || (row['unit_price'] as num).toInt() != unitPrice || (row['amount'] as num).toInt() != amount || (row['beneficiary_id'] as num?)?.toInt() != beneficiaryId || (row['irrigation_id'] as num?)?.toInt() != irrigationId || (row['cashbox_id'] as num?)?.toInt() != cashboxId || DateTime.tryParse(row['date'].toString())?.toIso8601String() != date.toIso8601String()) throw StateError('يسمح بتعديل ملاحظات حركة الديزل فقط؛ لا تغيّر قيمها المالية');
+      db.execute('UPDATE diesel_movements SET notes=? WHERE id=? AND station_id=?',[notes,id,station]);
+      return;
+    }
+    if (operation != 'create') throw UnsupportedError('عملية حركة الديزل غير مدعومة');
+    if (links.isNotEmpty) throw StateError('هوية حركة الديزل مستخدمة مسبقاً');
+    // The irrigation handler already creates its own consumption/advance rows.
+    // Link those rows instead of applying stock and journal effects twice.
+    if (irrigationId != null) {
+      final matches = db.select('SELECT id FROM diesel_movements WHERE station_id=? AND irrigation_id=? AND kind=? AND liters=? AND unit_price=? AND amount=? AND beneficiary_id IS ? LIMIT 2',[station,irrigationId,kind,liters,unitPrice,amount,beneficiaryId]);
+      if (matches.length != 1) throw StateError('حركة الديزل المرتبطة بالسقاية لم تطابق حركة الخادم؛ أُوقف التطبيق لمنع تكرار المخزون والقيود');
+      db.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'diesel_movements',?,?,?)",[station,globalId,matches.first['id'],now]);
+      return;
+    }
+    if ((kind == 'correction' || kind == 'opening_balance') && amount <= 0) throw StateError('تصحيح المخزون والرصيد الافتتاحي يتطلبان قيمة مالية موجبة');
+    final stock = db.select("SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) AS stock FROM diesel_movements WHERE station_id=?",[station]);
+    final currentStock = (stock.first['stock'] as num?)?.toDouble() ?? 0;
+    if ((kind == 'delivery' || kind == 'consumption' || kind == 'advance') && liters > currentStock + 0.0000001) throw StateError('كمية الديزل المطلوبة أكبر من مخزون المحطة المتاح');
+    if (kind == 'receipt' && cashboxId != null) {
+      final cash = db.select('SELECT current_balance,ledger_account_code FROM cashboxes WHERE id=? AND station_id=? LIMIT 1',[cashboxId,station]);
+      if (cash.isEmpty || (cash.first['current_balance'] as num).toInt() < amount) throw StateError('رصيد الصندوق لا يكفي لشراء الديزل');
+    }
+    db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,cashbox_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[station,beneficiaryId,null,cashboxId,kind,liters,unitPrice,amount,date.toIso8601String(),notes,userId]);
+    final movementId = db.lastInsertRowId;
+    if (kind == 'receipt' && cashboxId != null) {
+      db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=? AND station_id=?',[amount,cashboxId,station]);
+      if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر تحديث رصيد صندوق شراء الديزل');
+      final box = db.select('SELECT ledger_account_code FROM cashboxes WHERE id=? AND station_id=?',[cashboxId,station]).first;
+      var code = (box['ledger_account_code'] ?? '').toString();
+      if (code.isEmpty) {
+        final methods = db.select('SELECT ledger_account_code,type FROM payment_methods WHERE cashbox_id=? AND station_id=? AND active=1 ORDER BY id LIMIT 1',[cashboxId,station]);
+        if (methods.isNotEmpty) {
+          final configured = (methods.first['ledger_account_code'] ?? '').toString();
+          code = configured.isNotEmpty ? configured : (methods.first['type'] == 'bank_transfer' ? '1100' : methods.first['type'] == 'wallet' ? '1120' : '1000');
+        } else { code = '1000'; }
+      }
+      _journal(description:'شراء/إضافة ديزل للمخزون',referenceType:'diesel_receipt',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId(code),'debit':0,'credit':amount}]);
+    }
+    if (kind == 'consumption') _journal(description:'استهلاك ديزل',referenceType:'diesel_consumption',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('5010'),'debit':amount,'credit':0},{'account_id':_accountId('1300'),'debit':0,'credit':amount}]);
+    if (kind == 'correction') _journal(description:'تصحيح زيادة مخزون الديزل',referenceType:'diesel_correction',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('5010'),'debit':0,'credit':amount}]);
+    if (kind == 'opening_balance') _journal(description:'رصيد افتتاحي لمخزون الديزل',referenceType:'diesel_opening_balance',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('3000'),'debit':0,'credit':amount}]);
+    if (kind == 'delivery' && beneficiaryId != null && financialCredit) _journal(description:'تسليم ديزل من المستفيد (رصيد مالي)',referenceType:'diesel',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('1200'),'beneficiary_id':beneficiaryId,'debit':0,'credit':amount}]);
+    if (kind == 'advance' && beneficiaryId != null) _journal(description:'سلفة ديزل للمستفيد',referenceType:'diesel_advance',referenceId:movementId,userId:userId,lines:[{'account_id':_accountId('1200'),'beneficiary_id':beneficiaryId,'debit':amount,'credit':0},{'account_id':_accountId('1300'),'debit':0,'credit':amount}]);
+    db.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'diesel_movements',?,?,?)",[station,globalId,movementId,now]);
+  }
   void _applySyncPaymentReceipt({
     required int station, required String entityKey, required Map payload,
     required String now, required int? userId, required String? role,
@@ -1176,6 +1272,10 @@ class SaqiaServer {
     if (entityType == 'irrigations') {
       if (operation != 'create') throw UnsupportedError('تعديل أو حذف السقاية يحتاج معالج عكس محاسبي مخصصاً');
       _applySyncIrrigation(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'diesel_movements') {
+      _applySyncDieselMovement(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
       return;
     }
     if (entityType == 'payments') {
