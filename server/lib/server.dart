@@ -854,6 +854,16 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
       'name', 'phone', 'address', 'location', 'jerba_number',
       'area', 'is_needy', 'notes',
     };
+    for (final financialField in const {
+      'opening_balance', 'carried_balance', 'opening_diesel_liters',
+    }) {
+      final value = payload[financialField];
+      if (value is num && value != 0) {
+        throw UnsupportedError(
+          'تغيير الرصيد الافتتاحي أو رصيد الديزل يحتاج معالجاً محاسبياً مخصصاً',
+        );
+      }
+    }
     if (operation == 'create') {
       if (localId != null) throw StateError('هوية المستفيد موجودة مسبقاً؛ استخدم update');
       final values = <String, Object?>{
