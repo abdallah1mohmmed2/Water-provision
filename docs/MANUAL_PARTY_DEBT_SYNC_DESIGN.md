@@ -196,3 +196,23 @@
 ### معالجة استمرار تحويل Gradle إلى GitHub Releases
 
 بيّن سجل Debug أن `downloads.gradle.org` نفسه أعاد توجيه الطلب إلى GitHub Releases، حيث استمر HTTP 504. تم تحويل Gradle Wrapper إلى مرآة Huawei Cloud لتوزيعات Gradle (`repo.huaweicloud.com/repository/toolkit/gradle`) مع الإبقاء على `distributionSha256Sum` الرسمي لتوزيعة Gradle 9.3.1؛ أي ملف غير مطابق للبصمة يرفضه Wrapper. يجب أن يثبت تشغيل Debug على الرأس الجديد نجاح هذا التنزيل والبناء.
+
+
+### تشخيص CI على الرأس 01ab849e1be473103d783f76edf14d1c6d43bd48 — 2026-11-08
+
+أُعيد فحص رأس الفرع وسجلات التشغيل الفعلية، وتبين الآتي:
+
+- pubspec.yaml يثبت sqlite3: 3.6.0، وpubspec.lock يحل الإصدار نفسه مع بصمة pub.dev المسجلة. كما يحل sqflite_common_ffi إلى 2.4.3.
+- بناء Android لا يعتمد على libsqlite.so النظامية. إعداد hook يستخدم source: source على Android مع path: .ci/sqlite3/sqlite3.c. يجهز Workflow هذا المسار أثناء التشغيل بواسطة tooling/prepare_android_sqlite.py، وليس مطلوباً أن يكون ملف C المولد موجوداً في Git قبل خطوة التجهيز.
+- سجل تشغيل Release أكد نجاح خطوة Prepare SHA3-verified Android SQLite source والتحقق من SQLite 3.53.4 بالبصمة SHA3-256 المنشورة. لذلك لم يكن SHA256 لملف SQLite سبب فشل التشغيل الأخير.
+- سبب فشل Release الحالي مستقل: تعذر تنزيل org.jetbrains.kotlin:kotlin-compiler-embeddable:2.2.21، حيث أعاد مسار Maven Central تحويل الطلب إلى GitHub Releases وانتهى HTTP 504. خطوة رفع APK تخطيت لأن البناء لم ينجح.
+- تشغيل Debug في workflow الآخر واجه السبب نفسه. Analyze وSonarCloud نجحا على الرأس ذاته.
+
+### إصلاح مستودع Kotlin/Maven
+
+أضيف مستودع Huawei Cloud Maven Central قبل Maven Central في pluginManagement.repositories وallprojects.repositories، مع إبقاء Google Maven وMaven Central وGradle Plugin Portal كمصادر لازمة/احتياطية. الهدف أن تُحل تبعيات Kotlin من المرآة قبل الوصول إلى المسار الذي أعاد HTTP 504. لا يتغير إصدار Kotlin أو Gradle ولا تُضاف أي بصمة مخترعة؛ تبقى آليات التحقق الأصلية كما هي.
+
+مرجع إعداد mirror: https://support.huaweicloud.com/intl/en-us/usermanual-mirrors/mirrors_hlp_0004.html
+مرجع SQLite build hooks: https://pub.dev/documentation/sqlite3/latest/topics/hook-topic.html
+
+حالة الإصلاح: التعديل ينتظر CI. لا يُعتبر نجاحه مثبتاً قبل نجاح Release ووجود Artifact مرتبطين برأس commit الذي يتضمن هذا التعديل.
