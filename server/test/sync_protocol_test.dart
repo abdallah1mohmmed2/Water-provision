@@ -278,7 +278,7 @@ void main() {
       'base_version':0,
       'payload':{
         '_global_id':globalId,
-        [partyColumn]:1,
+        if(worker) 'worker_id':1 else 'partner_id':1,
         'type':'opening_balance',
         'date':'2026-11-07T09:00:00.000',
         'amount':amount,
@@ -289,9 +289,9 @@ void main() {
         if(worker) 'rate_snapshot':0,
         if(worker) 'percentage_snapshot':0,
         if(!worker) 'ownership_snapshot':null,
-        '_global_refs':{
-          [partyColumn]:{'table':worker?'workers':'partners','global_id':partyId},
-        },
+        '_global_refs': worker
+          ? {'worker_id':{'table':'workers','global_id':partyId}}
+          : {'partner_id':{'table':'partners','global_id':partyId}},
         '_unresolved_refs':{},
       },
     };
