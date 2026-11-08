@@ -272,6 +272,69 @@ void main() {
     await database.update('pumps', {'system_type': 'diesel'}, 'id=?', [1]);
   });
 
+  test('beneficiary receipt outbox contains payment command and identities for cashbox and journal effects', () async {
+    final now = DateTime(2099, 5, 7, 8).toIso8601String();
+    final beneficiaryId = await database.transaction((tx) async {
+      return tx.insert('beneficiaries', {
+        'name': 'SYNC-TEST-receipt-beneficiary',
+        'created_at': now,
+        'updated_at': now,
+      });
+    }, captureSync: false);
+
+    await AccountingService(database).receivePayment(
+      beneficiaryId: beneficiaryId,
+      amount: 250,
+      paymentMethodId: 1,
+      cashboxId: 1,
+    );
+
+    final outbox = await database.query(
+      'SELECT table_name FROM sync_queue ORDER BY id',
+    );
+    expect(outbox.map((row) => row['table_name']).toList(), ['payments']);
+    final payment = (await database.query(
+      'SELECT id FROM payments WHERE beneficiary_id=? ORDER BY id DESC LIMIT 1',
+      args: [beneficiaryId],
+    )).single;
+    final paymentId = (payment['id'] as num).toInt();
+    final entries = await database.query(
+      "SELECT id FROM journal_entries WHERE reference_type='payment' AND reference_id=?",
+      args: [paymentId],
+    );
+    expect(entries, hasLength(1));
+    for (final entry in entries) {
+      expect(
+        await database.query(
+          'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
+          args: ['journal_entries', entry['id']],
+        ),
+        hasLength(1),
+      );
+    }
+    final lines = await database.query(
+      'SELECT id FROM journal_lines WHERE journal_entry_id=?',
+      args: [entries.single['id']],
+    );
+    expect(lines, hasLength(2));
+    for (final line in lines) {
+      expect(
+        await database.query(
+          'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
+          args: ['journal_lines', line['id']],
+        ),
+        hasLength(1),
+      );
+    }
+    expect(
+      await database.query(
+        'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
+        args: ['cashboxes', 1],
+      ),
+      hasLength(1),
+    );
+  });
+
   test('remote repository writes can opt out of echoing into the outbox', () async {
     final now = DateTime.now().toIso8601String();
     await database.transaction((tx) async {
