@@ -281,11 +281,11 @@ void main() {
       id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL,
       amount INTEGER NOT NULL, status TEXT NOT NULL
     )''');
-    database.execute("INSERT INTO beneficiaries(station_id,name,status,opening_balance,carried_balance) VALUES(1,'Balance A','active',100,20),(2,'Balance B','active',500,0)");
-    database.execute("INSERT INTO irrigations(station_id,beneficiary_id,total_amount,status) VALUES(1,2,300,'posted'),(2,2,9000,'posted')");
-    database.execute("INSERT INTO payments(station_id,beneficiary_id,amount,status) VALUES(1,2,50,'posted'),(2,2,1000,'posted')");
-    database.execute("INSERT INTO beneficiary_manual_debts(beneficiary_id,amount,status) VALUES(2,30,'posted')");
-    database.execute("INSERT INTO diesel_movements(station_id,beneficiary_id,amount,kind,irrigation_id) VALUES(1,2,10,'advance',NULL)");
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status,opening_balance,carried_balance) VALUES(1,1,'Balance A','active',100,20),(2,2,'Balance B','active',500,0)");
+    database.execute("INSERT INTO irrigations(station_id,beneficiary_id,total_amount,status) VALUES(1,1,300,'posted'),(2,2,9000,'posted')");
+    database.execute("INSERT INTO payments(station_id,beneficiary_id,amount,status) VALUES(1,1,50,'posted'),(2,2,1000,'posted')");
+    database.execute("INSERT INTO beneficiary_manual_debts(beneficiary_id,amount,status) VALUES(1,30,'posted')");
+    database.execute("INSERT INTO diesel_movements(station_id,beneficiary_id,amount,kind,irrigation_id) VALUES(1,1,10,'advance',NULL)");
     database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'diesel_delivery_financial_credit','false')");
 
     final response = await server.router().call(Request(
