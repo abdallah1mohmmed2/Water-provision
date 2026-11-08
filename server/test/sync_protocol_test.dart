@@ -1306,6 +1306,35 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       'cloud_minutes':10,
       'cloud_periods':[{'start_datetime':'2026-11-08T08:20:00.000','end_datetime':'2026-11-08T08:30:00.000'}],
       'paid_amount':0,
+      '_derived_global_ids': {
+        'cloud_periods': ['ababcdcd-abab-4bab-8bab-ababcdcdabab'],
+        'worker_transactions': ['acacacac-acac-4cac-8cac-acacacacacab'],
+        'partner_transactions': ['adadadad-adad-4dad-8dad-adadadadadad'],
+        'diesel_movements': [
+          'aeaeaeae-aeae-4eae-8eae-aeaeaeaeaeae',
+          'afafafaf-afaf-4faf-8faf-afafafafafaf',
+        ],
+        'journal_entries': [
+          'babababa-baba-4bba-8bba-babababababa',
+          'bcbcbcbc-bcbc-4cbc-8cbc-bcbcbcbcbcbc',
+          'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd',
+          'dededede-dede-4ede-8ede-dededededede',
+        ],
+        'journal_lines': [
+          '11111111-aaaa-4aaa-8aaa-111111111111',
+          '22222222-aaaa-4aaa-8aaa-222222222222',
+          '33333333-aaaa-4aaa-8aaa-333333333333',
+          '44444444-aaaa-4aaa-8aaa-444444444444',
+          '55555555-aaaa-4aaa-8aaa-555555555555',
+          '66666666-aaaa-4aaa-8aaa-666666666666',
+          '77777777-aaaa-4aaa-8aaa-777777777777',
+          '88888888-aaaa-4aaa-8aaa-888888888888',
+          '99999999-aaaa-4aaa-8aaa-999999999999',
+        ],
+        'irrigation_sessions': [sessionGlobalId],
+        'queue_entries': [],
+        'booking_requests': [],
+      },
     };
     final event = {
       'event_id':'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
@@ -1396,6 +1425,25 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select("SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?",[irrigation['id']]).single['amount'],6900);
     final ledgerTotals = database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
     expect(ledgerTotals['debit'], ledgerTotals['credit']);
+
+    final originInbox = await getInbox(stationOneToken, device: 'device-a');
+    final originTypes = (originInbox['events'] as List)
+        .map((item) => (item as Map)['entity_type'])
+        .toList();
+    expect(originTypes, [
+      'cloud_periods', 'worker_transactions', 'partner_transactions',
+      'diesel_movements', 'diesel_movements',
+      'journal_entries', 'journal_entries', 'journal_entries', 'journal_entries',
+      'journal_lines', 'journal_lines', 'journal_lines', 'journal_lines',
+      'journal_lines', 'journal_lines', 'journal_lines', 'journal_lines',
+      'journal_lines', 'irrigation_sessions',
+    ]);
+    expect(
+      (originInbox['events'] as List).every(
+        (item) => (item as Map)['source_device'] == '__server_projection__',
+      ),
+      isTrue,
+    );
 
     final peerInbox = await getInbox(stationOneToken, device: 'device-b');
     final peerTypes = (peerInbox['events'] as List)
