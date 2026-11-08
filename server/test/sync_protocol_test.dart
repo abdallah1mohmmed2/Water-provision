@@ -174,6 +174,47 @@ void main() {
     database.execute("INSERT INTO cashboxes(id,station_id,name,current_balance,active,ledger_account_code) VALUES(1,1,'Main',5000,1,'1000'),(2,2,'Foreign',5000,1,'1000')");
     database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'cashboxes','eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',2,'2026-11-08T00:00:00Z')");
   }
+  void prepareExpenseAndTransferFixture() {
+    database.execute('''CREATE TABLE cashboxes(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL,
+      opening_balance INTEGER NOT NULL DEFAULT 0, current_balance INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'YER', active INTEGER NOT NULL DEFAULT 1, ledger_account_code TEXT
+    )''');
+    database.execute('''CREATE TABLE payment_methods(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL,
+      cashbox_id INTEGER, ledger_account_code TEXT, active INTEGER NOT NULL DEFAULT 1
+    )''');
+    database.execute('''CREATE TABLE expenses(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL, category TEXT NOT NULL,
+      title TEXT NOT NULL, amount INTEGER NOT NULL, date TEXT NOT NULL, payment_method_id INTEGER,
+      cashbox_id INTEGER, beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER,
+      attachment_path TEXT, notes TEXT, status TEXT NOT NULL, created_by INTEGER
+    )''');
+    database.execute('''CREATE TABLE cashbox_transfers(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL, from_cashbox_id INTEGER,
+      to_cashbox_id INTEGER NOT NULL, amount INTEGER NOT NULL, date TEXT NOT NULL,
+      is_opening_transfer INTEGER NOT NULL DEFAULT 0, reference TEXT, notes TEXT, created_by INTEGER
+    )''');
+    database.execute('CREATE TABLE accounts(id INTEGER PRIMARY KEY, parent_id INTEGER, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL)');
+    database.execute('''CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL, date TEXT NOT NULL,
+      reference_type TEXT, reference_id INTEGER, description TEXT NOT NULL, status TEXT NOT NULL,
+      created_by INTEGER, created_at TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, journal_entry_id INTEGER NOT NULL, account_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER, debit INTEGER NOT NULL DEFAULT 0,
+      credit INTEGER NOT NULL DEFAULT 0, memo TEXT
+    )''');
+    database.execute("INSERT INTO cashboxes(id,station_id,name,current_balance,active,ledger_account_code,currency) VALUES(1,1,'Cash',5000,1,'1000','YER'),(2,1,'Bank',2000,1,'1100','YER'),(3,2,'Foreign',7000,1,'1000','YER')");
+    database.execute("INSERT INTO payment_methods(id,station_id,name,type,cashbox_id,ledger_account_code,active) VALUES(1,1,'Cash','cash',1,'1000',1),(2,1,'Bank','bank_transfer',2,'1100',1)");
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1000','Cash','asset'),(2,'1100','Bank','asset'),(3,'3000','Opening balances','equity'),(4,'5010','Fuel expense','expense'),(5,'5020','Oil expense','expense'),(6,'5030','Other expense','expense'),(7,'5000','Wages','expense'),(8,'2200','Partner balances','liability')");
+    const methodGlobal = '11111111-1111-4111-8111-111111111111';
+    const cashGlobal = '22222222-2222-4222-8222-222222222222';
+    const bankGlobal = '33333333-3333-4333-8333-333333333333';
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'payment_methods',?,1,'2026-11-08T00:00:00Z'),(1,'cashboxes',?,1,'2026-11-08T00:00:00Z'),(1,'cashboxes',?,2,'2026-11-08T00:00:00Z')",[methodGlobal,cashGlobal,bankGlobal]);
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'cashboxes','44444444-4444-4444-8444-444444444444',3,'2026-11-08T00:00:00Z')");
+  }
   void prepareManualDebtFixture({
     String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   }) {
@@ -1437,6 +1478,103 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect((result['results'] as List).single['status'],'rejected');
     expect(database.select('SELECT COUNT(*) AS n FROM diesel_movements').single['n'],0);
     expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],5000);
+  });
+
+  test('sync posts expense, reduces its cashbox, and creates one balanced journal', () async {
+    prepareExpenseAndTransferFixture();
+    const globalId = '55555555-5555-4555-8555-555555555555';
+    final event = {
+      'event_id':'55555555-5555-4555-8555-555555555556',
+      'entity_type':'expenses', 'entity_key':'expenses:' + globalId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':globalId, 'category':'fuel', 'title':'Diesel generator fuel',
+        'amount':750, 'date':'2026-11-08T10:00:00.000', 'status':'posted', 'notes':'test expense',
+        'payment_method_id':1, 'cashbox_id':1,
+        '_global_refs':{
+          'payment_method_id':{'table':'payment_methods','global_id':'11111111-1111-4111-8111-111111111111'},
+          'cashbox_id':{'table':'cashboxes','global_id':'22222222-2222-4222-8222-222222222222','name':'Cash','currency':'YER'},
+        },
+      },
+    };
+    final first = await postEvents(stationOneToken,[event]);
+    expect((first['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],4250);
+    expect(database.select('SELECT COUNT(*) AS n FROM expenses WHERE station_id=1').single['n'],1);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries WHERE reference_type=\'expense\'').single['n'],1);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['d'],750);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['c'],750);
+    final replay = await postEvents(stationOneToken,[event]);
+    expect((replay['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],4250);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'],1);
+  });
+
+  test('sync transfers cash between two cashboxes and supports opening transfer', () async {
+    prepareExpenseAndTransferFixture();
+    const transferId = '66666666-6666-4666-8666-666666666666';
+    final normal = {
+      'event_id':'66666666-6666-4666-8666-666666666667',
+      'entity_type':'cashbox_transfers', 'entity_key':'cashbox_transfers:' + transferId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':transferId, 'from_cashbox_id':1, 'to_cashbox_id':2,
+        'amount':1200, 'date':'2026-11-08T11:00:00.000', 'is_opening_transfer':false, 'reference':'bank deposit',
+        '_global_refs':{
+          'from_cashbox_id':{'table':'cashboxes','global_id':'22222222-2222-4222-8222-222222222222','name':'Cash','currency':'YER'},
+          'to_cashbox_id':{'table':'cashboxes','global_id':'33333333-3333-4333-8333-333333333333','name':'Bank','currency':'YER'},
+        },
+      },
+    };
+    final first = await postEvents(stationOneToken,[normal]);
+    expect((first['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],3800);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],3200);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['d'],1200);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['c'],1200);
+    final replay = await postEvents(stationOneToken,[normal]);
+    expect((replay['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT COUNT(*) AS n FROM cashbox_transfers').single['n'],1);
+    const openingId = '77777777-7777-4777-8777-777777777777';
+    final opening = await postEvents(stationOneToken,[{
+      'event_id':'77777777-7777-4777-8777-777777777778',
+      'entity_type':'cashbox_transfers', 'entity_key':'cashbox_transfers:' + openingId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':openingId, 'from_cashbox_id':null, 'to_cashbox_id':2,
+        'amount':500, 'date':'2026-11-08T12:00:00.000', 'is_opening_transfer':true,
+        '_global_refs':{'to_cashbox_id':{'table':'cashboxes','global_id':'33333333-3333-4333-8333-333333333333','name':'Bank','currency':'YER'}},
+      },
+    }]);
+    expect((opening['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],3700);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['d'],1700);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['c'],1700);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'],2);
+  });
+
+  test('sync rejects expenses and transfers referencing another station', () async {
+    prepareExpenseAndTransferFixture();
+    const globalId = '88888888-8888-4888-8888-888888888888';
+    final expense = await postEvents(stationOneToken,[{
+      'event_id':'88888888-8888-4888-8888-888888888889',
+      'entity_type':'expenses', 'entity_key':'expenses:' + globalId, 'operation':'create', 'base_version':0,
+      'payload':{'_global_id':globalId,'category':'fuel','title':'Fuel','amount':100,'date':'2026-11-08T10:00:00.000','payment_method_id':1,'cashbox_id':3,
+        '_global_refs':{'payment_method_id':{'table':'payment_methods','global_id':'11111111-1111-4111-8111-111111111111'},'cashbox_id':{'table':'cashboxes','global_id':'44444444-4444-4444-8444-444444444444'}}},
+    }]);
+    expect((expense['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM expenses').single['n'],0);
+    const transferGlobal = '99999999-9999-4999-8999-999999999999';
+    final transfer = await postEvents(stationOneToken,[{
+      'event_id':'99999999-9999-4999-8999-999999999998',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:' + transferGlobal,'operation':'create','base_version':0,
+      'payload':{'_global_id':transferGlobal,'from_cashbox_id':1,'to_cashbox_id':3,'amount':100,'date':'2026-11-08T10:00:00.000','is_opening_transfer':false,
+        '_global_refs':{'from_cashbox_id':{'table':'cashboxes','global_id':'22222222-2222-4222-8222-222222222222'},'to_cashbox_id':{'table':'cashboxes','global_id':'44444444-4444-4444-8444-444444444444'}}},
+    }]);
+    expect((transfer['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=3').single['current_balance'],7000);
+    expect(database.select('SELECT COUNT(*) AS n FROM cashbox_transfers').single['n'],0);
   });
 
 }
