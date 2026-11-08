@@ -216,6 +216,162 @@ void main() {
   };
 
 
+
+  void preparePartyDebtFixture() {
+    database.execute("CREATE TABLE workers(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1)");
+    database.execute("CREATE TABLE partners(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1)");
+    database.execute("""CREATE TABLE worker_transactions(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,worker_id INTEGER NOT NULL,station_id INTEGER NOT NULL,
+      date TEXT NOT NULL,type TEXT NOT NULL,hours REAL NOT NULL DEFAULT 0,
+      rate_snapshot REAL NOT NULL DEFAULT 0,percentage_snapshot REAL NOT NULL DEFAULT 0,
+      amount INTEGER NOT NULL,reference_type TEXT,reference_id INTEGER,notes TEXT,created_by INTEGER
+    )""");
+    database.execute("""CREATE TABLE partner_transactions(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,partner_id INTEGER NOT NULL,station_id INTEGER NOT NULL,
+      date TEXT NOT NULL,type TEXT NOT NULL,amount INTEGER NOT NULL,ownership_snapshot REAL,
+      reference_type TEXT,reference_id INTEGER,notes TEXT,created_by INTEGER
+    )""");
+    database.execute("""CREATE TABLE accounts(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,
+      type TEXT NOT NULL,parent_id INTEGER
+    )""");
+    database.execute("INSERT INTO accounts(id,code,name,type,parent_id) VALUES(1,'2100','Workers','liability',NULL),(2,'2200','Partners','liability',NULL),(3,'3000','Opening equity','equity',NULL)");
+    database.execute("""CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,date TEXT NOT NULL,
+      reference_type TEXT,reference_id INTEGER,description TEXT NOT NULL,status TEXT NOT NULL,
+      created_by INTEGER,created_at TEXT NOT NULL
+    )""");
+    database.execute("""CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,journal_entry_id INTEGER NOT NULL,account_id INTEGER NOT NULL,
+      beneficiary_id INTEGER,worker_id INTEGER,partner_id INTEGER,debit INTEGER NOT NULL DEFAULT 0,
+      credit INTEGER NOT NULL DEFAULT 0,memo TEXT
+    )""");
+    database.execute("CREATE TABLE cashboxes(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,current_balance INTEGER NOT NULL)");
+    database.execute("INSERT INTO cashboxes(id,station_id,current_balance) VALUES(1,1,777)");
+    database.execute("INSERT INTO workers(id,station_id,name,active) VALUES(1,1,'Worker A',1),(2,2,'Worker B',1)");
+    database.execute("INSERT INTO partners(id,station_id,name,active) VALUES(1,1,'Partner A',1),(2,2,'Partner B',1)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'workers','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',1,'2026-11-08T00:00:00Z'),(2,'workers','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',2,'2026-11-08T00:00:00Z'),(1,'partners','cccccccc-cccc-4ccc-8ccc-cccccccccccc',1,'2026-11-08T00:00:00Z'),(2,'partners','dddddddd-dddd-4ddd-8ddd-dddddddddddd',2,'2026-11-08T00:00:00Z')");
+  }
+
+  Map<String,dynamic> partyDebtEvent({
+    required bool worker,
+    String? eventId,
+    String? transactionGlobalId,
+    String? partyGlobalId,
+    int amount = 4200,
+  }) {
+    final table = worker ? 'worker_transactions' : 'partner_transactions';
+    final partyColumn = worker ? 'worker_id' : 'partner_id';
+    final globalId = transactionGlobalId ?? (worker
+      ? 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+      : 'ffffffff-ffff-4fff-8fff-ffffffffffff');
+    final partyId = partyGlobalId ?? (worker
+      ? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      : 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+    return {
+      'event_id':eventId ?? (worker
+        ? '11111111-aaaa-4111-8111-111111111111'
+        : '22222222-bbbb-4222-8222-222222222222'),
+      'entity_type':table,
+      'entity_key':'$table:$globalId',
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':globalId,
+        partyColumn:1,
+        'type':'opening_balance',
+        'date':'2026-11-07T09:00:00.000',
+        'amount':amount,
+        'reference_type':'previous_debt',
+        'reference_id':99999,
+        'notes':'مديونية سابقة تجريبية',
+        if(worker) 'hours':0,
+        if(worker) 'rate_snapshot':0,
+        if(worker) 'percentage_snapshot':0,
+        if(!worker) 'ownership_snapshot':null,
+        '_global_refs':{
+          partyColumn:{'table':worker?'workers':'partners','global_id':partyId},
+        },
+        '_unresolved_refs':{},
+      },
+    };
+  }
+
+  test('worker and partner opening debts create balanced central journals once', () async {
+    preparePartyDebtFixture();
+    for (final worker in [true,false]) {
+      final command = partyDebtEvent(worker:worker);
+      final first = await postEvents(stationOneToken,[command]);
+      final replay = await postEvents(stationOneToken,[command]);
+      final table = worker ? 'worker_transactions' : 'partner_transactions';
+      expect((first['results'] as List).first['status'],'accepted');
+      expect((replay['results'] as List).first['status'],'duplicate');
+      expect(database.select('SELECT COUNT(*) n FROM ' + table).single['n'],1);
+      expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],worker ? 1 : 2);
+      final journal = database.select('SELECT id FROM journal_entries ORDER BY id DESC LIMIT 1').single['id'];
+      final totals = database.select('SELECT SUM(debit) debit,SUM(credit) credit,COUNT(*) lines FROM journal_lines WHERE journal_entry_id=?',[journal]).single;
+      expect(totals['debit'],4200);
+      expect(totals['credit'],4200);
+      expect(totals['lines'],2);
+      expect(database.select('SELECT reference_id FROM ' + table).single['reference_id'],journal);
+      expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type=?",[table]).single['n'],1);
+    }
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+  });
+
+  test('worker and partner debt handlers reject a party owned by another station', () async {
+    preparePartyDebtFixture();
+    for (final worker in [true,false]) {
+      final command = partyDebtEvent(
+        worker:worker,
+        eventId:worker?'33333333-aaaa-4333-8333-333333333333':'44444444-bbbb-4444-8444-444444444444',
+        transactionGlobalId:worker?'12121212-1212-4212-8212-121212121212':'13131313-1313-4313-8313-131313131313',
+        partyGlobalId:worker?'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb':'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      );
+      final result = await postEvents(stationOneToken,[command]);
+      expect((result['results'] as List).first['status'],'rejected');
+    }
+    expect(database.select('SELECT COUNT(*) n FROM worker_transactions').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM partner_transactions').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],0);
+  });
+
+  test('worker and partner debt handlers roll back transaction and journal when a journal line fails', () async {
+    preparePartyDebtFixture();
+    for (final worker in [true,false]) {
+      database.execute("CREATE TRIGGER fail_party_debt_line BEFORE INSERT ON journal_lines WHEN NEW.memo='مديونية سابقة تجريبية' BEGIN SELECT RAISE(ABORT,'forced journal line failure'); END");
+      final command = partyDebtEvent(
+        worker:worker,
+        eventId:worker?'55555555-aaaa-4555-8555-555555555555':'66666666-bbbb-4666-8666-666666666666',
+        transactionGlobalId:worker?'14141414-1414-4414-8414-141414141414':'15151515-1515-4515-8515-151515151515',
+      );
+      final result = await postEvents(stationOneToken,[command]);
+      expect((result['results'] as List).first['status'],'rejected');
+      database.execute('DROP TRIGGER fail_party_debt_line');
+    }
+    expect(database.select('SELECT COUNT(*) n FROM worker_transactions').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM partner_transactions').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'],0);
+    expect(database.select("SELECT COUNT(*) n FROM accounts WHERE code LIKE '2100.W%' OR code LIKE '2200.P%'").single['n'],0);
+    expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type IN ('worker_transactions','partner_transactions')").single['n'],0);
+  });
+
+  test('worker and partner handlers reject invalid amount, role, and non-debt transaction types', () async {
+    preparePartyDebtFixture();
+    final invalid = partyDebtEvent(worker:true,amount:0);
+    expect(((await postEvents(stationOneToken,[invalid]))['results'] as List).first['status'],'rejected');
+    final badType = partyDebtEvent(worker:false,eventId:'77777777-bbbb-4777-8777-777777777777');
+    (badType['payload'] as Map)['reference_type']='profit_share';
+    expect(((await postEvents(stationOneToken,[badType]))['results'] as List).first['status'],'rejected');
+    final operationsToken = JWT({'kind':'admin','userId':11,'stationId':1,'role':'operations'}).sign(SecretKey(secret));
+    database.execute("UPDATE app_users SET role='operations' WHERE id=11");
+    final denied = partyDebtEvent(worker:true,eventId:'88888888-aaaa-4888-8888-888888888888');
+    expect(((await postEvents(operationsToken,[denied]))['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM worker_transactions').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM partner_transactions').single['n'],0);
+  });
+
   test('manual beneficiary debt creates one balanced journal and replay is idempotent', () async {
     prepareManualDebtFixture();
     final command = manualDebtEvent();
