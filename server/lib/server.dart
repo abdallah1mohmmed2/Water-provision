@@ -371,10 +371,13 @@ class SaqiaServer {
       'opening_balance', 'carried_balance', 'opening_diesel_liters',
     }) {
       final value = payload[financialField];
-      if (value is num && value != 0) {
-        throw UnsupportedError(
-          'تغيير الرصيد الافتتاحي أو رصيد الديزل يحتاج معالجاً محاسبياً مخصصاً',
-        );
+      if (value != null) {
+        final amount = value is num ? value : num.tryParse(value.toString());
+        if (amount == null || amount != 0) {
+          throw UnsupportedError(
+            'تغيير الرصيد الافتتاحي أو رصيد الديزل يحتاج معالجاً محاسبياً مخصصاً',
+          );
+        }
       }
     }
     if (operation == 'create') {
