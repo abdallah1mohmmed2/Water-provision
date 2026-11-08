@@ -553,6 +553,249 @@ void main() {
     expect(await database.query('sync_queue'), isEmpty);
   });
 
+  test('projected party and journal rows resolve irrigation and transaction reference IDs globally', () async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    late int beneficiaryId;
+    late int workerId;
+    late int partnerId;
+    late int irrigationId;
+    late int workerTransactionId;
+    late int partnerTransactionId;
+    late int workerJournalId;
+    late int partnerJournalId;
+    final ids = <String, String>{};
+
+    await database.transaction((tx) async {
+      beneficiaryId = await tx.insert('beneficiaries', {
+        'name': 'INBOX-POLYMORPHIC-BENEFICIARY',
+        'status': 'active',
+        'created_at': now,
+        'updated_at': now,
+      });
+      workerId = await tx.insert('workers', {
+        'name': 'INBOX-POLYMORPHIC-WORKER',
+        'pay_type': 'hourly',
+        'hourly_rate': 100,
+        'active': 1,
+      });
+      partnerId = await tx.insert('partners', {
+        'name': 'INBOX-POLYMORPHIC-PARTNER',
+        'ownership_mode': 'shares',
+        'shares_count': 1,
+        'active': 1,
+      });
+      irrigationId = await tx.insert('irrigations', {
+        'station_id': 1,
+        'pump_id': 1,
+        'beneficiary_id': beneficiaryId,
+        'party_type': 'beneficiary',
+        'date': now.substring(0, 10),
+        'start_datetime': now,
+        'end_datetime': DateTime.parse(now).add(const Duration(hours: 1)).toIso8601String(),
+        'minutes': 60,
+        'system_type': 'solar',
+        'chargeable_minutes': 60,
+        'total_amount': 1000,
+        'status': 'posted',
+        'created_at': now,
+        'updated_at': now,
+      });
+      workerTransactionId = await tx.insert('worker_transactions', {
+        'worker_id': workerId,
+        'date': now,
+        'type': 'irrigation',
+        'hours': 1,
+        'rate_snapshot': 100,
+        'percentage_snapshot': 0,
+        'amount': 100,
+        'reference_type': 'irrigation',
+        'reference_id': irrigationId,
+        'notes': 'worker entitlement',
+        'created_by': 1,
+      });
+      partnerTransactionId = await tx.insert('partner_transactions', {
+        'partner_id': partnerId,
+        'date': now,
+        'type': 'share_accrual',
+        'amount': 900,
+        'ownership_snapshot': 1,
+        'reference_type': 'irrigation_profit',
+        'reference_id': irrigationId,
+        'notes': 'partner entitlement',
+        'created_by': 1,
+      });
+      workerJournalId = await tx.insert('journal_entries', {
+        'station_id': 1,
+        'date': now,
+        'reference_type': 'worker',
+        'reference_id': workerTransactionId,
+        'description': 'INBOX-WORKER-IRRIGATION-JOURNAL',
+        'status': 'draft',
+        'created_at': now,
+      });
+      partnerJournalId = await tx.insert('journal_entries', {
+        'station_id': 1,
+        'date': now,
+        'reference_type': 'partner',
+        'reference_id': partnerTransactionId,
+        'description': 'INBOX-PARTNER-IRRIGATION-JOURNAL',
+        'status': 'draft',
+        'created_at': now,
+      });
+      for (final item in [
+        ('beneficiaries', beneficiaryId),
+        ('workers', workerId),
+        ('partners', partnerId),
+        ('irrigations', irrigationId),
+        ('worker_transactions', workerTransactionId),
+        ('partner_transactions', partnerTransactionId),
+        ('journal_entries', workerJournalId),
+        ('journal_entries', partnerJournalId),
+      ]) {
+        await GlobalIdentity.ensureRecord(tx, item.$1, item.$2);
+        final identity = await tx.query(
+          'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
+          whereArgs: [item.$1, item.$2],
+        );
+        ids['${item.$1}:${item.$2}'] = identity.single['global_id'] as String;
+      }
+    }, captureSync: false);
+
+    final beneficiaryGlobalId = ids['beneficiaries:$beneficiaryId']!;
+    final workerGlobalId = ids['workers:$workerId']!;
+    final partnerGlobalId = ids['partners:$partnerId']!;
+    final irrigationGlobalId = ids['irrigations:$irrigationId']!;
+    final workerTransactionGlobalId = ids['worker_transactions:$workerTransactionId']!;
+    final partnerTransactionGlobalId = ids['partner_transactions:$partnerTransactionId']!;
+
+    await database.transaction((tx) async {
+      expect(
+        await SyncInboxApplier.apply(
+          tx,
+          event(
+            table: 'worker_transactions',
+            id: workerTransactionGlobalId,
+            operation: 'update',
+            version: 1,
+            payload: {
+              'worker_id': workerId,
+              'date': now,
+              'type': 'irrigation',
+              'hours': 1,
+              'rate_snapshot': 100,
+              'percentage_snapshot': 0,
+              'amount': 100,
+              'reference_type': 'irrigation',
+              'reference_id': irrigationId,
+              'notes': 'server worker entitlement',
+              '_global_refs': {
+                'worker_id': {'table': 'workers', 'global_id': workerGlobalId},
+                'reference_id': {'table': 'irrigations', 'global_id': irrigationGlobalId},
+              },
+            },
+          ),
+        ),
+        InboxApplyResult.applied,
+      );
+      expect(
+        await SyncInboxApplier.apply(
+          tx,
+          event(
+            table: 'partner_transactions',
+            id: partnerTransactionGlobalId,
+            operation: 'update',
+            version: 1,
+            payload: {
+              'partner_id': partnerId,
+              'date': now,
+              'type': 'share_accrual',
+              'amount': 900,
+              'ownership_snapshot': 1,
+              'reference_type': 'irrigation_profit',
+              'reference_id': irrigationId,
+              'notes': 'server partner entitlement',
+              '_global_refs': {
+                'partner_id': {'table': 'partners', 'global_id': partnerGlobalId},
+                'reference_id': {'table': 'irrigations', 'global_id': irrigationGlobalId},
+              },
+            },
+          ),
+        ),
+        InboxApplyResult.applied,
+      );
+      expect(
+        await SyncInboxApplier.apply(
+          tx,
+          event(
+            table: 'journal_entries',
+            id: ids['journal_entries:$workerJournalId']!,
+            operation: 'update',
+            version: 1,
+            payload: {
+              'date': now,
+              'reference_type': 'worker',
+              'reference_id': workerTransactionId,
+              'description': 'INBOX-WORKER-IRRIGATION-JOURNAL',
+              'status': 'draft',
+              'created_at': now,
+              '_global_refs': {
+                'reference_id': {
+                  'table': 'worker_transactions',
+                  'global_id': workerTransactionGlobalId,
+                },
+              },
+            },
+          ),
+        ),
+        InboxApplyResult.applied,
+      );
+      expect(
+        await SyncInboxApplier.apply(
+          tx,
+          event(
+            table: 'journal_entries',
+            id: ids['journal_entries:$partnerJournalId']!,
+            operation: 'update',
+            version: 1,
+            payload: {
+              'date': now,
+              'reference_type': 'partner',
+              'reference_id': partnerTransactionId,
+              'description': 'INBOX-PARTNER-IRRIGATION-JOURNAL',
+              'status': 'draft',
+              'created_at': now,
+              '_global_refs': {
+                'reference_id': {
+                  'table': 'partner_transactions',
+                  'global_id': partnerTransactionGlobalId,
+                },
+              },
+            },
+          ),
+        ),
+        InboxApplyResult.applied,
+      );
+    }, captureSync: false);
+
+    expect(
+      (await database.query('SELECT reference_id FROM worker_transactions WHERE id=?', whereArgs: [workerTransactionId])).single['reference_id'],
+      irrigationId,
+    );
+    expect(
+      (await database.query('SELECT reference_id FROM partner_transactions WHERE id=?', whereArgs: [partnerTransactionId])).single['reference_id'],
+      irrigationId,
+    );
+    expect(
+      (await database.query('SELECT reference_id FROM journal_entries WHERE id=?', whereArgs: [workerJournalId])).single['reference_id'],
+      workerTransactionId,
+    );
+    expect(
+      (await database.query('SELECT reference_id FROM journal_entries WHERE id=?', whereArgs: [partnerJournalId])).single['reference_id'],
+      partnerTransactionId,
+    );
+    expect(await database.query('sync_queue'), isEmpty);
+  });
+
   test('journal entries remain draft until their lines balance', () async {
     const journalGlobalId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
     final now = DateTime.now().toUtc().toIso8601String();
