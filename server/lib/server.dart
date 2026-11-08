@@ -1375,6 +1375,21 @@ class SaqiaServer {
               ''', [station, globalId]).isNotEmpty;
             } else if (entityType == 'irrigations') {
               businessRowExists = db.select('SELECT 1 FROM sync_entity_links l JOIN irrigations i ON i.id=l.local_id AND i.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=\'irrigations\' AND l.global_id=? LIMIT 1',[station,globalId]).isNotEmpty;
+            } else if (entityType == 'irrigation_sessions') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l
+                JOIN irrigation_sessions s ON s.id=l.local_id
+                JOIN pumps p ON p.id=s.pump_id AND p.station_id=l.station_id
+                JOIN beneficiaries b ON b.id=s.beneficiary_id AND b.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='irrigation_sessions' AND l.global_id=? LIMIT 1
+              ''',[station,globalId]).isNotEmpty;
+            } else if (entityType == 'queue_entries' || entityType == 'booking_requests') {
+              businessRowExists = db.select(
+                'SELECT 1 FROM sync_entity_links l JOIN ' + entityType +
+                ' q ON q.id=l.local_id JOIN beneficiaries b ON b.id=q.beneficiary_id AND b.station_id=l.station_id ' +
+                'WHERE l.station_id=? AND l.entity_type=? AND l.global_id=? LIMIT 1',
+                [station,entityType,globalId],
+              ).isNotEmpty;
             } else if (entityType == 'cloud_periods') {
               businessRowExists = db.select('SELECT 1 FROM sync_entity_links l JOIN cloud_periods cp ON cp.id=l.local_id JOIN irrigations i ON i.id=cp.irrigation_id AND i.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=\'cloud_periods\' AND l.global_id=? LIMIT 1',[station,globalId]).isNotEmpty;
             } else if (entityType == 'payments') {
