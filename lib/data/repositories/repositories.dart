@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import '../../api/api_client.dart';
 import '../../core/app_clock.dart';
 import '../../core/app_prefs.dart';
 import 'package:sqflite/sqflite.dart';
@@ -6,10 +9,14 @@ import '../local/queue_rotation.dart';
 import '../../domain/accounting/accounting_service.dart';
 import '../../domain/accounting/balance_sql.dart';
 import '../../domain/accounting/calculations.dart';
+import '../../services/sync_coordinator.dart';
 
 class StationRepository {
   final AppDatabase db;
   late final AccountingService accounting;
+  bool beneficiariesFromServer = false;
+  bool get serverSessionActive => SyncCoordinator.instance.apiClient != null;
+
   StationRepository([AppDatabase? database])
     : db = database ?? AppDatabase.instance {
     accounting = AccountingService(db);
@@ -30,29 +37,166 @@ class StationRepository {
 
   // البحث الجزئي يحافظ على مطابقة أي جزء من الاسم والهاتف ورقم الجربة والموقع.
   // عند خلو النص نتجنب شروط LIKE المتعددة غير الضرورية.
+  bool _matchesBeneficiary(Map<String, Object?> row, String term) {
+    if (term.isEmpty) return true;
+    final needle = term.toLowerCase();
+    return ['name', 'phone', 'jerba_number', 'location'].any(
+      (key) => '${row[key] ?? ''}'.toLowerCase().contains(needle),
+    );
+  }
+
+  Future<List<Map<String, Object?>>> _localBeneficiaries(String term) async {
+    final balance = BalanceSql.beneficiary('b');
+    final args = <Object?>[];
+    var where = "b.status='active'";
+    if (term.isNotEmpty) {
+      final pattern = '%$term%';
+      where += " AND (b.name LIKE ? OR COALESCE(b.phone,'') LIKE ?"
+          " OR COALESCE(b.jerba_number,'') LIKE ? OR COALESCE(b.location,'') LIKE ?)";
+      args.addAll([pattern, pattern, pattern, pattern]);
+    }
+    return db.rawQuery(
+      'SELECT b.*, ($balance) balance FROM beneficiaries b WHERE $where ORDER BY b.name',
+      args,
+    );
+  }
+
+  Future<List<Map<String, Object?>>> _cacheServerBeneficiaries(
+    List<dynamic> records,
+    String term,
+  ) async {
+    final database = await db.db;
+    final remoteIds = <String>{};
+    final results = <Map<String, Object?>>[];
+    await database.transaction((tx) async {
+      for (final item in records) {
+        if (item is! Map) {
+          throw StateError('استجابة المستفيدين من الخادم تحتوي سجلاً غير صالح.');
+        }
+        final remote = Map<String, Object?>.from(item);
+        final globalId = '${remote['_global_id'] ?? ''}'.trim();
+        if (globalId.isEmpty || !remoteIds.add(globalId)) {
+          throw StateError('الخادم أعاد هوية عالمية مفقودة أو مكررة لمستفيد.');
+        }
+        final identity = await tx.query(
+          'sync_global_identities',
+          columns: ['local_id'],
+          where: "table_name='beneficiaries' AND global_id=?",
+          whereArgs: [globalId],
+          limit: 1,
+        );
+        final values = <String, Object?>{
+          for (final key in const [
+            'name', 'phone', 'address', 'location', 'jerba_number', 'area',
+            'is_needy', 'opening_balance', 'carried_balance',
+            'opening_diesel_liters', 'notes', 'status', 'created_at', 'updated_at',
+          ])
+            if (remote.containsKey(key)) key: remote[key],
+        };
+        final int localId;
+        var hasPendingLocalWrite = false;
+        if (identity.isEmpty) {
+          localId = await tx.insert('beneficiaries', {
+            ...values,
+            'status': values['status'] ?? 'active',
+          });
+          await tx.insert('sync_global_identities', {
+            'table_name': 'beneficiaries',
+            'local_id': localId,
+            'global_id': globalId,
+            'created_at': DateTime.now().toUtc().toIso8601String(),
+          });
+        } else {
+          localId = (identity.single['local_id'] as num).toInt();
+          final pending = await tx.query(
+            'sync_queue',
+            columns: ['id'],
+            where: "table_name='beneficiaries' AND record_id=? AND status IN ('pending','sending','conflict')",
+            whereArgs: [localId],
+            limit: 1,
+          );
+          hasPendingLocalWrite = pending.isNotEmpty;
+          if (!hasPendingLocalWrite) {
+            await tx.update(
+              'beneficiaries',
+              values,
+              where: 'id=?',
+              whereArgs: [localId],
+            );
+          }
+        }
+        // Cache writes must not be re-captured as new business events.
+        await tx.delete(
+          'sync_change_log',
+          where: "table_name='beneficiaries' AND record_id=?",
+          whereArgs: [localId],
+        );
+        final localRows = await tx.query(
+          'beneficiaries',
+          where: 'id=?',
+          whereArgs: [localId],
+          limit: 1,
+        );
+        if (localRows.isEmpty) {
+          throw StateError('تعذر تثبيت نسخة المستفيد المحلية.');
+        }
+        final result = <String, Object?>{
+          ...localRows.single,
+          'id': localId,
+          'balance': hasPendingLocalWrite
+              ? null
+              : (remote['balance'] as num?)?.round() ?? 0,
+          '_global_id': globalId,
+          '_source': 'server',
+        };
+        if (_matchesBeneficiary(result, term)) results.add(result);
+      }
+
+      // Preserve optimistic local creates that have not reached Shelf yet.
+      final pendingRows = await tx.rawQuery("""
+        SELECT b.*,g.global_id AS _global_id
+        FROM beneficiaries b
+        JOIN sync_global_identities g
+          ON g.table_name='beneficiaries' AND g.local_id=b.id
+        WHERE b.status='active'
+          AND EXISTS (
+            SELECT 1 FROM sync_queue q
+            WHERE q.table_name='beneficiaries' AND q.record_id=b.id
+              AND q.status IN ('pending','sending','conflict')
+          )
+      """);
+      for (final row in pendingRows) {
+        final globalId = '${row['_global_id']}';
+        if (remoteIds.contains(globalId)) continue;
+        final result = Map<String, Object?>.from(row)
+          ..['_source'] = 'local_pending';
+        if (_matchesBeneficiary(result, term)) results.add(result);
+      }
+    });
+    results.sort((a, b) => '${a['name']}'.compareTo('${b['name']}'));
+    return results;
+  }
+
   Future<List<Map<String, Object?>>> beneficiaries([String q = '']) async {
     final term = q.trim();
-    final balance = BalanceSql.beneficiary('b');
-    if (term.isEmpty) {
-      return db.rawQuery(
-        '''SELECT b.*, ($balance) balance
-        FROM beneficiaries b
-        WHERE b.status='active'
-        ORDER BY b.name''',
-      );
+    final api = SyncCoordinator.instance.apiClient;
+    if (api != null) {
+      try {
+        final response = await api.get('/beneficiaries');
+        if (response is! List) {
+          throw StateError('استجابة قائمة المستفيدين من الخادم غير صالحة.');
+        }
+        final rows = await _cacheServerBeneficiaries(response, term);
+        beneficiariesFromServer = true;
+        return rows;
+      } on ApiConnectionException {
+        // Only transport failures may fall back to the local offline cache.
+        beneficiariesFromServer = false;
+        return _localBeneficiaries(term);
+      }
     }
-    final pattern = '%$term%';
-    return db.rawQuery(
-      '''SELECT b.*, ($balance) balance
-      FROM beneficiaries b
-      WHERE b.status='active'
-        AND (b.name LIKE ?
-          OR COALESCE(b.phone,'') LIKE ?
-          OR COALESCE(b.jerba_number,'') LIKE ?
-          OR COALESCE(b.location,'') LIKE ?)
-      ORDER BY b.name''',
-      [pattern, pattern, pattern, pattern],
-    );
+    beneficiariesFromServer = false;
+    return _localBeneficiaries(term);
   }
 
   Future<int> createBeneficiary({
