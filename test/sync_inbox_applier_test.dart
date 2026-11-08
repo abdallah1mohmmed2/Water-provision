@@ -186,6 +186,26 @@ void main() {
       orderBy: 'id DESC',
       limit: 1,
     )).single;
+    await database.transaction((tx) async {
+      await tx.insert('irrigations', {
+        'station_id': 1,
+        'pump_id': pump['id'],
+        'beneficiary_id': beneficiaryId,
+        'party_type': 'beneficiary',
+        'session_id': localSession['id'],
+        'date': started.substring(0, 10),
+        'start_datetime': started,
+        'end_datetime': ended,
+        'minutes': 60,
+        'system_type': 'diesel',
+        'chargeable_minutes': 60,
+        'total_amount': 100,
+        'status': 'posted',
+        'created_at': now,
+        'updated_at': now,
+      });
+    }, captureSync: false);
+
     final finished = await database.transaction(
       (tx) => SyncInboxApplier.apply(
         tx,
