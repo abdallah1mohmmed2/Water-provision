@@ -257,4 +257,49 @@ void main() {
   });
 
 
+
+  test('beneficiary API computes balance using only the authenticated station data', () async {
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN carried_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('''CREATE TABLE station_settings(
+      station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+      PRIMARY KEY(station_id,key)
+    )''');
+    database.execute('''CREATE TABLE irrigations(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, beneficiary_id INTEGER NOT NULL,
+      total_amount INTEGER NOT NULL, status TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE payments(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, beneficiary_id INTEGER NOT NULL,
+      amount INTEGER NOT NULL, status TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE diesel_movements(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, beneficiary_id INTEGER NOT NULL,
+      amount INTEGER NOT NULL, kind TEXT NOT NULL, irrigation_id INTEGER
+    )''');
+    database.execute('''CREATE TABLE beneficiary_manual_debts(
+      id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL,
+      amount INTEGER NOT NULL, status TEXT NOT NULL
+    )''');
+    database.execute("INSERT INTO beneficiaries(station_id,name,status,opening_balance,carried_balance) VALUES(1,'Balance A','active',100,20),(2,'Balance B','active',500,0)");
+    database.execute("INSERT INTO irrigations(station_id,beneficiary_id,total_amount,status) VALUES(1,2,300,'posted'),(2,2,9000,'posted')");
+    database.execute("INSERT INTO payments(station_id,beneficiary_id,amount,status) VALUES(1,2,50,'posted'),(2,2,1000,'posted')");
+    database.execute("INSERT INTO beneficiary_manual_debts(beneficiary_id,amount,status) VALUES(2,30,'posted')");
+    database.execute("INSERT INTO diesel_movements(station_id,beneficiary_id,amount,kind,irrigation_id) VALUES(1,2,10,'advance',NULL)");
+    database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'diesel_delivery_financial_credit','false')");
+
+    final response = await server.router().call(Request(
+      'GET',
+      Uri.parse('http://localhost/api/v1/beneficiaries'),
+      headers: {'authorization': 'Bearer $stationOneToken'},
+    ));
+    expect(response.statusCode, 200);
+    final rows = jsonDecode(await response.readAsString()) as List;
+    final beneficiary = rows.singleWhere((row) => row['name'] == 'Balance A');
+    // Opening 120 + irrigation 300 + manual debt 30 + diesel advance 10 - payment 50.
+    expect(beneficiary['balance'], 410);
+    expect(rows.where((row) => row['name'] == 'Balance B'), isEmpty);
+  });
+
+
 }
