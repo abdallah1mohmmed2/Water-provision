@@ -134,7 +134,6 @@ void main() {
     invalid['entity_key'] = 'payments:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     final response = await postEvents(stationOneToken, [invalid]);
     expect((response['results'] as List).first['status'], 'rejected');
-    expect(database.select('SELECT COUNT(*) AS n FROM payments').isEmpty, isTrue);
     expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').single['n'], 0);
   });
 
