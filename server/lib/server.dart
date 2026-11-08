@@ -909,6 +909,74 @@ class SaqiaServer {
     db.execute('INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',[station,'cloud_periods',globalId,matching.first['id'],now]);
   }
 
+  int _resolveOperationalSyncRef({
+    required int station, required String entityType, required String column,
+    required Map references, int? beneficiaryId,
+  }) {
+    if (!const {'queue_entries','booking_requests','irrigation_sessions'}.contains(entityType)) throw StateError('نوع مرجع التشغيل غير مدعوم');
+    final raw=references[column];
+    if (raw is! Map || raw['table']!=entityType) throw StateError('مرجع ' + column + ' العالمي غير صالح');
+    final globalId=(raw['global_id']??'').toString();
+    if (!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId)) throw StateError('هوية مرجع التشغيل غير صالحة');
+    final links=db.select('SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',[station,entityType,globalId]);
+    final foreign=db.select('SELECT 1 FROM sync_entity_links WHERE entity_type=? AND global_id=? AND station_id<>? LIMIT 1',[entityType,globalId,station]);
+    if (foreign.isNotEmpty) throw StateError('مرجع التشغيل تابع لمحطة أخرى');
+    if (links.isEmpty) throw StateError('مرجع التشغيل لم يصل إلى الخادم بعد');
+    final id=(links.first['local_id'] as num).toInt();
+    final rows = entityType=='queue_entries'
+      ? db.select('SELECT q.beneficiary_id FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE q.id=? AND b.station_id=?',[id,station])
+      : entityType=='booking_requests'
+        ? db.select('SELECT q.beneficiary_id FROM booking_requests q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE q.id=? AND b.station_id=?',[id,station])
+        : db.select('SELECT s.beneficiary_id FROM irrigation_sessions s JOIN pumps p ON p.id=s.pump_id JOIN beneficiaries b ON b.id=s.beneficiary_id WHERE s.id=? AND p.station_id=? AND b.station_id=?',[id,station,station]);
+    if (rows.isEmpty) throw StateError('مرجع التشغيل لا يتبع المحطة الحالية');
+    if (beneficiaryId!=null && (rows.first['beneficiary_id'] as num).toInt()!=beneficiaryId) throw StateError('مرجع التشغيل يخص مستفيداً آخر');
+    return id;
+  }
+
+  void _applySyncIrrigationSession({required int station, required String entityKey, required String operation, required Map payload, required String now, required String? role}) {
+    if (role!='manager' && role!='accountant') throw StateError('صلاحية المستخدم لا تسمح بمزامنة جلسات التشغيل');
+    final globalId=(payload['_global_id']??'').toString();
+    if (!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId) || entityKey!='irrigation_sessions:'+globalId) throw StateError('هوية جلسة التشغيل العالمية غير صالحة');
+    if (!_hasTable('irrigation_sessions')) throw StateError('جدول جلسات التشغيل غير موجود');
+    final refs=payload['_global_refs'];
+    if (refs is! Map) throw StateError('مراجع جلسة التشغيل العالمية مفقودة');
+    final beneficiaryId=_resolveSyncReference(station:station,entityType:'beneficiaries',column:'beneficiary_id',references:refs);
+    final pumpId=_resolveSyncReference(station:station,entityType:'pumps',column:'pump_id',references:refs);
+    if (db.select("SELECT 1 FROM beneficiaries WHERE id=? AND station_id=? AND status='active'",[beneficiaryId,station]).isEmpty || db.select('SELECT 1 FROM pumps WHERE id=? AND station_id=? AND active=1',[pumpId,station]).isEmpty) throw StateError('المستفيد أو المضخة غير نشط أو لا يتبع المحطة');
+    final columns=db.select('PRAGMA table_info(irrigation_sessions)').map((x)=>x['name'].toString()).toSet();
+    const required={'id','beneficiary_id','pump_id','queue_entry_id','booking_id','actual_start','actual_end','status','timer_started_at','timer_stopped_at','postponement_reason','notes'};
+    if (!required.every(columns.contains)) throw StateError('مخطط جلسات التشغيل غير مكتمل');
+    final queueId=payload['queue_entry_id']==null?null:_resolveOperationalSyncRef(station:station,entityType:'queue_entries',column:'queue_entry_id',references:refs,beneficiaryId:beneficiaryId);
+    final bookingId=payload['booking_id']==null?null:_resolveOperationalSyncRef(station:station,entityType:'booking_requests',column:'booking_id',references:refs,beneficiaryId:beneficiaryId);
+    final links=db.select("SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='irrigation_sessions' AND global_id=?",[station,globalId]);
+    final localId=links.isEmpty?null:(links.first['local_id'] as num).toInt();
+    if (operation=='create') {
+      if (localId!=null || payload['status']!='running') throw StateError('إنشاء جلسة التشغيل يجب أن يكون جديداً وبحالة running');
+      final start=DateTime.tryParse((payload['actual_start']??'').toString());
+      if (start==null) throw StateError('وقت بدء الجلسة غير صالح');
+      if (db.select("SELECT 1 FROM irrigation_sessions s JOIN pumps p ON p.id=s.pump_id JOIN beneficiaries b ON b.id=s.beneficiary_id WHERE s.pump_id=? AND s.status='running' AND p.station_id=? AND b.station_id=?",[pumpId,station,station]).isNotEmpty) throw StateError('المضخة لديها جلسة فعالة');
+      final values=<String,Object?>{'beneficiary_id':beneficiaryId,'pump_id':pumpId,'queue_entry_id':queueId,'booking_id':bookingId,'planned_start':payload['planned_start'],'actual_start':start.toIso8601String(),'actual_end':null,'status':'running','timer_started_at':payload['timer_started_at']??start.toIso8601String(),'timer_stopped_at':null,'diesel_before':0,'diesel_consumed':0,'diesel_after':0,'diesel_warning_shown':0,'postponement_reason':null,'notes':payload['notes']};
+      final names=values.keys.toList();
+      db.execute('INSERT INTO irrigation_sessions('+names.join(',')+') VALUES('+List.filled(names.length,'?').join(',')+')',names.map((k)=>values[k]).toList());
+      db.execute('INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',[station,'irrigation_sessions',globalId,db.lastInsertRowId,now]);
+      return;
+    }
+    if (operation!='update' || localId==null) throw StateError('لا توجد جلسة مرتبطة بهذه الهوية العالمية');
+    final current=db.select('SELECT * FROM irrigation_sessions WHERE id=?',[localId]);
+    if (current.isEmpty || (current.first['beneficiary_id'] as num).toInt()!=beneficiaryId || (current.first['pump_id'] as num).toInt()!=pumpId || (current.first['queue_entry_id'] as num?)?.toInt()!=queueId || (current.first['booking_id'] as num?)?.toInt()!=bookingId) throw StateError('مراجع الجلسة لا تطابق السجل المرتبط');
+    final oldStatus=current.first['status'].toString();
+    final nextStatus=(payload['status']??oldStatus).toString();
+    final transitions=<String,Set<String>>{'running':{'running','postponed','completed'},'postponed':{'postponed'},'completed':{'completed'}};
+    if (!(transitions[oldStatus]?.contains(nextStatus)??false)) throw StateError('انتقال حالة جلسة التشغيل غير مسموح');
+    final values=<String,Object?>{};
+    for (final key in ['status','actual_end','timer_stopped_at','postponement_reason','notes']) { if (payload.containsKey(key)) values[key]=payload[key]; }
+    if (nextStatus=='postponed' && (values['postponement_reason']??current.first['postponement_reason']??'').toString().trim().isEmpty) throw StateError('سبب تأجيل الجلسة مطلوب');
+    if (nextStatus=='completed') { final start=DateTime.tryParse(current.first['actual_start'].toString()); final end=DateTime.tryParse((values['actual_end']??current.first['actual_end']??'').toString()); if (start==null || end==null || !end.isAfter(start)) throw StateError('وقت إنهاء الجلسة غير صالح'); values['actual_end']=end.toIso8601String(); values['timer_stopped_at']=values['timer_stopped_at']??end.toIso8601String(); }
+    if (values.isEmpty) throw StateError('لا توجد حقول جلسة قابلة للتحديث');
+    if (oldStatus=='completed' && values['actual_end']!=null && values['actual_end'].toString()!=current.first['actual_end'].toString()) throw StateError('لا يمكن تغيير وقت جلسة مكتملة');
+    db.execute('UPDATE irrigation_sessions SET '+values.keys.map((k)=>k+'=?').join(',')+' WHERE id=?',[...values.values,localId]);
+  }
+
   void _applySyncQueueOrBooking({
     required int station, required String entityType, required String entityKey,
     required String operation, required Map payload, required String now,
@@ -1053,6 +1121,10 @@ class SaqiaServer {
   }) {
     if (const {'pumps','partners','workers','payment_methods','cashboxes'}.contains(entityType)) {
       _applySyncMasterData(station:station,entityType:entityType,entityKey:entityKey,operation:operation,payload:payload,now:now,role:role);
+      return;
+    }
+    if (entityType == 'irrigation_sessions') {
+      _applySyncIrrigationSession(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,role:role);
       return;
     }
     if (entityType == 'queue_entries' || entityType == 'booking_requests') {
