@@ -277,7 +277,9 @@ void main() {
         if (values.containsKey(columnName)) continue;
         final target = fk['table'] as String;
         final targetRows = await database.query(target,columns:['id'],limit:1);
-        if (targetRows.isNotEmpty) values[columnName]=targetRows.first['id'];
+        if (targetRows.isNotEmpty) {
+          values[columnName] = targetRows.first['id'];
+        }
       }
       for (final column in columns) {
         final columnName = column['name'] as String;
