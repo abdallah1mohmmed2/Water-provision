@@ -3956,15 +3956,29 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   final q = TextEditingController();
   List<Map<String, Object?>> rows = [];
   bool loading = true;
+  bool sourceFromServer = false;
+  String? loadError;
   Timer? _debounce;
   int _seq = 0;
   Future<void> load() async {
     // رقم تسلسلي: نتيجة استعلام أقدم لا تكتب فوق نتيجة أحدث.
     final seq = ++_seq;
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      loadError = null;
+    });
     try {
       final x = await widget.r.beneficiaries(q.text.trim());
-      if (mounted && seq == _seq) setState(() => rows = x);
+      if (mounted && seq == _seq) {
+        setState(() {
+          rows = x;
+          sourceFromServer = widget.r.beneficiariesFromServer;
+        });
+      }
+    } catch (error) {
+      if (mounted && seq == _seq) {
+        setState(() => loadError = friendlyError(error));
+      }
     } finally {
       if (mounted && seq == _seq) setState(() => loading = false);
     }
@@ -4266,6 +4280,28 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             hintText: 'اكتب جزءًا من الاسم أو الرقم',
           ),
         ),
+        const SizedBox(height: 8),
+        if (sourceFromServer)
+          const Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'مصدر قائمة المستفيدين: خادم Shelf • تم تحديث النسخة المحلية المؤقتة',
+              style: TextStyle(fontSize: 12, color: Colors.green),
+            ),
+          )
+        else if (widget.r.serverSessionActive)
+          const Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'الخادم غير متاح حالياً؛ تُعرض آخر بيانات محلية محفوظة. قد لا تشمل تغييرات الأجهزة الأخرى.',
+              style: TextStyle(fontSize: 12, color: Colors.orange),
+            ),
+          ),
+        if (loadError != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(loadError!, style: const TextStyle(color: Colors.red)),
+          ),
         const SizedBox(height: 10),
         if (loading) const LinearProgressIndicator(),
         Expanded(
