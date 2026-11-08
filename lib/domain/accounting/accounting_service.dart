@@ -1754,6 +1754,9 @@ class AccountingService {
         referenceNumber: referenceNumber,
         notes: notes,
       ),
+      // قبض المستفيد هو أمر مالي واحد؛ الصندوق والقيود آثار مشتقة ينشئها
+      // الخادم عند تطبيق الأمر، فلا تُرسل كأحداث مستقلة.
+      captureSyncTables: const {'payments'},
     ),
   );
   Future<int> payWorker({
