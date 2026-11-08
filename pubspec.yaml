@@ -13,6 +13,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   sqflite: ^2.3.3+1
   sqflite_common_ffi: ^2.3.3
+  # Keep the native asset release on a previously published, stable version.
+  sqlite3: 3.6.0
   sqflite_common_ffi_web: ^0.4.5+3
   path: ^1.9.0
   intl: ^0.20.3
@@ -44,10 +46,7 @@ flutter:
 hooks:
   user_defines:
     sqlite3:
-      # Avoid the upstream prebuilt binary hash mismatch on CI for Android/Linux.
-      # Android ships libsqlite.so; Linux runners use libsqlite3.so.
+      # Linux CI uses the runner's SQLite package. Android keeps the bundled,
+      # ABI-specific native asset; system libsqlite.so is private on Android.
       source:
-        android: system
         linux: system
-      name:
-        android: sqlite
