@@ -831,9 +831,11 @@ class AppDatabase {
           : allChanges
                 .where((change) => captureSyncTables.contains('${change['table_name']}'))
                 .toList();
-      // Assign identities to every changed row first so references between
-      // records created in the same transaction can always be resolved.
-      for (final change in changes) {
+      // Keep stable identities for derived rows too, even when their mutations
+      // are intentionally excluded from Outbox. The server can then publish
+      // those rows back as projections and the originating device updates its
+      // existing local rows instead of creating duplicates.
+      for (final change in allChanges) {
         if ('${change['operation']}' == 'noop') continue;
         await GlobalIdentity.ensureRecord(
           tx,
