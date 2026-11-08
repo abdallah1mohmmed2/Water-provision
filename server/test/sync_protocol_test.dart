@@ -1150,6 +1150,14 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     database.execute("INSERT INTO pumps(id,station_id,name,system_type,active) VALUES(1,1,'Pump A','diesel',1)");
     database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'pumps','cccccccc-cccc-4ccc-8ccc-cccccccccccc',1,'2026-11-08T00:00:00Z')");
     database.execute("CREATE TABLE irrigations(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,pump_id INTEGER NOT NULL,beneficiary_id INTEGER,party_type TEXT NOT NULL,date TEXT NOT NULL,start_datetime TEXT NOT NULL,end_datetime TEXT NOT NULL,minutes INTEGER NOT NULL,system_type TEXT NOT NULL,water_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,diesel_liters_per_hour_snapshot REAL NOT NULL DEFAULT 0,diesel_price_snapshot INTEGER NOT NULL DEFAULT 0,solar_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,third_type_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,cloud_minutes INTEGER NOT NULL DEFAULT 0,chargeable_minutes INTEGER NOT NULL,water_amount INTEGER NOT NULL DEFAULT 0,diesel_amount INTEGER NOT NULL DEFAULT 0,total_amount INTEGER NOT NULL DEFAULT 0,paid_amount INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL,created_by INTEGER,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)");
+    database.execute("CREATE TABLE irrigation_sessions(id INTEGER PRIMARY KEY AUTOINCREMENT,beneficiary_id INTEGER NOT NULL,queue_entry_id INTEGER,booking_id INTEGER,pump_id INTEGER NOT NULL,planned_start TEXT,actual_start TEXT,actual_end TEXT,status TEXT NOT NULL,timer_started_at TEXT,timer_stopped_at TEXT,diesel_before REAL DEFAULT 0,diesel_consumed REAL DEFAULT 0,diesel_after REAL DEFAULT 0,diesel_warning_shown INTEGER NOT NULL DEFAULT 0,postponement_reason TEXT,notes TEXT)");
+    database.execute("ALTER TABLE irrigations ADD COLUMN session_id INTEGER");
+    database.execute("ALTER TABLE irrigations ADD COLUMN queue_entry_id INTEGER");
+    database.execute("ALTER TABLE irrigations ADD COLUMN booking_id INTEGER");
+    database.execute("INSERT INTO irrigation_sessions(id,beneficiary_id,pump_id,actual_start,status,timer_started_at) VALUES(1,1,1,'2026-11-08T08:00:00.000','running','2026-11-08T08:00:00.000')");
+    const sessionGlobalId = 'eeeeeeee-1111-4111-8111-111111111111';
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'irrigation_sessions',?,1,'2026-11-08T00:00:00Z')",[sessionGlobalId]);
+
     database.execute("CREATE TABLE station_settings(station_id INTEGER NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(station_id,key))");
     database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'diesel_hourly_water_rate','6000'),(1,'diesel_liters_per_hour','2'),(1,'diesel_price_per_liter','500')");
     database.execute("CREATE TABLE accounts(id INTEGER PRIMARY KEY,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,type TEXT NOT NULL)");
@@ -1161,9 +1169,11 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     const globalId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
     final payload = {
       '_global_id': globalId,
+      'session_id':1,
       '_global_refs': {
         'pump_id': {'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
         'beneficiary_id': {'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+        'session_id': {'table':'irrigation_sessions','global_id':sessionGlobalId},
       },
       'start_datetime':'2026-11-08T08:00:00.000',
       'end_datetime':'2026-11-08T09:00:00.000',
@@ -1180,6 +1190,26 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       'base_version':0,
       'payload':payload,
     };
+    final sessionCreate = await postEvents(stationOneToken,[{
+      'event_id':'eeeeeeee-2222-4222-8222-222222222222',
+      'entity_type':'irrigation_sessions',
+      'entity_key':'irrigation_sessions:' + sessionGlobalId,
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':sessionGlobalId,
+        'beneficiary_id':1,
+        'pump_id':1,
+        'status':'running',
+        'actual_start':'2026-11-08T08:00:00.000',
+        'timer_started_at':'2026-11-08T08:00:00.000',
+        '_global_refs':{
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          'pump_id':{'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+      },
+    }]);
+    expect((sessionCreate['results'] as List).single['status'],'accepted');
     final response = await postEvents(stationOneToken,[event]);
     expect((response['results'] as List).single['status'],'accepted');
     final irrigation = database.select('SELECT * FROM irrigations WHERE station_id=1').single;
@@ -1189,6 +1219,31 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(irrigation['water_amount'],6000);
     expect(irrigation['diesel_amount'],1000);
     expect(irrigation['total_amount'],7000);
+    expect(irrigation['session_id'],1);
+    expect(database.select('SELECT status,actual_end,diesel_consumed FROM irrigation_sessions WHERE id=1').single['status'],'completed');
+    expect((database.select('SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type='irrigation_sessions' AND global_id=?',[sessionGlobalId]).single['n'] as num).toInt(),1);
+    final sessionFinish = await postEvents(stationOneToken,[{
+      'event_id':'eeeeeeee-3333-4333-8333-333333333333',
+      'entity_type':'irrigation_sessions',
+      'entity_key':'irrigation_sessions:' + sessionGlobalId,
+      'operation':'update',
+      'base_version':1,
+      'payload':{
+        '_global_id':sessionGlobalId,
+        'beneficiary_id':1,
+        'pump_id':1,
+        'status':'completed',
+        'actual_start':'2026-11-08T08:00:00.000',
+        'actual_end':'2026-11-08T09:00:00.000',
+        'timer_started_at':'2026-11-08T08:00:00.000',
+        'timer_stopped_at':'2026-11-08T09:00:00.000',
+        '_global_refs':{
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          'pump_id':{'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+      },
+    }]);
+    expect((sessionFinish['results'] as List).single['status'],'accepted');
     expect(database.select('SELECT * FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]),hasLength(1));
     expect(database.select('SELECT kind FROM diesel_movements WHERE station_id=1 ORDER BY id').map((r)=>r['kind']).toList(),['advance','consumption']);
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
