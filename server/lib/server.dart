@@ -909,6 +909,2319 @@ class SaqiaServer {
     db.execute('INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',[station,'cloud_periods',globalId,matching.first['id'],now]);
   }
 
+
+  int _resolveSyncOperationalReference({
+    required int station, required String entityType, required String column,
+    required Map references, int? beneficiaryId,
+  }) {
+    if (!const {'queue_entries','booking_requests','irrigation_sessions'}.contains(entityType)) {
+      throw StateError('نوع مرجع التشغيل غير مدعوم');
+    }
+    final raw=references[column];
+    if (raw is! Map || raw['table']!=entityType) throw StateError('مرجع ' + column + ' العالمي غير صالح');
+    final globalId=(raw['global_id']??'').toString();
+    if (!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}
+    required int station, required String entityType, required String entityKey,
+    required String operation, required Map payload, required String now,
+  }) {
+    if (!const {'queue_entries', 'booking_requests'}.contains(entityType)) {
+      throw StateError('نوع تشغيل غير مدعوم');
+    }
+    if (operation == 'delete') {
+      throw UnsupportedError('لا يسمح بحذف الحجز أو عنصر الطابور؛ استخدم انتقال حالة موثقاً');
+    }
+    final globalId = (payload['_global_id'] ?? '').toString();
+    final valid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId);
+    if (!valid || entityKey != entityType + ':' + globalId) {
+      throw StateError('الهوية العالمية لسجل التشغيل غير صالحة');
+    }
+    if (!_hasTable(entityType)) throw StateError('جدول $entityType غير موجود');
+    final refs = payload['_global_refs'];
+    if (refs is! Map) throw StateError('مرجع المستفيد العالمي مفقود');
+    final beneficiaryId = _resolveSyncReference(
+      station: station, entityType: 'beneficiaries',
+      column: 'beneficiary_id', references: refs,
+    );
+    final beneficiary = db.select(
+      "SELECT id FROM beneficiaries WHERE id=? AND station_id=? AND status='active' LIMIT 1",
+      [beneficiaryId, station],
+    );
+    if (beneficiary.isEmpty) throw StateError('المستفيد غير نشط أو لا يتبع المحطة');
+    final links = db.select(
+      'SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',
+      [station, entityType, globalId],
+    );
+    final localId = links.isEmpty ? null : (links.first['local_id'] as num).toInt();
+    final columns = db.select('PRAGMA table_info($entityType)')
+        .map((row) => row['name'].toString()).toSet();
+    final allowed = entityType == 'queue_entries'
+        ? const {'position', 'cycle_number', 'status', 'last_served_at', 'postponed_count', 'skip_reason', 'created_at', 'updated_at'}
+        : const {'status', 'scheduled_date', 'scheduled_start', 'scheduled_end', 'priority', 'notes', 'cancel_reason'};
+    if (operation == 'create') {
+      if (localId != null) throw StateError('السجل موجود مسبقاً؛ استخدم update');
+      final values = <String, Object?>{
+        'beneficiary_id': beneficiaryId,
+        if (entityType == 'queue_entries') ...{
+          'position': (payload['position'] as num?)?.toInt() ?? 0,
+          'cycle_number': (payload['cycle_number'] as num?)?.toInt() ?? 1,
+          'status': payload['status'] ?? 'waiting',
+          'postponed_count': (payload['postponed_count'] as num?)?.toInt() ?? 0,
+          'created_at': payload['created_at'] ?? now,
+          'updated_at': now,
+        },
+        if (entityType == 'booking_requests') ...{
+          'created_at': payload['created_at'] ?? now,
+          'status': payload['status'] ?? 'new',
+        },
+      };
+      for (final key in allowed) {
+        if (payload.containsKey(key) && columns.contains(key)) values[key] = payload[key];
+      }
+      if (entityType == 'queue_entries') {
+        if ((values['position'] as num).toInt() < 1 ||
+            (values['cycle_number'] as num).toInt() < 1 ||
+            (values['postponed_count'] as num).toInt() < 0 ||
+            values['status'] != 'waiting') {
+          throw StateError('بيانات عنصر الطابور الجديد غير صالحة؛ يجب أن يبدأ بحالة انتظار');
+        }
+      } else {
+        if (values['status'] != 'new') {
+          throw StateError('يجب أن يبدأ الحجز الجديد بحالة جديد');
+        }
+        final start = values['scheduled_start'];
+        final end = values['scheduled_end'];
+        if ((start == null) != (end == null)) throw StateError('يجب تحديد بداية ونهاية الحجز معاً');
+        if (start != null && (DateTime.tryParse(start.toString()) == null ||
+            DateTime.tryParse(end.toString()) == null ||
+            !DateTime.parse(end.toString()).isAfter(DateTime.parse(start.toString())))) {
+          throw StateError('وقت الحجز غير صالح');
+        }
+      }
+      if (!allowed.every(columns.contains)) {
+        throw StateError('مخطط $entityType لا يدعم الحقول المطلوبة');
+      }
+      final names = values.keys.toList();
+      db.execute(
+        'INSERT INTO $entityType(${names.join(',')}) VALUES(${List.filled(names.length, '?').join(',')})',
+        names.map((name) => values[name]).toList(),
+      );
+      db.execute(
+        'INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',
+        [station, entityType, globalId, db.lastInsertRowId, now],
+      );
+      return;
+    }
+    if (operation != 'update' || localId == null) {
+      throw StateError('لا يوجد سجل تشغيل مرتبط بهذه الهوية العالمية');
+    }
+    final owned = db.select(
+      'SELECT id FROM $entityType WHERE id=? AND beneficiary_id=? LIMIT 1',
+      [localId, beneficiaryId],
+    );
+    if (owned.isEmpty) throw StateError('سجل التشغيل لا يطابق المستفيد المرتبط');
+    final values = <String, Object?>{};
+    for (final key in allowed) {
+      if (payload.containsKey(key) && columns.contains(key)) values[key] = payload[key];
+    }
+    if (values.isEmpty) throw StateError('لا توجد حقول تشغيل قابلة للتحديث');
+    if (values.containsKey('status')) {
+      final current = db.select('SELECT status FROM $entityType WHERE id=? AND beneficiary_id=? LIMIT 1', [localId, beneficiaryId]);
+      if (current.isEmpty) throw StateError('سجل التشغيل غير موجود');
+      final oldStatus = current.first['status'].toString();
+      final nextStatus = values['status'].toString();
+      final allowedTransitions = entityType == 'queue_entries'
+          ? <String, Set<String>>{
+              'waiting': {'waiting', 'postponed', 'completed', 'skipped'},
+              'postponed': {'postponed', 'waiting', 'completed', 'skipped'},
+              'completed': {'completed'},
+              'skipped': {'skipped'},
+            }
+          : <String, Set<String>>{
+              'new': {'new', 'under_review', 'cancelled'},
+              'under_review': {'under_review', 'scheduled', 'cancelled'},
+              'scheduled': {'scheduled', 'cancelled', 'completed'},
+              'cancelled': {'cancelled'},
+              'completed': {'completed'},
+            };
+      if (!(allowedTransitions[oldStatus]?.contains(nextStatus) ?? false)) {
+        throw StateError('انتقال الحالة من $oldStatus إلى $nextStatus غير مسموح');
+      }
+    }
+    if (entityType == 'queue_entries' && columns.contains('updated_at')) values['updated_at'] = now;
+    final names = values.keys.toList();
+    db.execute(
+      'UPDATE $entityType SET ${names.map((name) => '$name=?').join(',')} WHERE id=? AND beneficiary_id=?',
+      [...names.map((name) => values[name]), localId, beneficiaryId],
+    );
+    if ((db.select('SELECT changes() AS n').first['n'] as num).toInt() != 1) {
+      throw StateError('تعذر تحديث سجل التشغيل');
+    }
+  }
+
+  void _applySyncBusinessEvent({
+    required int station, required String entityType, required String entityKey,
+    required String operation, required Map payload, required String now, required int? userId, required String? role,
+  }) {
+    if (const {'pumps','partners','workers','payment_methods','cashboxes'}.contains(entityType)) {
+      _applySyncMasterData(station:station,entityType:entityType,entityKey:entityKey,operation:operation,payload:payload,now:now,role:role);
+      return;
+    }
+    if (entityType == 'irrigation_sessions') {
+      _applySyncIrrigationSession(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'queue_entries' || entityType == 'booking_requests') {
+      _applySyncQueueOrBooking(
+        station: station, entityType: entityType, entityKey: entityKey,
+        operation: operation, payload: payload, now: now,
+      );
+      return;
+    }
+    if (entityType == 'cloud_periods') {
+      if (operation != 'create') throw UnsupportedError('فترة الغيم لا تقبل التعديل المباشر بعد ترحيل السقاية');
+      _applySyncCloudPeriod(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'irrigations') {
+      if (operation != 'create') throw UnsupportedError('تعديل أو حذف السقاية يحتاج معالج عكس محاسبي مخصصاً');
+      _applySyncIrrigation(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'payments') {
+      if (operation != 'create') throw UnsupportedError('تعديل أو حذف القبض يحتاج معالج عكس محاسبي مخصصاً');
+      _applySyncPaymentReceipt(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'beneficiary_manual_debts') {
+      _applySyncBeneficiaryManualDebt(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'worker_transactions' || entityType == 'partner_transactions') {
+      _applySyncPartyOpeningDebt(station:station,entityType:entityType,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType != 'beneficiaries') throw UnsupportedError('معالج المزامنة لهذا المجال غير منفذ بعد');
+    final globalId = '${payload['_global_id'] ?? ''}';
+    final validGlobalId = globalId.length == 36 &&
+        globalId[8] == '-' && globalId[13] == '-' &&
+        globalId[18] == '-' && globalId[23] == '-' &&
+        globalId.replaceAll('-', '').length == 32 &&
+        RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId);
+    if (!validGlobalId || entityKey != 'beneficiaries:$globalId') {
+      throw StateError('هوية المستفيد العالمية غير صالحة');
+    }
+    if (!_hasTable('beneficiaries')) {
+      throw StateError('جدول المستفيدين غير موجود في قاعدة الأعمال');
+    }
+    final columns = db.select('PRAGMA table_info(beneficiaries)')
+        .map((row) => '${row['name']}').toSet();
+    if (!columns.contains('station_id') || !columns.contains('name')) {
+      throw StateError('مخطط جدول المستفيدين لا يدعم تطبيق المزامنة الآمن');
+    }
+    final links = db.select(
+      'SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',
+      [station, entityType, globalId],
+    );
+    final localId = links.isEmpty ? null : (links.first['local_id'] as num).toInt();
+    const allowed = {
+      'name', 'phone', 'address', 'location', 'jerba_number',
+      'area', 'is_needy', 'notes',
+    };
+    for (final financialField in const {
+      'opening_balance', 'carried_balance', 'opening_diesel_liters',
+    }) {
+      final value = payload[financialField];
+      if (value != null) {
+        final amount = value is num ? value : num.tryParse(value.toString());
+        if (amount == null || amount != 0) {
+          throw UnsupportedError(
+            'تغيير الرصيد الافتتاحي أو رصيد الديزل يحتاج معالجاً محاسبياً مخصصاً',
+          );
+        }
+      }
+    }
+    if (operation == 'create') {
+      if (localId != null) throw StateError('هوية المستفيد موجودة مسبقاً؛ استخدم update');
+      final values = <String, Object?>{
+        'station_id': station,
+        'name': '${payload['name'] ?? ''}'.trim(),
+        if (columns.contains('status')) 'status': 'active',
+        if (columns.contains('created_at')) 'created_at': now,
+        if (columns.contains('updated_at')) 'updated_at': now,
+      };
+      if ((values['name'] as String).isEmpty) throw StateError('اسم المستفيد مطلوب');
+      for (final key in allowed) {
+        if (payload.containsKey(key) && columns.contains(key)) {
+          final value = payload[key];
+          values[key] = key == 'is_needy' && value is bool ? (value ? 1 : 0) : value;
+        }
+      }
+      values['name'] = '${values['name']}'.trim();
+      final names = values.keys.toList();
+      db.execute(
+        'INSERT INTO beneficiaries(${names.join(',')}) VALUES(${List.filled(names.length, '?').join(',')})',
+        names.map((key) => values[key]).toList(),
+      );
+      db.execute(
+        'INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',
+        [station, entityType, globalId, db.lastInsertRowId, now],
+      );
+      return;
+    }
+    if (localId == null) throw StateError('لا يوجد سجل أعمال مرتبط بهذه الهوية العالمية');
+    if (operation == 'delete') {
+      if (!columns.contains('status')) throw StateError('الحذف الآمن يتطلب عمود حالة في جدول المستفيدين');
+      db.execute(
+        "UPDATE beneficiaries SET status='deleted'${columns.contains('updated_at') ? ',updated_at=?' : ''} WHERE id=? AND station_id=?",
+        columns.contains('updated_at') ? [now, localId, station] : [localId, station],
+      );
+      if ((db.select('SELECT changes() AS n').first['n'] as num).toInt() != 1) {
+        throw StateError('المستفيد غير موجود ضمن المحطة الحالية');
+      }
+      return;
+    }
+    final values = <String, Object?>{};
+    for (final key in allowed) {
+      if (payload.containsKey(key) && columns.contains(key)) {
+        final value = payload[key];
+        values[key] = key == 'is_needy' && value is bool ? (value ? 1 : 0) : value;
+      }
+    }
+    if (values.isEmpty) throw StateError('لا توجد حقول مستفيد قابلة للتحديث');
+    if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
+      throw StateError('اسم المستفيد مطلوب');
+    }
+    if (values.containsKey('name')) values['name'] = '${values['name']}'.trim();
+    if (columns.contains('updated_at')) values['updated_at'] = now;
+    final names = values.keys.toList();
+    db.execute(
+      'UPDATE beneficiaries SET ${names.map((key) => '$key=?').join(',')} WHERE id=? AND station_id=?',
+      [...names.map((key) => values[key]), localId, station],
+    );
+    if ((db.select('SELECT changes() AS n').first['n'] as num).toInt() != 1) {
+      throw StateError('المستفيد غير موجود ضمن المحطة الحالية');
+    }
+  }
+
+  Future<Response> _syncPush(Request request, Map<String,dynamic> claims) async {
+    final body = await _body(request);
+    final device = '${body['device_id'] ?? ''}'.trim();
+    final rawEvents = body['events'];
+    if (device.isEmpty || device.length > 128 || rawEvents is! List ||
+        rawEvents.isEmpty || rawEvents.length > 100) {
+      return _json({'error':'دفعة المزامنة غير صالحة'},status:400);
+    }
+    final station = _stationId(claims);
+    final now = DateTime.now().toUtc().toIso8601String();
+    final results = <Map<String,Object?>>[];
+    db.execute('BEGIN IMMEDIATE');
+    try {
+      for (final raw in rawEvents) {
+        if (raw is! Map) {
+          results.add({'status':'rejected','message':'صيغة الحدث غير صالحة'});
+          continue;
+        }
+        final event = Map<String,dynamic>.from(raw);
+        final eventId = '${event['event_id'] ?? ''}'.trim();
+        final entityType = '${event['entity_type'] ?? ''}'.trim();
+        final entityKey = '${event['entity_key'] ?? ''}'.trim();
+        final operation = '${event['operation'] ?? ''}'.trim();
+        final payload = event['payload'];
+        final baseVersion = (event['base_version'] as num?)?.toInt();
+        final validUuid = RegExp(
+          r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+        ).hasMatch(eventId);
+        if (!validUuid || !_syncEntityTypes.contains(entityType) ||
+            entityKey.isEmpty || entityKey.length > 160 ||
+            !const {'create','update','delete'}.contains(operation) ||
+            payload is! Map || baseVersion == null || baseVersion < 0 ||
+            utf8.encode(_canonicalSyncJson(payload)).length > 262144) {
+          results.add({'event_id':eventId,'status':'rejected','message':'حقول الحدث غير صالحة'});
+          continue;
+        }
+        final duplicate = db.select(
+          '''SELECT server_sequence,status,server_version,source_device,
+            entity_type,entity_key,operation,payload_json,base_version
+            FROM sync_event_log WHERE station_id=? AND event_id=? LIMIT 1''',
+          [station,eventId],
+        );
+        if (duplicate.isNotEmpty) {
+          final previous = duplicate.first;
+          final sameRequest = previous['source_device'] == device &&
+              previous['entity_type'] == entityType &&
+              previous['entity_key'] == entityKey &&
+              previous['operation'] == operation &&
+              (previous['base_version'] as num).toInt() == baseVersion &&
+              previous['payload_json'] == _canonicalSyncJson(payload);
+          if (!sameRequest) {
+            results.add({
+              'event_id': eventId,
+              'status': 'rejected',
+              'message': 'أعيد استخدام event_id لحمولة أو مصدر مختلف؛ رُفض الحدث لحماية سلامة Idempotency.',
+            });
+            continue;
+          }
+          if (previous['status'] == 'conflict') {
+            results.add({
+              'event_id': eventId,
+              'status': 'conflict',
+              'server_sequence': previous['server_sequence'],
+              'server_version': previous['server_version'],
+              'current_version': previous['server_version'],
+              'message': 'الحدث مسجل كتعارض سابق',
+            });
+            continue;
+          }
+          // Do not replay legacy "accepted" log entries as success unless
+          // the corresponding business row can still be proven to exist.
+          var businessRowExists = false;
+          if (payload is Map) {
+            final globalId = '${payload['_global_id'] ?? ''}';
+            if (entityType == 'beneficiaries') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l JOIN beneficiaries b
+                  ON b.id=l.local_id AND b.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='beneficiaries' AND l.global_id=? LIMIT 1
+              ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'irrigations') {
+              businessRowExists = db.select('SELECT 1 FROM sync_entity_links l JOIN irrigations i ON i.id=l.local_id AND i.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=\'irrigations\' AND l.global_id=? LIMIT 1',[station,globalId]).isNotEmpty;
+            } else if (entityType == 'cloud_periods') {
+              businessRowExists = db.select('SELECT 1 FROM sync_entity_links l JOIN cloud_periods cp ON cp.id=l.local_id JOIN irrigations i ON i.id=cp.irrigation_id AND i.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=\'cloud_periods\' AND l.global_id=? LIMIT 1',[station,globalId]).isNotEmpty;
+            } else if (entityType == 'payments') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l JOIN payments p
+                  ON p.id=l.local_id AND p.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='payments' AND l.global_id=? AND p.status='posted' LIMIT 1
+              ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'beneficiary_manual_debts') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l
+                JOIN beneficiary_manual_debts md ON md.id=l.local_id
+                JOIN beneficiaries b ON b.id=md.beneficiary_id AND b.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='beneficiary_manual_debts'
+                  AND l.global_id=? LIMIT 1
+              ''', [station, globalId]).isNotEmpty;
+            } else if (const {'pumps','partners','workers','payment_methods','cashboxes'}.contains(entityType)) {
+              businessRowExists = db.select(
+                'SELECT 1 FROM sync_entity_links l JOIN ' + entityType +
+                ' t ON t.id=l.local_id AND t.station_id=l.station_id ' +
+                'WHERE l.station_id=? AND l.entity_type=? AND l.global_id=? LIMIT 1',
+                [station,entityType,globalId],
+              ).isNotEmpty;
+            } else if (entityType == 'worker_transactions' || entityType == 'partner_transactions') {
+              final partyTable = entityType == 'worker_transactions' ? 'workers' : 'partners';
+              final partyColumn = entityType == 'worker_transactions' ? 'worker_id' : 'partner_id';
+              businessRowExists = db.select(
+                'SELECT 1 FROM sync_entity_links l JOIN ' + entityType + ' t ON t.id=l.local_id AND t.station_id=l.station_id JOIN ' + partyTable + ' p ON p.id=t.' + partyColumn + ' AND p.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=? AND l.global_id=? LIMIT 1',
+                [station,entityType,globalId],
+              ).isNotEmpty;
+            }
+          }
+          if (!businessRowExists) {
+            results.add({
+              'event_id': eventId,
+              'status': 'rejected',
+              'message': 'الحدث مسجل قديماً دون دليل كافٍ على تطبيقه في سجل الأعمال؛ يحتاج مراجعة.',
+            });
+          } else {
+            results.add({
+              'event_id': eventId,
+              'status': 'duplicate',
+              'server_sequence': previous['server_sequence'],
+              'server_version': previous['server_version'],
+              'current_version': previous['server_version'],
+              'message': 'الحدث مسجل ومطبق مسبقاً',
+            });
+          }
+          continue;
+        }
+        // New clients identify entities by UUID. Bridge the previous
+        // table:local_id version key without resetting its server version.
+        if (payload is Map && payload['_global_id'] != null) {
+          final globalId = payload['_global_id'].toString();
+          final validGlobalId = RegExp(
+            r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+          ).hasMatch(globalId);
+          if (!validGlobalId || entityKey != entityType + ':' + globalId) {
+            results.add({'event_id':eventId,'status':'rejected','message':'هوية السجل العالمية أو مفتاح الكيان غير متطابق'});
+            continue;
+          }
+          final localId = (payload['id'] as num?)?.toInt();
+          if (localId != null) {
+            final legacyKey = entityType + ':' + localId.toString();
+            if (legacyKey != entityKey) {
+              final globalVersion = db.select(
+                'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
+                [station,entityType,entityKey],
+              );
+              final legacyVersion = db.select(
+                'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
+                [station,entityType,legacyKey],
+              );
+              if (globalVersion.isEmpty && legacyVersion.isNotEmpty) {
+                db.execute('''INSERT INTO sync_entity_versions
+                  (station_id,entity_type,entity_key,version,updated_at)
+                  VALUES(?,?,?,?,?)''',[
+                  station,entityType,entityKey,legacyVersion.first['version'],now
+                ]);
+                db.execute(
+                  'DELETE FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=?',
+                  [station,entityType,legacyKey],
+                );
+                db.execute(
+                  'UPDATE sync_event_log SET entity_key=? WHERE station_id=? AND entity_type=? AND entity_key=?',
+                  [entityKey,station,entityType,legacyKey],
+                );
+              }
+            }
+          }
+        }
+        final currentRows = db.select(
+          'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
+          [station,entityType,entityKey],
+        );
+        final currentVersion = currentRows.isEmpty ? 0 : (currentRows.first['version'] as num).toInt();
+        final conflict = baseVersion != currentVersion;
+        final nextVersion = conflict ? currentVersion : currentVersion + 1;
+        if (conflict) {
+          db.execute('''INSERT INTO sync_event_log
+            (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)''',[
+            station,eventId,device,entityType,entityKey,operation,
+            _canonicalSyncJson(payload),baseVersion,nextVersion,'conflict',now
+          ]);
+          results.add({
+            'event_id':eventId,
+            'status':'conflict',
+            'server_version':nextVersion,
+            'current_version':currentVersion,
+            'message':'تعارض إصدار؛ لم يتم اعتماد الحدث تلقائياً',
+          });
+          continue;
+        }
+
+        // A successful acknowledgement means the business row, event log and
+        // entity version were all committed together. A failed domain handler
+        // rolls back only this event and never advances its version.
+        db.execute('SAVEPOINT apply_sync_event');
+        try {
+          _applySyncBusinessEvent(
+            station: station,
+            entityType: entityType,
+            entityKey: entityKey,
+            operation: operation,
+            payload: Map.from(payload),
+            now: now,
+            userId: (claims['userId'] as num?)?.toInt(),
+            role: claims['role']?.toString(),
+          );
+          db.execute('''INSERT INTO sync_event_log
+            (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)''',[
+            station,eventId,device,entityType,entityKey,operation,
+            _canonicalSyncJson(payload),baseVersion,nextVersion,'accepted',now
+          ]);
+          db.execute('''INSERT INTO sync_entity_versions(station_id,entity_type,entity_key,version,updated_at)
+            VALUES(?,?,?,?,?) ON CONFLICT(station_id,entity_type,entity_key)
+            DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at''',
+            [station,entityType,entityKey,nextVersion,now]);
+          db.execute('RELEASE SAVEPOINT apply_sync_event');
+          results.add({
+            'event_id':eventId,
+            'status':'accepted',
+            'server_version':nextVersion,
+            'current_version':currentVersion,
+          });
+        } catch (error) {
+          db.execute('ROLLBACK TO SAVEPOINT apply_sync_event');
+          db.execute('RELEASE SAVEPOINT apply_sync_event');
+          results.add({
+            'event_id':eventId,
+            'status':'rejected',
+            'message':'لم يطبق الخادم سجل الأعمال؛ لم يتم اعتماد الحدث: $error',
+          });
+        }
+      }
+      db.execute('COMMIT');
+    } catch (error) {
+      try { db.execute('ROLLBACK'); } catch (_) {}
+      return _json({'error':'تعذر حفظ أحداث المزامنة'},status:500);
+    }
+    return _json({'results':results});
+  }
+
+  Future<Response> _syncInbox(Request request, Map<String,dynamic> claims) async {
+    final station = _stationId(claims);
+    final after = int.tryParse(request.url.queryParameters['after'] ?? '0') ?? -1;
+    final device = (request.url.queryParameters['device_id'] ?? '').trim();
+    if (after < 0 || device.isEmpty || device.length > 128) {
+      return _json({'error':'مؤشر Inbox أو معرف الجهاز غير صالح'},status:400);
+    }
+    final rows = db.select('''SELECT server_sequence,event_id,entity_type,entity_key,
+      operation,payload_json,base_version,server_version,source_device
+      FROM sync_event_log
+      WHERE station_id=? AND server_sequence>? AND source_device<>? AND status='accepted'
+      ORDER BY server_sequence LIMIT 100''',[station,after,device]);
+    final events = rows.map((row) => <String,Object?>{
+      'server_sequence':row['server_sequence'],
+      'event_id':row['event_id'],
+      'entity_type':row['entity_type'],
+      'entity_key':row['entity_key'],
+      'operation':row['operation'],
+      'payload':jsonDecode(row['payload_json'] as String),
+      'base_version':row['base_version'],
+      'server_version':row['server_version'],
+      'source_device':row['source_device'],
+    }).toList();
+    final high = db.select(
+      'SELECT COALESCE(MAX(server_sequence),0) AS cursor FROM sync_event_log WHERE station_id=?',
+      [station],
+    ).first['cursor'] as int;
+    // Do not skip the remainder when a station has more than one page.
+    final cursor = rows.length == 100
+        ? (rows.last['server_sequence'] as num).toInt()
+        : high;
+    return _json({'events':events,'cursor':cursor});
+  }
+
+  int _stationId(Map<String, dynamic> claims) {
+    final stationId = (claims['stationId'] as num?)?.toInt();
+    if (stationId == null || stationId <= 0) {
+      throw StateError('رمز الجلسة لا يحتوي على محطة صالحة');
+    }
+    return stationId;
+  }
+  bool _owns(String table,int id,int stationId){final r=db.select('SELECT id FROM $table WHERE id=? AND station_id=? LIMIT 1',[id,stationId]);return r.isNotEmpty;}
+  void _requireOwn(String table,int? id,int stationId,String label){if(id==null||!_owns(table,id,stationId))throw StateError('$label لا يتبع المحطة الحالية');}
+  void _audit(int userId,String operation,String table,int? recordId,{String? reason}){db.execute('INSERT INTO audit_logs(user_id,operation,table_name,record_id,reason,created_at) VALUES(?,?,?,?,?,?)',[userId,operation,table,recordId,reason,DateTime.now().toIso8601String()]);}
+  int _round(double v,String mode)=>mode=='up'?v.ceil():mode=='down'?v.floor():v.round();
+
+  Future<Response> _adminLogin(Request r) async {
+    final body = await _body(r);
+    final username = '${body['username'] ?? ''}'.trim();
+    final password = '${body['password'] ?? ''}';
+    if (username.isEmpty || password.isEmpty) {
+      return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+    }
+    final scopes = _loginScopes(r, username);
+    final now = DateTime.now().toUtc();
+    if (_loginIsBlocked(scopes, now)) {
+      return Response(429,
+        body: jsonEncode({'error': 'محاولات تسجيل الدخول كثيرة؛ حاول بعد 15 دقيقة'}),
+        headers: {'content-type': 'application/json; charset=utf-8', 'retry-after': '900'});
+    }
+    final rows = db.select(
+      'SELECT id,station_id,name,role,password_hash FROM app_users WHERE username=? AND active=1 LIMIT 1',
+      [username],
+    );
+    if (rows.isEmpty ||
+        !await PasswordHasher.verify(password, '${rows.first['password_hash'] ?? ''}')) {
+      _recordFailedLogin(scopes, now);
+      return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+    }
+
+    final row = rows.first;
+    final storedHash = '${row['password_hash'] ?? ''}';
+    if (!PasswordHasher.isArgon2id(storedHash)) {
+      final upgradedHash = await PasswordHasher.hash(password);
+      db.execute(
+        'UPDATE app_users SET password_hash=? WHERE id=? AND password_hash=? AND active=1',
+        [upgradedHash, row['id'], storedHash],
+      );
+      if (db.select('SELECT changes() AS affected').first['affected'] == 0) {
+        // A concurrent successful login may already have upgraded the hash.
+        final latest = db.select(
+          'SELECT password_hash FROM app_users WHERE id=? AND active=1 LIMIT 1',
+          [row['id']],
+        );
+        if (latest.isEmpty ||
+            !await PasswordHasher.verify(
+              password,
+              '${latest.first['password_hash'] ?? ''}',
+            )) {
+          _recordFailedLogin(scopes, now);
+          return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+        }
+      }
+    }
+
+    final activeRows = db.select(
+      'SELECT id,station_id,name,role FROM app_users WHERE id=? AND active=1 LIMIT 1',
+      [row['id']],
+    );
+    if (activeRows.isEmpty) {
+      _recordFailedLogin(scopes, now);
+      return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+    }
+    _clearLoginFailures(scopes);
+    final user = _rows(activeRows).first;
+    return _json({
+      'token': _token({'kind': 'admin', 'userId': user['id'], 'stationId': user['station_id'], 'role': user['role']}),
+      'user': {'id': user['id'], 'name': user['name'], 'role': user['role']},
+    });
+  }
+  Future<Response> _dashboard(Request r,Map<String,dynamic> c) async {final station=_stationId(c);final x=_rows(db.select("SELECT (SELECT COUNT(*) FROM beneficiaries WHERE status='active' AND station_id=?) beneficiaries,(SELECT COUNT(*) FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE b.station_id=? AND q.status IN ('waiting','postponed')) queue,(SELECT COUNT(*) FROM booking_requests br JOIN beneficiaries b ON b.id=br.beneficiary_id WHERE b.station_id=? AND br.status IN ('new','under_review')) bookings,(SELECT COUNT(*) FROM irrigation_sessions s JOIN pumps p ON p.id=s.pump_id JOIN beneficiaries b ON b.id=s.beneficiary_id WHERE p.station_id=? AND b.station_id=? AND s.status='running') running_sessions,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled' AND station_id=?) revenue,(SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='posted' AND station_id=?) paid,(SELECT COALESCE(SUM(amount),0) FROM expenses WHERE status='posted' AND station_id=?) expenses",[station,station,station,station,station,station,station,station])).first;return _json(x);}
+  Map<String,String> _settingsForStation(int stationId) => {
+    for(final x in db.select('SELECT key,value FROM station_settings WHERE station_id=?',[stationId]))
+      x['key'] as String: x['value'] as String,
+  };
+  Future<Response> _settings(Request r,Map<String,dynamic> c) async => _json(_settingsForStation(_stationId(c)));
+  Future<Response> _settingsPut(Request r,Map<String,dynamic> c) async {
+    final b=await _body(r); final station=_stationId(c); final now=DateTime.now().toIso8601String();
+    for(final e in b.entries){db.execute('INSERT INTO station_settings(station_id,key,value,updated_at) VALUES(?,?,?,?) ON CONFLICT(station_id,key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at',[station,e.key,'${e.value}',now]);}
+    return _settings(r,c);
+  }
+  String _beneficiaryBalanceExpression() {
+    final columns = db.select('PRAGMA table_info(beneficiaries)')
+        .map((row) => '${row['name']}').toSet();
+    final parts = <String>[];
+    if (columns.contains('opening_balance')) parts.add('COALESCE(b.opening_balance,0)');
+    if (columns.contains('carried_balance')) parts.add('COALESCE(b.carried_balance,0)');
+    if (_hasTable('beneficiary_manual_debts')) {
+      parts.add("(SELECT COALESCE(SUM(md.amount),0) FROM beneficiary_manual_debts md WHERE md.beneficiary_id=b.id AND md.status='posted')");
+    }
+    if (_hasTable('irrigations')) {
+      parts.add("(SELECT COALESCE(SUM(i.total_amount),0) FROM irrigations i WHERE i.beneficiary_id=b.id AND i.station_id=b.station_id AND i.status!='cancelled')");
+    }
+    if (_hasTable('diesel_movements')) {
+      parts.add("(SELECT COALESCE(SUM(d.amount),0) FROM diesel_movements d WHERE d.beneficiary_id=b.id AND d.station_id=b.station_id AND d.kind='advance' AND d.irrigation_id IS NULL)");
+    }
+    if (_hasTable('payments')) {
+      parts.add("(SELECT -COALESCE(SUM(p.amount),0) FROM payments p WHERE p.beneficiary_id=b.id AND p.station_id=b.station_id AND p.status='posted')");
+    }
+    if (_hasTable('diesel_movements') && _hasTable('station_settings')) {
+      parts.add("""CASE WHEN (SELECT value FROM station_settings WHERE station_id=b.station_id AND key='diesel_delivery_financial_credit')='true' THEN -(SELECT COALESCE(SUM(d2.amount),0) FROM diesel_movements d2 WHERE d2.beneficiary_id=b.id AND d2.station_id=b.station_id AND d2.kind='delivery') ELSE 0 END""");
+    }
+    return parts.isEmpty ? '0' : '(${parts.join(' + ')})';
+  }
+
+  Future<Response> _beneficiaries(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    // Give legacy server-side rows a stable identity once; never infer identity
+    // from a local integer ID or from a beneficiary name.
+    final missingLinks = db.select("""
+      SELECT b.id FROM beneficiaries b
+      LEFT JOIN sync_entity_links l
+        ON l.station_id=b.station_id AND l.entity_type='beneficiaries' AND l.local_id=b.id
+      WHERE b.station_id=? AND l.global_id IS NULL
+    """, [station]);
+    for (final row in missingLinks) {
+      db.execute(
+        "INSERT OR IGNORE INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'beneficiaries',?,?,?)",
+        [station, const Uuid().v4(), row['id'], DateTime.now().toIso8601String()],
+      );
+    }
+    final balance = _beneficiaryBalanceExpression();
+    final term = (r.url.queryParameters['q'] ?? '').trim();
+    final args = <Object?>[station];
+    var where = "b.status='active' AND b.station_id=?";
+    if (term.isNotEmpty) {
+      where += " AND (b.name LIKE ? OR COALESCE(b.phone,'') LIKE ?"
+          " OR COALESCE(b.jerba_number,'') LIKE ? OR COALESCE(b.location,'') LIKE ?)";
+      final pattern = '%$term%';
+      args.addAll([pattern, pattern, pattern, pattern]);
+    }
+    return _json(_rows(db.select("""
+      SELECT b.*, l.global_id AS _global_id, $balance AS balance
+      FROM beneficiaries b
+      JOIN sync_entity_links l
+        ON l.station_id=b.station_id AND l.entity_type='beneficiaries' AND l.local_id=b.id
+      WHERE $where
+      ORDER BY b.name
+    """, args)));
+  }
+  Future<Response> _beneficiaryCreate(Request r,Map<String,dynamic> c) async { final b=await _body(r); if('${b['name']??''}'.trim().isEmpty)return _json({'error':'اسم المستفيد مطلوب'},status:422); final now=DateTime.now().toIso8601String(); final id=db.lastInsertRowId; db.execute('INSERT INTO beneficiaries(station_id,name,phone,address,location,jerba_number,area,is_needy,opening_balance,carried_balance,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,\'active\',?,?)',[_stationId(c),b['name'],b['phone'],b['address'],b['location'],b['jerba_number'],b['area'],b['is_needy']==true?1:0,(b['opening_balance'] as num?)?.round()??0,(b['carried_balance'] as num?)?.round()??0,now,now]); return _json({'id':db.lastInsertRowId}); }
+  int? _resolveBeneficiaryRouteId(String routeId, int stationId) {
+    // API clients address entities by their stable global UUID. Numeric IDs
+    // remain supported for legacy admin clients, but are always station-scoped.
+    final localId = int.tryParse(routeId);
+    if (localId != null) {
+      return _owns('beneficiaries', localId, stationId) ? localId : null;
+    }
+    final rows = db.select('''
+      SELECT b.id
+      FROM sync_entity_links l
+      JOIN beneficiaries b ON b.id=l.local_id AND b.station_id=l.station_id
+      WHERE l.station_id=? AND l.entity_type='beneficiaries'
+        AND l.global_id=? AND b.status='active'
+      LIMIT 1
+    ''', [stationId, routeId]);
+    return rows.isEmpty ? null : (rows.first['id'] as num).toInt();
+  }
+  Future<Response> _beneficiary(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final rows = db.select('''
+      SELECT b.*, l.global_id AS _global_id,
+        ${_beneficiaryBalanceExpression()} AS balance
+      FROM beneficiaries b
+      JOIN sync_entity_links l
+        ON l.station_id=b.station_id AND l.entity_type='beneficiaries'
+        AND l.local_id=b.id
+      WHERE b.id=? AND b.station_id=? AND b.status='active'
+      LIMIT 1
+    ''', [id, station]);
+    return rows.isEmpty
+        ? _json({'error':'المستفيد غير موجود'},status:404)
+        : _json(_rows(rows).first);
+  }
+  Future<Response> _beneficiaryUpdate(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final b=await _body(r);
+    const allowed=['name','phone','address','location','jerba_number','area','is_needy','notes'];
+    final sets=<String>[];
+    final args=<Object?>[];
+    for(final k in allowed){if(b.containsKey(k)){sets.add('$k=?');args.add(b[k] is bool?(b[k]?1:0):b[k]);}}
+    if(sets.isEmpty)return _json({'error':'لا توجد حقول قابلة للتعديل'},status:422);
+    args.add(DateTime.now().toIso8601String());args.add(id);args.add(station);
+    db.execute('UPDATE beneficiaries SET ${sets.join(',')},updated_at=? WHERE id=? AND station_id=?',args);
+    return _beneficiary(r,c);
+  }
+  Future<Response> _beneficiaryDelete(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final b=await _body(r);
+    if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب الحذف المنطقي مطلوب'},status:422);
+    db.execute("UPDATE beneficiaries SET status='deleted',updated_at=? WHERE id=? AND station_id=?",[DateTime.now().toIso8601String(),id,station]);
+    return _json({'ok':true});
+  }
+  Future<Response> _beneficiaryStatement(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final beneficiaryRows = db.select('''
+      SELECT opening_balance,carried_balance
+      FROM beneficiaries WHERE id=? AND station_id=? AND status='active'
+      LIMIT 1
+    ''', [id, station]);
+    if (beneficiaryRows.isEmpty) {
+      return _json({'error':'المستفيد غير موجود'},status:404);
+    }
+    final opening = (beneficiaryRows.first['opening_balance'] as num?)?.round() ?? 0;
+    final carried = (beneficiaryRows.first['carried_balance'] as num?)?.round() ?? 0;
+    final initialBalance = opening + carried;
+    final creditDelivery =
+        _settingsForStation(station)['diesel_delivery_financial_credit'] == 'true';
+
+    // Every source is explicitly scoped to the authenticated station. Manual
+    // debts inherit station ownership through their beneficiary relation.
+    final events = db.select('''
+      SELECT * FROM (
+        SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.system_type,
+          i.minutes,i.cloud_minutes,i.chargeable_minutes,i.total_amount,
+          i.paid_amount,'s' AS type,i.total_amount AS debit,0 AS credit,
+          0 AS lah,i.total_amount AS alayh,'سقاية' AS description,
+          'posted' AS status,i.notes AS notes,10 AS event_order
+        FROM irrigations i
+        WHERE i.beneficiary_id=? AND i.station_id=? AND i.status!='cancelled'
+
+        UNION ALL
+        SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,
+          'p',0,p.amount,p.amount,0,'قبض','posted',p.notes,20
+        FROM payments p
+        WHERE p.beneficiary_id=? AND p.station_id=? AND p.status='posted'
+
+        UNION ALL
+        SELECT d.id,d.date,d.date,d.date,'diesel_advance',0,0,0,0,0,
+          'a',d.amount,0,0,d.amount,'سلفة ديزل','posted',d.notes,30
+        FROM diesel_movements d
+        WHERE d.beneficiary_id=? AND d.station_id=? AND d.kind='advance'
+          AND d.irrigation_id IS NULL
+
+        UNION ALL
+        SELECT md.id,md.date,md.date,md.date,'manual_debt',0,0,0,0,0,
+          'manual_debt',md.amount,0,0,md.amount,'إضافة مديونية',
+          md.status,md.notes,40
+        FROM beneficiary_manual_debts md
+        JOIN beneficiaries owner ON owner.id=md.beneficiary_id
+        WHERE md.beneficiary_id=? AND owner.station_id=?
+
+        UNION ALL
+        SELECT -md.id,md.cancelled_at,md.cancelled_at,md.cancelled_at,
+          'manual_debt_reversal',0,0,0,0,0,'manual_debt_reversal',
+          0,md.amount,md.amount,0,'إلغاء مديونية','cancelled',
+          md.cancel_reason,50
+        FROM beneficiary_manual_debts md
+        JOIN beneficiaries owner ON owner.id=md.beneficiary_id
+        WHERE md.beneficiary_id=? AND owner.station_id=?
+          AND md.status='cancelled' AND md.cancelled_at IS NOT NULL
+
+        ${creditDelivery ? '''
+        UNION ALL
+        SELECT d.id,d.date,d.date,d.date,'diesel_delivery',0,0,0,0,0,
+          'd',0,d.amount,d.amount,0,'تسليم ديزل','posted',d.notes,60
+        FROM diesel_movements d
+        WHERE d.beneficiary_id=? AND d.station_id=? AND d.kind='delivery'
+        ''' : ''}
+      ) timeline
+      ORDER BY COALESCE(date,''),event_order,id
+    ''', [
+      id, station,
+      id, station,
+      id, station,
+      id, station,
+      id, station,
+      if (creditDelivery) id, if (creditDelivery) station,
+    ]);
+
+    final fromText = r.url.queryParameters['from'];
+    final toText = r.url.queryParameters['to'];
+    final fromParsed = fromText == null ? null : DateTime.tryParse(fromText);
+    final toParsed = toText == null ? null : DateTime.tryParse(toText);
+    if (fromText != null && fromParsed == null ||
+        toText != null && toParsed == null) {
+      return _json({'error':'نطاق التاريخ غير صالح'},status:422);
+    }
+    final fromDay = fromParsed == null
+        ? null
+        : DateTime(fromParsed.year,fromParsed.month,fromParsed.day);
+    final toExclusive = toParsed == null
+        ? null
+        : DateTime(toParsed.year,toParsed.month,toParsed.day)
+            .add(const Duration(days:1));
+
+    var running = initialBalance;
+    var periodOpeningBalance = initialBalance;
+    final result = <Map<String,Object?>>[];
+    for (final row in events) {
+      final event = Map<String,Object?>.from(row);
+      final debit = (event['debit'] as num?)?.round() ?? 0;
+      final credit = (event['credit'] as num?)?.round() ?? 0;
+      running += debit-credit;
+      final date = DateTime.tryParse('${event['date'] ?? ''}');
+      if (fromDay != null && (date == null || date.isBefore(fromDay))) {
+        periodOpeningBalance = running;
+        continue;
+      }
+      if (toExclusive != null && (date == null || !date.isBefore(toExclusive))) {
+        continue;
+      }
+      final note = '${event['notes'] ?? ''}'.trim();
+      final description = '${event['description'] ?? ''}'.trim();
+      event['description'] = note.isEmpty || description.isEmpty
+          ? description : '$description - $note';
+      event['balance'] = running;
+      event.remove('event_order');
+      result.add(event);
+    }
+
+    if (fromDay != null) {
+      result.insert(0, {
+        'id':-3,'date':fromDay.toIso8601String(),
+        'type':'opening_balance','description':'الرصيد المرحّل قبل الفترة',
+        'debit':periodOpeningBalance>0?periodOpeningBalance:0,
+        'credit':periodOpeningBalance<0?-periodOpeningBalance:0,
+        'lah':periodOpeningBalance<0?-periodOpeningBalance:0,
+        'alayh':periodOpeningBalance>0?periodOpeningBalance:0,
+        'balance':periodOpeningBalance,
+      });
+    } else {
+      if (opening != 0) {
+        result.insert(0, {
+          'id':-1,'date':null,'type':'opening_balance',
+          'description':'رصيد افتتاحي',
+          'debit':opening>0?opening:0,'credit':opening<0?-opening:0,
+          'lah':opening<0?-opening:0,'alayh':opening>0?opening:0,
+          'balance':opening,
+        });
+      }
+      if (carried != 0) {
+        result.insert(opening != 0 ? 1 : 0, {
+          'id':-2,'date':null,'type':'carried_balance',
+          'description':'رصيد مرحّل',
+          'debit':carried>0?carried:0,'credit':carried<0?-carried:0,
+          'lah':carried<0?-carried:0,'alayh':carried>0?carried:0,
+          'balance':initialBalance,
+        });
+      }
+    }
+    return _json(result);
+  }
+
+  int _minutes(DateTime start,DateTime end,bool midnight){var e=end;if(!e.isAfter(start)){if(!midnight)throw StateError('وقت النهاية يجب أن يكون بعد وقت البداية');e=e.add(const Duration(days:1));}final m=e.difference(start).inMinutes;if(m<=0)throw StateError('مدة السقي غير صالحة');return m;}
+  Future<Response> _irrigationCreateUnsafe(Request r,Map<String,dynamic> c) async { final b=await _body(r); try { _requireOwn('beneficiaries',(b['beneficiary_id'] as num?)?.toInt(),_stationId(c),'المستفيد'); _requireOwn('pumps',(b['pump_id'] as num?)?.toInt()??1,_stationId(c),'المضخة'); final start=DateTime.parse('${b['start']}');final end=DateTime.parse('${b['end']}');final settings=_settingsForStation(_stationId(c));final system='${b['system_type']??settings['system_type']??'diesel'}';final mins=_minutes(start,end,settings['allow_midnight_crossing']=='true');final cloud=(b['cloud_minutes'] as num?)?.round()??0;final charge=system=='solar'?((mins-cloud).clamp(0,mins)):mins;final waterRate=system=='diesel'?(int.tryParse(settings['diesel_hourly_water_rate']??'0')??0):system=='solar'?(int.tryParse(settings['solar_hourly_rate']??'0')??0):(int.tryParse(settings['third_type_hourly_rate']??'0')??0);final water=_round(charge/60*waterRate,settings['rounding']??'nearest');final liters=system=='diesel'?charge/60*(double.tryParse(settings['diesel_liters_per_hour']??'0')??0):0.0;final fuel=_round(liters*(int.tryParse(settings['diesel_price_per_liter']??'0')??0),settings['rounding']??'nearest');final total=water+fuel;final paid=(b['paid_amount'] as num?)?.round()??0;if(paid<0||paid>total)throw StateError('المدفوع يجب أن يكون بين صفر وإجمالي السقاية');final now=DateTime.now().toIso8601String();db.execute('INSERT INTO irrigations(station_id,pump_id,beneficiary_id,date,start_datetime,end_datetime,minutes,system_type,water_hourly_rate_snapshot,diesel_liters_per_hour_snapshot,diesel_price_snapshot,solar_hourly_rate_snapshot,third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,water_amount,diesel_amount,total_amount,paid_amount,status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['pump_id']??1,b['beneficiary_id'],start.toIso8601String().substring(0,10),start.toIso8601String(),end.toIso8601String(),mins,system,int.tryParse(settings['diesel_hourly_water_rate']??'0')??0,double.tryParse(settings['diesel_liters_per_hour']??'0')??0,int.tryParse(settings['diesel_price_per_liter']??'0')??0,int.tryParse(settings['solar_hourly_rate']??'0')??0,int.tryParse(settings['third_type_hourly_rate']??'0')??0,cloud,charge,water,fuel,total,paid,'posted',c['userId'],now,now]);final irrigationId=db.lastInsertRowId;final rec=_accountId('1200'),waterRev=_accountId('4000'),fuelRev=_accountId('4010');final lines=<Map<String,Object?>>[{'account_id':rec,'beneficiary_id':b['beneficiary_id'],'debit':total,'credit':0,'memo':'استحقاق سقاية'}];if(water>0)lines.add({'account_id':waterRev,'debit':0,'credit':water,'memo':'إيراد الماء'});if(fuel>0)lines.add({'account_id':fuelRev,'debit':0,'credit':fuel,'memo':'قيمة الديزل'});_journal(description:'سقاية رقم $irrigationId',referenceType:'irrigation',referenceId:irrigationId,lines:lines,userId:c['userId']);if(system=='diesel'&&liters>0){final stock=(db.select("SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements dm WHERE dm.station_id=?",[_stationId(c)]).first['stock'] as num).toDouble();final shortage=liters-stock;if(shortage>0){final advanceAmount=(shortage*(int.tryParse(settings['diesel_price_per_liter']??'0')??0)).round();db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['beneficiary_id'],irrigationId,'advance',shortage,int.tryParse(settings['diesel_price_per_liter']??'0')??0,advanceAmount,now,'سلفة ديزل تلقائية',c['userId']]);final d=_accountId('1200'),cash=_accountId('1000');_journal(description:'سلفة ديزل تلقائية',referenceType:'diesel_advance',referenceId:db.lastInsertRowId,lines:[{'account_id':d,'beneficiary_id':b['beneficiary_id'],'debit':advanceAmount,'credit':0},{'account_id':cash,'debit':0,'credit':advanceAmount}],userId:c['userId']);}db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['beneficiary_id'],irrigationId,'consumption',liters,int.tryParse(settings['diesel_price_per_liter']??'0')??0,fuel,now,'استهلاك السقاية',c['userId']]);}
+if(paid>0){final pm=(b['payment_method_id'] as num?)?.toInt()??1;final cb=(b['cashbox_id'] as num?)?.toInt()??1;_requireOwn('payment_methods',pm,_stationId(c),'طريقة الدفع');_requireOwn('cashboxes',cb,_stationId(c),'الصندوق');db.execute('INSERT INTO payments(station_id,beneficiary_id,amount,date,payment_method_id,cashbox_id,reference_number,notes,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['beneficiary_id'],paid,now,pm,cb,b['reference_number'],b['payment_notes'],'posted',c['userId']]);final method=db.select('SELECT ledger_account_code,type FROM payment_methods WHERE id=?',[pm]).first;final cashCode='${method['ledger_account_code']??'1000'}';_journal(description:'دفعة مرتبطة بالسقاية',referenceType:'payment',referenceId:db.lastInsertRowId,lines:[{'account_id':_accountId(cashCode),'debit':paid,'credit':0},{'account_id':rec,'beneficiary_id':b['beneficiary_id'],'debit':0,'credit':paid}],userId:c['userId']);}
+return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'total_amount':total,'paid_amount':paid});}catch(e){return _json({'error':'تعذر تسجيل السقاية: $e'},status:422);} }
+  Future<Response> _irrigationCreate(Request r,Map<String,dynamic> c) => _atomic(() => _irrigationCreateUnsafe(r,c));
+  Future<Response> _irrigations(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT i.*,b.name beneficiary_name,p.name pump_name FROM irrigations i JOIN beneficiaries b ON b.id=i.beneficiary_id JOIN pumps p ON p.id=i.pump_id WHERE i.station_id=? AND b.station_id=? AND p.station_id=? AND i.status!=\'cancelled\' ORDER BY i.start_datetime DESC LIMIT 1000',[_stationId(c),_stationId(c),_stationId(c)])));
+  Future<Response> _irrigationCancel(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب الإلغاء مطلوب'},status:422);db.execute("UPDATE irrigations SET status='cancelled',override_reason=? WHERE id=? AND station_id=?",[b['reason'],id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'السقاية غير موجودة'},status:404);return _json({'ok':true});}
+
+  Future<Response> _sessions(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT s.*,b.name beneficiary_name,p.name pump_name FROM irrigation_sessions s JOIN beneficiaries b ON b.id=s.beneficiary_id JOIN pumps p ON p.id=s.pump_id WHERE p.station_id=? AND b.station_id=? ORDER BY COALESCE(s.actual_start,s.planned_start) DESC',[_stationId(c),_stationId(c)])));
+  Future<Response> _sessionStart(Request r,Map<String,dynamic> c) async {final b=await _body(r);final pump=(b['pump_id'] as num?)?.toInt()??1;final beneficiary=(b['beneficiary_id'] as num?)?.toInt();final station=_stationId(c);_requireOwn('pumps',pump,station,'المضخة');_requireOwn('beneficiaries',beneficiary,station,'المستفيد');final queueId=(b['queue_id'] as num?)?.toInt();if(queueId!=null&&db.select("SELECT q.id FROM queue_entries q JOIN beneficiaries x ON x.id=q.beneficiary_id WHERE q.id=? AND q.beneficiary_id=? AND x.station_id=? AND q.status IN ('waiting','postponed')",[queueId,beneficiary,station]).isEmpty)return _json({'error':'عنصر الطابور لا يتبع المستفيد أو المحطة الحالية'},status:404);final bookingId=(b['booking_id'] as num?)?.toInt();if(bookingId!=null&&db.select("SELECT br.id FROM booking_requests br JOIN beneficiaries x ON x.id=br.beneficiary_id WHERE br.id=? AND br.beneficiary_id=? AND x.station_id=? AND br.status IN ('new','under_review','scheduled')",[bookingId,beneficiary,station]).isEmpty)return _json({'error':'الحجز لا يتبع المستفيد أو المحطة الحالية'},status:404);final active=db.select("SELECT id FROM irrigation_sessions WHERE pump_id=? AND status='running'",[pump]);if(active.isNotEmpty)return _json({'error':'المضخة لديها جلسة فعالة'},status:409);final now=DateTime.now().toIso8601String();db.execute("INSERT INTO irrigation_sessions(beneficiary_id,queue_entry_id,booking_id,pump_id,planned_start,actual_start,timer_started_at,status) VALUES(?,?,?,?,?,?,?,\'running\')",[beneficiary,queueId,bookingId,pump,now,now,now]);return _json({'id':db.lastInsertRowId,'started_at':now});}
+  Future<Response> _sessionFinishUnsafe(Request r,Map<String,dynamic> c) async {
+    final id=int.parse(r.params['id']!); final rows=db.select('SELECT s.*,p.station_id,p.system_type FROM irrigation_sessions s JOIN pumps p ON p.id=s.pump_id JOIN beneficiaries b ON b.id=s.beneficiary_id WHERE s.id=? AND p.station_id=? AND b.station_id=?',[id,_stationId(c),_stationId(c)]);
+    if(rows.isEmpty)return _json({'error':'الجلسة غير موجودة'},status:404); final s=rows.first; if(s['status']!='running')return _json({'error':'الجلسة ليست قيد التشغيل'},status:409);
+    final end=DateTime.now(); final start=DateTime.parse(s['actual_start'] as String); final settings=_settingsForStation(_stationId(c));
+    final mins=_minutes(start,end,settings['allow_midnight_crossing']=='true'); final cloud=(await _body(r))['cloud_minutes']; final cloudMin=(cloud as num?)?.round()??0; final charge=s['system_type']=='solar'?(mins-cloudMin).clamp(0,mins):mins;
+    final rate=s['system_type']=='diesel'?(int.tryParse(settings['diesel_hourly_water_rate']??'0')??0):s['system_type']=='solar'?(int.tryParse(settings['solar_hourly_rate']??'0')??0):(int.tryParse(settings['third_type_hourly_rate']??'0')??0);
+    final water=_round(charge/60*rate,settings['rounding']??'nearest'); final liters=s['system_type']=='diesel'?charge/60*(double.tryParse(settings['diesel_liters_per_hour']??'0')??0):0.0; final fuel=_round(liters*(int.tryParse(settings['diesel_price_per_liter']??'0')??0),settings['rounding']??'nearest'); final total=water+fuel;
+    final now=end.toIso8601String(); db.execute('UPDATE irrigation_sessions SET actual_end=?,timer_stopped_at=?,status=\'completed\',diesel_consumed=? WHERE id=?',[now,now,liters,id]);
+    db.execute('INSERT INTO irrigations(station_id,pump_id,beneficiary_id,booking_id,queue_entry_id,session_id,date,start_datetime,end_datetime,minutes,system_type,water_hourly_rate_snapshot,diesel_liters_per_hour_snapshot,diesel_price_snapshot,solar_hourly_rate_snapshot,third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,water_amount,diesel_amount,total_amount,paid_amount,status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[s['station_id'],s['pump_id'],s['beneficiary_id'],s['booking_id'],s['queue_entry_id'],id,start.toIso8601String().substring(0,10),start.toIso8601String(),end.toIso8601String(),mins,s['system_type'],int.tryParse(settings['diesel_hourly_water_rate']??'0')??0,double.tryParse(settings['diesel_liters_per_hour']??'0')??0,int.tryParse(settings['diesel_price_per_liter']??'0')??0,int.tryParse(settings['solar_hourly_rate']??'0')??0,int.tryParse(settings['third_type_hourly_rate']??'0')??0,cloudMin,charge,water,fuel,total,0,'posted',c['userId'],now,now]);
+    final irrigationId=db.lastInsertRowId; final rec=_accountId('1200'); final revenue=_accountId('4000'); _journal(description:'سقاية رقم $irrigationId',referenceType:'irrigation',referenceId:irrigationId,lines:[{'account_id':rec,'beneficiary_id':s['beneficiary_id'],'debit':total,'credit':0},{'account_id':revenue,'debit':0,'credit':total}],userId:c['userId']);
+    if(s['queue_entry_id']!=null)db.execute("UPDATE queue_entries SET status='served',last_served_at=?,updated_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries b WHERE b.id=queue_entries.beneficiary_id AND b.station_id=?)",[now,now,s['queue_entry_id'],_stationId(c)]);
+    if(s['booking_id']!=null)db.execute("UPDATE booking_requests SET status='completed',reviewed_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries b WHERE b.id=booking_requests.beneficiary_id AND b.station_id=?)",[now,s['booking_id'],_stationId(c)]);
+    if(liters>0)db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[_stationId(c),s['beneficiary_id'],irrigationId,'consumption',liters,int.tryParse(settings['diesel_price_per_liter']??'0')??0,fuel,now,'استهلاك جلسة السقي',c['userId']]);
+    return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'total_amount':total});
+  }
+  Future<Response> _sessionFinish(Request r,Map<String,dynamic> c) => _atomic(() => _sessionFinishUnsafe(r,c));
+  Future<Response> _sessionPostpone(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب التأجيل مطلوب'},status:422);db.execute("UPDATE irrigation_sessions SET status='postponed',postponement_reason=? WHERE id=? AND EXISTS (SELECT 1 FROM pumps p JOIN beneficiaries x ON x.id=irrigation_sessions.beneficiary_id WHERE p.id=irrigation_sessions.pump_id AND p.station_id=? AND x.station_id=?)",[b['reason'],id,_stationId(c),_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'الجلسة غير موجودة'},status:404);return _json({'ok':true});}
+
+  Future<Response> _queue(Request r,Map<String,dynamic> c) async => _json(_rows(db.select("SELECT q.*,b.name beneficiary_name,b.phone FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE b.station_id=? AND q.status IN ('waiting','postponed') ORDER BY q.position,q.cycle_number,q.created_at",[_stationId(c)])));
+  Future<Response> _queueAdd(Request r,Map<String,dynamic> c) async {final b=await _body(r);final beneficiary=(b['beneficiary_id'] as num?)?.toInt();final station=_stationId(c);_requireOwn('beneficiaries',beneficiary,station,'المستفيد');final row=db.select("SELECT COALESCE(MAX(q.position),0)+1 n FROM queue_entries q JOIN beneficiaries x ON x.id=q.beneficiary_id WHERE x.station_id=? AND q.status IN ('waiting','postponed')",[station]).first;final pos=(row['n'] as num).toInt();db.execute("INSERT INTO queue_entries(beneficiary_id,position,status,created_at,updated_at) VALUES(?,?,\'waiting\',?,?)",[beneficiary,pos,DateTime.now().toIso8601String(),DateTime.now().toIso8601String()]);return _json({'id':db.lastInsertRowId,'position':pos});}
+  Future<Response> _queuePostpone(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب التأجيل مطلوب'},status:422);db.execute("UPDATE queue_entries SET status='postponed',postponed_count=postponed_count+1,skip_reason=?,updated_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries x WHERE x.id=queue_entries.beneficiary_id AND x.station_id=?)",[b['reason'],DateTime.now().toIso8601String(),id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'عنصر الطابور غير موجود'},status:404);return _json({'ok':true});}
+  Future<Response> _queueSkip(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب تجاوز الدور مطلوب'},status:422);db.execute("UPDATE queue_entries SET position=0,skip_reason=?,updated_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries x WHERE x.id=queue_entries.beneficiary_id AND x.station_id=?)",[b['reason'],DateTime.now().toIso8601String(),id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'عنصر الطابور غير موجود'},status:404);return _json({'ok':true});}
+  Future<Response> _bookings(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT br.*,b.name beneficiary_name,b.phone FROM booking_requests br JOIN beneficiaries b ON b.id=br.beneficiary_id WHERE b.station_id=? ORDER BY br.created_at DESC',[_stationId(c)])));
+  Future<Response> _bookingSchedule(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if(b['start']==null||b['end']==null)return _json({'error':'يجب تحديد الموعد من الإدارة'},status:422);db.execute("UPDATE booking_requests SET status='scheduled',scheduled_date=?,scheduled_start=?,scheduled_end=?,reviewed_by=?,reviewed_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries x WHERE x.id=booking_requests.beneficiary_id AND x.station_id=?)",[b['date'],b['start'],b['end'],c['userId'],DateTime.now().toIso8601String(),id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'الحجز غير موجود'},status:404);return _json({'ok':true});}
+  Future<Response> _bookingCancel(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);db.execute("UPDATE booking_requests SET status='cancelled',cancel_reason=?,reviewed_by=?,reviewed_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries x WHERE x.id=booking_requests.beneficiary_id AND x.station_id=?)",[b['reason'],c['userId'],DateTime.now().toIso8601String(),id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'الحجز غير موجود'},status:404);return _json({'ok':true});}
+
+  Future<Response> _payments(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT p.*,COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,pm.name method_name,c.name cashbox_name FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN cashboxes c ON c.id=p.cashbox_id WHERE p.station_id=? AND c.station_id=? AND pm.station_id=? AND (p.beneficiary_id IS NULL OR b.station_id=?) AND (p.worker_id IS NULL OR w.station_id=?) AND (p.partner_id IS NULL OR pt.station_id=?) ORDER BY p.date DESC',[_stationId(c),_stationId(c),_stationId(c),_stationId(c),_stationId(c),_stationId(c)])));
+  Future<Response> _paymentCreateUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final station=_stationId(c);_requireOwn('cashboxes',(b['cashbox_id'] as num?)?.toInt()??1,station,'الصندوق');_requireOwn('payment_methods',(b['payment_method_id'] as num?)?.toInt()??1,station,'طريقة الدفع');if(b['beneficiary_id']!=null)_requireOwn('beneficiaries',(b['beneficiary_id'] as num).toInt(),station,'المستفيد');if(b['worker_id']!=null)_requireOwn('workers',(b['worker_id'] as num).toInt(),station,'العامل');if(b['partner_id']!=null)_requireOwn('partners',(b['partner_id'] as num).toInt(),station,'الشريك');final amount=(b['amount'] as num?)?.round()??0;if(amount<=0)return _json({'error':'المبلغ يجب أن يكون أكبر من صفر'},status:422);final now=DateTime.now().toIso8601String();db.execute('INSERT INTO payments(station_id,beneficiary_id,partner_id,worker_id,amount,date,payment_method_id,cashbox_id,reference_number,notes,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',[station,b['beneficiary_id'],b['partner_id'],b['worker_id'],amount,now,b['payment_method_id']??1,b['cashbox_id']??1,b['reference_number'],b['notes'],'posted',c['userId']]); final paymentId=db.lastInsertRowId; db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=?',[amount,b['cashbox_id']??1]);
+    final party=(b['beneficiary_id']!=null)?'1200':(b['partner_id']!=null)?'2200':'2100';
+    final method=db.select('SELECT ledger_account_code,type FROM payment_methods WHERE id=? LIMIT 1',[b['payment_method_id']??1]).first;
+    final code='${method['ledger_account_code']??((method['type']=='bank_transfer')?'1100':(method['type']=='wallet')?'1120':'1000')}';
+    _journal(description:'تسجيل دفعة',referenceType:'payment',referenceId:paymentId,lines:[{'account_id':_accountId(code),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':amount,'credit':0},{'account_id':_accountId(party),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':0,'credit':amount}],userId:c['userId']);
+    return _json({'id':paymentId});}
+  Future<Response> _paymentCreate(Request r,Map<String,dynamic> c) => _atomic(() => _paymentCreateUnsafe(r,c));
+  Future<Response> _cashboxes(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM cashboxes WHERE active=1 AND station_id=?',[_stationId(c)])));
+  Future<Response> _cashboxTransferUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final from=(b['from_cashbox_id'] as num?)?.toInt();final to=(b['to_cashbox_id'] as num?)?.toInt();final amount=(b['amount'] as num?)?.round()??0;final station=_stationId(c);if(to==null||amount<=0)return _json({'error':'بيانات التحويل غير صحيحة'},status:422);_requireOwn('cashboxes',to,station,'الصندوق الهدف');if(from!=null)_requireOwn('cashboxes',from,station,'الصندوق المصدر');if(from!=null){db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=? AND station_id=?',[amount,from,station]);}db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND station_id=?',[amount,to,station]);db.execute('INSERT INTO cashbox_transfers(station_id,from_cashbox_id,to_cashbox_id,amount,date,is_opening_transfer,reference,created_by) VALUES(?,?,?,?,?,?,?,?)',[station,from,to,amount,DateTime.now().toIso8601String(),from==null?1:0,b['reference'],c['userId']]);final transferId=db.lastInsertRowId;_journal(description:'تحويل بين الصناديق',referenceType:'cashbox_transfer',referenceId:transferId,lines:[{'account_id':_accountId('1100'),'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);return _json({'id':transferId});}
+  Future<Response> _cashboxTransfer(Request r,Map<String,dynamic> c) => _atomic(() => _cashboxTransferUnsafe(r,c));
+  Future<Response> _diesel(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT dm.*,b.name beneficiary_name FROM diesel_movements dm LEFT JOIN beneficiaries b ON b.id=dm.beneficiary_id WHERE dm.station_id=? ORDER BY dm.date DESC LIMIT 1000',[_stationId(c)])));
+  Future<Response> _dieselMovementUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final station=_stationId(c);if(b['beneficiary_id']!=null)_requireOwn('beneficiaries',(b['beneficiary_id'] as num).toInt(),station,'المستفيد');if(b['cashbox_id']!=null)_requireOwn('cashboxes',(b['cashbox_id'] as num).toInt(),station,'الصندوق');if(b['irrigation_id']!=null)_requireOwn('irrigations',(b['irrigation_id'] as num).toInt(),station,'السقاية');final liters=(b['liters'] as num?)?.toDouble()??0;if(liters<=0)throw StateError('كمية الديزل يجب أن تكون أكبر من صفر');final kind='${b['kind']??'receipt'}';final price=(b['unit_price'] as num?)?.round()??0;final amount=(liters*price).round();final stock=(db.select("SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements dm WHERE dm.station_id=?",[_stationId(c)]).first['stock'] as num).toDouble();if((kind=='delivery'||kind=='consumption')&&liters>stock)throw StateError('كمية الديزل المطلوبة أكبر من المخزون المتاح');final cb=(b['cashbox_id'] as num?)?.toInt();if(kind=='receipt'&&cb!=null){final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cb]).first['current_balance'] as num).round();db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cb]);}final now=DateTime.now().toIso8601String();db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,cashbox_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[station,b['beneficiary_id'],b['irrigation_id'],cb,kind,liters,price,amount,now,b['notes'],c['userId']]);final movementId=db.lastInsertRowId;if(kind=='receipt'){_journal(description:'شراء ديزل',referenceType:'diesel_receipt',referenceId:movementId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else if(kind=='consumption'){_journal(description:'استهلاك ديزل',referenceType:'diesel_consumption',referenceId:movementId,lines:[{'account_id':_accountId('5010'),'debit':amount,'credit':0},{'account_id':_accountId('1300'),'debit':0,'credit':amount}],userId:c['userId']);}else if(kind=='advance'&&b['beneficiary_id']!=null){_journal(description:'سلفة ديزل',referenceType:'diesel_advance',referenceId:movementId,lines:[{'account_id':_accountId('1200'),'beneficiary_id':b['beneficiary_id'],'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else if(kind=='delivery'&&b['beneficiary_id']!=null){final financial=_settingsForStation(station)['diesel_delivery_financial_credit'];if(financial=='true')_journal(description:'تسليم ديزل',referenceType:'diesel_delivery',referenceId:movementId,lines:[{'account_id':_accountId('1200'),'beneficiary_id':b['beneficiary_id'],'debit':amount,'credit':0},{'account_id':_accountId('4010'),'debit':0,'credit':amount}],userId:c['userId']);}return _json({'id':movementId,'amount':amount,'stock_after':kind=='receipt'?stock+liters:(kind=='delivery'||kind=='consumption')?stock-liters:stock});}
+  Future<Response> _dieselMovement(Request r,Map<String,dynamic> c) => _atomic(() => _dieselMovementUnsafe(r,c));
+  Future<Response> _expenses(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT e.* FROM expenses e JOIN payment_methods pm ON pm.id=e.payment_method_id LEFT JOIN cashboxes cb ON cb.id=e.cashbox_id WHERE e.station_id=? AND pm.station_id=? AND (e.cashbox_id IS NULL OR cb.station_id=?) ORDER BY e.date DESC LIMIT 1000',[_stationId(c),_stationId(c),_stationId(c)])));
+  Future<Response> _expenseCreateUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final station=_stationId(c);final methodId=(b['payment_method_id'] as num?)?.toInt()??1;_requireOwn('payment_methods',methodId,station,'طريقة الدفع');final cash=(b['cashbox_id'] as num?)?.toInt();if(cash!=null)_requireOwn('cashboxes',cash,station,'الصندوق');if(b['beneficiary_id']!=null)_requireOwn('beneficiaries',(b['beneficiary_id'] as num).toInt(),station,'المستفيد');if(b['worker_id']!=null)_requireOwn('workers',(b['worker_id'] as num).toInt(),station,'العامل');if(b['partner_id']!=null)_requireOwn('partners',(b['partner_id'] as num).toInt(),station,'الشريك');final amount=(b['amount'] as num?)?.round()??0;if(amount<=0)return _json({'error':'قيمة المصروف يجب أن تكون أكبر من صفر'},status:422);if(cash!=null){final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cash]).first['current_balance'] as num).round();db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cash]);}db.execute('INSERT INTO expenses(station_id,category,title,amount,date,payment_method_id,cashbox_id,status,created_by,notes) VALUES(?,?,?,?,?,?,?,\'posted\',?,?)',[station,b['category']??'other',b['title']??'مصروف',amount,DateTime.now().toIso8601String(),methodId,cash,c['userId'],b['notes']]); final expenseId=db.lastInsertRowId;
+    final expenseCode=switch('${b['category']??'other'}'){ 'fuel'=>'5010','oil'=>'5020','grease'=>'5020','maintenance'=>'5030','parts'=>'5030', 'workers'=>'5000','partners'=>'5000', _=>'5030'};
+    final pm=db.select('SELECT ledger_account_code,type FROM payment_methods WHERE id=? LIMIT 1',[methodId]).first; final payCode='${pm['ledger_account_code']??'1000'}';
+    _journal(description:'${b['title']??'مصروف'}',referenceType:'expense',referenceId:expenseId,lines:[{'account_id':_accountId(expenseCode),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':amount,'credit':0},{'account_id':_accountId(payCode),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':0,'credit':amount}],userId:c['userId']);
+    return _json({'id':expenseId});}
+  Future<Response> _expenseCreate(Request r,Map<String,dynamic> c) => _atomic(() => _expenseCreateUnsafe(r,c));
+  Future<Response> _workers(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM workers WHERE active=1 AND station_id=? ORDER BY name',[_stationId(c)])));
+  Future<Response> _workerCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final name='${b['name']??''}'.trim();if(name.isEmpty)return _json({'error':'اسم العامل مطلوب'},status:422);db.execute('INSERT INTO workers(station_id,name,phone,job_title,pay_type,fixed_salary,hourly_rate,percentage_rate,active) VALUES(?,?,?,?,?,?,?,?,1)',[_stationId(c),name,b['phone'],b['job_title'],b['pay_type']??'hourly',b['fixed_salary']??0,b['hourly_rate']??0,b['percentage_rate']??0]);_audit(c['userId'] as int,'create','workers',db.lastInsertRowId);return _json({'id':db.lastInsertRowId});}
+  Future<Response> _workerTransactionUnsafe(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);_requireOwn('workers',id,_stationId(c),'العامل');final b=await _body(r);final type='${b['type']??'accrual'}';final amount=(b['amount'] as num?)?.round()??0;if(!const{'accrual','salary','payment'}.contains(type))throw StateError('نوع الحركة غير مدعوم');if(amount<=0)throw StateError('المبلغ يجب أن يكون أكبر من صفر');final now=DateTime.now().toIso8601String();db.execute('INSERT INTO worker_transactions(station_id,worker_id,date,type,hours,rate_snapshot,percentage_snapshot,amount,cashbox_id,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[_stationId(c),id,now,type,b['hours']??0,b['rate_snapshot']??0,b['percentage_snapshot']??0,b['amount'],b['cashbox_id'],b['notes'],c['userId']]);final txId=db.lastInsertRowId;if(type=='payment'){final cb=(b['cashbox_id'] as num?)?.toInt()??1;_requireOwn('cashboxes',cb,_stationId(c),'الصندوق');final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cb]).first['current_balance'] as num).round();/* الصندوق حساب للصراف ويُسمح بأن يصبح رصيده سالبًا؛ لا نمنع الصرف بسبب الرصيد. */db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cb]);_journal(description:'دفع عامل',referenceType:'worker_payment',referenceId:txId,lines:[{'account_id':_accountId('2100'),'worker_id':id,'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else{_journal(description:'استحقاق عامل',referenceType:'worker',referenceId:txId,lines:[{'account_id':_accountId('5000'),'worker_id':id,'debit':amount,'credit':0},{'account_id':_accountId('2100'),'worker_id':id,'debit':0,'credit':amount}],userId:c['userId']);}return _json({'id':txId});}
+  Future<Response> _workerTransaction(Request r,Map<String,dynamic> c) => _atomic(() => _workerTransactionUnsafe(r,c));
+  Future<Response> _partners(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM partners WHERE active=1 AND station_id=? ORDER BY name',[_stationId(c)])));
+  Future<Response> _partnerCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final name='${b['name']??''}'.trim();if(name.isEmpty)return _json({'error':'اسم الشريك مطلوب'},status:422);db.execute('INSERT INTO partners(station_id,name,phone,ownership_mode,shares_count,ownership_percentage,active) VALUES(?,?,?,?,?,?,1)',[_stationId(c),name,b['phone'],b['ownership_mode']??'percentage',b['shares_count'],b['ownership_percentage']??0]);_audit(c['userId'] as int,'create','partners',db.lastInsertRowId);return _json({'id':db.lastInsertRowId});}
+  Future<Response> _partnerTransactionUnsafe(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);_requireOwn('partners',id,_stationId(c),'الشريك');final b=await _body(r);final type='${b['type']??'share_accrual'}';final amount=(b['amount'] as num?)?.round()??0;if(!const{'share_accrual','payment'}.contains(type))throw StateError('نوع الحركة غير مدعوم');if(amount<=0)throw StateError('المبلغ يجب أن يكون أكبر من صفر');final now=DateTime.now().toIso8601String();db.execute('INSERT INTO partner_transactions(station_id,partner_id,date,type,amount,ownership_snapshot,notes,created_by) VALUES(?,?,?,?,?,?,?,?)',[_stationId(c),id,now,type,amount,b['ownership_snapshot'],b['notes'],c['userId']]);final txId=db.lastInsertRowId;if(type=='payment'){final cb=(b['cashbox_id'] as num?)?.toInt()??1;_requireOwn('cashboxes',cb,_stationId(c),'الصندوق');final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cb]).first['current_balance'] as num).round();/* الصندوق حساب للصراف ويُسمح بأن يصبح رصيده سالبًا؛ لا نمنع الصرف بسبب الرصيد. */db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cb]);_journal(description:'دفع شريك',referenceType:'partner_payment',referenceId:txId,lines:[{'account_id':_accountId('2200'),'partner_id':id,'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else{_journal(description:'حصة شريك',referenceType:'partner',referenceId:txId,lines:[{'account_id':_accountId('5000'),'partner_id':id,'debit':amount,'credit':0},{'account_id':_accountId('2200'),'partner_id':id,'debit':0,'credit':amount}],userId:c['userId']);}return _json({'id':txId});}
+  Future<Response> _partnerTransaction(Request r,Map<String,dynamic> c) => _atomic(() => _partnerTransactionUnsafe(r,c));
+  Future<Response> _journalReport(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT je.*,jl.account_id,jl.debit,jl.credit,a.code account_code,a.name account_name FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? ORDER BY je.date DESC LIMIT 1000',[_stationId(c)])));
+  Future<Response> _ledger(Request r,Map<String,dynamic> c) async {final code=r.url.queryParameters['account']??'1200';return _json(_rows(db.select('SELECT jl.*,je.date,je.description,a.code,a.name account_name FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE a.code=? AND je.station_id=? ORDER BY je.date,jl.id',[code,_stationId(c)])));}
+  Future<Response> _reports(Request r, Map<String, dynamic> c) async {
+    final name = r.params['name']!;
+    const supported = {
+      'cash_flow',
+      'income',
+      'system_comparison',
+      'journal',
+      'ledger',
+    };
+    const known = {
+      'cash_flow', 'time_comparison', 'monthly_financial', 'income',
+      'payment_methods', 'expenses', 'cashboxes', 'queue_bookings',
+      'payment_log', 'beneficiary_statement', 'beneficiary_detailed',
+      'beneficiary_stats', 'needy', 'diesel_inventory', 'activity_overview',
+      'oil_status', 'debts', 'beneficiary_list', 'revenue_comparison',
+      'system_comparison', 'journal', 'ledger', 'worker_transactions',
+      'partner_accounts',
+    };
+    if (!known.contains(name)) {
+      return _json({'error': 'التقرير غير معروف'}, status: 404);
+    }
+    if (!supported.contains(name)) {
+      return _json({
+        'error': 'التقرير معروف لكنه غير منفذ في واجهة الخادم بعد',
+        'report': name,
+        'code': 'REPORT_NOT_IMPLEMENTED',
+      }, status: 501);
+    }
+    return _json({'report': name, 'rows': _reportRows(name, _stationId(c))});
+  }
+
+  List<Map<String, Object?>> _reportRows(String name, int station) {
+    switch (name) {
+      case 'cash_flow':
+        return _rows(db.select(
+          "SELECT date,'payment' kind,amount,'قبض' title FROM payments WHERE status='posted' AND station_id=? "
+          "UNION ALL SELECT date,'expense' kind,-amount,title FROM expenses WHERE status='posted' AND station_id=? ORDER BY date DESC",
+          [station, station],
+        ));
+      case 'income':
+        return _rows(db.select(
+          "SELECT system_type,COUNT(*) operations,SUM(water_amount) water_income,SUM(diesel_amount) diesel_income,SUM(total_amount) total "
+          "FROM irrigations WHERE status!='cancelled' AND station_id=? GROUP BY system_type",
+          [station],
+        ));
+      case 'system_comparison':
+        return _rows(db.select(
+          "SELECT system_type,COUNT(*) operations,SUM(minutes) minutes,SUM(total_amount) total,SUM(diesel_amount) diesel_cost "
+          "FROM irrigations WHERE status!='cancelled' AND station_id=? GROUP BY system_type",
+          [station],
+        ));
+      case 'journal':
+        return _rows(db.select(
+          'SELECT * FROM journal_entries WHERE station_id=? ORDER BY date DESC',
+          [station],
+        ));
+      case 'ledger':
+        return _rows(db.select(
+          'SELECT jl.* FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.station_id=? ORDER BY jl.id DESC',
+          [station],
+        ));
+      default:
+        throw StateError('Unsupported report reached the query layer: $name');
+    }
+  }
+  // Full-file SQLite backups/restores are unsafe for a shared multi-station database.
+  // Keep these endpoints explicitly blocked until station-scoped export/import exists.
+  Future<Response> _backup(Request r,Map<String,dynamic> c) async =>
+      _json({'error':'النسخ الاحتياطي الكامل معطل مؤقتاً؛ يلزم دعم نسخة مستقلة لكل محطة.'}, status:409);
+
+  Future<Response> _restore(Request r,Map<String,dynamic> c) async =>
+      _json({'error':'استعادة ملف قاعدة البيانات الكامل معطلة مؤقتاً؛ يلزم التحقق من ملكية المحطة قبل الاستعادة.'}, status:409);
+
+  Future<Response> _beneficiaryRequestCode(Request r) async {
+    final body = await _body(r);
+    final phone = '${body['phone'] ?? ''}'.trim();
+    if (phone.isEmpty) return _json({'error': 'رقم الهاتف مطلوب'}, status: 400);
+    final scopes = ['beneficiary-otp-ip:${_loginIp(r)}', 'beneficiary-otp-phone:${_loginIp(r)}:$phone'];
+    final now = DateTime.now().toUtc();
+    if (_loginIsBlocked(scopes, now)) {
+      return Response(429, body: jsonEncode({'error': 'طلبات الرموز كثيرة؛ حاول بعد 15 دقيقة'}),
+        headers: {'content-type': 'application/json; charset=utf-8', 'retry-after': '900'});
+    }
+    _recordFailedLogin(scopes, now);
+    final rows = db.select("SELECT id FROM beneficiaries WHERE phone=? AND status='active' ORDER BY id", [phone]);
+    if (rows.isEmpty) return _json({'error': 'رقم الهاتف غير مسجل'}, status: 404);
+    if (rows.length != 1) {
+      return _json({'error': 'رقم الهاتف مرتبط بأكثر من حساب؛ يلزم رقم فريد لكل مستفيد'}, status: 409);
+    }
+    final id = rows.first['id'] as int;
+    final code = (100000 + Random.secure().nextInt(900000)).toString();
+    final createdAt = now.toIso8601String();
+    db.execute('INSERT INTO beneficiary_auth_codes(beneficiary_id,code_hash,expires_at,created_at) VALUES(?,?,?,?)',
+      [id, _hash(code), now.add(const Duration(minutes: 10)).toIso8601String(), createdAt]);
+    final out = <String, Object?>{'ok': true, 'message': 'تم إنشاء رمز آمن صالح لمدة 10 دقائق'};
+    if (Platform.environment['SAQIA_DEV_OTP'] == 'true') out['dev_code'] = code;
+    return _json(out);
+  }
+  Future<Response> _beneficiaryLogin(Request r) async {final b=await _body(r);final phone='${b['phone']??''}'.trim();final code='${b['code']??''}';final rows=db.select("SELECT id FROM beneficiaries WHERE phone=? AND status='active' ORDER BY id",[phone]);if(rows.isEmpty)return _json({'error':'رقم الهاتف غير مسجل'},status:401);if(rows.length!=1)return _json({'error':'رقم الهاتف مرتبط بأكثر من حساب؛ يلزم رقم فريد لكل مستفيد'},status:409);final id=rows.first['id'] as int;final expected=db.select('SELECT id,code_hash,attempts FROM beneficiary_auth_codes WHERE beneficiary_id=? AND used_at IS NULL AND expires_at>? ORDER BY id DESC LIMIT 1',[id,DateTime.now().toIso8601String()]);if(expected.isEmpty)return _json({'error':'الرمز غير صحيح أو منتهي'},status:401);
+    final attempts=(expected.first['attempts'] as int?)??0; if(attempts>=5)return _json({'error':'تم تجاوز عدد محاولات الرمز'},status:429);
+    if(expected.first['code_hash']!=_hash(code)){db.execute('UPDATE beneficiary_auth_codes SET attempts=attempts+1 WHERE id=?',[expected.first['id']]);return _json({'error':'الرمز غير صحيح أو منتهي'},status:401);}db.execute('UPDATE beneficiary_auth_codes SET used_at=? WHERE id=?',[DateTime.now().toIso8601String(),expected.first['id']]);final session=const Uuid().v4();db.execute('INSERT INTO beneficiary_sessions(beneficiary_id,token_hash,expires_at,created_at) VALUES(?,?,?,?)',[id,_hash(session),DateTime.now().add(const Duration(hours:12)).toIso8601String(),DateTime.now().toIso8601String()]);return _json({'token':_token({'kind':'beneficiary','beneficiaryId':id,'session':_hash(session)})});}
+  int _bid(Map<String,dynamic> c)=>c['beneficiaryId'] as int;
+  Future<Response> _beneficiaryMe(Request r,Map<String,dynamic> c) async {final rows=db.select('SELECT id,name,phone,address,location,jerba_number,area FROM beneficiaries WHERE id=?',[_bid(c)]);return rows.isEmpty?_json({'error':'المستفيد غير موجود'},status:404):_json(_rows(rows).first);}
+  Future<Response> _beneficiaryRequests(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM booking_requests WHERE beneficiary_id=? ORDER BY created_at DESC',[_bid(c)])));
+  Future<Response> _beneficiaryRequestCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final now=DateTime.now().toIso8601String();db.execute("INSERT INTO booking_requests(beneficiary_id,created_at,status,notes) VALUES(?,?,\'new\',?)",[_bid(c),now,b['notes']]);return _json({'id':db.lastInsertRowId});}
+  Future<Response> _beneficiaryRequestCancel(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);db.execute("UPDATE booking_requests SET status='cancelled',cancel_reason=? WHERE id=? AND beneficiary_id=? AND status IN ('new','under_review')",['${b['reason']??''}',id,_bid(c)]);return _json({'ok':true});}
+  Future<Response> _beneficiaryAccount(Request r,Map<String,dynamic> c) async {
+    final id=_bid(c);
+    final beneficiaryRows=db.select('SELECT station_id FROM beneficiaries WHERE id=?',[_bid(c)]);
+    if(beneficiaryRows.isEmpty)return _json({'error':'المستفيد غير موجود'},status:404);
+    final station=(beneficiaryRows.first['station_id'] as num).toInt();
+    final settings=_settingsForStation(station);
+    final includeDiesel=settings['diesel_delivery_financial_credit']=='true';
+    final x=_rows(db.select('''SELECT b.opening_balance,b.carried_balance,
+      COALESCE((SELECT SUM(total_amount) FROM irrigations WHERE beneficiary_id=b.id AND station_id=? AND status!='cancelled'),0) due,
+      COALESCE((SELECT SUM(amount) FROM diesel_movements WHERE beneficiary_id=b.id AND station_id=? AND kind='advance' AND irrigation_id IS NULL),0) advances,
+      COALESCE((SELECT SUM(amount) FROM payments WHERE beneficiary_id=b.id AND station_id=? AND status='posted'),0) paid,
+      COALESCE((SELECT SUM(amount) FROM diesel_movements WHERE beneficiary_id=b.id AND station_id=? AND kind='delivery'),0) diesel_credit
+      FROM beneficiaries b WHERE b.id=? AND b.station_id=?''',[station,station,station,station,id,station])).first;
+    final balance=(x['opening_balance'] as num)+(x['carried_balance'] as num)+(x['due'] as num)+(x['advances'] as num)-(x['paid'] as num)-(includeDiesel?(x['diesel_credit'] as num):0);
+    return _json({...x,'balance':balance,'label':balance>0?'عليه $balance ريال':balance<0?'له ${-balance} ريال':'متوازن'});
+  }
+  Future<Response> _beneficiaryNotifications(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM notifications WHERE beneficiary_id=? ORDER BY created_at DESC',[_bid(c)])));
+  Future<Response> _beneficiaryNotificationRead(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);db.execute('UPDATE notifications SET read_at=? WHERE id=? AND beneficiary_id=?',[DateTime.now().toIso8601String(),id,_bid(c)]);return _json({'ok':true});}
+}
+).hasMatch(globalId)) throw StateError('هوية مرجع ' + column + ' غير صالحة');
+    final linked=db.select('SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',[station,entityType,globalId]);
+    final foreign=db.select('SELECT station_id FROM sync_entity_links WHERE entity_type=? AND global_id=? AND station_id<>? LIMIT 1',[entityType,globalId,station]);
+    if (foreign.isNotEmpty) throw StateError('مرجع التشغيل تابع لمحطة أخرى');
+    if (linked.isEmpty) throw StateError('مرجع التشغيل لم يصل إلى الخادم بعد');
+    final id=(linked.first['local_id'] as num).toInt();
+    final rows=switch(entityType) {
+      'queue_entries'=>db.select('SELECT q.id,q.beneficiary_id,b.station_id FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE q.id=? AND b.station_id=? LIMIT 1',[id,station]),
+      'booking_requests'=>db.select('SELECT q.id,q.beneficiary_id,b.station_id FROM booking_requests q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE q.id=? AND b.station_id=? LIMIT 1',[id,station]),
+      _=>db.select('SELECT s.id,s.beneficiary_id,p.station_id pump_station,b.station_id beneficiary_station FROM irrigation_sessions s JOIN pumps p ON p.id=s.pump_id JOIN beneficiaries b ON b.id=s.beneficiary_id WHERE s.id=? AND p.station_id=? AND b.station_id=? LIMIT 1',[id,station,station]),
+    };
+    if(rows.isEmpty) throw StateError('مرجع التشغيل لا يتبع المحطة الحالية');
+    if(beneficiaryId!=null && (rows.first['beneficiary_id'] as num).toInt()!=beneficiaryId) throw StateError('مرجع التشغيل يخص مستفيداً آخر');
+    return id;
+  }
+
+  void _applySyncIrrigationSession({
+    required int station, required String entityKey, required String operation,
+    required Map payload, required String now, required int? userId, required String? role,
+  }) {
+    if(role!='manager' && role!='accountant') throw StateError('صلاحية المستخدم لا تسمح بمزامنة جلسات التشغيل');
+    final globalId=(payload['_global_id']??'').toString();
+    if(!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}
+    required int station, required String entityType, required String entityKey,
+    required String operation, required Map payload, required String now,
+  }) {
+    if (!const {'queue_entries', 'booking_requests'}.contains(entityType)) {
+      throw StateError('نوع تشغيل غير مدعوم');
+    }
+    if (operation == 'delete') {
+      throw UnsupportedError('لا يسمح بحذف الحجز أو عنصر الطابور؛ استخدم انتقال حالة موثقاً');
+    }
+    final globalId = (payload['_global_id'] ?? '').toString();
+    final valid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId);
+    if (!valid || entityKey != entityType + ':' + globalId) {
+      throw StateError('الهوية العالمية لسجل التشغيل غير صالحة');
+    }
+    if (!_hasTable(entityType)) throw StateError('جدول $entityType غير موجود');
+    final refs = payload['_global_refs'];
+    if (refs is! Map) throw StateError('مرجع المستفيد العالمي مفقود');
+    final beneficiaryId = _resolveSyncReference(
+      station: station, entityType: 'beneficiaries',
+      column: 'beneficiary_id', references: refs,
+    );
+    final beneficiary = db.select(
+      "SELECT id FROM beneficiaries WHERE id=? AND station_id=? AND status='active' LIMIT 1",
+      [beneficiaryId, station],
+    );
+    if (beneficiary.isEmpty) throw StateError('المستفيد غير نشط أو لا يتبع المحطة');
+    final links = db.select(
+      'SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',
+      [station, entityType, globalId],
+    );
+    final localId = links.isEmpty ? null : (links.first['local_id'] as num).toInt();
+    final columns = db.select('PRAGMA table_info($entityType)')
+        .map((row) => row['name'].toString()).toSet();
+    final allowed = entityType == 'queue_entries'
+        ? const {'position', 'cycle_number', 'status', 'last_served_at', 'postponed_count', 'skip_reason', 'created_at', 'updated_at'}
+        : const {'status', 'scheduled_date', 'scheduled_start', 'scheduled_end', 'priority', 'notes', 'cancel_reason'};
+    if (operation == 'create') {
+      if (localId != null) throw StateError('السجل موجود مسبقاً؛ استخدم update');
+      final values = <String, Object?>{
+        'beneficiary_id': beneficiaryId,
+        if (entityType == 'queue_entries') ...{
+          'position': (payload['position'] as num?)?.toInt() ?? 0,
+          'cycle_number': (payload['cycle_number'] as num?)?.toInt() ?? 1,
+          'status': payload['status'] ?? 'waiting',
+          'postponed_count': (payload['postponed_count'] as num?)?.toInt() ?? 0,
+          'created_at': payload['created_at'] ?? now,
+          'updated_at': now,
+        },
+        if (entityType == 'booking_requests') ...{
+          'created_at': payload['created_at'] ?? now,
+          'status': payload['status'] ?? 'new',
+        },
+      };
+      for (final key in allowed) {
+        if (payload.containsKey(key) && columns.contains(key)) values[key] = payload[key];
+      }
+      if (entityType == 'queue_entries') {
+        if ((values['position'] as num).toInt() < 1 ||
+            (values['cycle_number'] as num).toInt() < 1 ||
+            (values['postponed_count'] as num).toInt() < 0 ||
+            values['status'] != 'waiting') {
+          throw StateError('بيانات عنصر الطابور الجديد غير صالحة؛ يجب أن يبدأ بحالة انتظار');
+        }
+      } else {
+        if (values['status'] != 'new') {
+          throw StateError('يجب أن يبدأ الحجز الجديد بحالة جديد');
+        }
+        final start = values['scheduled_start'];
+        final end = values['scheduled_end'];
+        if ((start == null) != (end == null)) throw StateError('يجب تحديد بداية ونهاية الحجز معاً');
+        if (start != null && (DateTime.tryParse(start.toString()) == null ||
+            DateTime.tryParse(end.toString()) == null ||
+            !DateTime.parse(end.toString()).isAfter(DateTime.parse(start.toString())))) {
+          throw StateError('وقت الحجز غير صالح');
+        }
+      }
+      if (!allowed.every(columns.contains)) {
+        throw StateError('مخطط $entityType لا يدعم الحقول المطلوبة');
+      }
+      final names = values.keys.toList();
+      db.execute(
+        'INSERT INTO $entityType(${names.join(',')}) VALUES(${List.filled(names.length, '?').join(',')})',
+        names.map((name) => values[name]).toList(),
+      );
+      db.execute(
+        'INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',
+        [station, entityType, globalId, db.lastInsertRowId, now],
+      );
+      return;
+    }
+    if (operation != 'update' || localId == null) {
+      throw StateError('لا يوجد سجل تشغيل مرتبط بهذه الهوية العالمية');
+    }
+    final owned = db.select(
+      'SELECT id FROM $entityType WHERE id=? AND beneficiary_id=? LIMIT 1',
+      [localId, beneficiaryId],
+    );
+    if (owned.isEmpty) throw StateError('سجل التشغيل لا يطابق المستفيد المرتبط');
+    final values = <String, Object?>{};
+    for (final key in allowed) {
+      if (payload.containsKey(key) && columns.contains(key)) values[key] = payload[key];
+    }
+    if (values.isEmpty) throw StateError('لا توجد حقول تشغيل قابلة للتحديث');
+    if (values.containsKey('status')) {
+      final current = db.select('SELECT status FROM $entityType WHERE id=? AND beneficiary_id=? LIMIT 1', [localId, beneficiaryId]);
+      if (current.isEmpty) throw StateError('سجل التشغيل غير موجود');
+      final oldStatus = current.first['status'].toString();
+      final nextStatus = values['status'].toString();
+      final allowedTransitions = entityType == 'queue_entries'
+          ? <String, Set<String>>{
+              'waiting': {'waiting', 'postponed', 'completed', 'skipped'},
+              'postponed': {'postponed', 'waiting', 'completed', 'skipped'},
+              'completed': {'completed'},
+              'skipped': {'skipped'},
+            }
+          : <String, Set<String>>{
+              'new': {'new', 'under_review', 'cancelled'},
+              'under_review': {'under_review', 'scheduled', 'cancelled'},
+              'scheduled': {'scheduled', 'cancelled', 'completed'},
+              'cancelled': {'cancelled'},
+              'completed': {'completed'},
+            };
+      if (!(allowedTransitions[oldStatus]?.contains(nextStatus) ?? false)) {
+        throw StateError('انتقال الحالة من $oldStatus إلى $nextStatus غير مسموح');
+      }
+    }
+    if (entityType == 'queue_entries' && columns.contains('updated_at')) values['updated_at'] = now;
+    final names = values.keys.toList();
+    db.execute(
+      'UPDATE $entityType SET ${names.map((name) => '$name=?').join(',')} WHERE id=? AND beneficiary_id=?',
+      [...names.map((name) => values[name]), localId, beneficiaryId],
+    );
+    if ((db.select('SELECT changes() AS n').first['n'] as num).toInt() != 1) {
+      throw StateError('تعذر تحديث سجل التشغيل');
+    }
+  }
+
+  void _applySyncBusinessEvent({
+    required int station, required String entityType, required String entityKey,
+    required String operation, required Map payload, required String now, required int? userId, required String? role,
+  }) {
+    if (const {'pumps','partners','workers','payment_methods','cashboxes'}.contains(entityType)) {
+      _applySyncMasterData(station:station,entityType:entityType,entityKey:entityKey,operation:operation,payload:payload,now:now,role:role);
+      return;
+    }
+    if (entityType == 'queue_entries' || entityType == 'booking_requests') {
+      _applySyncQueueOrBooking(
+        station: station, entityType: entityType, entityKey: entityKey,
+        operation: operation, payload: payload, now: now,
+      );
+      return;
+    }
+    if (entityType == 'cloud_periods') {
+      if (operation != 'create') throw UnsupportedError('فترة الغيم لا تقبل التعديل المباشر بعد ترحيل السقاية');
+      _applySyncCloudPeriod(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'irrigations') {
+      if (operation != 'create') throw UnsupportedError('تعديل أو حذف السقاية يحتاج معالج عكس محاسبي مخصصاً');
+      _applySyncIrrigation(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'payments') {
+      if (operation != 'create') throw UnsupportedError('تعديل أو حذف القبض يحتاج معالج عكس محاسبي مخصصاً');
+      _applySyncPaymentReceipt(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'beneficiary_manual_debts') {
+      _applySyncBeneficiaryManualDebt(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'worker_transactions' || entityType == 'partner_transactions') {
+      _applySyncPartyOpeningDebt(station:station,entityType:entityType,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType != 'beneficiaries') throw UnsupportedError('معالج المزامنة لهذا المجال غير منفذ بعد');
+    final globalId = '${payload['_global_id'] ?? ''}';
+    final validGlobalId = globalId.length == 36 &&
+        globalId[8] == '-' && globalId[13] == '-' &&
+        globalId[18] == '-' && globalId[23] == '-' &&
+        globalId.replaceAll('-', '').length == 32 &&
+        RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId);
+    if (!validGlobalId || entityKey != 'beneficiaries:$globalId') {
+      throw StateError('هوية المستفيد العالمية غير صالحة');
+    }
+    if (!_hasTable('beneficiaries')) {
+      throw StateError('جدول المستفيدين غير موجود في قاعدة الأعمال');
+    }
+    final columns = db.select('PRAGMA table_info(beneficiaries)')
+        .map((row) => '${row['name']}').toSet();
+    if (!columns.contains('station_id') || !columns.contains('name')) {
+      throw StateError('مخطط جدول المستفيدين لا يدعم تطبيق المزامنة الآمن');
+    }
+    final links = db.select(
+      'SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',
+      [station, entityType, globalId],
+    );
+    final localId = links.isEmpty ? null : (links.first['local_id'] as num).toInt();
+    const allowed = {
+      'name', 'phone', 'address', 'location', 'jerba_number',
+      'area', 'is_needy', 'notes',
+    };
+    for (final financialField in const {
+      'opening_balance', 'carried_balance', 'opening_diesel_liters',
+    }) {
+      final value = payload[financialField];
+      if (value != null) {
+        final amount = value is num ? value : num.tryParse(value.toString());
+        if (amount == null || amount != 0) {
+          throw UnsupportedError(
+            'تغيير الرصيد الافتتاحي أو رصيد الديزل يحتاج معالجاً محاسبياً مخصصاً',
+          );
+        }
+      }
+    }
+    if (operation == 'create') {
+      if (localId != null) throw StateError('هوية المستفيد موجودة مسبقاً؛ استخدم update');
+      final values = <String, Object?>{
+        'station_id': station,
+        'name': '${payload['name'] ?? ''}'.trim(),
+        if (columns.contains('status')) 'status': 'active',
+        if (columns.contains('created_at')) 'created_at': now,
+        if (columns.contains('updated_at')) 'updated_at': now,
+      };
+      if ((values['name'] as String).isEmpty) throw StateError('اسم المستفيد مطلوب');
+      for (final key in allowed) {
+        if (payload.containsKey(key) && columns.contains(key)) {
+          final value = payload[key];
+          values[key] = key == 'is_needy' && value is bool ? (value ? 1 : 0) : value;
+        }
+      }
+      values['name'] = '${values['name']}'.trim();
+      final names = values.keys.toList();
+      db.execute(
+        'INSERT INTO beneficiaries(${names.join(',')}) VALUES(${List.filled(names.length, '?').join(',')})',
+        names.map((key) => values[key]).toList(),
+      );
+      db.execute(
+        'INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',
+        [station, entityType, globalId, db.lastInsertRowId, now],
+      );
+      return;
+    }
+    if (localId == null) throw StateError('لا يوجد سجل أعمال مرتبط بهذه الهوية العالمية');
+    if (operation == 'delete') {
+      if (!columns.contains('status')) throw StateError('الحذف الآمن يتطلب عمود حالة في جدول المستفيدين');
+      db.execute(
+        "UPDATE beneficiaries SET status='deleted'${columns.contains('updated_at') ? ',updated_at=?' : ''} WHERE id=? AND station_id=?",
+        columns.contains('updated_at') ? [now, localId, station] : [localId, station],
+      );
+      if ((db.select('SELECT changes() AS n').first['n'] as num).toInt() != 1) {
+        throw StateError('المستفيد غير موجود ضمن المحطة الحالية');
+      }
+      return;
+    }
+    final values = <String, Object?>{};
+    for (final key in allowed) {
+      if (payload.containsKey(key) && columns.contains(key)) {
+        final value = payload[key];
+        values[key] = key == 'is_needy' && value is bool ? (value ? 1 : 0) : value;
+      }
+    }
+    if (values.isEmpty) throw StateError('لا توجد حقول مستفيد قابلة للتحديث');
+    if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
+      throw StateError('اسم المستفيد مطلوب');
+    }
+    if (values.containsKey('name')) values['name'] = '${values['name']}'.trim();
+    if (columns.contains('updated_at')) values['updated_at'] = now;
+    final names = values.keys.toList();
+    db.execute(
+      'UPDATE beneficiaries SET ${names.map((key) => '$key=?').join(',')} WHERE id=? AND station_id=?',
+      [...names.map((key) => values[key]), localId, station],
+    );
+    if ((db.select('SELECT changes() AS n').first['n'] as num).toInt() != 1) {
+      throw StateError('المستفيد غير موجود ضمن المحطة الحالية');
+    }
+  }
+
+  Future<Response> _syncPush(Request request, Map<String,dynamic> claims) async {
+    final body = await _body(request);
+    final device = '${body['device_id'] ?? ''}'.trim();
+    final rawEvents = body['events'];
+    if (device.isEmpty || device.length > 128 || rawEvents is! List ||
+        rawEvents.isEmpty || rawEvents.length > 100) {
+      return _json({'error':'دفعة المزامنة غير صالحة'},status:400);
+    }
+    final station = _stationId(claims);
+    final now = DateTime.now().toUtc().toIso8601String();
+    final results = <Map<String,Object?>>[];
+    db.execute('BEGIN IMMEDIATE');
+    try {
+      for (final raw in rawEvents) {
+        if (raw is! Map) {
+          results.add({'status':'rejected','message':'صيغة الحدث غير صالحة'});
+          continue;
+        }
+        final event = Map<String,dynamic>.from(raw);
+        final eventId = '${event['event_id'] ?? ''}'.trim();
+        final entityType = '${event['entity_type'] ?? ''}'.trim();
+        final entityKey = '${event['entity_key'] ?? ''}'.trim();
+        final operation = '${event['operation'] ?? ''}'.trim();
+        final payload = event['payload'];
+        final baseVersion = (event['base_version'] as num?)?.toInt();
+        final validUuid = RegExp(
+          r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+        ).hasMatch(eventId);
+        if (!validUuid || !_syncEntityTypes.contains(entityType) ||
+            entityKey.isEmpty || entityKey.length > 160 ||
+            !const {'create','update','delete'}.contains(operation) ||
+            payload is! Map || baseVersion == null || baseVersion < 0 ||
+            utf8.encode(_canonicalSyncJson(payload)).length > 262144) {
+          results.add({'event_id':eventId,'status':'rejected','message':'حقول الحدث غير صالحة'});
+          continue;
+        }
+        final duplicate = db.select(
+          '''SELECT server_sequence,status,server_version,source_device,
+            entity_type,entity_key,operation,payload_json,base_version
+            FROM sync_event_log WHERE station_id=? AND event_id=? LIMIT 1''',
+          [station,eventId],
+        );
+        if (duplicate.isNotEmpty) {
+          final previous = duplicate.first;
+          final sameRequest = previous['source_device'] == device &&
+              previous['entity_type'] == entityType &&
+              previous['entity_key'] == entityKey &&
+              previous['operation'] == operation &&
+              (previous['base_version'] as num).toInt() == baseVersion &&
+              previous['payload_json'] == _canonicalSyncJson(payload);
+          if (!sameRequest) {
+            results.add({
+              'event_id': eventId,
+              'status': 'rejected',
+              'message': 'أعيد استخدام event_id لحمولة أو مصدر مختلف؛ رُفض الحدث لحماية سلامة Idempotency.',
+            });
+            continue;
+          }
+          if (previous['status'] == 'conflict') {
+            results.add({
+              'event_id': eventId,
+              'status': 'conflict',
+              'server_sequence': previous['server_sequence'],
+              'server_version': previous['server_version'],
+              'current_version': previous['server_version'],
+              'message': 'الحدث مسجل كتعارض سابق',
+            });
+            continue;
+          }
+          // Do not replay legacy "accepted" log entries as success unless
+          // the corresponding business row can still be proven to exist.
+          var businessRowExists = false;
+          if (payload is Map) {
+            final globalId = '${payload['_global_id'] ?? ''}';
+            if (entityType == 'beneficiaries') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l JOIN beneficiaries b
+                  ON b.id=l.local_id AND b.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='beneficiaries' AND l.global_id=? LIMIT 1
+              ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'irrigations') {
+              businessRowExists = db.select('SELECT 1 FROM sync_entity_links l JOIN irrigations i ON i.id=l.local_id AND i.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=\'irrigations\' AND l.global_id=? LIMIT 1',[station,globalId]).isNotEmpty;
+            } else if (entityType == 'cloud_periods') {
+              businessRowExists = db.select('SELECT 1 FROM sync_entity_links l JOIN cloud_periods cp ON cp.id=l.local_id JOIN irrigations i ON i.id=cp.irrigation_id AND i.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=\'cloud_periods\' AND l.global_id=? LIMIT 1',[station,globalId]).isNotEmpty;
+            } else if (entityType == 'payments') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l JOIN payments p
+                  ON p.id=l.local_id AND p.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='payments' AND l.global_id=? AND p.status='posted' LIMIT 1
+              ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'beneficiary_manual_debts') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l
+                JOIN beneficiary_manual_debts md ON md.id=l.local_id
+                JOIN beneficiaries b ON b.id=md.beneficiary_id AND b.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='beneficiary_manual_debts'
+                  AND l.global_id=? LIMIT 1
+              ''', [station, globalId]).isNotEmpty;
+            } else if (const {'pumps','partners','workers','payment_methods','cashboxes'}.contains(entityType)) {
+              businessRowExists = db.select(
+                'SELECT 1 FROM sync_entity_links l JOIN ' + entityType +
+                ' t ON t.id=l.local_id AND t.station_id=l.station_id ' +
+                'WHERE l.station_id=? AND l.entity_type=? AND l.global_id=? LIMIT 1',
+                [station,entityType,globalId],
+              ).isNotEmpty;
+            } else if (entityType == 'worker_transactions' || entityType == 'partner_transactions') {
+              final partyTable = entityType == 'worker_transactions' ? 'workers' : 'partners';
+              final partyColumn = entityType == 'worker_transactions' ? 'worker_id' : 'partner_id';
+              businessRowExists = db.select(
+                'SELECT 1 FROM sync_entity_links l JOIN ' + entityType + ' t ON t.id=l.local_id AND t.station_id=l.station_id JOIN ' + partyTable + ' p ON p.id=t.' + partyColumn + ' AND p.station_id=l.station_id WHERE l.station_id=? AND l.entity_type=? AND l.global_id=? LIMIT 1',
+                [station,entityType,globalId],
+              ).isNotEmpty;
+            }
+          }
+          if (!businessRowExists) {
+            results.add({
+              'event_id': eventId,
+              'status': 'rejected',
+              'message': 'الحدث مسجل قديماً دون دليل كافٍ على تطبيقه في سجل الأعمال؛ يحتاج مراجعة.',
+            });
+          } else {
+            results.add({
+              'event_id': eventId,
+              'status': 'duplicate',
+              'server_sequence': previous['server_sequence'],
+              'server_version': previous['server_version'],
+              'current_version': previous['server_version'],
+              'message': 'الحدث مسجل ومطبق مسبقاً',
+            });
+          }
+          continue;
+        }
+        // New clients identify entities by UUID. Bridge the previous
+        // table:local_id version key without resetting its server version.
+        if (payload is Map && payload['_global_id'] != null) {
+          final globalId = payload['_global_id'].toString();
+          final validGlobalId = RegExp(
+            r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+          ).hasMatch(globalId);
+          if (!validGlobalId || entityKey != entityType + ':' + globalId) {
+            results.add({'event_id':eventId,'status':'rejected','message':'هوية السجل العالمية أو مفتاح الكيان غير متطابق'});
+            continue;
+          }
+          final localId = (payload['id'] as num?)?.toInt();
+          if (localId != null) {
+            final legacyKey = entityType + ':' + localId.toString();
+            if (legacyKey != entityKey) {
+              final globalVersion = db.select(
+                'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
+                [station,entityType,entityKey],
+              );
+              final legacyVersion = db.select(
+                'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
+                [station,entityType,legacyKey],
+              );
+              if (globalVersion.isEmpty && legacyVersion.isNotEmpty) {
+                db.execute('''INSERT INTO sync_entity_versions
+                  (station_id,entity_type,entity_key,version,updated_at)
+                  VALUES(?,?,?,?,?)''',[
+                  station,entityType,entityKey,legacyVersion.first['version'],now
+                ]);
+                db.execute(
+                  'DELETE FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=?',
+                  [station,entityType,legacyKey],
+                );
+                db.execute(
+                  'UPDATE sync_event_log SET entity_key=? WHERE station_id=? AND entity_type=? AND entity_key=?',
+                  [entityKey,station,entityType,legacyKey],
+                );
+              }
+            }
+          }
+        }
+        final currentRows = db.select(
+          'SELECT version FROM sync_entity_versions WHERE station_id=? AND entity_type=? AND entity_key=? LIMIT 1',
+          [station,entityType,entityKey],
+        );
+        final currentVersion = currentRows.isEmpty ? 0 : (currentRows.first['version'] as num).toInt();
+        final conflict = baseVersion != currentVersion;
+        final nextVersion = conflict ? currentVersion : currentVersion + 1;
+        if (conflict) {
+          db.execute('''INSERT INTO sync_event_log
+            (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)''',[
+            station,eventId,device,entityType,entityKey,operation,
+            _canonicalSyncJson(payload),baseVersion,nextVersion,'conflict',now
+          ]);
+          results.add({
+            'event_id':eventId,
+            'status':'conflict',
+            'server_version':nextVersion,
+            'current_version':currentVersion,
+            'message':'تعارض إصدار؛ لم يتم اعتماد الحدث تلقائياً',
+          });
+          continue;
+        }
+
+        // A successful acknowledgement means the business row, event log and
+        // entity version were all committed together. A failed domain handler
+        // rolls back only this event and never advances its version.
+        db.execute('SAVEPOINT apply_sync_event');
+        try {
+          _applySyncBusinessEvent(
+            station: station,
+            entityType: entityType,
+            entityKey: entityKey,
+            operation: operation,
+            payload: Map.from(payload),
+            now: now,
+            userId: (claims['userId'] as num?)?.toInt(),
+            role: claims['role']?.toString(),
+          );
+          db.execute('''INSERT INTO sync_event_log
+            (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)''',[
+            station,eventId,device,entityType,entityKey,operation,
+            _canonicalSyncJson(payload),baseVersion,nextVersion,'accepted',now
+          ]);
+          db.execute('''INSERT INTO sync_entity_versions(station_id,entity_type,entity_key,version,updated_at)
+            VALUES(?,?,?,?,?) ON CONFLICT(station_id,entity_type,entity_key)
+            DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at''',
+            [station,entityType,entityKey,nextVersion,now]);
+          db.execute('RELEASE SAVEPOINT apply_sync_event');
+          results.add({
+            'event_id':eventId,
+            'status':'accepted',
+            'server_version':nextVersion,
+            'current_version':currentVersion,
+          });
+        } catch (error) {
+          db.execute('ROLLBACK TO SAVEPOINT apply_sync_event');
+          db.execute('RELEASE SAVEPOINT apply_sync_event');
+          results.add({
+            'event_id':eventId,
+            'status':'rejected',
+            'message':'لم يطبق الخادم سجل الأعمال؛ لم يتم اعتماد الحدث: $error',
+          });
+        }
+      }
+      db.execute('COMMIT');
+    } catch (error) {
+      try { db.execute('ROLLBACK'); } catch (_) {}
+      return _json({'error':'تعذر حفظ أحداث المزامنة'},status:500);
+    }
+    return _json({'results':results});
+  }
+
+  Future<Response> _syncInbox(Request request, Map<String,dynamic> claims) async {
+    final station = _stationId(claims);
+    final after = int.tryParse(request.url.queryParameters['after'] ?? '0') ?? -1;
+    final device = (request.url.queryParameters['device_id'] ?? '').trim();
+    if (after < 0 || device.isEmpty || device.length > 128) {
+      return _json({'error':'مؤشر Inbox أو معرف الجهاز غير صالح'},status:400);
+    }
+    final rows = db.select('''SELECT server_sequence,event_id,entity_type,entity_key,
+      operation,payload_json,base_version,server_version,source_device
+      FROM sync_event_log
+      WHERE station_id=? AND server_sequence>? AND source_device<>? AND status='accepted'
+      ORDER BY server_sequence LIMIT 100''',[station,after,device]);
+    final events = rows.map((row) => <String,Object?>{
+      'server_sequence':row['server_sequence'],
+      'event_id':row['event_id'],
+      'entity_type':row['entity_type'],
+      'entity_key':row['entity_key'],
+      'operation':row['operation'],
+      'payload':jsonDecode(row['payload_json'] as String),
+      'base_version':row['base_version'],
+      'server_version':row['server_version'],
+      'source_device':row['source_device'],
+    }).toList();
+    final high = db.select(
+      'SELECT COALESCE(MAX(server_sequence),0) AS cursor FROM sync_event_log WHERE station_id=?',
+      [station],
+    ).first['cursor'] as int;
+    // Do not skip the remainder when a station has more than one page.
+    final cursor = rows.length == 100
+        ? (rows.last['server_sequence'] as num).toInt()
+        : high;
+    return _json({'events':events,'cursor':cursor});
+  }
+
+  int _stationId(Map<String, dynamic> claims) {
+    final stationId = (claims['stationId'] as num?)?.toInt();
+    if (stationId == null || stationId <= 0) {
+      throw StateError('رمز الجلسة لا يحتوي على محطة صالحة');
+    }
+    return stationId;
+  }
+  bool _owns(String table,int id,int stationId){final r=db.select('SELECT id FROM $table WHERE id=? AND station_id=? LIMIT 1',[id,stationId]);return r.isNotEmpty;}
+  void _requireOwn(String table,int? id,int stationId,String label){if(id==null||!_owns(table,id,stationId))throw StateError('$label لا يتبع المحطة الحالية');}
+  void _audit(int userId,String operation,String table,int? recordId,{String? reason}){db.execute('INSERT INTO audit_logs(user_id,operation,table_name,record_id,reason,created_at) VALUES(?,?,?,?,?,?)',[userId,operation,table,recordId,reason,DateTime.now().toIso8601String()]);}
+  int _round(double v,String mode)=>mode=='up'?v.ceil():mode=='down'?v.floor():v.round();
+
+  Future<Response> _adminLogin(Request r) async {
+    final body = await _body(r);
+    final username = '${body['username'] ?? ''}'.trim();
+    final password = '${body['password'] ?? ''}';
+    if (username.isEmpty || password.isEmpty) {
+      return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+    }
+    final scopes = _loginScopes(r, username);
+    final now = DateTime.now().toUtc();
+    if (_loginIsBlocked(scopes, now)) {
+      return Response(429,
+        body: jsonEncode({'error': 'محاولات تسجيل الدخول كثيرة؛ حاول بعد 15 دقيقة'}),
+        headers: {'content-type': 'application/json; charset=utf-8', 'retry-after': '900'});
+    }
+    final rows = db.select(
+      'SELECT id,station_id,name,role,password_hash FROM app_users WHERE username=? AND active=1 LIMIT 1',
+      [username],
+    );
+    if (rows.isEmpty ||
+        !await PasswordHasher.verify(password, '${rows.first['password_hash'] ?? ''}')) {
+      _recordFailedLogin(scopes, now);
+      return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+    }
+
+    final row = rows.first;
+    final storedHash = '${row['password_hash'] ?? ''}';
+    if (!PasswordHasher.isArgon2id(storedHash)) {
+      final upgradedHash = await PasswordHasher.hash(password);
+      db.execute(
+        'UPDATE app_users SET password_hash=? WHERE id=? AND password_hash=? AND active=1',
+        [upgradedHash, row['id'], storedHash],
+      );
+      if (db.select('SELECT changes() AS affected').first['affected'] == 0) {
+        // A concurrent successful login may already have upgraded the hash.
+        final latest = db.select(
+          'SELECT password_hash FROM app_users WHERE id=? AND active=1 LIMIT 1',
+          [row['id']],
+        );
+        if (latest.isEmpty ||
+            !await PasswordHasher.verify(
+              password,
+              '${latest.first['password_hash'] ?? ''}',
+            )) {
+          _recordFailedLogin(scopes, now);
+          return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+        }
+      }
+    }
+
+    final activeRows = db.select(
+      'SELECT id,station_id,name,role FROM app_users WHERE id=? AND active=1 LIMIT 1',
+      [row['id']],
+    );
+    if (activeRows.isEmpty) {
+      _recordFailedLogin(scopes, now);
+      return _json({'error': 'اسم المستخدم أو كلمة المرور غير صحيحة'}, status: 401);
+    }
+    _clearLoginFailures(scopes);
+    final user = _rows(activeRows).first;
+    return _json({
+      'token': _token({'kind': 'admin', 'userId': user['id'], 'stationId': user['station_id'], 'role': user['role']}),
+      'user': {'id': user['id'], 'name': user['name'], 'role': user['role']},
+    });
+  }
+  Future<Response> _dashboard(Request r,Map<String,dynamic> c) async {final station=_stationId(c);final x=_rows(db.select("SELECT (SELECT COUNT(*) FROM beneficiaries WHERE status='active' AND station_id=?) beneficiaries,(SELECT COUNT(*) FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE b.station_id=? AND q.status IN ('waiting','postponed')) queue,(SELECT COUNT(*) FROM booking_requests br JOIN beneficiaries b ON b.id=br.beneficiary_id WHERE b.station_id=? AND br.status IN ('new','under_review')) bookings,(SELECT COUNT(*) FROM irrigation_sessions s JOIN pumps p ON p.id=s.pump_id JOIN beneficiaries b ON b.id=s.beneficiary_id WHERE p.station_id=? AND b.station_id=? AND s.status='running') running_sessions,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled' AND station_id=?) revenue,(SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='posted' AND station_id=?) paid,(SELECT COALESCE(SUM(amount),0) FROM expenses WHERE status='posted' AND station_id=?) expenses",[station,station,station,station,station,station,station,station])).first;return _json(x);}
+  Map<String,String> _settingsForStation(int stationId) => {
+    for(final x in db.select('SELECT key,value FROM station_settings WHERE station_id=?',[stationId]))
+      x['key'] as String: x['value'] as String,
+  };
+  Future<Response> _settings(Request r,Map<String,dynamic> c) async => _json(_settingsForStation(_stationId(c)));
+  Future<Response> _settingsPut(Request r,Map<String,dynamic> c) async {
+    final b=await _body(r); final station=_stationId(c); final now=DateTime.now().toIso8601String();
+    for(final e in b.entries){db.execute('INSERT INTO station_settings(station_id,key,value,updated_at) VALUES(?,?,?,?) ON CONFLICT(station_id,key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at',[station,e.key,'${e.value}',now]);}
+    return _settings(r,c);
+  }
+  String _beneficiaryBalanceExpression() {
+    final columns = db.select('PRAGMA table_info(beneficiaries)')
+        .map((row) => '${row['name']}').toSet();
+    final parts = <String>[];
+    if (columns.contains('opening_balance')) parts.add('COALESCE(b.opening_balance,0)');
+    if (columns.contains('carried_balance')) parts.add('COALESCE(b.carried_balance,0)');
+    if (_hasTable('beneficiary_manual_debts')) {
+      parts.add("(SELECT COALESCE(SUM(md.amount),0) FROM beneficiary_manual_debts md WHERE md.beneficiary_id=b.id AND md.status='posted')");
+    }
+    if (_hasTable('irrigations')) {
+      parts.add("(SELECT COALESCE(SUM(i.total_amount),0) FROM irrigations i WHERE i.beneficiary_id=b.id AND i.station_id=b.station_id AND i.status!='cancelled')");
+    }
+    if (_hasTable('diesel_movements')) {
+      parts.add("(SELECT COALESCE(SUM(d.amount),0) FROM diesel_movements d WHERE d.beneficiary_id=b.id AND d.station_id=b.station_id AND d.kind='advance' AND d.irrigation_id IS NULL)");
+    }
+    if (_hasTable('payments')) {
+      parts.add("(SELECT -COALESCE(SUM(p.amount),0) FROM payments p WHERE p.beneficiary_id=b.id AND p.station_id=b.station_id AND p.status='posted')");
+    }
+    if (_hasTable('diesel_movements') && _hasTable('station_settings')) {
+      parts.add("""CASE WHEN (SELECT value FROM station_settings WHERE station_id=b.station_id AND key='diesel_delivery_financial_credit')='true' THEN -(SELECT COALESCE(SUM(d2.amount),0) FROM diesel_movements d2 WHERE d2.beneficiary_id=b.id AND d2.station_id=b.station_id AND d2.kind='delivery') ELSE 0 END""");
+    }
+    return parts.isEmpty ? '0' : '(${parts.join(' + ')})';
+  }
+
+  Future<Response> _beneficiaries(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    // Give legacy server-side rows a stable identity once; never infer identity
+    // from a local integer ID or from a beneficiary name.
+    final missingLinks = db.select("""
+      SELECT b.id FROM beneficiaries b
+      LEFT JOIN sync_entity_links l
+        ON l.station_id=b.station_id AND l.entity_type='beneficiaries' AND l.local_id=b.id
+      WHERE b.station_id=? AND l.global_id IS NULL
+    """, [station]);
+    for (final row in missingLinks) {
+      db.execute(
+        "INSERT OR IGNORE INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'beneficiaries',?,?,?)",
+        [station, const Uuid().v4(), row['id'], DateTime.now().toIso8601String()],
+      );
+    }
+    final balance = _beneficiaryBalanceExpression();
+    final term = (r.url.queryParameters['q'] ?? '').trim();
+    final args = <Object?>[station];
+    var where = "b.status='active' AND b.station_id=?";
+    if (term.isNotEmpty) {
+      where += " AND (b.name LIKE ? OR COALESCE(b.phone,'') LIKE ?"
+          " OR COALESCE(b.jerba_number,'') LIKE ? OR COALESCE(b.location,'') LIKE ?)";
+      final pattern = '%$term%';
+      args.addAll([pattern, pattern, pattern, pattern]);
+    }
+    return _json(_rows(db.select("""
+      SELECT b.*, l.global_id AS _global_id, $balance AS balance
+      FROM beneficiaries b
+      JOIN sync_entity_links l
+        ON l.station_id=b.station_id AND l.entity_type='beneficiaries' AND l.local_id=b.id
+      WHERE $where
+      ORDER BY b.name
+    """, args)));
+  }
+  Future<Response> _beneficiaryCreate(Request r,Map<String,dynamic> c) async { final b=await _body(r); if('${b['name']??''}'.trim().isEmpty)return _json({'error':'اسم المستفيد مطلوب'},status:422); final now=DateTime.now().toIso8601String(); final id=db.lastInsertRowId; db.execute('INSERT INTO beneficiaries(station_id,name,phone,address,location,jerba_number,area,is_needy,opening_balance,carried_balance,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,\'active\',?,?)',[_stationId(c),b['name'],b['phone'],b['address'],b['location'],b['jerba_number'],b['area'],b['is_needy']==true?1:0,(b['opening_balance'] as num?)?.round()??0,(b['carried_balance'] as num?)?.round()??0,now,now]); return _json({'id':db.lastInsertRowId}); }
+  int? _resolveBeneficiaryRouteId(String routeId, int stationId) {
+    // API clients address entities by their stable global UUID. Numeric IDs
+    // remain supported for legacy admin clients, but are always station-scoped.
+    final localId = int.tryParse(routeId);
+    if (localId != null) {
+      return _owns('beneficiaries', localId, stationId) ? localId : null;
+    }
+    final rows = db.select('''
+      SELECT b.id
+      FROM sync_entity_links l
+      JOIN beneficiaries b ON b.id=l.local_id AND b.station_id=l.station_id
+      WHERE l.station_id=? AND l.entity_type='beneficiaries'
+        AND l.global_id=? AND b.status='active'
+      LIMIT 1
+    ''', [stationId, routeId]);
+    return rows.isEmpty ? null : (rows.first['id'] as num).toInt();
+  }
+  Future<Response> _beneficiary(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final rows = db.select('''
+      SELECT b.*, l.global_id AS _global_id,
+        ${_beneficiaryBalanceExpression()} AS balance
+      FROM beneficiaries b
+      JOIN sync_entity_links l
+        ON l.station_id=b.station_id AND l.entity_type='beneficiaries'
+        AND l.local_id=b.id
+      WHERE b.id=? AND b.station_id=? AND b.status='active'
+      LIMIT 1
+    ''', [id, station]);
+    return rows.isEmpty
+        ? _json({'error':'المستفيد غير موجود'},status:404)
+        : _json(_rows(rows).first);
+  }
+  Future<Response> _beneficiaryUpdate(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final b=await _body(r);
+    const allowed=['name','phone','address','location','jerba_number','area','is_needy','notes'];
+    final sets=<String>[];
+    final args=<Object?>[];
+    for(final k in allowed){if(b.containsKey(k)){sets.add('$k=?');args.add(b[k] is bool?(b[k]?1:0):b[k]);}}
+    if(sets.isEmpty)return _json({'error':'لا توجد حقول قابلة للتعديل'},status:422);
+    args.add(DateTime.now().toIso8601String());args.add(id);args.add(station);
+    db.execute('UPDATE beneficiaries SET ${sets.join(',')},updated_at=? WHERE id=? AND station_id=?',args);
+    return _beneficiary(r,c);
+  }
+  Future<Response> _beneficiaryDelete(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final b=await _body(r);
+    if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب الحذف المنطقي مطلوب'},status:422);
+    db.execute("UPDATE beneficiaries SET status='deleted',updated_at=? WHERE id=? AND station_id=?",[DateTime.now().toIso8601String(),id,station]);
+    return _json({'ok':true});
+  }
+  Future<Response> _beneficiaryStatement(Request r,Map<String,dynamic> c) async {
+    final station = _stationId(c);
+    final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
+    if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
+    final beneficiaryRows = db.select('''
+      SELECT opening_balance,carried_balance
+      FROM beneficiaries WHERE id=? AND station_id=? AND status='active'
+      LIMIT 1
+    ''', [id, station]);
+    if (beneficiaryRows.isEmpty) {
+      return _json({'error':'المستفيد غير موجود'},status:404);
+    }
+    final opening = (beneficiaryRows.first['opening_balance'] as num?)?.round() ?? 0;
+    final carried = (beneficiaryRows.first['carried_balance'] as num?)?.round() ?? 0;
+    final initialBalance = opening + carried;
+    final creditDelivery =
+        _settingsForStation(station)['diesel_delivery_financial_credit'] == 'true';
+
+    // Every source is explicitly scoped to the authenticated station. Manual
+    // debts inherit station ownership through their beneficiary relation.
+    final events = db.select('''
+      SELECT * FROM (
+        SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.system_type,
+          i.minutes,i.cloud_minutes,i.chargeable_minutes,i.total_amount,
+          i.paid_amount,'s' AS type,i.total_amount AS debit,0 AS credit,
+          0 AS lah,i.total_amount AS alayh,'سقاية' AS description,
+          'posted' AS status,i.notes AS notes,10 AS event_order
+        FROM irrigations i
+        WHERE i.beneficiary_id=? AND i.station_id=? AND i.status!='cancelled'
+
+        UNION ALL
+        SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,
+          'p',0,p.amount,p.amount,0,'قبض','posted',p.notes,20
+        FROM payments p
+        WHERE p.beneficiary_id=? AND p.station_id=? AND p.status='posted'
+
+        UNION ALL
+        SELECT d.id,d.date,d.date,d.date,'diesel_advance',0,0,0,0,0,
+          'a',d.amount,0,0,d.amount,'سلفة ديزل','posted',d.notes,30
+        FROM diesel_movements d
+        WHERE d.beneficiary_id=? AND d.station_id=? AND d.kind='advance'
+          AND d.irrigation_id IS NULL
+
+        UNION ALL
+        SELECT md.id,md.date,md.date,md.date,'manual_debt',0,0,0,0,0,
+          'manual_debt',md.amount,0,0,md.amount,'إضافة مديونية',
+          md.status,md.notes,40
+        FROM beneficiary_manual_debts md
+        JOIN beneficiaries owner ON owner.id=md.beneficiary_id
+        WHERE md.beneficiary_id=? AND owner.station_id=?
+
+        UNION ALL
+        SELECT -md.id,md.cancelled_at,md.cancelled_at,md.cancelled_at,
+          'manual_debt_reversal',0,0,0,0,0,'manual_debt_reversal',
+          0,md.amount,md.amount,0,'إلغاء مديونية','cancelled',
+          md.cancel_reason,50
+        FROM beneficiary_manual_debts md
+        JOIN beneficiaries owner ON owner.id=md.beneficiary_id
+        WHERE md.beneficiary_id=? AND owner.station_id=?
+          AND md.status='cancelled' AND md.cancelled_at IS NOT NULL
+
+        ${creditDelivery ? '''
+        UNION ALL
+        SELECT d.id,d.date,d.date,d.date,'diesel_delivery',0,0,0,0,0,
+          'd',0,d.amount,d.amount,0,'تسليم ديزل','posted',d.notes,60
+        FROM diesel_movements d
+        WHERE d.beneficiary_id=? AND d.station_id=? AND d.kind='delivery'
+        ''' : ''}
+      ) timeline
+      ORDER BY COALESCE(date,''),event_order,id
+    ''', [
+      id, station,
+      id, station,
+      id, station,
+      id, station,
+      id, station,
+      if (creditDelivery) id, if (creditDelivery) station,
+    ]);
+
+    final fromText = r.url.queryParameters['from'];
+    final toText = r.url.queryParameters['to'];
+    final fromParsed = fromText == null ? null : DateTime.tryParse(fromText);
+    final toParsed = toText == null ? null : DateTime.tryParse(toText);
+    if (fromText != null && fromParsed == null ||
+        toText != null && toParsed == null) {
+      return _json({'error':'نطاق التاريخ غير صالح'},status:422);
+    }
+    final fromDay = fromParsed == null
+        ? null
+        : DateTime(fromParsed.year,fromParsed.month,fromParsed.day);
+    final toExclusive = toParsed == null
+        ? null
+        : DateTime(toParsed.year,toParsed.month,toParsed.day)
+            .add(const Duration(days:1));
+
+    var running = initialBalance;
+    var periodOpeningBalance = initialBalance;
+    final result = <Map<String,Object?>>[];
+    for (final row in events) {
+      final event = Map<String,Object?>.from(row);
+      final debit = (event['debit'] as num?)?.round() ?? 0;
+      final credit = (event['credit'] as num?)?.round() ?? 0;
+      running += debit-credit;
+      final date = DateTime.tryParse('${event['date'] ?? ''}');
+      if (fromDay != null && (date == null || date.isBefore(fromDay))) {
+        periodOpeningBalance = running;
+        continue;
+      }
+      if (toExclusive != null && (date == null || !date.isBefore(toExclusive))) {
+        continue;
+      }
+      final note = '${event['notes'] ?? ''}'.trim();
+      final description = '${event['description'] ?? ''}'.trim();
+      event['description'] = note.isEmpty || description.isEmpty
+          ? description : '$description - $note';
+      event['balance'] = running;
+      event.remove('event_order');
+      result.add(event);
+    }
+
+    if (fromDay != null) {
+      result.insert(0, {
+        'id':-3,'date':fromDay.toIso8601String(),
+        'type':'opening_balance','description':'الرصيد المرحّل قبل الفترة',
+        'debit':periodOpeningBalance>0?periodOpeningBalance:0,
+        'credit':periodOpeningBalance<0?-periodOpeningBalance:0,
+        'lah':periodOpeningBalance<0?-periodOpeningBalance:0,
+        'alayh':periodOpeningBalance>0?periodOpeningBalance:0,
+        'balance':periodOpeningBalance,
+      });
+    } else {
+      if (opening != 0) {
+        result.insert(0, {
+          'id':-1,'date':null,'type':'opening_balance',
+          'description':'رصيد افتتاحي',
+          'debit':opening>0?opening:0,'credit':opening<0?-opening:0,
+          'lah':opening<0?-opening:0,'alayh':opening>0?opening:0,
+          'balance':opening,
+        });
+      }
+      if (carried != 0) {
+        result.insert(opening != 0 ? 1 : 0, {
+          'id':-2,'date':null,'type':'carried_balance',
+          'description':'رصيد مرحّل',
+          'debit':carried>0?carried:0,'credit':carried<0?-carried:0,
+          'lah':carried<0?-carried:0,'alayh':carried>0?carried:0,
+          'balance':initialBalance,
+        });
+      }
+    }
+    return _json(result);
+  }
+
+  int _minutes(DateTime start,DateTime end,bool midnight){var e=end;if(!e.isAfter(start)){if(!midnight)throw StateError('وقت النهاية يجب أن يكون بعد وقت البداية');e=e.add(const Duration(days:1));}final m=e.difference(start).inMinutes;if(m<=0)throw StateError('مدة السقي غير صالحة');return m;}
+  Future<Response> _irrigationCreateUnsafe(Request r,Map<String,dynamic> c) async { final b=await _body(r); try { _requireOwn('beneficiaries',(b['beneficiary_id'] as num?)?.toInt(),_stationId(c),'المستفيد'); _requireOwn('pumps',(b['pump_id'] as num?)?.toInt()??1,_stationId(c),'المضخة'); final start=DateTime.parse('${b['start']}');final end=DateTime.parse('${b['end']}');final settings=_settingsForStation(_stationId(c));final system='${b['system_type']??settings['system_type']??'diesel'}';final mins=_minutes(start,end,settings['allow_midnight_crossing']=='true');final cloud=(b['cloud_minutes'] as num?)?.round()??0;final charge=system=='solar'?((mins-cloud).clamp(0,mins)):mins;final waterRate=system=='diesel'?(int.tryParse(settings['diesel_hourly_water_rate']??'0')??0):system=='solar'?(int.tryParse(settings['solar_hourly_rate']??'0')??0):(int.tryParse(settings['third_type_hourly_rate']??'0')??0);final water=_round(charge/60*waterRate,settings['rounding']??'nearest');final liters=system=='diesel'?charge/60*(double.tryParse(settings['diesel_liters_per_hour']??'0')??0):0.0;final fuel=_round(liters*(int.tryParse(settings['diesel_price_per_liter']??'0')??0),settings['rounding']??'nearest');final total=water+fuel;final paid=(b['paid_amount'] as num?)?.round()??0;if(paid<0||paid>total)throw StateError('المدفوع يجب أن يكون بين صفر وإجمالي السقاية');final now=DateTime.now().toIso8601String();db.execute('INSERT INTO irrigations(station_id,pump_id,beneficiary_id,date,start_datetime,end_datetime,minutes,system_type,water_hourly_rate_snapshot,diesel_liters_per_hour_snapshot,diesel_price_snapshot,solar_hourly_rate_snapshot,third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,water_amount,diesel_amount,total_amount,paid_amount,status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['pump_id']??1,b['beneficiary_id'],start.toIso8601String().substring(0,10),start.toIso8601String(),end.toIso8601String(),mins,system,int.tryParse(settings['diesel_hourly_water_rate']??'0')??0,double.tryParse(settings['diesel_liters_per_hour']??'0')??0,int.tryParse(settings['diesel_price_per_liter']??'0')??0,int.tryParse(settings['solar_hourly_rate']??'0')??0,int.tryParse(settings['third_type_hourly_rate']??'0')??0,cloud,charge,water,fuel,total,paid,'posted',c['userId'],now,now]);final irrigationId=db.lastInsertRowId;final rec=_accountId('1200'),waterRev=_accountId('4000'),fuelRev=_accountId('4010');final lines=<Map<String,Object?>>[{'account_id':rec,'beneficiary_id':b['beneficiary_id'],'debit':total,'credit':0,'memo':'استحقاق سقاية'}];if(water>0)lines.add({'account_id':waterRev,'debit':0,'credit':water,'memo':'إيراد الماء'});if(fuel>0)lines.add({'account_id':fuelRev,'debit':0,'credit':fuel,'memo':'قيمة الديزل'});_journal(description:'سقاية رقم $irrigationId',referenceType:'irrigation',referenceId:irrigationId,lines:lines,userId:c['userId']);if(system=='diesel'&&liters>0){final stock=(db.select("SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements dm WHERE dm.station_id=?",[_stationId(c)]).first['stock'] as num).toDouble();final shortage=liters-stock;if(shortage>0){final advanceAmount=(shortage*(int.tryParse(settings['diesel_price_per_liter']??'0')??0)).round();db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['beneficiary_id'],irrigationId,'advance',shortage,int.tryParse(settings['diesel_price_per_liter']??'0')??0,advanceAmount,now,'سلفة ديزل تلقائية',c['userId']]);final d=_accountId('1200'),cash=_accountId('1000');_journal(description:'سلفة ديزل تلقائية',referenceType:'diesel_advance',referenceId:db.lastInsertRowId,lines:[{'account_id':d,'beneficiary_id':b['beneficiary_id'],'debit':advanceAmount,'credit':0},{'account_id':cash,'debit':0,'credit':advanceAmount}],userId:c['userId']);}db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['beneficiary_id'],irrigationId,'consumption',liters,int.tryParse(settings['diesel_price_per_liter']??'0')??0,fuel,now,'استهلاك السقاية',c['userId']]);}
+if(paid>0){final pm=(b['payment_method_id'] as num?)?.toInt()??1;final cb=(b['cashbox_id'] as num?)?.toInt()??1;_requireOwn('payment_methods',pm,_stationId(c),'طريقة الدفع');_requireOwn('cashboxes',cb,_stationId(c),'الصندوق');db.execute('INSERT INTO payments(station_id,beneficiary_id,amount,date,payment_method_id,cashbox_id,reference_number,notes,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[_stationId(c),b['beneficiary_id'],paid,now,pm,cb,b['reference_number'],b['payment_notes'],'posted',c['userId']]);final method=db.select('SELECT ledger_account_code,type FROM payment_methods WHERE id=?',[pm]).first;final cashCode='${method['ledger_account_code']??'1000'}';_journal(description:'دفعة مرتبطة بالسقاية',referenceType:'payment',referenceId:db.lastInsertRowId,lines:[{'account_id':_accountId(cashCode),'debit':paid,'credit':0},{'account_id':rec,'beneficiary_id':b['beneficiary_id'],'debit':0,'credit':paid}],userId:c['userId']);}
+return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'total_amount':total,'paid_amount':paid});}catch(e){return _json({'error':'تعذر تسجيل السقاية: $e'},status:422);} }
+  Future<Response> _irrigationCreate(Request r,Map<String,dynamic> c) => _atomic(() => _irrigationCreateUnsafe(r,c));
+  Future<Response> _irrigations(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT i.*,b.name beneficiary_name,p.name pump_name FROM irrigations i JOIN beneficiaries b ON b.id=i.beneficiary_id JOIN pumps p ON p.id=i.pump_id WHERE i.station_id=? AND b.station_id=? AND p.station_id=? AND i.status!=\'cancelled\' ORDER BY i.start_datetime DESC LIMIT 1000',[_stationId(c),_stationId(c),_stationId(c)])));
+  Future<Response> _irrigationCancel(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب الإلغاء مطلوب'},status:422);db.execute("UPDATE irrigations SET status='cancelled',override_reason=? WHERE id=? AND station_id=?",[b['reason'],id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'السقاية غير موجودة'},status:404);return _json({'ok':true});}
+
+  Future<Response> _sessions(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT s.*,b.name beneficiary_name,p.name pump_name FROM irrigation_sessions s JOIN beneficiaries b ON b.id=s.beneficiary_id JOIN pumps p ON p.id=s.pump_id WHERE p.station_id=? AND b.station_id=? ORDER BY COALESCE(s.actual_start,s.planned_start) DESC',[_stationId(c),_stationId(c)])));
+  Future<Response> _sessionStart(Request r,Map<String,dynamic> c) async {final b=await _body(r);final pump=(b['pump_id'] as num?)?.toInt()??1;final beneficiary=(b['beneficiary_id'] as num?)?.toInt();final station=_stationId(c);_requireOwn('pumps',pump,station,'المضخة');_requireOwn('beneficiaries',beneficiary,station,'المستفيد');final queueId=(b['queue_id'] as num?)?.toInt();if(queueId!=null&&db.select("SELECT q.id FROM queue_entries q JOIN beneficiaries x ON x.id=q.beneficiary_id WHERE q.id=? AND q.beneficiary_id=? AND x.station_id=? AND q.status IN ('waiting','postponed')",[queueId,beneficiary,station]).isEmpty)return _json({'error':'عنصر الطابور لا يتبع المستفيد أو المحطة الحالية'},status:404);final bookingId=(b['booking_id'] as num?)?.toInt();if(bookingId!=null&&db.select("SELECT br.id FROM booking_requests br JOIN beneficiaries x ON x.id=br.beneficiary_id WHERE br.id=? AND br.beneficiary_id=? AND x.station_id=? AND br.status IN ('new','under_review','scheduled')",[bookingId,beneficiary,station]).isEmpty)return _json({'error':'الحجز لا يتبع المستفيد أو المحطة الحالية'},status:404);final active=db.select("SELECT id FROM irrigation_sessions WHERE pump_id=? AND status='running'",[pump]);if(active.isNotEmpty)return _json({'error':'المضخة لديها جلسة فعالة'},status:409);final now=DateTime.now().toIso8601String();db.execute("INSERT INTO irrigation_sessions(beneficiary_id,queue_entry_id,booking_id,pump_id,planned_start,actual_start,timer_started_at,status) VALUES(?,?,?,?,?,?,?,\'running\')",[beneficiary,queueId,bookingId,pump,now,now,now]);return _json({'id':db.lastInsertRowId,'started_at':now});}
+  Future<Response> _sessionFinishUnsafe(Request r,Map<String,dynamic> c) async {
+    final id=int.parse(r.params['id']!); final rows=db.select('SELECT s.*,p.station_id,p.system_type FROM irrigation_sessions s JOIN pumps p ON p.id=s.pump_id JOIN beneficiaries b ON b.id=s.beneficiary_id WHERE s.id=? AND p.station_id=? AND b.station_id=?',[id,_stationId(c),_stationId(c)]);
+    if(rows.isEmpty)return _json({'error':'الجلسة غير موجودة'},status:404); final s=rows.first; if(s['status']!='running')return _json({'error':'الجلسة ليست قيد التشغيل'},status:409);
+    final end=DateTime.now(); final start=DateTime.parse(s['actual_start'] as String); final settings=_settingsForStation(_stationId(c));
+    final mins=_minutes(start,end,settings['allow_midnight_crossing']=='true'); final cloud=(await _body(r))['cloud_minutes']; final cloudMin=(cloud as num?)?.round()??0; final charge=s['system_type']=='solar'?(mins-cloudMin).clamp(0,mins):mins;
+    final rate=s['system_type']=='diesel'?(int.tryParse(settings['diesel_hourly_water_rate']??'0')??0):s['system_type']=='solar'?(int.tryParse(settings['solar_hourly_rate']??'0')??0):(int.tryParse(settings['third_type_hourly_rate']??'0')??0);
+    final water=_round(charge/60*rate,settings['rounding']??'nearest'); final liters=s['system_type']=='diesel'?charge/60*(double.tryParse(settings['diesel_liters_per_hour']??'0')??0):0.0; final fuel=_round(liters*(int.tryParse(settings['diesel_price_per_liter']??'0')??0),settings['rounding']??'nearest'); final total=water+fuel;
+    final now=end.toIso8601String(); db.execute('UPDATE irrigation_sessions SET actual_end=?,timer_stopped_at=?,status=\'completed\',diesel_consumed=? WHERE id=?',[now,now,liters,id]);
+    db.execute('INSERT INTO irrigations(station_id,pump_id,beneficiary_id,booking_id,queue_entry_id,session_id,date,start_datetime,end_datetime,minutes,system_type,water_hourly_rate_snapshot,diesel_liters_per_hour_snapshot,diesel_price_snapshot,solar_hourly_rate_snapshot,third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,water_amount,diesel_amount,total_amount,paid_amount,status,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[s['station_id'],s['pump_id'],s['beneficiary_id'],s['booking_id'],s['queue_entry_id'],id,start.toIso8601String().substring(0,10),start.toIso8601String(),end.toIso8601String(),mins,s['system_type'],int.tryParse(settings['diesel_hourly_water_rate']??'0')??0,double.tryParse(settings['diesel_liters_per_hour']??'0')??0,int.tryParse(settings['diesel_price_per_liter']??'0')??0,int.tryParse(settings['solar_hourly_rate']??'0')??0,int.tryParse(settings['third_type_hourly_rate']??'0')??0,cloudMin,charge,water,fuel,total,0,'posted',c['userId'],now,now]);
+    final irrigationId=db.lastInsertRowId; final rec=_accountId('1200'); final revenue=_accountId('4000'); _journal(description:'سقاية رقم $irrigationId',referenceType:'irrigation',referenceId:irrigationId,lines:[{'account_id':rec,'beneficiary_id':s['beneficiary_id'],'debit':total,'credit':0},{'account_id':revenue,'debit':0,'credit':total}],userId:c['userId']);
+    if(s['queue_entry_id']!=null)db.execute("UPDATE queue_entries SET status='served',last_served_at=?,updated_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries b WHERE b.id=queue_entries.beneficiary_id AND b.station_id=?)",[now,now,s['queue_entry_id'],_stationId(c)]);
+    if(s['booking_id']!=null)db.execute("UPDATE booking_requests SET status='completed',reviewed_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries b WHERE b.id=booking_requests.beneficiary_id AND b.station_id=?)",[now,s['booking_id'],_stationId(c)]);
+    if(liters>0)db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[_stationId(c),s['beneficiary_id'],irrigationId,'consumption',liters,int.tryParse(settings['diesel_price_per_liter']??'0')??0,fuel,now,'استهلاك جلسة السقي',c['userId']]);
+    return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'total_amount':total});
+  }
+  Future<Response> _sessionFinish(Request r,Map<String,dynamic> c) => _atomic(() => _sessionFinishUnsafe(r,c));
+  Future<Response> _sessionPostpone(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب التأجيل مطلوب'},status:422);db.execute("UPDATE irrigation_sessions SET status='postponed',postponement_reason=? WHERE id=? AND EXISTS (SELECT 1 FROM pumps p JOIN beneficiaries x ON x.id=irrigation_sessions.beneficiary_id WHERE p.id=irrigation_sessions.pump_id AND p.station_id=? AND x.station_id=?)",[b['reason'],id,_stationId(c),_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'الجلسة غير موجودة'},status:404);return _json({'ok':true});}
+
+  Future<Response> _queue(Request r,Map<String,dynamic> c) async => _json(_rows(db.select("SELECT q.*,b.name beneficiary_name,b.phone FROM queue_entries q JOIN beneficiaries b ON b.id=q.beneficiary_id WHERE b.station_id=? AND q.status IN ('waiting','postponed') ORDER BY q.position,q.cycle_number,q.created_at",[_stationId(c)])));
+  Future<Response> _queueAdd(Request r,Map<String,dynamic> c) async {final b=await _body(r);final beneficiary=(b['beneficiary_id'] as num?)?.toInt();final station=_stationId(c);_requireOwn('beneficiaries',beneficiary,station,'المستفيد');final row=db.select("SELECT COALESCE(MAX(q.position),0)+1 n FROM queue_entries q JOIN beneficiaries x ON x.id=q.beneficiary_id WHERE x.station_id=? AND q.status IN ('waiting','postponed')",[station]).first;final pos=(row['n'] as num).toInt();db.execute("INSERT INTO queue_entries(beneficiary_id,position,status,created_at,updated_at) VALUES(?,?,\'waiting\',?,?)",[beneficiary,pos,DateTime.now().toIso8601String(),DateTime.now().toIso8601String()]);return _json({'id':db.lastInsertRowId,'position':pos});}
+  Future<Response> _queuePostpone(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب التأجيل مطلوب'},status:422);db.execute("UPDATE queue_entries SET status='postponed',postponed_count=postponed_count+1,skip_reason=?,updated_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries x WHERE x.id=queue_entries.beneficiary_id AND x.station_id=?)",[b['reason'],DateTime.now().toIso8601String(),id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'عنصر الطابور غير موجود'},status:404);return _json({'ok':true});}
+  Future<Response> _queueSkip(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب تجاوز الدور مطلوب'},status:422);db.execute("UPDATE queue_entries SET position=0,skip_reason=?,updated_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries x WHERE x.id=queue_entries.beneficiary_id AND x.station_id=?)",[b['reason'],DateTime.now().toIso8601String(),id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'عنصر الطابور غير موجود'},status:404);return _json({'ok':true});}
+  Future<Response> _bookings(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT br.*,b.name beneficiary_name,b.phone FROM booking_requests br JOIN beneficiaries b ON b.id=br.beneficiary_id WHERE b.station_id=? ORDER BY br.created_at DESC',[_stationId(c)])));
+  Future<Response> _bookingSchedule(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if(b['start']==null||b['end']==null)return _json({'error':'يجب تحديد الموعد من الإدارة'},status:422);db.execute("UPDATE booking_requests SET status='scheduled',scheduled_date=?,scheduled_start=?,scheduled_end=?,reviewed_by=?,reviewed_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries x WHERE x.id=booking_requests.beneficiary_id AND x.station_id=?)",[b['date'],b['start'],b['end'],c['userId'],DateTime.now().toIso8601String(),id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'الحجز غير موجود'},status:404);return _json({'ok':true});}
+  Future<Response> _bookingCancel(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);db.execute("UPDATE booking_requests SET status='cancelled',cancel_reason=?,reviewed_by=?,reviewed_at=? WHERE id=? AND EXISTS (SELECT 1 FROM beneficiaries x WHERE x.id=booking_requests.beneficiary_id AND x.station_id=?)",[b['reason'],c['userId'],DateTime.now().toIso8601String(),id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'الحجز غير موجود'},status:404);return _json({'ok':true});}
+
+  Future<Response> _payments(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT p.*,COALESCE(b.name,COALESCE(w.name,pt.name)) party_name,pm.name method_name,c.name cashbox_name FROM payments p LEFT JOIN beneficiaries b ON b.id=p.beneficiary_id LEFT JOIN workers w ON w.id=p.worker_id LEFT JOIN partners pt ON pt.id=p.partner_id JOIN payment_methods pm ON pm.id=p.payment_method_id JOIN cashboxes c ON c.id=p.cashbox_id WHERE p.station_id=? AND c.station_id=? AND pm.station_id=? AND (p.beneficiary_id IS NULL OR b.station_id=?) AND (p.worker_id IS NULL OR w.station_id=?) AND (p.partner_id IS NULL OR pt.station_id=?) ORDER BY p.date DESC',[_stationId(c),_stationId(c),_stationId(c),_stationId(c),_stationId(c),_stationId(c)])));
+  Future<Response> _paymentCreateUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final station=_stationId(c);_requireOwn('cashboxes',(b['cashbox_id'] as num?)?.toInt()??1,station,'الصندوق');_requireOwn('payment_methods',(b['payment_method_id'] as num?)?.toInt()??1,station,'طريقة الدفع');if(b['beneficiary_id']!=null)_requireOwn('beneficiaries',(b['beneficiary_id'] as num).toInt(),station,'المستفيد');if(b['worker_id']!=null)_requireOwn('workers',(b['worker_id'] as num).toInt(),station,'العامل');if(b['partner_id']!=null)_requireOwn('partners',(b['partner_id'] as num).toInt(),station,'الشريك');final amount=(b['amount'] as num?)?.round()??0;if(amount<=0)return _json({'error':'المبلغ يجب أن يكون أكبر من صفر'},status:422);final now=DateTime.now().toIso8601String();db.execute('INSERT INTO payments(station_id,beneficiary_id,partner_id,worker_id,amount,date,payment_method_id,cashbox_id,reference_number,notes,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',[station,b['beneficiary_id'],b['partner_id'],b['worker_id'],amount,now,b['payment_method_id']??1,b['cashbox_id']??1,b['reference_number'],b['notes'],'posted',c['userId']]); final paymentId=db.lastInsertRowId; db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=?',[amount,b['cashbox_id']??1]);
+    final party=(b['beneficiary_id']!=null)?'1200':(b['partner_id']!=null)?'2200':'2100';
+    final method=db.select('SELECT ledger_account_code,type FROM payment_methods WHERE id=? LIMIT 1',[b['payment_method_id']??1]).first;
+    final code='${method['ledger_account_code']??((method['type']=='bank_transfer')?'1100':(method['type']=='wallet')?'1120':'1000')}';
+    _journal(description:'تسجيل دفعة',referenceType:'payment',referenceId:paymentId,lines:[{'account_id':_accountId(code),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':amount,'credit':0},{'account_id':_accountId(party),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':0,'credit':amount}],userId:c['userId']);
+    return _json({'id':paymentId});}
+  Future<Response> _paymentCreate(Request r,Map<String,dynamic> c) => _atomic(() => _paymentCreateUnsafe(r,c));
+  Future<Response> _cashboxes(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM cashboxes WHERE active=1 AND station_id=?',[_stationId(c)])));
+  Future<Response> _cashboxTransferUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final from=(b['from_cashbox_id'] as num?)?.toInt();final to=(b['to_cashbox_id'] as num?)?.toInt();final amount=(b['amount'] as num?)?.round()??0;final station=_stationId(c);if(to==null||amount<=0)return _json({'error':'بيانات التحويل غير صحيحة'},status:422);_requireOwn('cashboxes',to,station,'الصندوق الهدف');if(from!=null)_requireOwn('cashboxes',from,station,'الصندوق المصدر');if(from!=null){db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=? AND station_id=?',[amount,from,station]);}db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND station_id=?',[amount,to,station]);db.execute('INSERT INTO cashbox_transfers(station_id,from_cashbox_id,to_cashbox_id,amount,date,is_opening_transfer,reference,created_by) VALUES(?,?,?,?,?,?,?,?)',[station,from,to,amount,DateTime.now().toIso8601String(),from==null?1:0,b['reference'],c['userId']]);final transferId=db.lastInsertRowId;_journal(description:'تحويل بين الصناديق',referenceType:'cashbox_transfer',referenceId:transferId,lines:[{'account_id':_accountId('1100'),'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);return _json({'id':transferId});}
+  Future<Response> _cashboxTransfer(Request r,Map<String,dynamic> c) => _atomic(() => _cashboxTransferUnsafe(r,c));
+  Future<Response> _diesel(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT dm.*,b.name beneficiary_name FROM diesel_movements dm LEFT JOIN beneficiaries b ON b.id=dm.beneficiary_id WHERE dm.station_id=? ORDER BY dm.date DESC LIMIT 1000',[_stationId(c)])));
+  Future<Response> _dieselMovementUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final station=_stationId(c);if(b['beneficiary_id']!=null)_requireOwn('beneficiaries',(b['beneficiary_id'] as num).toInt(),station,'المستفيد');if(b['cashbox_id']!=null)_requireOwn('cashboxes',(b['cashbox_id'] as num).toInt(),station,'الصندوق');if(b['irrigation_id']!=null)_requireOwn('irrigations',(b['irrigation_id'] as num).toInt(),station,'السقاية');final liters=(b['liters'] as num?)?.toDouble()??0;if(liters<=0)throw StateError('كمية الديزل يجب أن تكون أكبر من صفر');final kind='${b['kind']??'receipt'}';final price=(b['unit_price'] as num?)?.round()??0;final amount=(liters*price).round();final stock=(db.select("SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements dm WHERE dm.station_id=?",[_stationId(c)]).first['stock'] as num).toDouble();if((kind=='delivery'||kind=='consumption')&&liters>stock)throw StateError('كمية الديزل المطلوبة أكبر من المخزون المتاح');final cb=(b['cashbox_id'] as num?)?.toInt();if(kind=='receipt'&&cb!=null){final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cb]).first['current_balance'] as num).round();db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cb]);}final now=DateTime.now().toIso8601String();db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,cashbox_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[station,b['beneficiary_id'],b['irrigation_id'],cb,kind,liters,price,amount,now,b['notes'],c['userId']]);final movementId=db.lastInsertRowId;if(kind=='receipt'){_journal(description:'شراء ديزل',referenceType:'diesel_receipt',referenceId:movementId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else if(kind=='consumption'){_journal(description:'استهلاك ديزل',referenceType:'diesel_consumption',referenceId:movementId,lines:[{'account_id':_accountId('5010'),'debit':amount,'credit':0},{'account_id':_accountId('1300'),'debit':0,'credit':amount}],userId:c['userId']);}else if(kind=='advance'&&b['beneficiary_id']!=null){_journal(description:'سلفة ديزل',referenceType:'diesel_advance',referenceId:movementId,lines:[{'account_id':_accountId('1200'),'beneficiary_id':b['beneficiary_id'],'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else if(kind=='delivery'&&b['beneficiary_id']!=null){final financial=_settingsForStation(station)['diesel_delivery_financial_credit'];if(financial=='true')_journal(description:'تسليم ديزل',referenceType:'diesel_delivery',referenceId:movementId,lines:[{'account_id':_accountId('1200'),'beneficiary_id':b['beneficiary_id'],'debit':amount,'credit':0},{'account_id':_accountId('4010'),'debit':0,'credit':amount}],userId:c['userId']);}return _json({'id':movementId,'amount':amount,'stock_after':kind=='receipt'?stock+liters:(kind=='delivery'||kind=='consumption')?stock-liters:stock});}
+  Future<Response> _dieselMovement(Request r,Map<String,dynamic> c) => _atomic(() => _dieselMovementUnsafe(r,c));
+  Future<Response> _expenses(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT e.* FROM expenses e JOIN payment_methods pm ON pm.id=e.payment_method_id LEFT JOIN cashboxes cb ON cb.id=e.cashbox_id WHERE e.station_id=? AND pm.station_id=? AND (e.cashbox_id IS NULL OR cb.station_id=?) ORDER BY e.date DESC LIMIT 1000',[_stationId(c),_stationId(c),_stationId(c)])));
+  Future<Response> _expenseCreateUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final station=_stationId(c);final methodId=(b['payment_method_id'] as num?)?.toInt()??1;_requireOwn('payment_methods',methodId,station,'طريقة الدفع');final cash=(b['cashbox_id'] as num?)?.toInt();if(cash!=null)_requireOwn('cashboxes',cash,station,'الصندوق');if(b['beneficiary_id']!=null)_requireOwn('beneficiaries',(b['beneficiary_id'] as num).toInt(),station,'المستفيد');if(b['worker_id']!=null)_requireOwn('workers',(b['worker_id'] as num).toInt(),station,'العامل');if(b['partner_id']!=null)_requireOwn('partners',(b['partner_id'] as num).toInt(),station,'الشريك');final amount=(b['amount'] as num?)?.round()??0;if(amount<=0)return _json({'error':'قيمة المصروف يجب أن تكون أكبر من صفر'},status:422);if(cash!=null){final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cash]).first['current_balance'] as num).round();db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cash]);}db.execute('INSERT INTO expenses(station_id,category,title,amount,date,payment_method_id,cashbox_id,status,created_by,notes) VALUES(?,?,?,?,?,?,?,\'posted\',?,?)',[station,b['category']??'other',b['title']??'مصروف',amount,DateTime.now().toIso8601String(),methodId,cash,c['userId'],b['notes']]); final expenseId=db.lastInsertRowId;
+    final expenseCode=switch('${b['category']??'other'}'){ 'fuel'=>'5010','oil'=>'5020','grease'=>'5020','maintenance'=>'5030','parts'=>'5030', 'workers'=>'5000','partners'=>'5000', _=>'5030'};
+    final pm=db.select('SELECT ledger_account_code,type FROM payment_methods WHERE id=? LIMIT 1',[methodId]).first; final payCode='${pm['ledger_account_code']??'1000'}';
+    _journal(description:'${b['title']??'مصروف'}',referenceType:'expense',referenceId:expenseId,lines:[{'account_id':_accountId(expenseCode),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':amount,'credit':0},{'account_id':_accountId(payCode),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':0,'credit':amount}],userId:c['userId']);
+    return _json({'id':expenseId});}
+  Future<Response> _expenseCreate(Request r,Map<String,dynamic> c) => _atomic(() => _expenseCreateUnsafe(r,c));
+  Future<Response> _workers(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM workers WHERE active=1 AND station_id=? ORDER BY name',[_stationId(c)])));
+  Future<Response> _workerCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final name='${b['name']??''}'.trim();if(name.isEmpty)return _json({'error':'اسم العامل مطلوب'},status:422);db.execute('INSERT INTO workers(station_id,name,phone,job_title,pay_type,fixed_salary,hourly_rate,percentage_rate,active) VALUES(?,?,?,?,?,?,?,?,1)',[_stationId(c),name,b['phone'],b['job_title'],b['pay_type']??'hourly',b['fixed_salary']??0,b['hourly_rate']??0,b['percentage_rate']??0]);_audit(c['userId'] as int,'create','workers',db.lastInsertRowId);return _json({'id':db.lastInsertRowId});}
+  Future<Response> _workerTransactionUnsafe(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);_requireOwn('workers',id,_stationId(c),'العامل');final b=await _body(r);final type='${b['type']??'accrual'}';final amount=(b['amount'] as num?)?.round()??0;if(!const{'accrual','salary','payment'}.contains(type))throw StateError('نوع الحركة غير مدعوم');if(amount<=0)throw StateError('المبلغ يجب أن يكون أكبر من صفر');final now=DateTime.now().toIso8601String();db.execute('INSERT INTO worker_transactions(station_id,worker_id,date,type,hours,rate_snapshot,percentage_snapshot,amount,cashbox_id,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[_stationId(c),id,now,type,b['hours']??0,b['rate_snapshot']??0,b['percentage_snapshot']??0,b['amount'],b['cashbox_id'],b['notes'],c['userId']]);final txId=db.lastInsertRowId;if(type=='payment'){final cb=(b['cashbox_id'] as num?)?.toInt()??1;_requireOwn('cashboxes',cb,_stationId(c),'الصندوق');final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cb]).first['current_balance'] as num).round();/* الصندوق حساب للصراف ويُسمح بأن يصبح رصيده سالبًا؛ لا نمنع الصرف بسبب الرصيد. */db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cb]);_journal(description:'دفع عامل',referenceType:'worker_payment',referenceId:txId,lines:[{'account_id':_accountId('2100'),'worker_id':id,'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else{_journal(description:'استحقاق عامل',referenceType:'worker',referenceId:txId,lines:[{'account_id':_accountId('5000'),'worker_id':id,'debit':amount,'credit':0},{'account_id':_accountId('2100'),'worker_id':id,'debit':0,'credit':amount}],userId:c['userId']);}return _json({'id':txId});}
+  Future<Response> _workerTransaction(Request r,Map<String,dynamic> c) => _atomic(() => _workerTransactionUnsafe(r,c));
+  Future<Response> _partners(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM partners WHERE active=1 AND station_id=? ORDER BY name',[_stationId(c)])));
+  Future<Response> _partnerCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final name='${b['name']??''}'.trim();if(name.isEmpty)return _json({'error':'اسم الشريك مطلوب'},status:422);db.execute('INSERT INTO partners(station_id,name,phone,ownership_mode,shares_count,ownership_percentage,active) VALUES(?,?,?,?,?,?,1)',[_stationId(c),name,b['phone'],b['ownership_mode']??'percentage',b['shares_count'],b['ownership_percentage']??0]);_audit(c['userId'] as int,'create','partners',db.lastInsertRowId);return _json({'id':db.lastInsertRowId});}
+  Future<Response> _partnerTransactionUnsafe(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);_requireOwn('partners',id,_stationId(c),'الشريك');final b=await _body(r);final type='${b['type']??'share_accrual'}';final amount=(b['amount'] as num?)?.round()??0;if(!const{'share_accrual','payment'}.contains(type))throw StateError('نوع الحركة غير مدعوم');if(amount<=0)throw StateError('المبلغ يجب أن يكون أكبر من صفر');final now=DateTime.now().toIso8601String();db.execute('INSERT INTO partner_transactions(station_id,partner_id,date,type,amount,ownership_snapshot,notes,created_by) VALUES(?,?,?,?,?,?,?,?)',[_stationId(c),id,now,type,amount,b['ownership_snapshot'],b['notes'],c['userId']]);final txId=db.lastInsertRowId;if(type=='payment'){final cb=(b['cashbox_id'] as num?)?.toInt()??1;_requireOwn('cashboxes',cb,_stationId(c),'الصندوق');final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cb]).first['current_balance'] as num).round();/* الصندوق حساب للصراف ويُسمح بأن يصبح رصيده سالبًا؛ لا نمنع الصرف بسبب الرصيد. */db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cb]);_journal(description:'دفع شريك',referenceType:'partner_payment',referenceId:txId,lines:[{'account_id':_accountId('2200'),'partner_id':id,'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else{_journal(description:'حصة شريك',referenceType:'partner',referenceId:txId,lines:[{'account_id':_accountId('5000'),'partner_id':id,'debit':amount,'credit':0},{'account_id':_accountId('2200'),'partner_id':id,'debit':0,'credit':amount}],userId:c['userId']);}return _json({'id':txId});}
+  Future<Response> _partnerTransaction(Request r,Map<String,dynamic> c) => _atomic(() => _partnerTransactionUnsafe(r,c));
+  Future<Response> _journalReport(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT je.*,jl.account_id,jl.debit,jl.credit,a.code account_code,a.name account_name FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? ORDER BY je.date DESC LIMIT 1000',[_stationId(c)])));
+  Future<Response> _ledger(Request r,Map<String,dynamic> c) async {final code=r.url.queryParameters['account']??'1200';return _json(_rows(db.select('SELECT jl.*,je.date,je.description,a.code,a.name account_name FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE a.code=? AND je.station_id=? ORDER BY je.date,jl.id',[code,_stationId(c)])));}
+  Future<Response> _reports(Request r, Map<String, dynamic> c) async {
+    final name = r.params['name']!;
+    const supported = {
+      'cash_flow',
+      'income',
+      'system_comparison',
+      'journal',
+      'ledger',
+    };
+    const known = {
+      'cash_flow', 'time_comparison', 'monthly_financial', 'income',
+      'payment_methods', 'expenses', 'cashboxes', 'queue_bookings',
+      'payment_log', 'beneficiary_statement', 'beneficiary_detailed',
+      'beneficiary_stats', 'needy', 'diesel_inventory', 'activity_overview',
+      'oil_status', 'debts', 'beneficiary_list', 'revenue_comparison',
+      'system_comparison', 'journal', 'ledger', 'worker_transactions',
+      'partner_accounts',
+    };
+    if (!known.contains(name)) {
+      return _json({'error': 'التقرير غير معروف'}, status: 404);
+    }
+    if (!supported.contains(name)) {
+      return _json({
+        'error': 'التقرير معروف لكنه غير منفذ في واجهة الخادم بعد',
+        'report': name,
+        'code': 'REPORT_NOT_IMPLEMENTED',
+      }, status: 501);
+    }
+    return _json({'report': name, 'rows': _reportRows(name, _stationId(c))});
+  }
+
+  List<Map<String, Object?>> _reportRows(String name, int station) {
+    switch (name) {
+      case 'cash_flow':
+        return _rows(db.select(
+          "SELECT date,'payment' kind,amount,'قبض' title FROM payments WHERE status='posted' AND station_id=? "
+          "UNION ALL SELECT date,'expense' kind,-amount,title FROM expenses WHERE status='posted' AND station_id=? ORDER BY date DESC",
+          [station, station],
+        ));
+      case 'income':
+        return _rows(db.select(
+          "SELECT system_type,COUNT(*) operations,SUM(water_amount) water_income,SUM(diesel_amount) diesel_income,SUM(total_amount) total "
+          "FROM irrigations WHERE status!='cancelled' AND station_id=? GROUP BY system_type",
+          [station],
+        ));
+      case 'system_comparison':
+        return _rows(db.select(
+          "SELECT system_type,COUNT(*) operations,SUM(minutes) minutes,SUM(total_amount) total,SUM(diesel_amount) diesel_cost "
+          "FROM irrigations WHERE status!='cancelled' AND station_id=? GROUP BY system_type",
+          [station],
+        ));
+      case 'journal':
+        return _rows(db.select(
+          'SELECT * FROM journal_entries WHERE station_id=? ORDER BY date DESC',
+          [station],
+        ));
+      case 'ledger':
+        return _rows(db.select(
+          'SELECT jl.* FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.station_id=? ORDER BY jl.id DESC',
+          [station],
+        ));
+      default:
+        throw StateError('Unsupported report reached the query layer: $name');
+    }
+  }
+  // Full-file SQLite backups/restores are unsafe for a shared multi-station database.
+  // Keep these endpoints explicitly blocked until station-scoped export/import exists.
+  Future<Response> _backup(Request r,Map<String,dynamic> c) async =>
+      _json({'error':'النسخ الاحتياطي الكامل معطل مؤقتاً؛ يلزم دعم نسخة مستقلة لكل محطة.'}, status:409);
+
+  Future<Response> _restore(Request r,Map<String,dynamic> c) async =>
+      _json({'error':'استعادة ملف قاعدة البيانات الكامل معطلة مؤقتاً؛ يلزم التحقق من ملكية المحطة قبل الاستعادة.'}, status:409);
+
+  Future<Response> _beneficiaryRequestCode(Request r) async {
+    final body = await _body(r);
+    final phone = '${body['phone'] ?? ''}'.trim();
+    if (phone.isEmpty) return _json({'error': 'رقم الهاتف مطلوب'}, status: 400);
+    final scopes = ['beneficiary-otp-ip:${_loginIp(r)}', 'beneficiary-otp-phone:${_loginIp(r)}:$phone'];
+    final now = DateTime.now().toUtc();
+    if (_loginIsBlocked(scopes, now)) {
+      return Response(429, body: jsonEncode({'error': 'طلبات الرموز كثيرة؛ حاول بعد 15 دقيقة'}),
+        headers: {'content-type': 'application/json; charset=utf-8', 'retry-after': '900'});
+    }
+    _recordFailedLogin(scopes, now);
+    final rows = db.select("SELECT id FROM beneficiaries WHERE phone=? AND status='active' ORDER BY id", [phone]);
+    if (rows.isEmpty) return _json({'error': 'رقم الهاتف غير مسجل'}, status: 404);
+    if (rows.length != 1) {
+      return _json({'error': 'رقم الهاتف مرتبط بأكثر من حساب؛ يلزم رقم فريد لكل مستفيد'}, status: 409);
+    }
+    final id = rows.first['id'] as int;
+    final code = (100000 + Random.secure().nextInt(900000)).toString();
+    final createdAt = now.toIso8601String();
+    db.execute('INSERT INTO beneficiary_auth_codes(beneficiary_id,code_hash,expires_at,created_at) VALUES(?,?,?,?)',
+      [id, _hash(code), now.add(const Duration(minutes: 10)).toIso8601String(), createdAt]);
+    final out = <String, Object?>{'ok': true, 'message': 'تم إنشاء رمز آمن صالح لمدة 10 دقائق'};
+    if (Platform.environment['SAQIA_DEV_OTP'] == 'true') out['dev_code'] = code;
+    return _json(out);
+  }
+  Future<Response> _beneficiaryLogin(Request r) async {final b=await _body(r);final phone='${b['phone']??''}'.trim();final code='${b['code']??''}';final rows=db.select("SELECT id FROM beneficiaries WHERE phone=? AND status='active' ORDER BY id",[phone]);if(rows.isEmpty)return _json({'error':'رقم الهاتف غير مسجل'},status:401);if(rows.length!=1)return _json({'error':'رقم الهاتف مرتبط بأكثر من حساب؛ يلزم رقم فريد لكل مستفيد'},status:409);final id=rows.first['id'] as int;final expected=db.select('SELECT id,code_hash,attempts FROM beneficiary_auth_codes WHERE beneficiary_id=? AND used_at IS NULL AND expires_at>? ORDER BY id DESC LIMIT 1',[id,DateTime.now().toIso8601String()]);if(expected.isEmpty)return _json({'error':'الرمز غير صحيح أو منتهي'},status:401);
+    final attempts=(expected.first['attempts'] as int?)??0; if(attempts>=5)return _json({'error':'تم تجاوز عدد محاولات الرمز'},status:429);
+    if(expected.first['code_hash']!=_hash(code)){db.execute('UPDATE beneficiary_auth_codes SET attempts=attempts+1 WHERE id=?',[expected.first['id']]);return _json({'error':'الرمز غير صحيح أو منتهي'},status:401);}db.execute('UPDATE beneficiary_auth_codes SET used_at=? WHERE id=?',[DateTime.now().toIso8601String(),expected.first['id']]);final session=const Uuid().v4();db.execute('INSERT INTO beneficiary_sessions(beneficiary_id,token_hash,expires_at,created_at) VALUES(?,?,?,?)',[id,_hash(session),DateTime.now().add(const Duration(hours:12)).toIso8601String(),DateTime.now().toIso8601String()]);return _json({'token':_token({'kind':'beneficiary','beneficiaryId':id,'session':_hash(session)})});}
+  int _bid(Map<String,dynamic> c)=>c['beneficiaryId'] as int;
+  Future<Response> _beneficiaryMe(Request r,Map<String,dynamic> c) async {final rows=db.select('SELECT id,name,phone,address,location,jerba_number,area FROM beneficiaries WHERE id=?',[_bid(c)]);return rows.isEmpty?_json({'error':'المستفيد غير موجود'},status:404):_json(_rows(rows).first);}
+  Future<Response> _beneficiaryRequests(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM booking_requests WHERE beneficiary_id=? ORDER BY created_at DESC',[_bid(c)])));
+  Future<Response> _beneficiaryRequestCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final now=DateTime.now().toIso8601String();db.execute("INSERT INTO booking_requests(beneficiary_id,created_at,status,notes) VALUES(?,?,\'new\',?)",[_bid(c),now,b['notes']]);return _json({'id':db.lastInsertRowId});}
+  Future<Response> _beneficiaryRequestCancel(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);db.execute("UPDATE booking_requests SET status='cancelled',cancel_reason=? WHERE id=? AND beneficiary_id=? AND status IN ('new','under_review')",['${b['reason']??''}',id,_bid(c)]);return _json({'ok':true});}
+  Future<Response> _beneficiaryAccount(Request r,Map<String,dynamic> c) async {
+    final id=_bid(c);
+    final beneficiaryRows=db.select('SELECT station_id FROM beneficiaries WHERE id=?',[_bid(c)]);
+    if(beneficiaryRows.isEmpty)return _json({'error':'المستفيد غير موجود'},status:404);
+    final station=(beneficiaryRows.first['station_id'] as num).toInt();
+    final settings=_settingsForStation(station);
+    final includeDiesel=settings['diesel_delivery_financial_credit']=='true';
+    final x=_rows(db.select('''SELECT b.opening_balance,b.carried_balance,
+      COALESCE((SELECT SUM(total_amount) FROM irrigations WHERE beneficiary_id=b.id AND station_id=? AND status!='cancelled'),0) due,
+      COALESCE((SELECT SUM(amount) FROM diesel_movements WHERE beneficiary_id=b.id AND station_id=? AND kind='advance' AND irrigation_id IS NULL),0) advances,
+      COALESCE((SELECT SUM(amount) FROM payments WHERE beneficiary_id=b.id AND station_id=? AND status='posted'),0) paid,
+      COALESCE((SELECT SUM(amount) FROM diesel_movements WHERE beneficiary_id=b.id AND station_id=? AND kind='delivery'),0) diesel_credit
+      FROM beneficiaries b WHERE b.id=? AND b.station_id=?''',[station,station,station,station,id,station])).first;
+    final balance=(x['opening_balance'] as num)+(x['carried_balance'] as num)+(x['due'] as num)+(x['advances'] as num)-(x['paid'] as num)-(includeDiesel?(x['diesel_credit'] as num):0);
+    return _json({...x,'balance':balance,'label':balance>0?'عليه $balance ريال':balance<0?'له ${-balance} ريال':'متوازن'});
+  }
+  Future<Response> _beneficiaryNotifications(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM notifications WHERE beneficiary_id=? ORDER BY created_at DESC',[_bid(c)])));
+  Future<Response> _beneficiaryNotificationRead(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);db.execute('UPDATE notifications SET read_at=? WHERE id=? AND beneficiary_id=?',[DateTime.now().toIso8601String(),id,_bid(c)]);return _json({'ok':true});}
+}
+).hasMatch(globalId) || entityKey!='irrigation_sessions:'+globalId) throw StateError('هوية جلسة التشغيل العالمية غير صالحة');
+    if(!_hasTable('irrigation_sessions')) throw StateError('جدول جلسات التشغيل غير موجود');
+    final refs=payload['_global_refs'];
+    if(refs is! Map) throw StateError('مراجع جلسة التشغيل العالمية مفقودة');
+    final beneficiaryId=_resolveSyncReference(station:station,entityType:'beneficiaries',column:'beneficiary_id',references:refs);
+    final pumpId=_resolveSyncReference(station:station,entityType:'pumps',column:'pump_id',references:refs);
+    final beneficiary=db.select("SELECT id FROM beneficiaries WHERE id=? AND station_id=? AND status='active' LIMIT 1",[beneficiaryId,station]);
+    final pump=db.select('SELECT id,active FROM pumps WHERE id=? AND station_id=? LIMIT 1',[pumpId,station]);
+    if(beneficiary.isEmpty || pump.isEmpty || (pump.first['active'] as num).toInt()!=1) throw StateError('المستفيد أو المضخة غير نشط أو لا يتبع المحطة');
+    final columns=db.select('PRAGMA table_info(irrigation_sessions)').map((row)=>row['name'].toString()).toSet();
+    const required={'id','beneficiary_id','pump_id','queue_entry_id','booking_id','planned_start','actual_start','actual_end','status','timer_started_at','timer_stopped_at','diesel_before','diesel_consumed','diesel_after','diesel_warning_shown','postponement_reason','notes'};
+    if(!required.every(columns.contains)) throw StateError('مخطط جلسات التشغيل لا يدعم المزامنة الآمنة');
+    final queueId=payload['queue_entry_id']==null?null:_resolveSyncOperationalReference(station:station,entityType:'queue_entries',column:'queue_entry_id',references:refs,beneficiaryId:beneficiaryId);
+    final bookingId=payload['booking_id']==null?null:_resolveSyncOperationalReference(station:station,entityType:'booking_requests',column:'booking_id',references:refs,beneficiaryId:beneficiaryId);
+    if(queueId!=null && db.select("SELECT 1 FROM queue_entries WHERE id=? AND status IN ('waiting','postponed') LIMIT 1",[queueId]).isEmpty) throw StateError('عنصر الطابور لم يعد قابلاً لبدء جلسة');
+    if(bookingId!=null && db.select("SELECT 1 FROM booking_requests WHERE id=? AND status IN ('new','under_review','scheduled','accepted','notified') LIMIT 1",[bookingId]).isEmpty) throw StateError('الحجز لم يعد صالحاً لبدء جلسة');
+    final links=db.select("SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='irrigation_sessions' AND global_id=? LIMIT 1",[station,globalId]);
+    final localId=links.isEmpty?null:(links.first['local_id'] as num).toInt();
+    if(operation=='create') {
+      if(localId!=null) throw StateError('جلسة التشغيل موجودة مسبقاً؛ استخدم update');
+      if(payload['status']!='running') throw StateError('يجب أن تبدأ جلسة التشغيل بحالة running');
+      final start=DateTime.tryParse((payload['actual_start']??'').toString());
+      if(start==null) throw StateError('وقت بدء الجلسة غير صالح');
+      if(db.select("SELECT 1 FROM irrigation_sessions s JOIN pumps p ON p.id=s.pump_id JOIN beneficiaries b ON b.id=s.beneficiary_id WHERE s.pump_id=? AND s.status='running' AND p.station_id=? AND b.station_id=? LIMIT 1",[pumpId,station,station]).isNotEmpty) throw StateError('المضخة لديها جلسة تشغيل فعالة');
+      final values=<String,Object?>{'beneficiary_id':beneficiaryId,'pump_id':pumpId,'queue_entry_id':queueId,'booking_id':bookingId,'planned_start':payload['planned_start'],'actual_start':start.toIso8601String(),'actual_end':null,'status':'running','timer_started_at':payload['timer_started_at']??start.toIso8601String(),'timer_stopped_at':null,'diesel_before':0,'diesel_consumed':0,'diesel_after':0,'diesel_warning_shown':0,'postponement_reason':null,'notes':payload['notes']};
+      final names=values.keys.toList();
+      db.execute('INSERT INTO irrigation_sessions(\${names.join(',')}) VALUES(\${List.filled(names.length,'?').join(',')})',names.map((key)=>values[key]).toList());
+      db.execute('INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',[station,'irrigation_sessions',globalId,db.lastInsertRowId,now]);
+      return;
+    }
+    if(operation!='update' || localId==null) throw StateError('لا توجد جلسة مرتبطة بهذه الهوية العالمية');
+    final current=db.select('SELECT * FROM irrigation_sessions WHERE id=? LIMIT 1',[localId]);
+    if(current.isEmpty || (current.first['beneficiary_id'] as num).toInt()!=beneficiaryId || (current.first['pump_id'] as num).toInt()!=pumpId || (current.first['queue_entry_id'] as num?)?.toInt()!=queueId || (current.first['booking_id'] as num?)?.toInt()!=bookingId) throw StateError('مراجع جلسة التشغيل لا تطابق السجل المرتبط');
+    final oldStatus=current.first['status'].toString();
+    final nextStatus=(payload['status']??oldStatus).toString();
+    final transitions=<String,Set<String>>{'running':{'running','postponed','completed'},'postponed':{'postponed'},'completed':{'completed'}};
+    if(!(transitions[oldStatus]?.contains(nextStatus)??false)) throw StateError('انتقال حالة جلسة التشغيل غير مسموح');
+    final values=<String,Object?>{};
+    if(payload.containsKey('status')) values['status']=nextStatus;
+    if(payload.containsKey('actual_end')) values['actual_end']=payload['actual_end'];
+    if(payload.containsKey('timer_stopped_at')) values['timer_stopped_at']=payload['timer_stopped_at'];
+    if(payload.containsKey('postponement_reason')) values['postponement_reason']=payload['postponement_reason'];
+    if(payload.containsKey('notes')) values['notes']=payload['notes'];
+    if(nextStatus=='postponed' && (values['postponement_reason']??current.first['postponement_reason']??'').toString().trim().isEmpty) throw StateError('سبب تأجيل الجلسة مطلوب');
+    if(nextStatus=='completed') {
+      final end=DateTime.tryParse((values['actual_end']??current.first['actual_end']??'').toString());
+      final start=DateTime.tryParse(current.first['actual_start'].toString());
+      if(end==null || start==null || !end.isAfter(start)) throw StateError('وقت إنهاء الجلسة غير صالح');
+      values['actual_end']=end.toIso8601String();
+      values['timer_stopped_at']=values['timer_stopped_at']??end.toIso8601String();
+    }
+    if(values.isEmpty) throw StateError('لا توجد حقول جلسة قابلة للتحديث');
+    if(oldStatus=='completed' && values['actual_end']!=null && values['actual_end'].toString()!=current.first['actual_end'].toString()) throw StateError('لا يمكن تغيير وقت جلسة مكتملة');
+    db.execute('UPDATE irrigation_sessions SET \${values.keys.map((key)=>'$key=?').join(',')} WHERE id=?',[...values.values,localId]);
+  }
+
   void _applySyncQueueOrBooking({
     required int station, required String entityType, required String entityKey,
     required String operation, required Map payload, required String now,
