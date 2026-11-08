@@ -338,6 +338,8 @@ class SaqiaServer {
     final globalId = (raw['global_id'] ?? '').toString();
     if (!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId)) throw StateError('هوية مرجع ' + column + ' غير صالحة');
     final linked = db.select('SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1', [station,entityType,globalId]);
+    final foreignLink = db.select('SELECT station_id FROM sync_entity_links WHERE entity_type=? AND global_id=? AND station_id<>? LIMIT 1', [entityType,globalId,station]);
+    if (foreignLink.isNotEmpty) throw StateError('المرجع العالمي تابع لمحطة أخرى');
     if (linked.isNotEmpty) {
       final id = (linked.first['local_id'] as num).toInt();
       if (!_owns(entityType,id,station)) throw StateError('مرجع ' + column + ' لا يتبع المحطة الحالية');
