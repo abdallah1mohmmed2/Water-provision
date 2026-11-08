@@ -220,6 +220,8 @@ void main() {
       'created_at':now,
       'updated_at':now,
     });
+    // Exclude the beneficiary setup event; this assertion targets the debt transaction.
+    await database.delete('sync_queue','1=1',const []);
     final service=AccountingService(database);
     final debtId=await service.addBeneficiaryDebt(
       beneficiaryId:beneficiaryId,
