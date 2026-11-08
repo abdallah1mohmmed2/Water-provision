@@ -475,10 +475,35 @@ class SaqiaServer {
         now: now,
       );
     }
+    if (columns.contains('reference_id') && row['reference_id'] != null) {
+      final referenceType = (row['reference_type'] ?? '').toString();
+      final referenceTable = switch (table) {
+        'journal_entries' => switch (referenceType) {
+            'irrigation' => 'irrigations',
+            'payment' => 'payments',
+            'worker' => 'worker_transactions',
+            'partner' => 'partner_transactions',
+            'diesel_advance' => 'diesel_movements',
+            _ => null,
+          },
+        'worker_transactions' when referenceType == 'irrigation' => 'irrigations',
+        'partner_transactions' when referenceType == 'irrigation_profit' => 'irrigations',
+        _ => null,
+      };
+      if (referenceTable != null) {
+        refs['reference_id'] = _projectionReference(
+          station: station,
+          targetTable: referenceTable,
+          localId: (row['reference_id'] as num).toInt(),
+          now: now,
+        );
+      }
+    }
 
     final payload = <String, Object?>{
       for (final column in columns)
-        if (!const {'id', 'station_id', 'created_by', 'reference_id'}.contains(column))
+        if (!const {'id', 'station_id', 'created_by'}.contains(column) &&
+            (column != 'reference_id' || refs.containsKey('reference_id')))
           column: row[column],
       '_global_id': globalId,
       '_global_refs': refs,
@@ -584,21 +609,46 @@ class SaqiaServer {
       append('cloud_periods',
         'SELECT cp.id FROM cloud_periods cp JOIN irrigations i ON i.id=cp.irrigation_id WHERE i.station_id=? AND cp.irrigation_id=? ORDER BY cp.start_datetime,cp.id',
         [station, businessId]);
-      append('journal_entries',
-        "SELECT id FROM journal_entries WHERE station_id=? AND reference_type='irrigation' AND reference_id=? ORDER BY id",
-        [station, businessId]);
-      append('journal_lines',
-        "SELECT jl.id FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.station_id=? AND je.reference_type='irrigation' AND je.reference_id=? ORDER BY jl.id",
-        [station, businessId]);
       append('worker_transactions',
         "SELECT id FROM worker_transactions WHERE station_id=? AND reference_type='irrigation' AND reference_id=? ORDER BY id",
         [station, businessId]);
       append('partner_transactions',
-        "SELECT id FROM partner_transactions WHERE station_id=? AND reference_type='irrigation' AND reference_id=? ORDER BY id",
+        "SELECT id FROM partner_transactions WHERE station_id=? AND reference_type='irrigation_profit' AND reference_id=? ORDER BY id",
         [station, businessId]);
       append('diesel_movements',
         'SELECT id FROM diesel_movements WHERE station_id=? AND irrigation_id=? ORDER BY id',
         [station, businessId]);
+      final journalClauses = <String>[
+        "(je.reference_type='irrigation' AND je.reference_id=?)",
+      ];
+      final journalArgs = <Object?>[businessId];
+      if (_hasTable('worker_transactions')) {
+        journalClauses.add("""(je.reference_type='worker' AND je.reference_id IN (
+          SELECT wt.id FROM worker_transactions wt
+          WHERE wt.station_id=? AND wt.reference_type='irrigation' AND wt.reference_id=?
+        ))""");
+        journalArgs.addAll([station, businessId]);
+      }
+      if (_hasTable('partner_transactions')) {
+        journalClauses.add("""(je.reference_type='partner' AND je.reference_id IN (
+          SELECT pt.id FROM partner_transactions pt
+          WHERE pt.station_id=? AND pt.reference_type='irrigation_profit' AND pt.reference_id=?
+        ))""");
+        journalArgs.addAll([station, businessId]);
+      }
+      if (_hasTable('diesel_movements')) {
+        journalClauses.add("""(je.reference_type='diesel_advance' AND je.reference_id IN (
+          SELECT dm.id FROM diesel_movements dm WHERE dm.station_id=? AND dm.irrigation_id=?
+        ))""");
+        journalArgs.addAll([station, businessId]);
+      }
+      final journalWhere = journalClauses.join(' OR ');
+      append('journal_entries',
+        'SELECT je.id FROM journal_entries je WHERE je.station_id=? AND ($journalWhere) ORDER BY je.id',
+        [station, ...journalArgs]);
+      append('journal_lines',
+        'SELECT jl.id FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.station_id=? AND ($journalWhere) ORDER BY jl.id',
+        [station, ...journalArgs]);
       final irrigation = db.select(
         'SELECT session_id,queue_entry_id,booking_id FROM irrigations WHERE id=? AND station_id=? LIMIT 1',
         [businessId, station],
@@ -645,8 +695,12 @@ class SaqiaServer {
     if (entityType == 'diesel_movements' && payload['irrigation_id'] != null) {
       return true;
     }
-    if (const {'worker_transactions', 'partner_transactions'}.contains(entityType) &&
+    if (entityType == 'worker_transactions' &&
         payload['reference_type'] == 'irrigation') {
+      return true;
+    }
+    if (entityType == 'partner_transactions' &&
+        payload['reference_type'] == 'irrigation_profit') {
       return true;
     }
     return false;
