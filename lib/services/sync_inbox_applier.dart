@@ -73,6 +73,15 @@ class SyncInboxApplier {
         globalKey != '$table:$globalId') {
       throw StateError('هوية السجل العالمية لا تطابق مفتاح الحدث.');
     }
+    // The irrigation event carries the validated interval list for server-side pricing.
+    // Cloud-period rows themselves arrive as ordered, independently identified Inbox events.
+    if (table == 'irrigations') {
+      final cloudPeriods = payload.remove('cloud_periods');
+      if (cloudPeriods != null && cloudPeriods is! List) {
+        throw StateError('قائمة فترات الغيم الواردة غير صالحة.');
+      }
+    }
+
     final unresolved = payload['_unresolved_refs'];
     if (unresolved is Map && unresolved.isNotEmpty) {
       throw StateError('الحدث يحتوي على علاقات مصدر غير محلولة.');
