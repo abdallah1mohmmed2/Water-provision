@@ -250,7 +250,7 @@ void main() {
       for (final row in rows) {
         final identity = await database.query(
           'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
-          whereArgs: [relation.$1, row['id']],
+          args: [relation.$1, row['id']],
         );
         expect(identity, hasLength(1));
       }
@@ -264,7 +264,7 @@ void main() {
       expect(
         await database.query(
           'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
-          whereArgs: ['journal_lines', line['id']],
+          args: ['journal_lines', line['id']],
         ),
         hasLength(1),
       );
