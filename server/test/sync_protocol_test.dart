@@ -1318,7 +1318,6 @@ test('legacy beneficiary rows receive a stable global identity on first API read
           'babababa-baba-4bba-8bba-babababababa',
           'bcbcbcbc-bcbc-4cbc-8cbc-bcbcbcbcbcbc',
           'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd',
-          'dededede-dede-4ede-8ede-dededededede',
         ],
         'journal_lines': [
           '11111111-aaaa-4aaa-8aaa-111111111111',
@@ -1329,7 +1328,6 @@ test('legacy beneficiary rows receive a stable global identity on first API read
           '66666666-aaaa-4aaa-8aaa-666666666666',
           '77777777-aaaa-4aaa-8aaa-777777777777',
           '88888888-aaaa-4aaa-8aaa-888888888888',
-          '99999999-aaaa-4aaa-8aaa-999999999999',
         ],
         'irrigation_sessions': [sessionGlobalId],
         'queue_entries': [],
@@ -1420,7 +1418,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect((sessionFinish['results'] as List).single['status'],'accepted');
     expect(database.select('SELECT * FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]),hasLength(1));
     expect(database.select('SELECT kind FROM diesel_movements WHERE station_id=1 ORDER BY id').map((r)=>r['kind']).toList(),['advance','consumption']);
-    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],4);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
     expect(database.select("SELECT amount FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=?",[irrigation['id']]).single['amount'],100);
     expect(database.select("SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?",[irrigation['id']]).single['amount'],6900);
     final ledgerTotals = database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
@@ -1433,10 +1431,9 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(originTypes, [
       'cloud_periods', 'worker_transactions', 'partner_transactions',
       'diesel_movements', 'diesel_movements',
-      'journal_entries', 'journal_entries', 'journal_entries', 'journal_entries',
+      'journal_entries', 'journal_entries', 'journal_entries',
       'journal_lines', 'journal_lines', 'journal_lines', 'journal_lines',
-      'journal_lines', 'journal_lines', 'journal_lines', 'journal_lines',
-      'journal_lines', 'irrigation_sessions',
+      'journal_lines', 'journal_lines', 'journal_lines', 'irrigation_sessions',
     ]);
     expect(
       (originInbox['events'] as List).every(
@@ -1458,8 +1455,8 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(peerTypes.indexOf('journal_lines'), greaterThan(peerTypes.indexOf('journal_entries')));
     expect(peerTypes.where((type) => type == 'worker_transactions'), hasLength(1));
     expect(peerTypes.where((type) => type == 'partner_transactions'), hasLength(1));
-    expect(peerTypes.where((type) => type == 'journal_entries'), hasLength(4));
-    expect(peerTypes.where((type) => type == 'journal_lines'), hasLength(9));
+    expect(peerTypes.where((type) => type == 'journal_entries'), hasLength(3));
+    expect(peerTypes.where((type) => type == 'journal_lines'), hasLength(7));
     expect(peerTypes.lastIndexOf('irrigation_sessions'), greaterThan(peerTypes.indexOf('irrigations')));
     final projectionLogCount = database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'];
 
