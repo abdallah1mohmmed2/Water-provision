@@ -188,7 +188,7 @@ class StationRepository {
     final api = SyncCoordinator.instance.apiClient;
     if (api != null) {
       try {
-        final response = await api.get('/beneficiaries');
+        final response = await api.get('/beneficiaries${term.isEmpty ? '' : '?q=${Uri.encodeQueryComponent(term)}'}');
         if (response is! List) {
           throw StateError('استجابة قائمة المستفيدين من الخادم غير صالحة.');
         }
