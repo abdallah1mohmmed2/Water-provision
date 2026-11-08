@@ -1649,8 +1649,14 @@ class SaqiaServer {
     // The server is the sole owner of irrigation-linked worker and partner
     // accruals. Clients send only the irrigation command; these rows and their
     // journals are published later as projections.
+    if (_hasTable('workers') != _hasTable('worker_transactions')) {
+      throw StateError('مخطط استحقاقات العمال غير مكتمل على الخادم');
+    }
+    if (_hasTable('partners') != _hasTable('partner_transactions')) {
+      throw StateError('مخطط استحقاقات الشركاء غير مكتمل على الخادم');
+    }
     var totalWorkerEntitlement = 0;
-    if (_hasTable('workers') && _hasTable('worker_transactions')) {
+    if (_hasTable('workers')) {
       final workers = db.select(
         "SELECT id,pay_type,hourly_rate,percentage_rate FROM workers WHERE station_id=? AND active=1 AND pay_type IN ('hourly','percentage') ORDER BY id",
         [station],
@@ -1691,7 +1697,7 @@ class SaqiaServer {
     }
 
     final partnerPool = (total - totalWorkerEntitlement).clamp(0, total).toInt();
-    if (partnerPool > 0 && _hasTable('partners') && _hasTable('partner_transactions')) {
+    if (partnerPool > 0 && _hasTable('partners')) {
       final partners = db.select(
         'SELECT id,ownership_mode,shares_count,ownership_percentage FROM partners WHERE station_id=? AND active=1 ORDER BY id',
         [station],
