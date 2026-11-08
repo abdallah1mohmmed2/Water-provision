@@ -1079,6 +1079,26 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT * FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]),hasLength(1));
     expect(database.select('SELECT kind FROM diesel_movements WHERE station_id=1 ORDER BY id').map((r)=>r['kind']).toList(),['advance','consumption']);
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+    const cloudGlobalId = 'ababcdcd-abab-4bab-8bab-ababcdcdabab';
+    final cloudEvent = {
+      'event_id':'abab1111-abab-4111-8111-abab1111abab',
+      'entity_type':'cloud_periods',
+      'entity_key':'cloud_periods:$cloudGlobalId',
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':cloudGlobalId,
+        '_global_refs':{'irrigation_id':{'table':'irrigations','global_id':globalId}},
+        'start_datetime':'2026-11-08T08:20:00.000',
+        'end_datetime':'2026-11-08T08:30:00.000',
+        'minutes':10,
+      },
+    };
+    final cloudResponse = await postEvents(stationOneToken,[cloudEvent]);
+    expect((cloudResponse['results'] as List).single['status'],'accepted');
+    expect(database.select("SELECT local_id FROM sync_entity_links WHERE station_id=1 AND entity_type='cloud_periods' AND global_id=?",[cloudGlobalId]),hasLength(1));
+    final cloudReplay = await postEvents(stationOneToken,[cloudEvent]);
+    expect((cloudReplay['results'] as List).single['status'],'duplicate');
     final replay = await postEvents(stationOneToken,[event]);
     expect((replay['results'] as List).single['status'],'duplicate');
     final foreign = await postEvents(stationTwoToken,[{...event,'event_id':'ffffffff-ffff-4fff-8fff-ffffffffffff'}]);
