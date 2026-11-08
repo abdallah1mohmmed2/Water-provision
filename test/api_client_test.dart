@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import '../lib/api/api_client.dart';
+import 'package:saqia_station/api/api_client.dart';
 
 void main() {
   test('transport failures are distinguishable for offline-cache fallback', () async {
