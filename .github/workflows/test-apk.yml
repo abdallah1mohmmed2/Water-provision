@@ -15,6 +15,11 @@ jobs:
     steps:
       - name: Checkout integration branch
         uses: actions/checkout@v4
+      - name: Install Linux SQLite development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+
 
       - name: Set up Java
         uses: actions/setup-java@v4
