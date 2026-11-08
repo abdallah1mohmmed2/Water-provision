@@ -6,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:saqia_station/data/local/database.dart';
 import 'package:saqia_station/data/repositories/repositories.dart';
+import 'package:saqia_station/domain/accounting/accounting_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -198,6 +199,49 @@ void main() {
       await database.query('sync_queue', where: 'table_name=?', whereArgs: ['beneficiaries']),
       isEmpty,
     );
+  });
+
+
+  test('manual beneficiary debt emits only its business event, not generated journal rows', () async {
+    final now=DateTime.now().toIso8601String();
+    final beneficiaryId=await database.insert('beneficiaries',{
+      'name':'SYNC-TEST-manual-debt-party',
+      'status':'active',
+      'created_at':now,
+      'updated_at':now,
+    });
+    final service=AccountingService(database);
+    final debtId=await service.addBeneficiaryDebt(
+      beneficiaryId:beneficiaryId,
+      amount:2400,
+      date:DateTime(2026,11,7,9),
+      notes:'مديونية سابقة للاختبار',
+    );
+    var events=await database.query(
+      'sync_queue',
+      where:'status=?',
+      whereArgs:['pending'],
+      orderBy:'id',
+    );
+    expect(events.map((e)=>e['table_name']).toList(),['beneficiary_manual_debts']);
+    expect(events.single['operation'],'create');
+    final payload=jsonDecode(events.single['payload'] as String) as Map<String,dynamic>;
+    expect(payload['amount'],2400);
+    expect(payload['_global_id'],isA<String>());
+    expect((payload['_global_refs'] as Map)['beneficiary_id']['table'],'beneficiaries');
+
+    await service.cancelBeneficiaryDebt(debtId,null,'إلغاء سند اختبار');
+    events=await database.query(
+      'sync_queue',
+      where:'table_name=?',
+      whereArgs:['beneficiary_manual_debts'],
+      orderBy:'id',
+    );
+    expect(events.map((e)=>e['operation']).toList(),['create','update']);
+    final cancelPayload=jsonDecode(events.last['payload'] as String) as Map<String,dynamic>;
+    expect(cancelPayload['status'],'cancelled');
+    expect(cancelPayload['cancel_reason'],'إلغاء سند اختبار');
+    expect(await database.query('sync_queue',where:'table_name IN (?,?)',whereArgs:['journal_entries','journal_lines']),isEmpty);
   });
 
   test('global identities are unique across tables and stable across updates', () async {
