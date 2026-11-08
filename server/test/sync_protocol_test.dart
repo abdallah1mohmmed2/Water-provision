@@ -307,6 +307,12 @@ void main() {
       final table = worker ? 'worker_transactions' : 'partner_transactions';
       expect((first['results'] as List).first['status'],'accepted');
       expect((replay['results'] as List).first['status'],'duplicate');
+      final duplicateIdentity = partyDebtEvent(
+        worker:worker,
+        eventId:worker?'99999999-aaaa-4999-8999-999999999999':'aaaaaaaa-bbbb-4aaa-8aaa-aaaaaaaaaaaa',
+      );
+      final duplicateIdentityResult = await postEvents(stationOneToken,[duplicateIdentity]);
+      expect((duplicateIdentityResult['results'] as List).first['status'],'rejected');
       expect(database.select('SELECT COUNT(*) n FROM ' + table).single['n'],1);
       expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],worker ? 1 : 2);
       final journal = database.select('SELECT id FROM journal_entries ORDER BY id DESC LIMIT 1').single['id'];
