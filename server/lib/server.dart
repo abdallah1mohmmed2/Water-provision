@@ -741,7 +741,7 @@ class SaqiaServer {
     """, [station]);
     for (final row in missingLinks) {
       db.execute(
-        "INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'beneficiaries',?,?,?)",
+        "INSERT OR IGNORE INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'beneficiaries',?,?,?)",
         [station, const Uuid().v4(), row['id'], DateTime.now().toIso8601String()],
       );
     }
