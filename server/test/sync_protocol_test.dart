@@ -324,6 +324,13 @@ void main() {
     expect(first.map((row) => row['type']), containsAll([
       's','p','diesel_advance','manual_debt','diesel_delivery',
     ]));
+    final period = await read(
+      stationOneToken,
+      '?from=2026-11-02&to=2026-11-03',
+    );
+    expect(period.first['type'], 'opening_balance');
+    expect(period.first['balance'], 145); // Balance after the 1 November irrigation.
+    expect(period.last['balance'], 145); // 145 - 30 + 20 + 10.
     final foreign = await server.router().call(Request(
       'GET',
       Uri.parse('http://localhost/api/v1/beneficiaries/$globalId/statement'),
