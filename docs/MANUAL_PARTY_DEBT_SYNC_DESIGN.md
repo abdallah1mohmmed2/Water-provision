@@ -216,3 +216,19 @@
 مرجع SQLite build hooks: https://pub.dev/documentation/sqlite3/latest/topics/hook-topic.html
 
 حالة الإصلاح: التعديل ينتظر CI. لا يُعتبر نجاحه مثبتاً قبل نجاح Release ووجود Artifact مرتبطين برأس commit الذي يتضمن هذا التعديل.
+
+
+### نتيجة CI النهائية لإصلاح تنزيل Kotlin وبناء APK — 2026-11-08
+
+تم التحقق من commit `a337ad02609a8c5561d60d2f32b7e356c21d8108` على الفرع `feature/firebase-station-foundation`. نجحت جميع خطوات Workflow `Build Flutter APK`، بما فيها جلب الحزم، اختبارات Shelf، إعداد Firebase، Flutter Analyze، Flutter tests، تثبيت NDK، تجهيز SQLite الرسمي والتحقق من SHA3-256، وبناء Release ورفع Artifact.
+
+- Workflow Run: `42473602710` — `success`.
+- سجل البناء أكد: `Built build/app/outputs/flutter-apk/app-release.apk (78.8MB)`.
+- Artifact: `Saqia-App-Release`, ID `13615185120`, ZIP size `36,369,433` bytes، غير منتهي الصلاحية.
+- محتوى ZIP فُحص فعلياً، واحتوى `app-release.apk` بحجم `78,813,080` bytes.
+- Build / SonarQube Run `42473605867` نجح أيضاً على commit نفسه، مع Artifact Debug `Saqia-App-Debug` ID `13614414328`.
+- Flutter Analyze Run `42473602742` و`42473605779` نجحا، وSonarCloud Run `42473605783` نجح.
+
+سبب HTTP 504 السابق كان تنزيل `kotlin-compiler-embeddable-2.2.21.jar` عبر تحويل Maven Central إلى GitHub Releases. بعد تقديم Huawei Cloud Maven mirror في pluginManagement ومستودعات المشاريع، اكتمل بناء Release بنجاح. لم يُعطل أي تحقق SHA256/SHA3، ولم تُضف بصمات تخمينية. بقي SQLite Android مبنياً من المصدر الرسمي المتحقق منه، ولم تُستخدم مكتبة Android النظامية.
+
+هذه النتائج تخص commit `a337ad0`. أُضيف هذا السجل التوثيقي بعد التحقق؛ لذلك يجب انتظار CI الجديد على رأس الفرع الذي يحتوي هذا التحديث قبل اعتماد آخر رأس نهائي.
