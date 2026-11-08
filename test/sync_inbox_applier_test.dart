@@ -921,6 +921,41 @@ void main() {
       await database.query('payments', where: 'status=? AND amount=?', whereArgs: ['posted', 250]),
       hasLength(1),
     );
+
+    final cashbox = (await database.query(
+      'cashboxes',
+      where: 'id=?',
+      whereArgs: [cashboxId],
+      limit: 1,
+    )).single;
+    final cashboxProjection = event(
+      table: 'cashboxes',
+      id: cashboxGlobalId,
+      operation: 'update',
+      version: 1,
+      payload: {
+        'name': cashbox['name'],
+        'currency': cashbox['currency'],
+        'opening_balance': cashbox['opening_balance'],
+        'current_balance': 250,
+        'active': cashbox['active'],
+        'ledger_account_code': cashbox['ledger_account_code'],
+      },
+    )..['source_device'] = '__server_projection__';
+    final cashboxResult = await database.transaction(
+      (tx) => SyncInboxApplier.apply(tx, cashboxProjection),
+      captureSync: false,
+    );
+    expect(cashboxResult, InboxApplyResult.applied);
+    expect(
+      (await database.query(
+        'cashboxes',
+        columns: ['current_balance'],
+        where: 'id=?',
+        whereArgs: [cashboxId],
+      )).single['current_balance'],
+      250,
+    );
   });
 
   test('journal entries remain draft until their lines balance', () async {
