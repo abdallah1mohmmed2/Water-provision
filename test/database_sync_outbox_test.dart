@@ -285,7 +285,9 @@ void main() {
         final columnName = column['name'] as String;
         if (columnName == 'id' || values.containsKey(columnName) ||
             (column['notnull'] as num).toInt() == 0 ||
-            column['dflt_value'] != null) continue;
+            column['dflt_value'] != null) {
+          continue;
+        }
         final type = (column['type'] ?? '').toString().toUpperCase();
         if (type.contains('INT')) {
           values[columnName] = 0;
