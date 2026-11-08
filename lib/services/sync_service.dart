@@ -127,22 +127,31 @@ class SyncService {
       );
       if (irrigationRows.isEmpty) return const {};
       final irrigation = irrigationRows.single;
-      const journalFilter = "reference_type='irrigation' AND reference_id=?";
-      final entries = await _globalIdsForQuery(
-        'SELECT id FROM journal_entries WHERE $journalFilter ORDER BY id',
-        [recordId],
-        'journal_entries',
-      );
+      const journalFilter = """
+        (je.reference_type='irrigation' AND je.reference_id=?) OR
+        (je.reference_type='worker' AND je.reference_id IN (
+          SELECT wt.id FROM worker_transactions wt
+          WHERE wt.reference_type='irrigation' AND wt.reference_id=?
+        )) OR
+        (je.reference_type='partner' AND je.reference_id IN (
+          SELECT pt.id FROM partner_transactions pt
+          WHERE pt.reference_type='irrigation_profit' AND pt.reference_id=?
+        ))
+      """;
       final result = <String, List<String>>{
         'cloud_periods': await _globalIdsForQuery(
           'SELECT id FROM cloud_periods WHERE irrigation_id=? ORDER BY start_datetime,id',
           [recordId],
           'cloud_periods',
         ),
-        'journal_entries': entries,
+        'journal_entries': await _globalIdsForQuery(
+          'SELECT je.id FROM journal_entries je WHERE $journalFilter ORDER BY je.id',
+          [recordId, recordId, recordId],
+          'journal_entries',
+        ),
         'journal_lines': await _globalIdsForQuery(
-          'SELECT id FROM journal_lines WHERE journal_entry_id IN (SELECT id FROM journal_entries WHERE $journalFilter) ORDER BY id',
-          [recordId],
+          'SELECT jl.id FROM journal_lines jl WHERE jl.journal_entry_id IN (SELECT je.id FROM journal_entries je WHERE $journalFilter) ORDER BY jl.id',
+          [recordId, recordId, recordId],
           'journal_lines',
         ),
         'worker_transactions': await _globalIdsForQuery(
@@ -151,7 +160,7 @@ class SyncService {
           'worker_transactions',
         ),
         'partner_transactions': await _globalIdsForQuery(
-          "SELECT id FROM partner_transactions WHERE reference_type='irrigation' AND reference_id=? ORDER BY id",
+          "SELECT id FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=? ORDER BY id",
           [recordId],
           'partner_transactions',
         ),
