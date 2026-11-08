@@ -24,6 +24,9 @@ jobs:
           java-version: '17'
           cache: 'gradle' # يحفظ أدوات بناء الأندرويد لتسريعها في المرات القادمة
 
+      - name: Cache Gradle wrapper and dependencies
+        uses: gradle/actions/setup-gradle@v4
+
       - name: إعداد بيئة Flutter مع التخزين المؤقت
         uses: subosito/flutter-action@v2
         with:
