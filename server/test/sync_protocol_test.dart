@@ -1385,6 +1385,19 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT * FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]),hasLength(1));
     expect(database.select('SELECT kind FROM diesel_movements WHERE station_id=1 ORDER BY id').map((r)=>r['kind']).toList(),['advance','consumption']);
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+
+    final peerInbox = await getInbox(stationOneToken, device: 'device-b');
+    final peerTypes = (peerInbox['events'] as List)
+        .map((item) => (item as Map)['entity_type'])
+        .toList();
+    expect(peerTypes.indexOf('irrigations'), greaterThanOrEqualTo(0));
+    expect(peerTypes.indexOf('cloud_periods'), greaterThan(peerTypes.indexOf('irrigations')));
+    expect(peerTypes.indexOf('journal_entries'), greaterThan(peerTypes.indexOf('irrigations')));
+    expect(peerTypes.indexOf('journal_lines'), greaterThan(peerTypes.indexOf('journal_entries')));
+    expect(peerTypes.indexOf('diesel_movements'), greaterThan(peerTypes.indexOf('irrigations')));
+    expect(peerTypes.lastIndexOf('irrigation_sessions'), greaterThan(peerTypes.indexOf('irrigations')));
+    final projectionLogCount = database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'];
+
     const cloudGlobalId = 'ababcdcd-abab-4bab-8bab-ababcdcdabab';
     final cloudEvent = {
       'event_id':'abab1111-abab-4111-8111-abab1111abab',
@@ -1402,11 +1415,13 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     };
     final cloudResponse = await postEvents(stationOneToken,[cloudEvent]);
     expect((cloudResponse['results'] as List).single['status'],'accepted');
-    expect(database.select("SELECT local_id FROM sync_entity_links WHERE station_id=1 AND entity_type='cloud_periods' AND global_id=?",[cloudGlobalId]),hasLength(1));
+    expect(database.select('SELECT COUNT(*) n FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]).single['n'],1);
     final cloudReplay = await postEvents(stationOneToken,[cloudEvent]);
-    expect((cloudReplay['results'] as List).single['status'],'duplicate');
+    expect((cloudReplay['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'],projectionLogCount);
     final replay = await postEvents(stationOneToken,[event]);
     expect((replay['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'],projectionLogCount);
     final foreign = await postEvents(stationTwoToken,[{...event,'event_id':'ffffffff-ffff-4fff-8fff-ffffffffffff'}]);
     expect((foreign['results'] as List).single['status'],'rejected');
     const secondSessionGlobalId = '11111111-2222-4222-8222-222222222222';
