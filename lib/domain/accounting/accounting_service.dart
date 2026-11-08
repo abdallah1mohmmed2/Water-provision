@@ -3759,12 +3759,13 @@ class AccountingService {
     if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
     if (notes.trim().isEmpty) throw ArgumentError('بيان المديونية مطلوب');
     return database.transaction((tx) async {
-      await _assertPeriodOpen(tx, date);
+      final stationId = await _selectedStationIdTx(tx);
+      await _assertPeriodOpen(tx, date, stationId: stationId);
       final rows = await tx.query(
         'beneficiaries',
-        columns: ['id', 'name', 'status'],
-        where: "id=? AND status='active'",
-        whereArgs: [beneficiaryId],
+        columns: ['id', 'name', 'status', 'station_id'],
+        where: "id=? AND station_id=? AND status='active'",
+        whereArgs: [beneficiaryId, stationId],
         limit: 1,
       );
       if (rows.isEmpty) throw StateError('المستفيد غير موجود أو غير نشط');
@@ -3786,6 +3787,7 @@ class AccountingService {
         referenceType: 'beneficiary_manual_debt',
         referenceId: debtId,
         date: date,
+        stationId: stationId,
         userId: userId,
         lines: [
           {'account_id': receivable, 'beneficiary_id': beneficiaryId, 'debit': amount, 'credit': 0, 'memo': notes.trim()},
@@ -3936,15 +3938,16 @@ class AccountingService {
   ) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الإلغاء مطلوب');
     await database.transaction((tx) async {
-      final rows = await tx.query(
-        'beneficiary_manual_debts',
-        where: "id=? AND status='posted'",
-        whereArgs: [debtId],
-        limit: 1,
+      final stationId = await _selectedStationIdTx(tx);
+      final rows = await tx.rawQuery(
+        """SELECT md.* FROM beneficiary_manual_debts md
+           JOIN beneficiaries b ON b.id=md.beneficiary_id
+           WHERE md.id=? AND b.station_id=? AND md.status='posted' LIMIT 1""",
+        [debtId, stationId],
       );
       if (rows.isEmpty) throw StateError('سند المديونية غير موجود أو ملغى مسبقاً');
       final debt = rows.first;
-      await _assertPeriodOpen(tx, AppClock.now());
+      await _assertPeriodOpen(tx, AppClock.now(), stationId: stationId);
       final reversed = await _reverseEntriesTx(
         tx,
         referenceType: 'beneficiary_manual_debt',
