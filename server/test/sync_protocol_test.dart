@@ -234,6 +234,8 @@ void main() {
 
     test('beneficiary detail and irrigation history resolve global UUID within JWT station', () async {
     const globalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN carried_balance INTEGER NOT NULL DEFAULT 0');
     await postEvents(stationOneToken, [
       event(globalId: globalId, payload: {'name': 'Global Detail'}),
     ]);
