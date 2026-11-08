@@ -13,9 +13,6 @@ dependencies:
   cupertino_icons: ^1.0.8
   sqflite: ^2.3.3+1
   sqflite_common_ffi: ^2.3.3
-  # Pin to 3.8.0: sqlite3 3.9.0's Android ARM asset failed its published SHA256 check in CI.
-  # Revisit this pin after the upstream 3.9.0 release artifact is corrected and verified.
-  sqlite3: 3.8.0
   sqflite_common_ffi_web: ^0.4.5+3
   path: ^1.9.0
   intl: ^0.20.3
@@ -47,5 +44,10 @@ flutter:
 hooks:
   user_defines:
     sqlite3:
+      # Avoid the upstream prebuilt binary hash mismatch on CI for Android/Linux.
+      # Android ships libsqlite.so; Linux runners use libsqlite3.so.
       source:
+        android: system
         linux: system
+      name:
+        android: sqlite
