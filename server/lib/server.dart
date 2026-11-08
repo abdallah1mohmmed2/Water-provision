@@ -412,13 +412,14 @@ class SaqiaServer {
             });
             continue;
           }
-          final appliedLink = entityType == 'beneficiaries' &&
-                  payload is Map && payload['_global_id'] != null
-              ? db.select(
-                  'SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',
-                  [station, entityType, payload['_global_id'].toString()],
-                )
-              : const <Row>[];
+          final appliedLink = db.select(
+            'SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',
+            [
+              station,
+              entityType,
+              payload is Map ? '${payload['_global_id'] ?? ''}' : '',
+            ],
+          );
           if (appliedLink.isNotEmpty) {
             final linkedId = (appliedLink.first['local_id'] as num).toInt();
             final businessRow = db.select(
