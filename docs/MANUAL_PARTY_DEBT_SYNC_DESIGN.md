@@ -145,3 +145,16 @@
 - `41ef663c69ec9a9e7eef3120ecbcb552855b932c` — آخر إصلاح lint لاختبار Outbox.
 
 **الحالة:** كود المعالج والاختبارات أضيف، واختبارات Shelf مرت في تشغيل CI على commit `d4cc0da` قبل بوابة Flutter Analyze. كما مر تشغيل SonarCloud واختبارات Flutter كاملة على commit نفسه قبل إصلاح lint الأخير. اعتماد الرأس الحالي ينتظر اكتمال Actions بعد إضافة إعداد SQLite النظامي إلى Linux runners. لا يعلن APK جاهزاً قبل نجاح تشغيل بناء Android ووجود Artifact على الرأس النهائي.
+
+
+### تشخيص فشل البناء بعد commit 5963eb7 (2026-11-08)
+
+فحص سجلات GitHub Actions أثبت أن فشل APK لم يكن من تغييرات المحاسبة:
+- Release APK: فشل hook الخاص بـ `sqlite3 3.9.0` لأن SHA256 للملف `libsqlite3.arm.android.so` الذي نُزّل لا يطابق القيمة المنشورة في الحزمة. نجح NDK وFlutter Analyze واختبارات Flutter قبل هذه الخطوة.
+- Debug APK في Workflow Build: فشل تنزيل Gradle 9.3.1 من GitHub باستجابة HTTP 504، قبل بدء تجميع التطبيق.
+- Flutter Analyze وSonarCloud والاختبارات اكتملت بنجاح على commit `5963eb7b55bada0d536ff133ea80056a941580d9`.
+
+الإجراء التصحيحي:
+- تثبيت `sqlite3` مؤقتاً على الإصدار `3.8.0` المعروف قبل إصدار 3.9.0 الحديث الذي ظهرت فيه مشكلة تحقق Android. لا يتم تعطيل SHA256 أو تجاوز فحص سلامة الملف.
+- تفعيل Gradle dependency/wrapper cache في Workflow Build لتقليل إعادة تنزيل Gradle. فشل HTTP 504 عابر، وسيُعاد التحقق بعد هذا التعديل.
+- لا يُعتبر البناء ناجحاً حتى يكتمل APK Release على رأس الفرع النهائي ويظهر Artifact قابل للتنزيل.
