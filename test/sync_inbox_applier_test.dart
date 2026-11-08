@@ -661,7 +661,6 @@ void main() {
       }
     }, captureSync: false);
 
-    final beneficiaryGlobalId = ids['beneficiaries:$beneficiaryId']!;
     final workerGlobalId = ids['workers:$workerId']!;
     final partnerGlobalId = ids['partners:$partnerId']!;
     final irrigationGlobalId = ids['irrigations:$irrigationId']!;
@@ -794,6 +793,135 @@ void main() {
       partnerTransactionId,
     );
     expect(await database.query('sync_queue'), isEmpty);
+  });
+
+  test('applies irrigation and receipt commands with derived projection identity metadata', () async {
+    final now = DateTime.now().toUtc();
+    final nowText = now.toIso8601String();
+    late int beneficiaryId;
+    late int pumpId;
+    late int paymentMethodId;
+    late int cashboxId;
+    late String beneficiaryGlobalId;
+    late String pumpGlobalId;
+    late String paymentMethodGlobalId;
+    late String cashboxGlobalId;
+
+    await database.transaction((tx) async {
+      beneficiaryId = await tx.insert('beneficiaries', {
+        'name': 'INBOX-PROJECTION-METADATA-BENEFICIARY',
+        'status': 'active',
+        'created_at': nowText,
+        'updated_at': nowText,
+      });
+      pumpId = ((await tx.query('pumps', columns: ['id'], orderBy: 'id', limit: 1)).single['id'] as num).toInt();
+      paymentMethodId = ((await tx.query('payment_methods', columns: ['id'], orderBy: 'id', limit: 1)).single['id'] as num).toInt();
+      cashboxId = ((await tx.query('cashboxes', columns: ['id'], orderBy: 'id', limit: 1)).single['id'] as num).toInt();
+      for (final item in [
+        ('beneficiaries', beneficiaryId),
+        ('pumps', pumpId),
+        ('payment_methods', paymentMethodId),
+        ('cashboxes', cashboxId),
+      ]) {
+        await GlobalIdentity.ensureRecord(tx, item.$1, item.$2);
+      }
+    }, captureSync: false);
+
+    Future<String> globalId(String table, int id) async =>
+        (await database.query(
+          'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
+          whereArgs: [table, id],
+        )).single['global_id'] as String;
+
+    beneficiaryGlobalId = await globalId('beneficiaries', beneficiaryId);
+    pumpGlobalId = await globalId('pumps', pumpId);
+    paymentMethodGlobalId = await globalId('payment_methods', paymentMethodId);
+    cashboxGlobalId = await globalId('cashboxes', cashboxId);
+
+    final irrigationId = 'abababab-abab-4bab-8bab-abababababab';
+    final irrigationResult = await database.transaction(
+      (tx) => SyncInboxApplier.apply(
+        tx,
+        event(
+          table: 'irrigations',
+          id: irrigationId,
+          operation: 'create',
+          version: 1,
+          payload: {
+            'pump_id': pumpId,
+            'beneficiary_id': beneficiaryId,
+            'party_type': 'beneficiary',
+            'date': nowText.substring(0, 10),
+            'start_datetime': nowText,
+            'end_datetime': now.add(const Duration(hours: 1)).toIso8601String(),
+            'minutes': 60,
+            'system_type': 'solar',
+            'chargeable_minutes': 60,
+            'water_amount': 1000,
+            'diesel_amount': 0,
+            'total_amount': 1000,
+            'paid_amount': 0,
+            'status': 'posted',
+            'created_at': nowText,
+            'updated_at': nowText,
+            'cloud_periods': const <Map<String, String>>[],
+            '_derived_global_ids': {
+              'cloud_periods': <String>[],
+              'journal_entries': <String>[],
+              'journal_lines': <String>[],
+            },
+            '_global_refs': {
+              'pump_id': {'table': 'pumps', 'global_id': pumpGlobalId},
+              'beneficiary_id': {'table': 'beneficiaries', 'global_id': beneficiaryGlobalId},
+            },
+          },
+        ),
+      ),
+      captureSync: false,
+    );
+    expect(irrigationResult, InboxApplyResult.applied);
+    expect(
+      await database.query('irrigations', where: 'start_datetime=?', whereArgs: [nowText]),
+      hasLength(1),
+    );
+
+    const paymentId = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
+    final paymentResult = await database.transaction(
+      (tx) => SyncInboxApplier.apply(
+        tx,
+        event(
+          table: 'payments',
+          id: paymentId,
+          operation: 'create',
+          version: 1,
+          payload: {
+            'beneficiary_id': beneficiaryId,
+            'amount': 250,
+            'date': nowText,
+            'payment_method_id': paymentMethodId,
+            'cashbox_id': cashboxId,
+            'status': 'posted',
+            'created_at': nowText,
+            '_derived_global_ids': {
+              'journal_entries': <String>[],
+              'journal_lines': <String>[],
+              'cashboxes': <String>[cashboxGlobalId],
+            },
+            '_global_refs': {
+              'beneficiary_id': {'table': 'beneficiaries', 'global_id': beneficiaryGlobalId},
+              'payment_method_id': {'table': 'payment_methods', 'global_id': paymentMethodGlobalId},
+              'cashbox_id': {'table': 'cashboxes', 'global_id': cashboxGlobalId},
+            },
+          },
+        ),
+      ),
+      captureSync: false,
+    );
+    expect(paymentResult, InboxApplyResult.applied);
+    expect(
+      await database.query('payments', where: 'status=? AND amount=?', whereArgs: ['posted', 250]),
+      hasLength(1),
+    );
   });
 
   test('journal entries remain draft until their lines balance', () async {
