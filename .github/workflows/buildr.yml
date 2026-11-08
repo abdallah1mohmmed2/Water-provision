@@ -86,6 +86,9 @@ jobs:
           echo "ERROR: NDK $NDK_VERSION could not be installed after 3 attempts."
           exit 1
 
+      - name: Prepare SHA3-verified Android SQLite source
+        run: python3 tooling/prepare_android_sqlite.py
+
       - name: Build Android APK
         run: |
           flutter build apk --debug \
