@@ -1,6 +1,8 @@
 allprojects {
     repositories {
         google()
+        // Prefer the mirror before Maven Central; retain Central as fallback.
+        maven { url = uri("https://repo.huaweicloud.com/repository/maven/") }
         mavenCentral()
     }
 }
