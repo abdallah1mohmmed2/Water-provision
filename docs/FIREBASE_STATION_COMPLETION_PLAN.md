@@ -490,3 +490,24 @@
 الإجراء التالي: إضافة Huawei Cloud Maven Central قبل Maven Central في مستودعات plugin management ومستودعات المشاريع، مع إبقاء المستودعات الأصلية كاحتياط. هذا إصلاح لمصدر تنزيل تبعيات Kotlin وليس تغييراً في كود التطبيق أو نسخاً احتياطياً من Gradle. يجب إعادة تشغيل جميع بوابات CI على commit الإصلاح، وقراءة السجل الجديد إن ظهر فشل آخر.
 
 لا تعتبر هذه الخطوة مكتملة ولا توجد Artifact Release معتمدة لهذا الرأس. لا دمج إلى main.
+
+
+## اعتماد إصلاح APK ونتائج CI — 2026-11-08
+
+على commit `a337ad02609a8c5561d60d2f32b7e356c21d8108` في الفرع `feature/firebase-station-foundation` اكتمل التحقق بعد إضافة Huawei Cloud Maven Central mirror:
+
+| Workflow | Run ID | النتيجة |
+|---|---:|---|
+| Build Flutter APK (Release) | 42473602710 | success |
+| Build / SonarQube (Debug + SonarQube) | 42473605867 | success |
+| Flutter Analyze (push) | 42473602742 | success |
+| Flutter Analyze (pull request) | 42473605779 | success |
+| SonarCloud | 42473605783 | success |
+
+**Release Artifact:** `Saqia-App-Release`, Artifact ID `13615185120`, ZIP size `36,369,433` bytes. تم تنزيل الأرشيف والتحقق من محتواه؛ ملف `app-release.apk` موجود وحجمه `78,813,080` bytes. رابط Artifact: https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42473602710/artifacts/13615185120
+
+**Debug Artifact:** `Saqia-App-Debug`, Artifact ID `13614414328`, size `93,651,267` bytes.
+
+أكد سجل Release أن SQLite 3.53.4 جُهز من amalgamation الرسمي بعد التحقق من SHA3-256، ثم نجح `flutter build apk --release` ورفع Artifact. كما نجحت اختبارات Shelf وFlutter وتحليل Flutter وفحص SonarCloud. سبب فشل Kotlin السابق كان HTTP 504 عند تنزيل `kotlin-compiler-embeddable-2.2.21.jar` بعد تحويل الطلب إلى GitHub Releases؛ أضيف Huawei Cloud Maven mirror قبل Maven Central، ونجح البناء بعد ذلك. لا تغيير في المعمارية أو إصدارات SQLite/Gradle/Kotlin، ولا تعطيل لفحوص سلامة الملفات.
+
+النتائج أعلاه تخص commit `a337ad0`. هذا التحديث يوثق نتائج ذلك الرأس؛ وسيبدأ CI من جديد بسبب هذا التعديل التوثيقي، ولا يعتمد الرأس الجديد إلا بعد التحقق من نجاح Release ووجود Artifact على SHA الجديد.
