@@ -1648,10 +1648,11 @@ class SaqiaServer {
     if (db.select("SELECT 1 FROM irrigations WHERE station_id=? AND pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",[station,pumpId,endText,startText]).isNotEmpty) throw StateError('وقت السقاية يتداخل مع تشغيل آخر للمضخة');
     if (!_hasTable('cloud_periods') || !_hasTable('diesel_movements')) throw StateError('جداول الغيم والديزل غير متاحة');
     final columns = db.select('PRAGMA table_info(irrigations)').map((r)=>r['name'].toString()).toSet();
-    final required = {'station_id','pump_id','beneficiary_id','party_type','date','start_datetime','end_datetime','minutes','system_type','water_hourly_rate_snapshot','diesel_liters_per_hour_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot','cloud_minutes','chargeable_minutes','water_amount','diesel_amount','total_amount','paid_amount','status','created_by','created_at','updated_at'};
+    final required = {'station_id','pump_id','beneficiary_id','worker_id','partner_id','party_type','date','start_datetime','end_datetime','minutes','system_type','water_hourly_rate_snapshot','diesel_liters_per_hour_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot','cloud_minutes','chargeable_minutes','water_amount','diesel_amount','total_amount','paid_amount','status','created_by','created_at','updated_at'};
     if (!required.every(columns.contains)) throw StateError('مخطط السقايات لا يدعم الترحيل الآمن');
     final irrigationValues=<String,Object?>{
-      'station_id':station,'pump_id':pumpId,'beneficiary_id':beneficiaryId,'party_type':'beneficiary',
+      'station_id':station,'pump_id':pumpId,'beneficiary_id':beneficiaryId,
+      'worker_id':workerId,'partner_id':partnerId,'party_type':partyType,
       'date':startText.substring(0,10),'start_datetime':startText,'end_datetime':endText,'minutes':minutes,
       'system_type':system,'water_hourly_rate_snapshot':system=='diesel'?waterRate:0,
       'diesel_liters_per_hour_snapshot':litersPerHour,'diesel_price_snapshot':dieselPrice,
@@ -1674,8 +1675,24 @@ class SaqiaServer {
       final b = DateTime.parse(bText);
       db.execute('INSERT INTO cloud_periods(irrigation_id,start_datetime,end_datetime,minutes,created_at) VALUES(?,?,?,?,?)',[irrigationId,aText,bText,b.difference(a).inMinutes,now]);
     }
-    final receivable = _accountId('1200');
-    final lines = <Map<String,Object?>>[{'account_id':receivable,'beneficiary_id':beneficiaryId,'debit':total,'credit':0,'memo':'استحقاق سقاية'}];
+    final receivable = partyType == 'worker'
+        ? _syncWorkerAccountId(workerId!)
+        : partyType == 'partner'
+            ? _syncPartnerAccountId(partnerId!)
+            : _accountId('1200');
+    final lines = <Map<String,Object?>>[
+      {
+        'account_id': receivable,
+        if (beneficiaryId != null) 'beneficiary_id': beneficiaryId,
+        if (workerId != null) 'worker_id': workerId,
+        if (partnerId != null) 'partner_id': partnerId,
+        'debit': total,
+        'credit': 0,
+        'memo': partyType == 'beneficiary'
+            ? 'استحقاق سقاية'
+            : 'خصم قيمة سقاية من حساب صاحبها',
+      },
+    ];
     if (waterAmount>0) lines.add({'account_id':_accountId('4000'),'debit':0,'credit':waterAmount,'memo':'إيراد الماء'});
     if (dieselAmount>0) lines.add({'account_id':_accountId('4010'),'debit':0,'credit':dieselAmount,'memo':'قيمة الديزل'});
     _journal(description:'سقاية رقم ' + irrigationId.toString(),referenceType:'irrigation',referenceId:irrigationId,lines:lines,userId:userId);
@@ -1819,7 +1836,24 @@ class SaqiaServer {
       }
     }
 
-    if (system=='diesel' && liters>0) {
+    if (workerId != null) {
+      db.execute('''INSERT INTO worker_transactions
+        (station_id,worker_id,date,type,amount,reference_type,reference_id,notes,created_by)
+        VALUES(?,?,?,?,?,?,?,?,?)''', [
+        station, workerId, start.toIso8601String(), 'irrigation', total,
+        'irrigation', irrigationId, 'خصم قيمة سقاية من حساب العامل', userId,
+      ]);
+    }
+    if (partnerId != null) {
+      db.execute('''INSERT INTO partner_transactions
+        (station_id,partner_id,date,type,amount,ownership_snapshot,reference_type,reference_id,notes,created_by)
+        VALUES(?,?,?,?,?,?,?,?,?,?)''', [
+        station, partnerId, start.toIso8601String(), 'irrigation', total,
+        null, 'irrigation', irrigationId, 'خصم قيمة سقاية من حساب الشريك', userId,
+      ]);
+    }
+
+    if (system=='diesel' && liters>0 && partyType == 'beneficiary') {
       final stock = (db.select("SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements WHERE station_id=?",[station]).first['stock'] as num).toDouble();
       final shortage = liters-stock;
       if (shortage>0) {
