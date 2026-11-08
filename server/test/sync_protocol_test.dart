@@ -1208,6 +1208,26 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       },
     }]);
     expect((sessionCreate['results'] as List).single['status'],'accepted');
+    final sessionReplay = await postEvents(stationOneToken,[{
+      'event_id':'eeeeeeee-2222-4222-8222-222222222222',
+      'entity_type':'irrigation_sessions',
+      'entity_key':'irrigation_sessions:' + sessionGlobalId,
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':sessionGlobalId,
+        'beneficiary_id':1,
+        'pump_id':1,
+        'status':'running',
+        'actual_start':'2026-11-08T08:00:00.000',
+        'timer_started_at':'2026-11-08T08:00:00.000',
+        '_global_refs':{
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          'pump_id':{'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+      },
+    }]);
+    expect((sessionReplay['results'] as List).single['status'],'duplicate');
     final response = await postEvents(stationOneToken,[event]);
     expect((response['results'] as List).single['status'],'accepted');
     final irrigation = database.select('SELECT * FROM irrigations WHERE station_id=1').single;
