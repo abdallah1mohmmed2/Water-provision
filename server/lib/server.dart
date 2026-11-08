@@ -1008,6 +1008,13 @@ class SaqiaServer {
                   ON b.id=l.local_id AND b.station_id=l.station_id
                 WHERE l.station_id=? AND l.entity_type='beneficiaries' AND l.global_id=? LIMIT 1
               ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'irrigations') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l JOIN irrigations i
+                  ON i.id=l.local_id AND i.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='irrigations'
+                  AND l.global_id=? LIMIT 1
+              ''', [station, globalId]).isNotEmpty;
             } else if (entityType == 'payments') {
               businessRowExists = db.select('''
                 SELECT 1 FROM sync_entity_links l JOIN payments p
@@ -1757,7 +1764,6 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
 }
 ).hasMatch(globalId);
     if (!valid || entityKey != 'irrigations:' + globalId) throw StateError('هوية السقاية العالمية غير صالحة');
-    if (operationIsNotCreate(payload)) throw StateError('السقاية المرحلة لا تقبل التعديل المباشر؛ استخدم إجراء عكس موثقاً');
     if (db.select("SELECT 1 FROM sync_entity_links WHERE station_id=? AND entity_type='irrigations' AND global_id=? LIMIT 1", [station, globalId]).isNotEmpty) throw StateError('السقاية موجودة مسبقاً');
     if (userId == null || _stationForUser(userId) != station) throw StateError('مستخدم السقاية لا يتبع المحطة الموثقة');
     final refs = payload['_global_refs'];
@@ -1833,8 +1839,6 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
     }
     db.execute('INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,?,?,?,?)',[station,'irrigations',globalId,irrigationId,now]);
   }
-
-  bool operationIsNotCreate(Map payload) => payload['_sync_operation'] != null && payload['_sync_operation'] != 'create';
 
   void _applySyncBusinessEvent({
     required int station, required String entityType, required String entityKey,
