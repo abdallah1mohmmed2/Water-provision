@@ -694,11 +694,25 @@ void main() {
   test('receipt publishes server-owned journal and cashbox projections to the second device once', () async {
     prepareReceiptFixture();
     final command = receiptEvent();
+    final payload = Map<String, dynamic>.from(command['payload'] as Map);
+    payload['_derived_global_ids'] = {
+      'journal_entries': ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab'],
+      'journal_lines': [
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc',
+        'cccccccc-cccc-4ccc-8ccc-cccccccccccd',
+      ],
+      'cashboxes': ['eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeef'],
+    };
+    command['payload'] = payload;
     final accepted = await postEvents(stationOneToken, [command], device: 'device-a');
     expect((accepted['results'] as List).first['status'], 'accepted');
 
     final originInbox = await getInbox(stationOneToken, device: 'device-a');
-    expect(originInbox['events'], isEmpty);
+    final originEvents = originInbox['events'] as List;
+    expect(
+      originEvents.map((event) => (event as Map)['entity_type']).toList(),
+      ['journal_entries', 'journal_lines', 'cashboxes'],
+    );
 
     final secondDeviceInbox = await getInbox(stationOneToken, device: 'device-b');
     final events = secondDeviceInbox['events'] as List;
@@ -707,8 +721,8 @@ void main() {
       ['payments', 'journal_entries', 'journal_lines', 'cashboxes'],
     );
     expect(
-      events.map((event) => (event as Map)['source_device']).toSet(),
-      {'device-a'},
+      events.skip(1).map((event) => (event as Map)['source_device']).toSet(),
+      {'__server_projection__'},
     );
 
     final replay = await postEvents(stationOneToken, [command], device: 'device-a');
