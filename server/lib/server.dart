@@ -516,14 +516,23 @@ class SaqiaServer {
           // Do not replay legacy "accepted" log entries as success unless
           // the corresponding business row can still be proven to exist.
           var businessRowExists = false;
-          if (entityType == 'beneficiaries' && payload is Map) {
+          if (payload is Map) {
             final globalId = '${payload['_global_id'] ?? ''}';
-            businessRowExists = db.select('''
-              SELECT 1 FROM sync_entity_links l
-              JOIN beneficiaries b ON b.id=l.local_id AND b.station_id=l.station_id
-              WHERE l.station_id=? AND l.entity_type='beneficiaries'
-                AND l.global_id=? LIMIT 1
-            ''', [station, globalId]).isNotEmpty;
+            if (entityType == 'beneficiaries') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l
+                JOIN beneficiaries b ON b.id=l.local_id AND b.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='beneficiaries'
+                  AND l.global_id=? LIMIT 1
+              ''', [station, globalId]).isNotEmpty;
+            } else if (entityType == 'payments') {
+              businessRowExists = db.select('''
+                SELECT 1 FROM sync_entity_links l
+                JOIN payments p ON p.id=l.local_id AND p.station_id=l.station_id
+                WHERE l.station_id=? AND l.entity_type='payments'
+                  AND l.global_id=? AND p.status='posted' LIMIT 1
+              ''', [station, globalId]).isNotEmpty;
+            }
           }
           if (!businessRowExists) {
             results.add({
