@@ -310,6 +310,43 @@ void main() {
     };
   }
 
+  test('sync enforces terminal queue transitions and rejects reopening completed turns', () async {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'A','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1,'2026-11-08T00:00:00Z')");
+    const global = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    final create = await postEvents(stationOneToken, [{
+      'event_id':'15111111-1111-4111-8111-111111111111',
+      'entity_type':'queue_entries', 'entity_key':'queue_entries:$global',
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':global, 'position':1, 'status':'waiting',
+        '_global_refs':{'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}},
+      },
+    }]);
+    expect(create['results'][0]['status'], 'accepted');
+    final complete = await postEvents(stationOneToken, [{
+      'event_id':'16111111-1111-4111-8111-111111111111',
+      'entity_type':'queue_entries', 'entity_key':'queue_entries:$global',
+      'operation':'update', 'base_version':1,
+      'payload':{
+        '_global_id':global, 'status':'completed',
+        '_global_refs':{'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}},
+      },
+    }]);
+    expect(complete['results'][0]['status'], 'accepted');
+    final reopen = await postEvents(stationOneToken, [{
+      'event_id':'17111111-1111-4111-8111-111111111111',
+      'entity_type':'queue_entries', 'entity_key':'queue_entries:$global',
+      'operation':'update', 'base_version':2,
+      'payload':{
+        '_global_id':global, 'status':'waiting',
+        '_global_refs':{'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}},
+      },
+    }]);
+    expect(reopen['results'][0]['status'], 'rejected');
+    expect(database.select('SELECT status FROM queue_entries').first['status'], 'completed');
+  });
+
   test('sync applies queue and booking creates using station-owned global beneficiary refs', () async {
     database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'A','active')");
     database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1,'2026-11-08T00:00:00Z')");
