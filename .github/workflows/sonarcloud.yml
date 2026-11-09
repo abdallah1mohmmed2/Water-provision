@@ -32,6 +32,10 @@ jobs:
       - name: Install Flutter dependencies
         run: flutter pub get
 
+      - name: Install Shelf dependencies for two-client integration test
+        working-directory: server
+        run: dart pub get
+
       - name: Run Flutter tests and collect coverage
         run: flutter test --coverage
 

@@ -1,6 +1,7 @@
 import '../../core/app_clock.dart';
 import 'dart:convert';
 import 'global_identity.dart';
+import 'business_sync_payload.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -27,7 +28,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 28,
+      version: 29,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -563,6 +564,17 @@ class AppDatabase {
       PRIMARY KEY(table_name, record_id)
     )''');
 
+    // Compatible storage for authoritative cancellation metadata (no row rewrite).
+    for (final table in ['expenses', 'cashbox_transfers']) {
+      final cols = (await d.rawQuery('PRAGMA table_info($table)')).map((r) => r['name']).toSet();
+      for (final column in {'status': "TEXT NOT NULL DEFAULT 'posted'", 'notes': 'TEXT',
+          'cancelled_at': 'TEXT', 'cancel_reason': 'TEXT'}.entries) {
+        if (!cols.contains(column.key)) {
+          await d.execute('ALTER TABLE $table ADD COLUMN ${column.key} ${column.value}');
+        }
+      }
+    }
+
     // Capture business writes at the SQLite transaction boundary.
     const syncTables = [
       'pumps', 'beneficiaries', 'partners', 'workers', 'irrigations',
@@ -862,12 +874,18 @@ class AppDatabase {
           if (rows.isEmpty) continue;
           rawPayload = Map<String, Object?>.from(rows.first);
         }
-        final payload = await GlobalIdentity.decoratePayload(
+        var payload = await GlobalIdentity.decoratePayload(
           tx,
           table,
           rawPayload,
           recordId,
         );
+        if ((operation == 'create' && (table == 'irrigations' || table == 'payments')) ||
+            (captureSyncTables?.contains(table) == true &&
+             BusinessSyncPayload.additionalCommands.contains(table))) {
+          payload = await BusinessSyncPayload(tx).prepare(table, recordId, payload,
+            changes: allChanges);
+        }
         if (operation == 'delete') {
           await tx.update(
             'sync_global_identities',

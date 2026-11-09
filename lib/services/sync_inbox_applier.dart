@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 
 enum InboxApplyResult { applied, conflict }
@@ -35,7 +37,7 @@ class SyncInboxApplier {
     'cash_reconciliations': 'accounting',
   };
 
-  static const _reserved = {'_global_id', '_global_refs', '_unresolved_refs', '_derived_global_ids'};
+  static const _reserved = {'_global_id', '_global_refs', '_unresolved_refs', '_derived_global_ids', '_command'};
   static const _localOnly = {'id', 'station_id', 'created_by', 'reference_id'};
   static const _noDelete = {
     'accounts', 'payments', 'expenses', 'cashbox_transfers', 'irrigations',
@@ -136,16 +138,37 @@ class SyncInboxApplier {
         ? null
         : (identityRows.single['local_id'] as num).toInt();
 
+    if (table == 'cashboxes' && event['source_device'] == '__server_projection__') {
+      final unsettled = await tx.rawQuery(
+        "SELECT payload FROM sync_queue WHERE table_name IN ('payments','expenses','cashbox_transfers','diesel_movements') AND status IN ('pending','sending','conflict','failed')");
+      for (final command in unsettled) {
+        final saved = jsonDecode(command['payload'] as String) as Map;
+        final references = saved['_global_refs'] as Map? ?? {};
+        for (final key in const ['cashbox_id', 'from_cashbox_id', 'to_cashbox_id']) {
+          final reference = references[key];
+          if ((reference is Map && reference['global_id'] == globalId) ||
+              (localId != null && saved[key] == localId)) {
+            throw StateError('تأكيد أمر الصندوق المحلي لم يصل بعد');
+          }
+        }
+      }
+    }
+
     if (localId != null) {
       if (event['source_device'] == '__server_projection__' &&
           _isServerDerivedProjection(table, payload)) {
         // The server projection is the authoritative replacement for any
         // legacy child Outbox event created before the parent-only contract.
-        // Remove only that same derived row's pending events, in this Inbox
-        // transaction, so a failed projection cannot discard local work.
-        await tx.delete(
+        // Resolve only that derived row’s legacy events in this transaction.
+        // Keep payloads and event IDs for audit; rollback retains their status.
+        await tx.update(
           'sync_queue',
-          where: 'table_name=? AND record_id=? AND status IN (\'pending\',\'sending\',\'conflict\')',
+          {
+            'status': 'resolved',
+            'last_error': 'Superseded by server projection ${event['event_id']}',
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+          },
+          where: "table_name=? AND record_id=? AND status IN ('pending','sending','conflict','failed')",
           whereArgs: [table, localId],
         );
       }
@@ -203,6 +226,11 @@ class SyncInboxApplier {
     for (final entry in payload.entries) {
       final column = entry.key;
       if (_reserved.contains(column)) continue;
+      // Generated backlink is supplied by the journal projection, not the root.
+      if (table == 'beneficiary_manual_debts' && column == 'journal_entry_id' &&
+          payload.containsKey('_derived_global_ids')) {
+        continue;
+      }
       if (column == 'reference_id' && entry.value != null) {
         final referenceType = '${payload['reference_type'] ?? ''}';
         final referenceTable = switch (table) {
@@ -211,9 +239,17 @@ class SyncInboxApplier {
               'payment' => 'payments',
               'worker' => 'worker_transactions',
               'partner' => 'partner_transactions',
-              'diesel_advance' => 'diesel_movements',
+              'diesel_advance' || 'diesel_receipt' || 'diesel_consumption' ||
+                'diesel_correction' || 'diesel_opening_balance' || 'diesel' => 'diesel_movements',
+              'expense' => 'expenses',
+              'cashbox_transfer' => 'cashbox_transfers',
+              'beneficiary_manual_debt' => 'beneficiary_manual_debts',
+              'worker_opening' => 'workers',
+              'partner_opening' => 'partners',
+              'reversal' => 'journal_entries',
               _ => null,
             },
+          'worker_transactions' || 'partner_transactions' when referenceType == 'previous_debt' => 'journal_entries',
           'worker_transactions' when referenceType == 'irrigation' => 'irrigations',
           'partner_transactions' when const {'irrigation_profit', 'irrigation'}.contains(referenceType) => 'irrigations',
           _ => null,
@@ -249,7 +285,6 @@ class SyncInboxApplier {
       values['station_id'] = (stations.first['id'] as num).toInt();
     }
     values.remove('created_by');
-    values.remove('reference_id');
     _validateDomainValues(table, values);
     if (table == 'irrigation_sessions') {
       final beneficiaryId = (values['beneficiary_id'] as num?)?.toInt();
@@ -409,6 +444,23 @@ class SyncInboxApplier {
     }
 
     if (table == 'journal_entries') {
+      final command = payload['_command'];
+      if (command is Map) {
+        final commandTable = command['table'];
+        final reference = payload['reference_type'];
+        final backlink = commandTable == 'beneficiary_manual_debts' && reference == 'beneficiary_manual_debt'
+            ? 'journal_entry_id'
+            : (commandTable == 'worker_transactions' && reference == 'worker_opening') ||
+              (commandTable == 'partner_transactions' && reference == 'partner_opening')
+              ? 'reference_id' : null;
+        if (backlink != null) {
+          final roots = await tx.query('sync_global_identities', columns: ['local_id'],
+            where: 'table_name=? AND global_id=?', whereArgs: [commandTable, command['global_id']]);
+          if (roots.length != 1) throw StateError('أمر القيد الأصلي لم يصل بعد');
+          await tx.update(commandTable as String, {backlink: appliedLocalId},
+            where: 'id=?', whereArgs: [roots.single['local_id']]);
+        }
+      }
       await tx.update('journal_entries', {'status': 'draft'},
           where: 'id=?', whereArgs: [appliedLocalId]);
       await _refreshJournalStatus(tx, appliedLocalId);
@@ -489,6 +541,24 @@ class SyncInboxApplier {
     );
     if (rows.isNotEmpty && rows.single['retired_at'] == null) {
       return (rows.single['local_id'] as num).toInt();
+    }
+    if (targetTable == 'accounts' && ref['party'] is Map) {
+      final party = Map<String, dynamic>.from(ref['party'] as Map);
+      final partyTable = party['table'];
+      if (partyTable != 'workers' && partyTable != 'partners') {
+        throw StateError('مالك الحساب الشخصي غير صالح');
+      }
+      final partyId = await _resolveForeignKey(tx, sourceTable, column, partyTable as String,
+        1, party) as int;
+      final parentCode = partyTable == 'workers' ? '2100' : '2200';
+      final code = '$parentCode.${partyTable == 'workers' ? 'W' : 'P'}$partyId';
+      final existing = await tx.query('accounts', columns: ['id'], where: 'code=?', whereArgs: [code]);
+      if (existing.length == 1) return (existing.single['id'] as num).toInt();
+      final parents = await tx.query('accounts', columns: ['id'], where: 'code=?', whereArgs: [parentCode]);
+      if (parents.length != 1) throw StateError('الحساب التجميعي للطرف غير موجود');
+      final name = (await tx.query(partyTable, columns: ['name'], where: 'id=?', whereArgs: [partyId])).single['name'];
+      return tx.insert('accounts', {'parent_id': parents.single['id'], 'code': code,
+        'name': 'حساب $name الشخصي', 'type': 'liability'});
     }
     if (targetTable == 'accounts' && ref['code'] is String) {
       final natural = await tx.query(

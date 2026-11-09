@@ -394,6 +394,14 @@ class SaqiaServer {
         }
       }
     }
+    if (targetTable == 'accounts' && reference['code'] is String) {
+      final match = RegExp(r'^(2100\.W|2200\.P)([0-9]+)$').firstMatch(reference['code'] as String);
+      if (match != null) {
+        final partyTable = match.group(1) == '2100.W' ? 'workers' : 'partners';
+        reference['party'] = _projectionReference(station: station, targetTable: partyTable,
+          localId: int.parse(match.group(2)!), now: now);
+      }
+    }
     return reference;
   }
 
@@ -405,6 +413,7 @@ class SaqiaServer {
     required String table,
     required int localId,
     String? requestedGlobalId,
+    Map<String, Object?>? command,
   }) {
     if (!_syncEntityTypes.contains(table) || !_hasTable(table)) {
       throw StateError('نوع إسقاط غير مدعوم: $table');
@@ -496,9 +505,17 @@ class SaqiaServer {
             'payment' => 'payments',
             'worker' => 'worker_transactions',
             'partner' => 'partner_transactions',
-            'diesel_advance' => 'diesel_movements',
+            'diesel_advance' || 'diesel_receipt' || 'diesel_consumption' ||
+              'diesel_correction' || 'diesel_opening_balance' || 'diesel' => 'diesel_movements',
+            'expense' => 'expenses',
+            'cashbox_transfer' => 'cashbox_transfers',
+            'beneficiary_manual_debt' => 'beneficiary_manual_debts',
+            'worker_opening' => 'workers',
+            'partner_opening' => 'partners',
+            'reversal' => 'journal_entries',
             _ => null,
           },
+        'worker_transactions' || 'partner_transactions' when referenceType == 'previous_debt' => 'journal_entries',
         'worker_transactions' when referenceType == 'irrigation' => 'irrigations',
         'partner_transactions' when const {'irrigation_profit', 'irrigation'}.contains(referenceType) => 'irrigations',
         _ => null,
@@ -519,6 +536,7 @@ class SaqiaServer {
             (column != 'reference_id' || refs.containsKey('reference_id')))
           column: row[column],
       '_global_id': globalId,
+      if (command != null && table == 'journal_entries') '_command': command,
       '_global_refs': refs,
       '_unresolved_refs': const <String, Object?>{},
     };
@@ -562,6 +580,7 @@ class SaqiaServer {
     required String sql,
     required List<Object?> args,
     required List<String>? requestedIds,
+    Map<String, Object?>? command,
   }) {
     if (!_hasTable(table)) {
       if (requestedIds != null && requestedIds.isNotEmpty) {
@@ -581,9 +600,21 @@ class SaqiaServer {
         now: now,
         table: table,
         localId: (rows[index]['id'] as num).toInt(),
-        requestedGlobalId: requestedIds == null ? null : requestedIds[index],
+        requestedGlobalId: requestedIds == null ? null : table == 'cashboxes'
+            ? _requestedCashboxProjectionId(station, (rows[index]['id'] as num).toInt(), requestedIds)
+            : requestedIds[index],
+        command: command,
       );
     }
+  }
+
+  String _requestedCashboxProjectionId(int station, int id, List<String> requested) {
+    final links = db.select("SELECT global_id FROM sync_entity_links WHERE station_id=? AND entity_type='cashboxes' AND local_id=?", [station, id]);
+    final matches = links.where((row) => requested.contains(row['global_id'])).toList();
+    if (matches.length != 1) {
+      throw StateError('هوية الصندوق في بيان الآثار لا تطابق مرجع الأمر');
+    }
+    return matches.single['global_id'] as String;
   }
 
   void _appendBusinessEffectProjections({
@@ -593,6 +624,7 @@ class SaqiaServer {
     required int businessId,
     required Map payload,
     required String now,
+    required int journalStart,
   }) {
     final hasIdentityManifest = payload.containsKey('_derived_global_ids');
     final rawIds = payload['_derived_global_ids'];
@@ -624,6 +656,7 @@ class SaqiaServer {
         sql: sql,
         args: args,
         requestedIds: requested(table),
+        command: {'table': entityType, 'global_id': payload['_global_id']},
       );
     }
 
@@ -708,6 +741,30 @@ class SaqiaServer {
         'SELECT id FROM cashboxes WHERE id=? AND station_id=?',
         [cashboxId, station]);
     }
+    if (const {'expenses','cashbox_transfers','diesel_movements',
+        'beneficiary_manual_debts','worker_transactions','partner_transactions'}.contains(entityType)) {
+      append('journal_entries',
+        'SELECT id FROM journal_entries WHERE station_id=? AND id>? ORDER BY id', [station, journalStart]);
+      append('journal_lines',
+        'SELECT jl.id FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.station_id=? AND je.id>? ORDER BY jl.id',
+        [station, journalStart]);
+      final boxes = <int>{};
+      if (entityType == 'expenses' || entityType == 'diesel_movements') {
+        final row = db.select('SELECT cashbox_id FROM $entityType WHERE id=? AND station_id=?', [businessId, station]).single;
+        if (row['cashbox_id'] != null) boxes.add((row['cashbox_id'] as num).toInt());
+      } else if (entityType == 'cashbox_transfers') {
+        final row = db.select('SELECT from_cashbox_id,to_cashbox_id,is_opening_transfer FROM cashbox_transfers WHERE id=? AND station_id=?', [businessId, station]).single;
+        if (row['from_cashbox_id'] != null && row['is_opening_transfer'] != 1) boxes.add((row['from_cashbox_id'] as num).toInt());
+        boxes.add((row['to_cashbox_id'] as num).toInt());
+      }
+      // Metadata-only updates have no new journal/cash movement. Their empty
+      // manifest must not cause a second balance projection.
+      if (hasIdentityManifest && requested('cashboxes')!.isEmpty) boxes.clear();
+      append('cashboxes', boxes.isEmpty ? 'SELECT id FROM cashboxes WHERE 0' :
+        'SELECT id FROM cashboxes WHERE station_id=? AND id IN (${List.filled(boxes.length, '?').join(',')}) ORDER BY id',
+        boxes.isEmpty ? [] : [station, ...boxes]);
+    }
+
   }
 
   bool _hasSyncProjectionLink(int station, String entityType, Map payload) {
@@ -864,6 +921,16 @@ class SaqiaServer {
     if (!columns.contains('cancel_reason')) db.execute('ALTER TABLE $table ADD COLUMN cancel_reason TEXT');
   }
 
+  Object? _syncComparableValue(int station, String key, Map payload) {
+    final table = const {'cashbox_id': 'cashboxes', 'from_cashbox_id': 'cashboxes',
+      'to_cashbox_id': 'cashboxes', 'payment_method_id': 'payment_methods',
+      'partner_id': 'partners'}[key];
+    if (table == null || payload[key] == null) return payload[key];
+    final refs = payload['_global_refs'];
+    if (refs is! Map) throw StateError('المراجع العالمية للتحديث مفقودة');
+    return _resolveSyncReference(station: station, entityType: table, column: key, references: refs);
+  }
+
   void _applySyncExpense({required int station, required String entityKey, required String operation, required Map payload, required String now, required int? userId, required String? role}) {
     if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بمزامنة المصروفات');
     if (userId == null || _stationForUser(userId) != station) throw StateError('مستخدم المصروف لا يتبع المحطة الموثقة');
@@ -883,7 +950,7 @@ class SaqiaServer {
       final cancelledAt = DateTime.tryParse((payload['cancelled_at'] ?? '').toString());
       if (reason.isEmpty || cancelledAt == null) throw StateError('سبب الإلغاء وتاريخه مطلوبان');
       for (final key in const ['amount','category','date','cashbox_id','payment_method_id','partner_id','title']) {
-        if (payload.containsKey(key) && payload[key] != expense[key]) throw StateError('لا يسمح بتغيير بيانات المصروف أثناء الإلغاء');
+        if (payload.containsKey(key) && _syncComparableValue(station, key, payload) != expense[key]) throw StateError('لا يسمح بتغيير بيانات المصروف أثناء الإلغاء');
       }
       final amount = (expense['amount'] as num).toInt();
       final cashboxId = (expense['cashbox_id'] as num?)?.toInt();
@@ -921,7 +988,7 @@ class SaqiaServer {
       if (rows.isEmpty) throw StateError('المصروف غير موجود أو غير مرحّل ضمن المحطة');
       final row = rows.first;
       for (final key in const ['amount','category','date','cashbox_id','payment_method_id','partner_id']) {
-        if (payload.containsKey(key) && payload[key] != row[key]) throw StateError('يسمح بتعديل عنوان المصروف وملاحظاته فقط دون تغيير أثره المالي');
+        if (payload.containsKey(key) && _syncComparableValue(station, key, payload) != row[key]) throw StateError('يسمح بتعديل عنوان المصروف وملاحظاته فقط دون تغيير أثره المالي');
       }
       final title = (payload['title'] ?? row['title']).toString().trim();
       if (title.isEmpty) throw StateError('عنوان المصروف مطلوب');
@@ -984,7 +1051,7 @@ class SaqiaServer {
       final cancelledAt = DateTime.tryParse((payload['cancelled_at'] ?? '').toString());
       if (reason.isEmpty || cancelledAt == null) throw StateError('سبب الإلغاء وتاريخه مطلوبان');
       for (final key in const ['amount','from_cashbox_id','to_cashbox_id','is_opening_transfer','date']) {
-        if (payload.containsKey(key) && payload[key] != transfer[key]) throw StateError('لا يسمح بتغيير بيانات التحويل أثناء الإلغاء');
+        if (payload.containsKey(key) && _syncComparableValue(station, key, payload) != transfer[key]) throw StateError('لا يسمح بتغيير بيانات التحويل أثناء الإلغاء');
       }
       final amount = (transfer['amount'] as num).toInt();
       final fromId = (transfer['from_cashbox_id'] as num?)?.toInt();
@@ -1678,6 +1745,15 @@ class SaqiaServer {
     final dieselAmount = _round(liters*dieselPrice,rounding);
     final total = waterAmount+dieselAmount;
     if (total <= 0) throw StateError('إجمالي السقاية المحسوب غير صالح');
+    // Peers receive this immutable root event, so reject stale local amounts.
+    for (final expected in <String, num>{'minutes': minutes,
+      'chargeable_minutes': chargeable, 'water_amount': waterAmount,
+      'diesel_amount': dieselAmount, 'total_amount': total}.entries) {
+      if (payload.containsKey(expected.key) && payload[expected.key] != expected.value) {
+        throw StateError('لقطة السقاية المحلية لا تطابق حساب الخادم: ${expected.key}');
+      }
+    }
+
     final paidValue = payload['paid_amount'] ?? 0;
     if (paidValue is! num || paidValue != 0) throw StateError('يجب مزامنة القبض كحدث مستقل؛ لا يقبل paid_amount داخل السقاية');
     if (db.select("SELECT 1 FROM irrigations WHERE station_id=? AND pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",[station,pumpId,endText,startText]).isNotEmpty) throw StateError('وقت السقاية يتداخل مع تشغيل آخر للمضخة');
@@ -2514,7 +2590,7 @@ class SaqiaServer {
           // acknowledged as superseded, never applied as a second command.
           results.add({
             'event_id': eventId,
-            'status': 'accepted',
+            'status': 'superseded',
             'server_version': current,
             'current_version': current,
             'message': 'أثر تابع؛ أنشأه أمر العمل الأصلي على الخادم ولم يُنفذ كأمر مستقل.',
@@ -2550,6 +2626,8 @@ class SaqiaServer {
         // rolls back only this event and never advances its version.
         db.execute('SAVEPOINT apply_sync_event');
         try {
+          final journalStart = _hasTable('journal_entries')
+              ? (db.select('SELECT COALESCE(MAX(id),0) n FROM journal_entries').single['n'] as num).toInt() : 0;
           _applySyncBusinessEvent(
             station: station,
             entityType: entityType,
@@ -2570,7 +2648,8 @@ class SaqiaServer {
             VALUES(?,?,?,?,?) ON CONFLICT(station_id,entity_type,entity_key)
             DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at''',
             [station,entityType,entityKey,nextVersion,now]);
-          if (entityType == 'irrigations' || entityType == 'payments') {
+          if (const {'irrigations','payments','expenses','cashbox_transfers','diesel_movements',
+              'beneficiary_manual_debts','worker_transactions','partner_transactions'}.contains(entityType)) {
             final globalId = (payload['_global_id'] ?? '').toString();
             final linked = db.select(
               'SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',
@@ -2584,6 +2663,7 @@ class SaqiaServer {
               sourceDevice: device,
               entityType: entityType,
               businessId: (linked.first['local_id'] as num).toInt(),
+              journalStart: journalStart,
               payload: payload,
               now: now,
             );

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -198,6 +199,19 @@ void main() {
       },
     )..['source_device'] = '__server_projection__';
 
+    // A previously rejected child must remain auditable, and a bad incoming
+    // projection must roll back the attempted resolution as well as the row.
+    await database.update('sync_queue', {'status': 'failed', 'last_error': 'old failure'},
+      'table_name=? AND record_id=?', ['cloud_periods', cloudPeriodId]);
+    final invalid = Map<String, dynamic>.from(projection);
+    invalid['payload'] = {...projection['payload'] as Map, 'unknown_column': 1};
+    await expectLater(database.transaction(
+      (tx) => SyncInboxApplier.apply(tx, invalid), captureSync: false),
+      throwsA(isA<StateError>()));
+    expect((await database.query('sync_queue',
+      where: 'table_name=? AND record_id=?',
+      whereArgs: ['cloud_periods', cloudPeriodId])).single['status'], 'failed');
+
     final result = await database.transaction(
       (tx) => SyncInboxApplier.apply(tx, projection),
       captureSync: false,
@@ -211,14 +225,13 @@ void main() {
     expect(rows, hasLength(1));
     expect(rows.single['end_datetime'], projectedEnd);
     expect(rows.single['minutes'], 30);
-    expect(
-      await database.query(
-        'sync_queue',
-        where: 'table_name=? AND record_id=?',
-        whereArgs: ['cloud_periods', cloudPeriodId],
-      ),
-      isEmpty,
-    );
+    final retained = await database.query('sync_queue',
+      where: 'table_name=? AND record_id=?',
+      whereArgs: ['cloud_periods', cloudPeriodId]);
+    expect(retained, hasLength(1));
+    expect(retained.single['status'], 'resolved');
+    expect(retained.single['last_error'], contains(projection['event_id']));
+    expect(retained.single['payload'], contains(originalEnd));
   });
 
   test('applies station-owned irrigation session lifecycle and rejects reopening a completed session', () async {
@@ -795,6 +808,40 @@ void main() {
     expect(await database.query('sync_queue'), isEmpty);
   });
 
+  test('new peer journal resolves remote reference ID to its local payment ID', () async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    late int paymentId;
+    late String paymentGlobalId;
+    await database.transaction((tx) async {
+      final beneficiaryId = await tx.insert('beneficiaries', {
+        'name': 'INBOX-PEER-REFERENCE', 'created_at': now, 'updated_at': now,
+      });
+      paymentId = await tx.insert('payments', {
+        'beneficiary_id': beneficiaryId,
+        'amount': 125, 'date': now, 'status': 'posted',
+        'payment_method_id': 1, 'cashbox_id': 1,
+      });
+      await GlobalIdentity.ensureRecord(tx, 'payments', paymentId);
+      paymentGlobalId = (await tx.rawQuery(
+        'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=?',
+        ['payments', paymentId])).single['global_id'] as String;
+    }, captureSync: false);
+    const journalGlobalId = 'c0c0c0c0-1111-4111-8111-111111111111';
+    final projection = event(table: 'journal_entries', id: journalGlobalId,
+      operation: 'create', version: 1, payload: {
+        'date': now, 'reference_type': 'payment', 'reference_id': 987654321,
+        'description': 'INBOX-NEW-PEER-JOURNAL', 'status': 'posted', 'created_at': now,
+        '_global_refs': {'reference_id': {'table': 'payments', 'global_id': paymentGlobalId}},
+      })..['source_device'] = '__server_projection__';
+    expect(await database.transaction((tx) => SyncInboxApplier.apply(tx, projection),
+      captureSync: false), InboxApplyResult.applied);
+    final row = (await database.query('journal_entries',
+      where: 'description=?', whereArgs: ['INBOX-NEW-PEER-JOURNAL'])).single;
+    expect(row['reference_id'], paymentId);
+    expect(row['reference_id'], isNot(987654321));
+    expect(await database.query('sync_queue'), isEmpty);
+  });
+
   test('applies irrigation and receipt commands with derived projection identity metadata', () async {
     final now = DateTime.now().toUtc();
     final nowText = now.toIso8601String();
@@ -942,6 +989,17 @@ void main() {
         'ledger_account_code': cashbox['ledger_account_code'],
       },
     )..['source_device'] = '__server_projection__';
+    final waitingId = await database.insert('sync_queue', {
+      'event_id': 'abcdabcd-1111-4111-8111-111111111111',
+      'table_name': 'payments', 'record_id': 999999, 'operation': 'create',
+      'payload': jsonEncode({'cashbox_id': cashboxId, '_global_refs': {
+        'cashbox_id': {'table': 'cashboxes', 'global_id': cashboxGlobalId}}}),
+      'status': 'pending', 'created_at': nowText, 'updated_at': nowText,
+    });
+    await expectLater(database.transaction((tx) => SyncInboxApplier.apply(tx, cashboxProjection),
+      captureSync: false), throwsStateError);
+    expect((await database.query('cashboxes', where: 'id=?', whereArgs: [cashboxId])).single['current_balance'], cashbox['current_balance']);
+    await database.update('sync_queue', {'status': 'acknowledged'}, 'id=?', [waitingId]);
     final cashboxResult = await database.transaction(
       (tx) => SyncInboxApplier.apply(tx, cashboxProjection),
       captureSync: false,

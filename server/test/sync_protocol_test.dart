@@ -1404,6 +1404,13 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       },
     }]);
     expect((sessionReplay['results'] as List).single['status'],'duplicate');
+    final staleSnapshot = await postEvents(stationOneToken, [{
+      ...event, 'event_id': 'fafafafa-1111-4111-8111-fafafafafafa',
+      'payload': {...payload, 'total_amount': 1},
+    }]);
+    expect((staleSnapshot['results'] as List).single['status'], 'rejected');
+    expect(database.select('SELECT * FROM irrigations'), isEmpty);
+    expect(database.select('SELECT * FROM journal_entries'), isEmpty);
     final response = await postEvents(stationOneToken,[event]);
     final irrigationResult = (response['results'] as List).single;
     expect(irrigationResult['status'],'accepted', reason: irrigationResult.toString());
@@ -1438,7 +1445,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
         },
       },
     }]);
-    expect((sessionFinish['results'] as List).single['status'],'accepted');
+    expect((sessionFinish['results'] as List).single['status'],'superseded');
     expect(database.select('SELECT * FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]),hasLength(1));
     expect(database.select('SELECT kind FROM diesel_movements WHERE station_id=1 ORDER BY id').map((r)=>r['kind']).toList(),['advance','consumption']);
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
@@ -1499,10 +1506,10 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       },
     };
     final cloudResponse = await postEvents(stationOneToken,[cloudEvent]);
-    expect((cloudResponse['results'] as List).single['status'],'accepted');
+    expect((cloudResponse['results'] as List).single['status'],'superseded');
     expect(database.select('SELECT COUNT(*) n FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]).single['n'],1);
     final cloudReplay = await postEvents(stationOneToken,[cloudEvent]);
-    expect((cloudReplay['results'] as List).single['status'],'accepted');
+    expect((cloudReplay['results'] as List).single['status'],'superseded');
     expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'],projectionLogCount);
     final replay = await postEvents(stationOneToken,[event]);
     expect((replay['results'] as List).single['status'],'duplicate');

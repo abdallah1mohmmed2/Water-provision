@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import '../api/api_client.dart';
 import '../data/local/database.dart';
 import '../data/local/global_identity.dart';
+import '../data/local/business_sync_payload.dart';
 import 'sync_inbox_applier.dart';
 
 typedef IncomingSyncApplier = Future<InboxApplyResult> Function(
@@ -93,130 +94,6 @@ class SyncService {
     });
   }
 
-  Future<List<String>> _globalIdsForQuery(
-    String sql,
-    List<Object?> args,
-    String table,
-  ) async {
-    final rows = await db.query(sql, args: args);
-    final result = <String>[];
-    for (final row in rows) {
-      final localId = (row['id'] as num).toInt();
-      final identity = await db.query(
-        'SELECT global_id FROM sync_global_identities WHERE table_name=? AND local_id=? LIMIT 1',
-        args: [table, localId],
-      );
-      if (identity.isEmpty) {
-        throw StateError('الهوية العالمية للأثر التابع مفقودة: $table:$localId');
-      }
-      result.add(identity.single['global_id'] as String);
-    }
-    return result;
-  }
-
-  /// Stable child identities let the server publish its authoritative effects
-  /// back to every device, including the origin, without creating duplicates.
-  Future<Map<String, List<String>>> _derivedGlobalIds(
-    String table,
-    int recordId,
-  ) async {
-    if (table == 'irrigations') {
-      final irrigationRows = await db.query(
-        'SELECT session_id,queue_entry_id,booking_id FROM irrigations WHERE id=? LIMIT 1',
-        args: [recordId],
-      );
-      if (irrigationRows.isEmpty) return const {};
-      final irrigation = irrigationRows.single;
-      const journalFilter = """
-        (je.reference_type='irrigation' AND je.reference_id=?) OR
-        (je.reference_type='worker' AND je.reference_id IN (
-          SELECT wt.id FROM worker_transactions wt
-          WHERE wt.reference_type='irrigation' AND wt.reference_id=?
-        )) OR
-        (je.reference_type='partner' AND je.reference_id IN (
-          SELECT pt.id FROM partner_transactions pt
-          WHERE pt.reference_type IN ('irrigation_profit','irrigation') AND pt.reference_id=?
-        )) OR
-        (je.reference_type='diesel_advance' AND je.reference_id IN (
-          SELECT dm.id FROM diesel_movements dm WHERE dm.irrigation_id=?
-        ))
-      """;
-      final result = <String, List<String>>{
-        'cloud_periods': await _globalIdsForQuery(
-          'SELECT id FROM cloud_periods WHERE irrigation_id=? ORDER BY start_datetime,id',
-          [recordId],
-          'cloud_periods',
-        ),
-        'journal_entries': await _globalIdsForQuery(
-          'SELECT je.id FROM journal_entries je WHERE $journalFilter ORDER BY je.id',
-          [recordId, recordId, recordId, recordId],
-          'journal_entries',
-        ),
-        'journal_lines': await _globalIdsForQuery(
-          'SELECT jl.id FROM journal_lines jl WHERE jl.journal_entry_id IN (SELECT je.id FROM journal_entries je WHERE $journalFilter) ORDER BY jl.id',
-          [recordId, recordId, recordId, recordId],
-          'journal_lines',
-        ),
-        'worker_transactions': await _globalIdsForQuery(
-          "SELECT id FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=? ORDER BY id",
-          [recordId],
-          'worker_transactions',
-        ),
-        'partner_transactions': await _globalIdsForQuery(
-          "SELECT id FROM partner_transactions WHERE reference_type IN ('irrigation_profit','irrigation') AND reference_id=? ORDER BY id",
-          [recordId],
-          'partner_transactions',
-        ),
-        'diesel_movements': await _globalIdsForQuery(
-          'SELECT id FROM diesel_movements WHERE irrigation_id=? ORDER BY id',
-          [recordId],
-          'diesel_movements',
-        ),
-      };
-      for (final relation in const [
-        ('irrigation_sessions', 'session_id'),
-        ('queue_entries', 'queue_entry_id'),
-        ('booking_requests', 'booking_id'),
-      ]) {
-        final value = irrigation[relation.$2];
-        result[relation.$1] = value == null
-            ? const []
-            : await _globalIdsForQuery(
-                'SELECT id FROM ${relation.$1} WHERE id=? ORDER BY id',
-                [(value as num).toInt()],
-                relation.$1,
-              );
-      }
-      return result;
-    }
-    if (table == 'payments') {
-      final paymentRows = await db.query(
-        'SELECT cashbox_id FROM payments WHERE id=? LIMIT 1',
-        args: [recordId],
-      );
-      if (paymentRows.isEmpty) return const {};
-      final cashboxId = (paymentRows.single['cashbox_id'] as num).toInt();
-      return {
-        'journal_entries': await _globalIdsForQuery(
-          "SELECT id FROM journal_entries WHERE reference_type='payment' AND reference_id=? ORDER BY id",
-          [recordId],
-          'journal_entries',
-        ),
-        'journal_lines': await _globalIdsForQuery(
-          "SELECT id FROM journal_lines WHERE journal_entry_id IN (SELECT id FROM journal_entries WHERE reference_type='payment' AND reference_id=?) ORDER BY id",
-          [recordId],
-          'journal_lines',
-        ),
-        'cashboxes': await _globalIdsForQuery(
-          'SELECT id FROM cashboxes WHERE id=?',
-          [cashboxId],
-          'cashboxes',
-        ),
-      };
-    }
-    return const {};
-  }
-
   /// Sends immutable event IDs. Retrying a request can never create a second
   /// event-log entry because the server enforces (station_id,event_id).
   Future<void> push() async {
@@ -265,25 +142,23 @@ class SyncService {
           [row['id']],
         );
       }
-      if (table == 'irrigations' && recordId != null) {
-        final cloudRows = await db.query(
-          'SELECT start_datetime,end_datetime FROM cloud_periods WHERE irrigation_id=? ORDER BY start_datetime',
-          args: [recordId],
-        );
-        payload['cloud_periods'] = cloudRows.map((period) => {
-          'start_datetime': period['start_datetime'],
-          'end_datetime': period['end_datetime'],
-        }).toList();
-      }
-      if ((table == 'irrigations' || table == 'payments') && recordId != null) {
-        payload['_derived_global_ids'] =
-            await _derivedGlobalIds(table, recordId);
-        await db.update(
-          'sync_queue',
-          {'payload': jsonEncode(payload)},
-          'id=?',
-          [row['id']],
-        );
+      // New writes already snapshot this metadata in their transaction. Upgrade
+      // unsent legacy rows once, and persist BEFORE HTTP so retries stay identical.
+      if ((table == 'irrigations' || table == 'payments') &&
+          recordId != null && !payload.containsKey('_derived_global_ids')) {
+        if ((row['attempts'] as num?) != 0 || row['status'] == 'sending') {
+          await db.update('sync_queue', {
+            'status': 'failed',
+            'last_error': 'Legacy command may have been sent; reconcile before changing its payload.',
+          }, 'id=?', [row['id']]);
+          continue;
+        }
+        payload = Map<String, dynamic>.from(await db.transaction((tx) async {
+          final prepared = await BusinessSyncPayload(tx).prepare(table, recordId, payload);
+          await tx.update('sync_queue', {'payload': jsonEncode(prepared)},
+            where: 'id=?', whereArgs: [row['id']]);
+          return prepared;
+        }, captureSync: false));
       }
       final unresolved = payload['_unresolved_refs'];
       if (unresolved is Map && unresolved.isNotEmpty) {
@@ -327,6 +202,8 @@ class SyncService {
         final status = item['status'];
         final nextStatus = status == 'accepted' || status == 'duplicate'
             ? 'acknowledged'
+            : status == 'superseded'
+                ? 'resolved'
             : status == 'conflict'
                 ? 'conflict'
                 : status == 'rejected'

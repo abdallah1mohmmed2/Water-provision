@@ -1,5 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:saqia_station/api/api_client.dart';
+import 'package:saqia_station/services/sync_service.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -36,6 +40,9 @@ void main() {
   setUp(() async {
     const testBeneficiaries = "(SELECT id FROM beneficiaries WHERE name LIKE 'SYNC-TEST-%')";
     const testIrrigations = "(SELECT id FROM irrigations WHERE beneficiary_id IN $testBeneficiaries)";
+    const paymentEntries = "(SELECT id FROM journal_entries WHERE reference_type='payment' AND reference_id IN (SELECT id FROM payments WHERE beneficiary_id IN $testBeneficiaries))";
+    await database.delete('journal_lines', 'journal_entry_id IN $paymentEntries', const []);
+    await database.delete('journal_entries', 'id IN $paymentEntries', const []);
     await database.delete(
       'beneficiary_manual_debts',
       'beneficiary_id IN $testBeneficiaries',
@@ -250,7 +257,9 @@ void main() {
       solarRate: 1000,
       thirdRate: 0,
       cloudMinutes: 10,
-      paidAmount: 0,
+      paidAmount: 200,
+      paymentMethodId: 1,
+      cashboxId: 1,
       cloudPeriods: [
         {
           'start': now.add(const Duration(minutes: 10)).toIso8601String(),
@@ -262,7 +271,15 @@ void main() {
     final outbox = await database.query(
       'SELECT table_name FROM sync_queue ORDER BY id',
     );
-    expect(outbox.map((row) => row['table_name']).toList(), ['irrigations']);
+    expect(outbox.map((row) => row['table_name']).toList(), ['irrigations', 'payments']);
+    final command = (await database.query('sync_queue',
+      where: 'table_name=?', whereArgs: ['irrigations'])).single;
+    final payload = jsonDecode(command['payload'] as String) as Map;
+    expect(payload['paid_amount'], 0);
+    expect(payload['cloud_periods'], hasLength(1));
+    expect(payload['_derived_global_ids']['journal_entries'], isNotEmpty);
+    expect((await database.query('irrigations', where: 'id=?',
+      whereArgs: [irrigationId])).single['paid_amount'], 200);
 
     for (final relation in const [
       ('cloud_periods', 'irrigation_id'),
@@ -539,6 +556,62 @@ void main() {
     )).single;
     final payload = jsonDecode(update['payload'] as String) as Map<String, dynamic>;
     expect(payload['_global_id'], beneficiaryGlobalId);
+  });
+  test('receipt retry preserves its payload after a lost response and local changes', () async {
+    final now = DateTime.now().toIso8601String();
+    final beneficiaryId = await database.transaction((tx) => tx.insert('beneficiaries', {
+      'name': 'SYNC-TEST-retry', 'created_at': now, 'updated_at': now,
+    }), captureSync: false);
+    await AccountingService(database).receivePayment(beneficiaryId: beneficiaryId,
+      amount: 125, paymentMethodId: 1, cashboxId: 1);
+    final requests = <String>[];
+    final client = MockClient((request) async {
+      requests.add(request.body);
+      if (requests.length == 1) throw const SocketException('response lost after acceptance');
+      final body = jsonDecode(request.body) as Map;
+      return http.Response(jsonEncode({'results': [
+        for (final event in body['events']) {
+          'event_id': event['event_id'], 'status': 'duplicate', 'server_version': 1,
+        },
+      ]}), 200);
+    });
+    addTearDown(client.close);
+    final service = SyncService(ApiClient('http://test.invalid', client: client), database);
+    await expectLater(service.push(), throwsA(isA<ApiConnectionException>()));
+    // Simulate a later local accounting change before retry. Rebuilding the
+    // manifest here used to change the same event ID's HTTP payload.
+    await database.transaction((tx) async {
+      final payment = (await tx.query('payments', where: 'beneficiary_id=?',
+        whereArgs: [beneficiaryId])).single;
+      await tx.insert('journal_entries', {
+        'station_id': 1, 'date': now, 'reference_type': 'payment',
+        'reference_id': payment['id'], 'description': 'later local entry',
+        'status': 'draft', 'created_at': now,
+      });
+    }, captureSync: false);
+    await service.push();
+    expect(requests, hasLength(2));
+    expect(requests[1], requests[0]);
+    expect((await database.query('sync_queue')).single['status'], 'acknowledged');
+  });
+  test('superseded legacy child waits for Inbox before advancing its applied version', () async {
+    final client = MockClient((request) async {
+      final event = (jsonDecode(request.body)['events'] as List).single;
+      return http.Response(jsonEncode({'results': [{
+        'event_id': event['event_id'], 'status': 'superseded',
+        'server_version': 2, 'current_version': 2, 'message': 'covered by projection',
+      }]}), 200);
+    });
+    addTearDown(client.close);
+    final service = SyncService(ApiClient('http://test.invalid', client: client), database);
+    const globalId = 'dededede-dede-4ede-8ede-dededededede';
+    await service.enqueue('create', 'journal_entries', 987654, {
+      '_global_id': globalId, 'description': 'legacy child',
+    });
+    await service.push();
+    expect((await database.query('sync_queue')).single['status'], 'resolved');
+    expect(await database.query('sync_entity_versions', where: 'entity_key=?',
+      whereArgs: ['journal_entries:$globalId']), isEmpty);
   });
 
 }

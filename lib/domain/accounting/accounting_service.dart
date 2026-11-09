@@ -1898,7 +1898,7 @@ class AccountingService {
       date: date,
     );
     return id;
-  });
+  }, captureSyncTables: const {'expenses'});
 
   String _expenseAccount(String category) => switch (category) {
     'workers' => '5000',
@@ -1927,6 +1927,8 @@ class AccountingService {
         'expenses',
         {
           'status': 'cancelled',
+          'cancel_reason': reason.trim(),
+          'cancelled_at': AppClock.now().toIso8601String(),
           'notes': '${r.first['notes'] ?? ''}\nإلغاء: $reason',
         },
         where: 'id=?',
@@ -1957,7 +1959,7 @@ class AccountingService {
         oldValues: r.first,
         reason: reason,
       );
-    });
+    }, captureSyncTables: const {'expenses'});
   }
 
   Future<void> addDieselMovement({
@@ -2137,7 +2139,7 @@ class AccountingService {
           date: date,
         );
       }
-    });
+    }, captureSyncTables: const {'diesel_movements'});
   }
 
   Future<double> dieselStock() async {
@@ -2280,7 +2282,7 @@ class AccountingService {
       if (r.isEmpty) throw StateError('صندوق المصدر غير موجود أو غير مفعّل');
     }
     final id = await tx.insert('cashbox_transfers', {
-      'from_cashbox_id': from,
+      'from_cashbox_id': opening ? null : from,
       'to_cashbox_id': to,
       'amount': amount,
       'date': date.toIso8601String(),
@@ -2317,7 +2319,7 @@ class AccountingService {
       userId: userId,
       date: date,
     );
-  });
+  }, captureSyncTables: const {'cashbox_transfers'});
 
   Future<int> _accrueWorkerIrrigationTx(Transaction tx, {required int workerId, required int irrigationId,
     required int amount, required double hours, required DateTime date, int? userId}) async {
