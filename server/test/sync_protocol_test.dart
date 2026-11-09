@@ -1614,6 +1614,21 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT COUNT(*) AS n FROM journal_entries WHERE reference_type=\'diesel_receipt\'').single['n'],1);
     expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['d'],1000);
     expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['c'],1000);
+    final versionsBefore = database.select("SELECT version FROM sync_entity_versions WHERE entity_type='cashboxes'").single['version'];
+    final notesUpdate = await postEvents(stationOneToken,[{
+      'event_id':'abababab-abab-4bab-8bab-abababababaf',
+      'entity_type':'diesel_movements', 'entity_key':'diesel_movements:' + globalId,
+      'operation':'update', 'base_version':1,
+      'payload':{
+        '_global_id':globalId, 'kind':'receipt', 'liters':10.0, 'unit_price':100,
+        'amount':1000, 'cashbox_id':1, 'date':'2026-11-08T09:00:00.000', 'notes':'metadata only',
+        '_global_refs':{'cashbox_id':{'table':'cashboxes','global_id':cashboxGlobalId}},
+      },
+    }]);
+    expect((notesUpdate['results'] as List).single['status'],'accepted');
+    expect(database.select("SELECT version FROM sync_entity_versions WHERE entity_type='cashboxes'").single['version'],versionsBefore);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],1);
+
   });
 
   test('sync rejects diesel movement references from another station', () async {

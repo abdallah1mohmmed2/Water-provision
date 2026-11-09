@@ -760,6 +760,12 @@ class SaqiaServer {
       // Metadata-only updates have no new journal/cash movement. Their empty
       // manifest must not cause a second balance projection.
       if (hasIdentityManifest && requested('cashboxes')!.isEmpty) boxes.clear();
+      // A legacy notes-only update has no manifest either. Do not emit a
+      // balance version that its originating client would never receive.
+      if (!_hasTable('journal_entries') || db.select(
+          'SELECT 1 FROM journal_entries WHERE station_id=? AND id>? LIMIT 1',
+          [station, journalStart]).isEmpty) boxes.clear();
+
       append('cashboxes', boxes.isEmpty ? 'SELECT id FROM cashboxes WHERE 0' :
         'SELECT id FROM cashboxes WHERE station_id=? AND id IN (${List.filled(boxes.length, '?').join(',')}) ORDER BY id',
         boxes.isEmpty ? [] : [station, ...boxes]);
