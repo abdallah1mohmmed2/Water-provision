@@ -37,7 +37,7 @@ class SyncInboxApplier {
     'cash_reconciliations': 'accounting',
   };
 
-  static const _reserved = {'_global_id', '_global_refs', '_unresolved_refs', '_derived_global_ids', '_p1_effect_ids', '_p2_effect_ids', '_p2_replacement', '_command'};
+  static const _reserved = {'_global_id', '_global_refs', '_unresolved_refs', '_derived_global_ids', '_p1_effect_ids', '_p2_effect_ids', '_p2_replacement', '_p3c_batch', '_p3c_monthly_batch', '_command'};
   static const _localOnly = {'id', 'station_id', 'created_by', 'reference_id'};
   static const _noDelete = {
     'accounts', 'payments', 'expenses', 'cashbox_transfers', 'irrigations',
