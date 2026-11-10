@@ -2122,6 +2122,9 @@ test('legacy beneficiary rows receive a stable global identity on first API read
   test('P3c fixed salary batch is all-or-nothing across two workers and publishes every effect', () async {
     preparePartyDebtFixture();
     database.execute("ALTER TABLE workers ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'fixed'");
+    database.execute("ALTER TABLE workers ADD COLUMN fixed_salary INTEGER NOT NULL DEFAULT 0");
+    database.execute("UPDATE workers SET fixed_salary=1100 WHERE id=1");
+
     database.execute("INSERT INTO workers(id,station_id,name,active,pay_type) VALUES(3,1,'Worker C',1,'fixed')");
     database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'workers','33333333-aaaa-4aaa-8aaa-333333333333',3,'2026-11-08T00:00:00Z')");
     database.execute("INSERT INTO accounts(code,name,type) VALUES('5000','Worker Expense','expense')");
@@ -2217,6 +2220,33 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     final replayNewId=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
     replayNewId['event_id']='33333333-8888-4888-8888-333333333333';
     expect((await postEvents(stationOneToken,[replayNewId]))['results'].single['status'],'conflict');
+
+    // The standalone monthly UI must not accrue another salary for worker A.
+    final monthly=<String,dynamic>{
+      'event_id':'35353535-aaaa-4aaa-8aaa-353535353535',
+      'entity_type':'worker_transactions',
+      'entity_key':'worker_transactions:35353535-bbbb-4bbb-8bbb-353535353535',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':'35353535-bbbb-4bbb-8bbb-353535353535',
+        'type':'worker_entitlement','reference_type':'monthly_salary',
+        'reference_id':202611,'amount':1100,'rate_snapshot':1100,
+        'date':'2026-11-20T12:00:00.000',
+        '_global_refs':{
+          'worker_id':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+        },
+        '_derived_global_ids':{
+          'journal_entries':['35353535-1111-4111-8111-353535353535'],
+          'journal_lines':[
+            '35353535-2222-4222-8222-353535353535',
+            '35353535-3333-4333-8333-353535353535',
+          ],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+    expect((await postEvents(stationOneToken,[monthly]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
 
     // A new UUID and a renamed batch key must not post the same salary month.
     final renamed=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
