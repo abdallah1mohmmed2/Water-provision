@@ -1583,6 +1583,20 @@ class SaqiaServer {
     ).isNotEmpty) {
       throw StateError('استحقاق هذا الشهر مسجل مسبقاً للعامل');
     }
+    // Historical rows may predate the monthly_salary reference key. Preserve
+    // the local service's second duplicate guard against an old posted journal.
+    final periodStart = DateTime(year, month, 1).toIso8601String();
+    final periodEnd = DateTime(year, month + 1, 1).toIso8601String();
+    if (db.select(
+      """SELECT 1 FROM journal_entries je
+         JOIN journal_lines jl ON jl.journal_entry_id=je.id
+         WHERE je.station_id=? AND je.reference_type='worker'
+           AND je.description='راتب العامل الشهري'
+           AND jl.worker_id=? AND je.date>=? AND je.date<? LIMIT 1""",
+      [station,workerId,periodStart,periodEnd],
+    ).isNotEmpty) {
+      throw StateError('قيد راتب الشهر موجود مسبقاً في السجلات التاريخية');
+    }
     if (_hasTable('period_closures')) {
       final cols = db.select('PRAGMA table_info(period_closures)')
           .map((row) => row['name'].toString()).toSet();
