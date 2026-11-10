@@ -57,12 +57,6 @@ void main() {
     final worker = (await db.query(
       "SELECT id FROM workers WHERE name='P3a isolated worker'",
     )).single['id'] as int;
-    final workerUuid = (await db.query(
-      'sync_global_identities',
-      columns: ['global_id'],
-      where: 'table_name=? AND local_id=?',
-      whereArgs: ['workers', worker],
-    )).single['global_id'] as String;
     final initialCash = (await db.query('cashboxes', where: 'id=1'))
         .single['current_balance'];
     await db.close();
@@ -98,17 +92,8 @@ void main() {
       return client;
     }
 
-    // The fixture starts from an existing station snapshot. Register the
-    // worker UUID explicitly; no numeric ID from another device is trusted.
-    final authority = await databaseFactory.openDatabase(serverFile.path);
-    await authority.insert('sync_entity_links', {
-      'station_id': 1,
-      'entity_type': 'workers',
-      'global_id': workerUuid,
-      'local_id': worker,
-      'created_at': DateTime.now().toUtc().toIso8601String(),
-    });
-    await authority.close();
+    // p0_fixture_server registers verified UUID mappings from the copied
+    // sync_global_identities table. Do not create a duplicate worker link.
 
     SyncService sync(ApiClient client) => SyncService.withInboxHandler(
       client, database: db, applyIncoming: SyncInboxApplier.apply,
