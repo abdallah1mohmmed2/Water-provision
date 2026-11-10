@@ -37,7 +37,7 @@ class SyncInboxApplier {
     'cash_reconciliations': 'accounting',
   };
 
-  static const _reserved = {'_global_id', '_global_refs', '_unresolved_refs', '_derived_global_ids', '_p1_effect_ids', '_p2_effect_ids', '_p2_replacement', '_p3c_batch', '_p3c_monthly_batch', '_command'};
+  static const _reserved = {'_global_id', '_global_refs', '_unresolved_refs', '_derived_global_ids', '_p1_effect_ids', '_p2_effect_ids', '_p2_replacement', '_p3c_batch', '_p3c_monthly_batch', '_p3d_distribution', '_command'};
   static const _localOnly = {'id', 'station_id', 'created_by', 'reference_id'};
   static const _noDelete = {
     'accounts', 'payments', 'expenses', 'cashbox_transfers', 'irrigations',
@@ -248,9 +248,19 @@ class SyncInboxApplier {
         final referenceType = '${payload['reference_type'] ?? ''}';
         // This field is a YYYYMM business key for monthly worker salaries,
         // not a foreign key. Keep it on every peer for duplicate prevention.
-        if (table == 'worker_transactions' &&
-            referenceType == 'monthly_salary') {
+        if ((table == 'worker_transactions' &&
+             referenceType == 'monthly_salary') ||
+            (table == 'partner_transactions' &&
+             referenceType == 'profit_distribution')) {
           final monthKey = entry.value;
+          if (table == 'partner_transactions') {
+            if (monthKey is! int || monthKey < 946684800000 ||
+                monthKey > 7258118400000) {
+              throw StateError('مرجع فترة توزيع الأرباح الوارد غير صالح');
+            }
+            values[column] = monthKey;
+            continue;
+          }
           if (monthKey is! int || monthKey ~/ 100 < 2000 ||
               monthKey ~/ 100 > 2200 || monthKey % 100 < 1 ||
               monthKey % 100 > 12) {
