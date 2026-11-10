@@ -2050,4 +2050,72 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT * FROM partner_transactions'),hasLength(1));
   });
 
+
+  test('P3c monthly salary command uses the server fixed salary and one month key', () async {
+    preparePartyDebtFixture();
+    database.execute("ALTER TABLE workers ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'fixed'");
+    database.execute("ALTER TABLE workers ADD COLUMN fixed_salary INTEGER NOT NULL DEFAULT 0");
+    database.execute("UPDATE workers SET fixed_salary=1900 WHERE id=1");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('5000','Worker expense','expense')");
+    const gid='22222222-3333-4333-8333-222222222222';
+    final event=<String,dynamic>{
+      'event_id':'22222222-4444-4444-8444-222222222222',
+      'entity_type':'worker_transactions',
+      'entity_key':'worker_transactions:$gid',
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':gid,'worker_id':1,'type':'worker_entitlement',
+        'reference_type':'monthly_salary','reference_id':202611,
+        'date':'2026-11-10T10:00:00.000','amount':1900,
+        'rate_snapshot':1900,
+        '_global_refs':{
+          'worker_id':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+        },
+        '_derived_global_ids':{
+          'journal_entries':['22222222-5555-4555-8555-222222222222'],
+          'journal_lines':[
+            '22222222-6666-4666-8666-222222222222',
+            '22222222-7777-4777-8777-222222222222',
+          ],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+    final altered=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    altered['payload']['amount']=2000;
+    expect((await postEvents(stationOneToken,[altered]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT * FROM worker_transactions'),isEmpty);
+    final received=await postEvents(stationOneToken,[event]);
+    expect((received['results'] as List).single['status'],'accepted');
+    final rows=database.select("SELECT * FROM worker_transactions WHERE reference_type='monthly_salary'");
+    expect(rows,hasLength(1));
+    expect(rows.single['reference_id'],202611);
+    final journal=database.select("SELECT id FROM journal_entries WHERE reference_type='worker' AND reference_id=?",[rows.single['id']]);
+    expect(journal,hasLength(1));
+    final lines=database.select("SELECT debit,credit FROM journal_lines WHERE journal_entry_id=?",[journal.single['id']]);
+    expect(lines.length,2);
+    expect(lines.fold<int>(0,(v,r)=>v+(r['debit'] as num).toInt()),1900);
+    expect(lines.fold<int>(0,(v,r)=>v+(r['credit'] as num).toInt()),1900);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'duplicate');
+    final otherMonthEvent=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    otherMonthEvent['event_id']='22222222-8888-4888-8888-222222222222';
+    otherMonthEvent['entity_key']='worker_transactions:22222222-9999-4999-8999-222222222222';
+    otherMonthEvent['payload']['_global_id']='22222222-9999-4999-8999-222222222222';
+    expect((await postEvents(stationOneToken,[otherMonthEvent]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT * FROM worker_transactions'),hasLength(1));
+    final foreign=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    foreign['event_id']='22222222-aaaa-4aaa-8aaa-222222222222';
+    foreign['entity_key']='worker_transactions:22222222-bbbb-4bbb-8bbb-222222222222';
+    foreign['payload']['_global_id']='22222222-bbbb-4bbb-8bbb-222222222222';
+    expect((await postEvents(stationTwoToken,[foreign]))['results'].single['status'],'rejected');
+    final origin=await getInbox(stationOneToken,device:'device-a');
+    expect((origin['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),
+      ['journal_entries','journal_lines','journal_lines']);
+    final peer=await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),
+      ['worker_transactions','journal_entries','journal_lines','journal_lines']);
+  });
+
 }
