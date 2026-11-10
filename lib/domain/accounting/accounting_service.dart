@@ -2642,7 +2642,7 @@ class AccountingService {
           'rate_snapshot': amount,
           'percentage_snapshot': 0,
           'amount': amount,
-          'notes': '$periodKey | استحقاق راتب ثابت للفترة $periodLabel | العامل: ${workersById[workerId]?['name'] ?? ''}',
+          'notes': '$periodKey | استحقاق راتب ثابت للفترة $periodLabel | العامل: ${workersById[workerId]?['name'] ?? ''} | P3C_RANGE:${start.toIso8601String().substring(0, 10)}:${endExclusive.toIso8601String().substring(0, 10)}',
           'created_by': userId,
         });
         if (rootIds['worker_transactions']!.isEmpty) {
