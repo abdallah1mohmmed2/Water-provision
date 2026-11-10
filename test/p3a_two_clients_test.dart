@@ -29,11 +29,11 @@ void main() {
         client.client.close();
       }
       if (process != null) {
-        await process!.stdin.close();
-        await process!.exitCode.timeout(
+        await process.stdin.close();
+        await process.exitCode.timeout(
           const Duration(seconds: 10),
           onTimeout: () {
-            process!.kill();
+            process.kill();
             return -1;
           },
         );
@@ -76,13 +76,13 @@ void main() {
     );
     final ready = Completer<Map<String, dynamic>>();
     final errors = StringBuffer();
-    process!.stderr.transform(utf8.decoder).listen(errors.write);
-    process!.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
+    process.stderr.transform(utf8.decoder).listen(errors.write);
+    process.stdout.transform(utf8.decoder).transform(const LineSplitter()).listen((line) {
       if (line.startsWith('{') && !ready.isCompleted) {
         ready.complete(jsonDecode(line) as Map<String, dynamic>);
       }
     });
-    process!.exitCode.then((exit) {
+    process.exitCode.then((exit) {
       if (!ready.isCompleted) {
         ready.completeError(StateError('fixture exited $exit: $errors'));
       }
