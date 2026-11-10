@@ -265,7 +265,7 @@ void main() {
             'SELECT kind,COUNT(*) n,ROUND(SUM(liters),6) liters,SUM(amount) amount FROM diesel_movements GROUP BY kind ORDER BY kind',
           ),
           'irrigation': await db.query(
-            'SELECT start_datetime,end_datetime,total_amount,status FROM irrigations',
+            'SELECT start_datetime,end_datetime,total_amount,paid_amount,status FROM irrigations',
           ),
         };
         Map<String, dynamic> event(Map<String, Object?> row) => {
@@ -278,6 +278,23 @@ void main() {
           'payload': jsonDecode(row['payload'] as String),
         };
         await settle(first);
+        final initialState = await financialState();
+        await db.close();
+        await databaseFactory.setDatabasesPath(peer.path);
+        await db.db;
+        await db.transaction((tx) async {
+          await tx.insert('beneficiaries', {
+            'name': 'initial unrelated peer',
+            'created_at': now.toIso8601String(),
+            'updated_at': now.toIso8601String(),
+          });
+        }, captureSync: false);
+        await settle(sync(newClient()));
+        expect(await financialState(), initialState);
+        await db.close();
+        await databaseFactory.setDatabasesPath(origin.path);
+        await db.db;
+
         await db.transaction((tx) async {
           await tx.update(
             'settings',

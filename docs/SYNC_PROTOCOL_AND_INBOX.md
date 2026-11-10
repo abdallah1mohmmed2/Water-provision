@@ -209,3 +209,10 @@ module; a parity test requires byte equality. The P1 server adapter mirrors the
 existing local edit/cancel rules and uses the outer sync savepoint. Real two-client
 tests exercise both implementations, including repeated edits, rollback,
 replay, stale versions, cloud clipping, price snapshots and final reversal.
+
+When a linked receipt reaches a peer, Inbox recomputes the irrigation's
+`paid_amount` from its posted, durably linked receipts in the same transaction.
+This is a derived total: it does not enqueue another command or bump the root
+version. The initial creation payload deliberately has zero paid amount because
+receipt posting is separate. The P1 test verifies peer equality immediately
+after creation/receipt, before any edit, as well as after edit/cancellation.

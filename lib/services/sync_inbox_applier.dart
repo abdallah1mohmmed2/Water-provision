@@ -465,6 +465,16 @@ class SyncInboxApplier {
       appliedLocalId = localId;
     }
 
+    if (table == 'payments' && values['irrigation_id'] != null) {
+      // P0 creates the irrigation with paid_amount=0 and sends its receipt as
+      // a separate command. Rebuild this display/validation total from durable
+      // links, without creating another event or increasing the root version.
+      await tx.rawUpdate(
+        "UPDATE irrigations SET paid_amount=(SELECT COALESCE(SUM(amount),0) FROM payments WHERE irrigation_id=? AND status='posted') WHERE id=?",
+        [values['irrigation_id'], values['irrigation_id']],
+      );
+    }
+
     if (table == 'journal_entries') {
       final command = payload['_command'];
       if (command is Map) {
