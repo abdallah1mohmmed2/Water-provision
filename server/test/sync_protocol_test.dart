@@ -1969,4 +1969,85 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT id FROM worker_transactions'),hasLength(1));
   });
 
+
+  test('P3b standalone partner share creates balanced equity journal and preserves station privacy', () async {
+    preparePartyDebtFixture();
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('3200','Partner Equity','equity')");
+    const id = '12121212-1212-4212-8212-121212121212';
+    final evt = <String,dynamic>{
+      'event_id':'13131313-1313-4313-8313-131313131313',
+      'entity_type':'partner_transactions',
+      'entity_key':'partner_transactions:$id',
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':id,
+        'partner_id':1,
+        'type':'share_accrual',
+        'reference_type':'standalone_share',
+        'reference_id':null,
+        'amount':1200,
+        'ownership_snapshot':40,
+        'date':'2026-11-10T10:00:00.000',
+        '_global_refs':{
+          'partner_id':{'table':'partners','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+        '_derived_global_ids':{
+          'journal_entries':['14141414-1414-4414-8414-141414141414'],
+          'journal_lines':['15151515-1515-4515-8515-151515151515','16161616-1616-4616-8616-161616161616'],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+    final broken = jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    (broken['payload']['_derived_global_ids']['journal_lines'] as List).removeLast();
+    final rejected = await postEvents(stationOneToken,[broken]);
+    expect((rejected['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT * FROM partner_transactions'),isEmpty);
+    expect(database.select('SELECT * FROM journal_entries'),isEmpty);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+
+    final result=await postEvents(stationOneToken,[evt]);
+    expect((result['results'] as List).single['status'],'accepted');
+    final rows=database.select("SELECT * FROM partner_transactions WHERE reference_type='standalone_share'");
+    expect(rows,hasLength(1));
+    expect(rows.single['amount'],1200);
+    final journals=database.select("SELECT * FROM journal_entries WHERE reference_type='partner' AND reference_id=?",[rows.single['id']]);
+    expect(journals,hasLength(1));
+    final lines=database.select('SELECT debit,credit FROM journal_lines WHERE journal_entry_id=?',[journals.single['id']]);
+    expect(lines,hasLength(2));
+    expect(lines.fold<int>(0,(n,r)=>n+(r['debit'] as num).toInt()),1200);
+    expect(lines.fold<int>(0,(n,r)=>n+(r['credit'] as num).toInt()),1200);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+    final origin=await getInbox(stationOneToken,device:'device-a');
+    expect((origin['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),['journal_entries','journal_lines','journal_lines']);
+    final peer=await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),['partner_transactions','journal_entries','journal_lines','journal_lines']);
+
+    final replay=await postEvents(stationOneToken,[evt]);
+    expect((replay['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT * FROM journal_entries'),hasLength(1));
+    final stale=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    stale['event_id']='17171717-1717-4717-8717-171717171717';
+    final conflict=await postEvents(stationOneToken,[stale]);
+    expect((conflict['results'] as List).single['status'],'conflict');
+
+    final foreign=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    foreign['event_id']='18181818-1818-4818-8818-181818181818';
+    foreign['entity_key']='partner_transactions:19191919-1919-4919-8919-191919191919';
+    foreign['payload']['_global_id']='19191919-1919-4919-8919-191919191919';
+    final foreignResult=await postEvents(stationTwoToken,[foreign]);
+    expect((foreignResult['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT * FROM journal_entries'),hasLength(1));
+
+    final periodic=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    periodic['event_id']='20202020-2020-4020-8020-202020202020';
+    periodic['entity_key']='partner_transactions:21212121-2121-4121-8121-212121212121';
+    periodic['payload']['_global_id']='21212121-2121-4121-8121-212121212121';
+    periodic['payload']['reference_type']='profit_distribution';
+    final noPeriodic=await postEvents(stationOneToken,[periodic]);
+    expect((noPeriodic['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT * FROM partner_transactions'),hasLength(1));
+  });
+
 }
