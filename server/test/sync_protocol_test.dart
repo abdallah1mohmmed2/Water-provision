@@ -2492,4 +2492,71 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect((await postEvents(stationTwoToken,[foreign]))['results'].single['status'],'rejected');
   });
 
+
+  test('P3d preserves historic irrigation share while reversing only the excess', () async {
+    preparePartyDebtFixture();
+    database.execute("ALTER TABLE partners ADD COLUMN ownership_mode TEXT NOT NULL DEFAULT 'shares'");
+    database.execute("ALTER TABLE partners ADD COLUMN ownership_percentage REAL NOT NULL DEFAULT 0");
+    database.execute("ALTER TABLE partners ADD COLUMN shares_count REAL NOT NULL DEFAULT 1");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('3200','Partner equity','equity')");
+    database.execute("CREATE TABLE irrigations(id INTEGER PRIMARY KEY,station_id INTEGER,status TEXT)");
+    database.execute("INSERT INTO irrigations(id,station_id,status) VALUES(10,1,'completed')");
+    database.execute("""INSERT INTO partner_transactions
+      (id,partner_id,station_id,date,type,amount,reference_type,reference_id,created_by)
+      VALUES(10,1,1,'2026-11-15T10:00:00.000','share_accrual',500,'irrigation_profit',10,11)""");
+    const originalId='61616161-aaaa-4aaa-8aaa-616161616161';
+    database.execute("""INSERT INTO sync_entity_links
+      (station_id,entity_type,global_id,local_id,created_at)
+      VALUES(1,'partner_transactions',?,10,'2026-11-08T00:00:00Z')""",[originalId]);
+    const rootId='61616161-bbbb-4bbb-8bbb-616161616161';
+    final evt=<String,dynamic>{
+      'event_id':'61616161-cccc-4ccc-8ccc-616161616161',
+      'entity_type':'partner_transactions',
+      'entity_key':'partner_transactions:$rootId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':rootId,'type':'share_adjustment','amount':500,
+        'reference_type':'partner_profit_adjustment','reference_id':10,
+        'date':'2026-11-30T23:59:59.999999',
+        '_global_refs':{
+          'partner_id':{'table':'partners','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+          'reference_id':{'table':'partner_transactions','global_id':originalId},
+        },
+        '_p3d_distribution':{
+          'period_from':'2026-11-01','period_end_exclusive':'2026-12-01',
+          'members':[{
+            'global_id':rootId,
+            'partner_ref':{'table':'partners','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+            'type':'share_adjustment',
+            'reference_type':'partner_profit_adjustment',
+            'original_global_id':originalId,
+            'reference_id':null,'amount':500,'ownership_snapshot':null,
+          }],
+        },
+        '_derived_global_ids':{
+          'journal_entries':['61616161-1111-4111-8111-616161616161'],
+          'journal_lines':[
+            '61616161-2222-4222-8222-616161616161',
+            '61616161-3333-4333-8333-616161616161',
+          ],
+          'cashboxes':[],
+        },
+      },
+    };
+    expect((await postEvents(stationOneToken,[evt]))['results'].single['status'],'accepted');
+    expect(database.select("SELECT id,amount FROM partner_transactions WHERE reference_type='irrigation_profit'"),hasLength(1));
+    final adjustments=database.select("SELECT amount,reference_id FROM partner_transactions WHERE reference_type='partner_profit_adjustment'");
+    expect(adjustments,hasLength(1));
+    expect(adjustments.single['amount'],500);
+    expect(adjustments.single['reference_id'],10);
+    final journal=database.select("SELECT id FROM journal_entries WHERE reference_type='partner_profit_adjustment'");
+    expect(journal,hasLength(1));
+    final sums=database.select("SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines WHERE journal_entry_id=?",[journal.single['id']]).single;
+    expect(sums['debit'],500);
+    expect(sums['credit'],500);
+    expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='profit_distribution'"),isEmpty);
+    expect((await postEvents(stationOneToken,[evt]))['results'].single['status'],'duplicate');
+    expect(database.select("SELECT id FROM journal_entries WHERE reference_type='partner_profit_adjustment'"),hasLength(1));
+  });
+
 }
