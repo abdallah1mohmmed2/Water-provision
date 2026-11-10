@@ -125,7 +125,7 @@ void main() {
     final command = <String, Object?>{
       'event_id': pending['event_id'],
       'entity_type': 'partner_transactions',
-      'entity_key': 'worker_transactions:${payload['_global_id']}',
+      'entity_key': 'partner_transactions:${payload['_global_id']}',
       'operation': 'create',
       'base_version': pending['base_version'],
       'payload': payload,
@@ -149,7 +149,7 @@ void main() {
       if (await sender.applyInbox() == 0) break;
     }
     final localRows = await db.query(
-      "SELECT type,amount,reference_type FROM worker_transactions WHERE reference_type='standalone_share'",
+      "SELECT type,amount,reference_type FROM partner_transactions WHERE reference_type='standalone_share'",
     );
     expect(localRows, hasLength(1));
     expect(localRows.single['amount'], 1200);
@@ -185,7 +185,7 @@ void main() {
       if (await receiver.applyInbox() == 0) break;
     }
     final peerRows = await db.query(
-      "SELECT type,amount,reference_type FROM worker_transactions WHERE reference_type='standalone_share'",
+      "SELECT type,amount,reference_type FROM partner_transactions WHERE reference_type='standalone_share'",
     );
     expect(peerRows, localRows);
     expect((await db.query('cashboxes', where: 'id=1')).single['current_balance'], initialCash);
