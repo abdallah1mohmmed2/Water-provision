@@ -68,10 +68,10 @@ void main() {
       });
     },captureSync:false);
     await GlobalIdentity.ensure(await db.db);
-    final workers = await db.query(
+    final partners = await db.query(
       "SELECT id FROM partners WHERE name LIKE 'P3d partner %' ORDER BY id",
     );
-    expect(workers,hasLength(2));
+    expect(partners,hasLength(2));
     final initialCash = (await db.query('cashboxes', where: 'id=1'))
         .single['current_balance'];
     await db.close();
@@ -138,7 +138,7 @@ void main() {
     final command = <String, Object?>{
       'event_id': pending['event_id'],
       'entity_type': 'partner_transactions',
-      'entity_key': 'worker_transactions:${payload['_global_id']}',
+      'entity_key': 'partner_transactions:${payload['_global_id']}',
       'operation': 'create',
       'base_version': pending['base_version'],
       'payload': payload,
@@ -162,7 +162,7 @@ void main() {
       if (await sender.applyInbox() == 0) break;
     }
     final localRows = await db.query(
-      "SELECT type,amount,reference_type FROM worker_transactions WHERE reference_type='profit_distribution'",
+      "SELECT type,amount,reference_type,reference_id FROM partner_transactions WHERE reference_type='profit_distribution' ORDER BY amount",
     );
     expect(localRows, hasLength(2));
     expect(localRows.every((row)=>row['reference_id']==DateTime(2090,4,1).millisecondsSinceEpoch),isTrue);
@@ -199,7 +199,7 @@ void main() {
       if (await receiver.applyInbox() == 0) break;
     }
     final peerRows = await db.query(
-      "SELECT type,amount,reference_type FROM worker_transactions WHERE reference_type='profit_distribution'",
+      "SELECT type,amount,reference_type,reference_id FROM partner_transactions WHERE reference_type='profit_distribution' ORDER BY amount",
     );
     expect(peerRows, localRows);
     expect(peerRows.every((row)=>row['reference_id']==DateTime(2090,4,1).millisecondsSinceEpoch),isTrue);
