@@ -148,9 +148,9 @@ void main() {
     };
     final tampered = jsonDecode(jsonEncode(command)) as Map<String, dynamic>;
     (tampered['payload']['_derived_global_ids']['journal_lines'] as List).removeLast();
-    final device = 'p3a-origin';
+    const probeDevice = 'p3a-invalid-probe';
     final damagedResult = await api.post('/sync/events', {
-      'device_id': device,
+      'device_id': probeDevice,
       'events': [tampered],
     }) as Map;
     expect((damagedResult['results'] as List).single['status'], 'rejected');
@@ -175,8 +175,11 @@ void main() {
     )).single['n'];
     expect(rootCount, 1);
 
+    final actualDevice = (await db.query(
+      'sync_metadata', where: 'key=?', whereArgs: ['device_id'],
+    )).single['value'] as String;
     final replay = await api.post('/sync/events', {
-      'device_id': device,
+      'device_id': actualDevice,
       'events': [command],
     }) as Map;
     expect((replay['results'] as List).single['status'], 'duplicate');
@@ -186,10 +189,10 @@ void main() {
     await db.db;
     // Independent device identity, even though the starter DB is a copy.
     await db.transaction((tx) async {
-      await tx.insert('sync_metadata', {
-        'key': 'device_id',
-        'value': 'p3a-peer-unique-device',
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await tx.rawInsert(
+        'INSERT OR REPLACE INTO sync_metadata(key,value) VALUES(?,?)',
+        ['device_id', 'p3a-peer-unique-device'],
+      );
     }, captureSync: false);
     final receiver = sync(newClient());
     await receiver.pull();
