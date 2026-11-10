@@ -754,6 +754,35 @@ class SaqiaServer {
         'SELECT id FROM cashboxes WHERE id=? AND station_id=?',
         [cashboxId, station]);
     }
+    // The fixed-salary batch has one Outbox root and N-1 subordinate worker
+    // rows. Publish those rows to the origin as well as peers so local IDs
+    // are reconciled by UUID rather than by unrelated integer IDs.
+    if (entityType == 'worker_transactions' && payload['_p3c_batch'] is Map) {
+      final batch = payload['_p3c_batch'] as Map;
+      final members = batch['members'];
+      if (members is! List || members.isEmpty) {
+        throw StateError('قائمة عمال دفعة الاستحقاقات مفقودة');
+      }
+      final uuids = members.skip(1).map((m) {
+        if (m is! Map || m['global_id'] is! String) {
+          throw StateError('هوية عامل تابع في الدفعة غير صالحة');
+        }
+        return m['global_id'] as String;
+      }).toList();
+      if (uuids.isNotEmpty) {
+        _appendSyncProjectionQuery(
+          station:station,sourceDevice:sourceDevice,
+          publishToOrigin:true,now:now,table:'worker_transactions',
+          sql:'''SELECT local_id AS id FROM sync_entity_links
+                 WHERE station_id=? AND entity_type='worker_transactions'
+                   AND global_id IN (${List.filled(uuids.length,'?').join(',')})
+                 ORDER BY local_id''',
+          args:[station,...uuids],
+          requestedIds:uuids,
+          command:{'table':entityType,'global_id':payload['_global_id']},
+        );
+      }
+    }
     if (const {'expenses','cashbox_transfers','diesel_movements',
         'beneficiary_manual_debts','worker_transactions','partner_transactions'}.contains(entityType)) {
       append('journal_entries',
