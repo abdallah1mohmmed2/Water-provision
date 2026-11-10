@@ -2692,6 +2692,7 @@ class AccountingService {
       'worker_id': workerId,
       'date': date.toIso8601String(),
       'type': 'accrual',
+      'reference_type': 'standalone_accrual',
       'hours': hours,
       'rate_snapshot': rateSnapshot,
       'percentage_snapshot': percentageSnapshot,
