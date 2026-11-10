@@ -2489,6 +2489,7 @@ class AccountingService {
     final start = DateTime(from.year, from.month, from.day);
     final endExclusive = DateTime(to.year, to.month, to.day + 1);
     if (!endExclusive.isAfter(start)) throw ArgumentError('نهاية فترة التوزيع يجب أن تكون بعد بدايتها');
+    final syncRootIds = <String, Set<int>>{'partner_transactions': <int>{}};
     return database.transaction((tx) async {
       final stationId = await _selectedStationIdTx(tx);
       await _assertPeriodRangeOpen(tx, start, endExclusive, stationId: stationId);
@@ -2547,9 +2548,12 @@ class AccountingService {
             'amount': correction,
             'reference_type': 'partner_profit_adjustment',
             'reference_id': (row['id'] as num).toInt(),
-            'notes': 'تسوية فائض استحقاق مباشر حتى لا يتجاوز صافي ربح الفترة',
+            'notes': 'تسوية فائض استحقاق مباشر حتى لا يتجاوز صافي ربح الفترة | P3D_RANGE:${start.toIso8601String().substring(0, 10)}:${endExclusive.toIso8601String().substring(0, 10)}',
             'created_by': userId,
           });
+          if (syncRootIds['partner_transactions']!.isEmpty) {
+            syncRootIds['partner_transactions']!.add(adjustmentId);
+          }
           final payable = await _partnerAccountIdTx(tx, partnerId);
           await _entry(
             tx,
@@ -2590,8 +2594,12 @@ class AccountingService {
               : p['shares_count'],
           'reference_type': 'profit_distribution',
           'reference_id': distributionRef,
+          'notes': 'P3D_RANGE:${start.toIso8601String().substring(0, 10)}:${endExclusive.toIso8601String().substring(0, 10)}',
           'created_by': userId,
         });
+        if (syncRootIds['partner_transactions']!.isEmpty) {
+          syncRootIds['partner_transactions']!.add(id);
+        }
         final eq = await _accountIdTx(tx, '3200');
         final payable = await _partnerAccountIdTx(tx, partnerId);
         await _entry(
@@ -2610,7 +2618,8 @@ class AccountingService {
         count++;
       }
       return count;
-    });
+    }, captureSyncTables: const {'partner_transactions'},
+       captureSyncRecordIds: syncRootIds);
   }
 
   /// يسجل استحقاقات العمال الثابتة دفعة واحدة داخل معاملة واحدة لمنع الترحيل الجزئي.
