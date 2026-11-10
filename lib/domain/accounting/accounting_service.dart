@@ -2657,7 +2657,7 @@ class AccountingService {
           throw StateError('أحد العمال المحددين غير نشط أو ليس من فئة الراتب الثابت؛ لم يتم ترحيل أي مبلغ.');
         }
         final duplicate = await tx.rawQuery(
-          "SELECT 1 FROM worker_transactions WHERE worker_id=? AND (notes LIKE ? OR (reference_type IN ('monthly_salary','fixed_salary_batch') AND date>=? AND date<?)) LIMIT 1",
+          "SELECT 1 FROM worker_transactions WHERE worker_id=? AND (notes LIKE ? OR ((reference_type IN ('monthly_salary','fixed_salary_batch') OR notes LIKE '%استحقاق راتب ثابت للفترة%') AND date>=? AND date<?)) LIMIT 1",
           [entry.key, '%$periodKey%', start.toIso8601String(), endExclusive.toIso8601String()],
         );
         if (duplicate.isNotEmpty) {
