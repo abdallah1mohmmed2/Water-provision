@@ -9,6 +9,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:uuid/uuid.dart';
 import 'password_hasher.dart';
 import 'irrigation_calculations.dart';
+import '../../lib/domain/accounting/calculations.dart' show AccountingCalculations;
 part 'irrigation_mutations.dart';
 part 'payment_mutations.dart';
 
@@ -546,7 +547,11 @@ class SaqiaServer {
     final payload = <String, Object?>{
       for (final column in columns)
         if (!const {'id', 'station_id', 'created_by'}.contains(column) &&
-            (column != 'reference_id' || refs.containsKey('reference_id')))
+            (column != 'reference_id' || refs.containsKey('reference_id') ||
+             (table == 'partner_transactions' &&
+              row['reference_type'] == 'profit_distribution') ||
+             (table == 'worker_transactions' &&
+              row['reference_type'] == 'monthly_salary')))
           column: row[column],
       '_global_id': globalId,
       if (command != null && table == 'journal_entries') '_command': command,
@@ -782,6 +787,32 @@ class SaqiaServer {
                  ORDER BY local_id''',
           args:[station,...uuids],
           requestedIds:uuids,
+          command:{'table':entityType,'global_id':payload['_global_id']},
+        );
+      }
+    }
+    if (entityType == 'partner_transactions' &&
+        payload['_p3d_distribution'] is Map) {
+      final members = (payload['_p3d_distribution'] as Map)['members'];
+      if (members is! List || members.isEmpty) {
+        throw StateError('قائمة حركات أرباح الشركاء غير صالحة');
+      }
+      final derivedIds = members.skip(1).map((member) {
+        if (member is! Map || member['global_id'] is! String) {
+          throw StateError('هوية حركة أرباح غير صالحة');
+        }
+        return member['global_id'] as String;
+      }).toList();
+      if (derivedIds.isNotEmpty) {
+        _appendSyncProjectionQuery(
+          station:station,sourceDevice:sourceDevice,publishToOrigin:true,
+          now:now,table:'partner_transactions',
+          sql:'''SELECT local_id AS id FROM sync_entity_links
+                 WHERE station_id=? AND entity_type='partner_transactions'
+                   AND global_id IN (${List.filled(derivedIds.length,'?').join(',')})
+                 ORDER BY local_id''',
+          args:[station,...derivedIds],
+          requestedIds:derivedIds,
           command:{'table':entityType,'global_id':payload['_global_id']},
         );
       }
@@ -2121,6 +2152,288 @@ class SaqiaServer {
       [station,globalId,id,now]);
   }
 
+
+  /// P3d periodic distribution is a single financially-authoritative command.
+  /// Both adjustment reversals and new shares are posted inside one sync SAVEPOINT.
+  void _applySyncPartnerProfitDistribution({
+    required int station, required String entityKey, required String operation,
+    required Map payload, required String now, required int? userId,
+    required String? role,
+  }) {
+    if (operation != 'create' || role != 'manager' && role != 'accountant' ||
+        userId == null || _stationForUser(userId) != station) {
+      throw StateError('توزيع الأرباح يتطلب صلاحية محاسب أو مدير داخل المحطة');
+    }
+    final uuid = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+    );
+    final rootId = (payload['_global_id'] ?? '').toString();
+    if (!uuid.hasMatch(rootId) || entityKey != 'partner_transactions:$rootId') {
+      throw StateError('هوية أمر توزيع الأرباح غير صالحة');
+    }
+    final batch = payload['_p3d_distribution'];
+    final manifest = payload['_derived_global_ids'];
+    if (batch is! Map || manifest is! Map || batch['members'] is! List ||
+        batch['period_from'] is! String || batch['period_end_exclusive'] is! String) {
+      throw StateError('بيانات توزيع الأرباح أو بيان القيود التابعة مفقودة');
+    }
+    final members = batch['members'] as List;
+    if (members.isEmpty || members.length > 100) {
+      throw StateError('حجم أمر توزيع الأرباح غير صالح');
+    }
+    final fromText = batch['period_from'] as String;
+    final untilText = batch['period_end_exclusive'] as String;
+    final dayPattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+    if (!dayPattern.hasMatch(fromText) || !dayPattern.hasMatch(untilText)) {
+      throw StateError('صيغة فترة الأرباح غير صالحة');
+    }
+    final from = DateTime.tryParse(fromText);
+    final until = DateTime.tryParse(untilText);
+    if (from == null || until == null || !until.isAfter(from) ||
+        from.toIso8601String().substring(0,10) != fromText ||
+        until.toIso8601String().substring(0,10) != untilText ||
+        until.difference(from).inDays > 366) {
+      throw StateError('حدود فترة توزيع الأرباح غير صالحة');
+    }
+    final finalDate = until.subtract(const Duration(microseconds:1));
+    final timestamp = DateTime.tryParse((payload['date'] ?? '').toString());
+    if (timestamp == null ||
+        timestamp.toIso8601String() != finalDate.toIso8601String()) {
+      throw StateError('تاريخ تسوية الأرباح لا يطابق نهاية الفترة');
+    }
+    if (manifest['journal_entries'] is! List ||
+        manifest['journal_lines'] is! List ||
+        manifest['cashboxes'] is! List ||
+        (manifest['journal_entries'] as List).length != members.length ||
+        (manifest['journal_lines'] as List).length != members.length * 2 ||
+        (manifest['cashboxes'] as List).isNotEmpty) {
+      throw StateError('كل حركة أرباح تتطلب قيداً متوازناً وسطرين بلا حركة صندوق');
+    }
+    final identitySet = <String>{};
+    for (final key in ['journal_entries','journal_lines']) {
+      for (final identity in manifest[key] as List) {
+        if (identity is! String || !uuid.hasMatch(identity) ||
+            !identitySet.add(identity)) throw StateError('هوية قيد أرباح غير صالحة أو مكررة');
+      }
+    }
+    final periodStart = from.toIso8601String();
+    final periodEnd = until.toIso8601String();
+    if (_hasTable('period_closures')) {
+      final cols = db.select('PRAGMA table_info(period_closures)')
+          .map((row) => row['name'].toString()).toSet();
+      if (!{'station_id','period_start','period_end','status'}.every(cols.contains)) {
+        throw StateError('مخطط الإقفال لا يسمح بتوزيع آمن');
+      }
+      if (db.select(
+        "SELECT id FROM period_closures WHERE station_id=? AND status='locked' AND period_start<? AND COALESCE(period_end_exclusive,period_end)>? LIMIT 1",
+        [station,periodEnd,periodStart],
+      ).isNotEmpty) throw StateError('فترة الأرباح مقفلة');
+    }
+    final marker = 'P3D_RANGE:$fromText:$untilText';
+    if (db.select(
+      "SELECT id FROM partner_transactions WHERE station_id=? AND notes LIKE ? LIMIT 1",
+      [station,'%$marker%'],
+    ).isNotEmpty) {
+      throw StateError('توزيع أرباح الفترة مرحّل مسبقاً');
+    }
+    // Use posted server GL, not the client's declared amount, as the source
+    // of truth. These three SQL aggregates are the existing local algorithm.
+    final args = [station,periodStart,periodEnd];
+    final rev = db.select(
+      "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
+    final general = db.select(
+      "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
+    final worker = db.select(
+      "SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
+    final profit = AccountingCalculations.distributableProfit(
+      totalRevenue:(rev.first['n'] as num).round(),
+      generalExpenses:(general.first['n'] as num).round(),
+      workerEntitlements:(worker.first['n'] as num).round(),
+    );
+    final directRows = db.select(
+      "SELECT pt.id,pt.partner_id,pt.amount,COALESCE((SELECT SUM(adj.amount) FROM partner_transactions adj WHERE adj.reference_type='partner_profit_adjustment' AND adj.reference_id=pt.id AND adj.type='share_adjustment'),0) adjusted FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id JOIN irrigations i ON i.id=pt.reference_id WHERE p.station_id=? AND pt.reference_type='irrigation_profit' AND COALESCE(i.status,'')!='cancelled' AND pt.date>=? AND pt.date<? ORDER BY pt.id DESC",
+      args,
+    );
+    var directTotal = 0;
+    for (final row in directRows) {
+      final amount = (row['amount'] as num).round();
+      final adjusted = (row['adjusted'] as num).round();
+      directTotal += (amount - adjusted).clamp(0,amount).toInt();
+    }
+    final planned = <Map<String,Object?>>[];
+    if (directTotal > profit) {
+      var excess = directTotal - profit;
+      for (final row in directRows) {
+        if (excess <= 0) break;
+        final amount = (row['amount'] as num).round();
+        final adjusted = (row['adjusted'] as num).round();
+        final available = (amount-adjusted).clamp(0,amount).toInt();
+        if (available <= 0) continue;
+        final correction = min(excess,available);
+        planned.add({
+          'type':'share_adjustment',
+          'reference_type':'partner_profit_adjustment',
+          'partner_id':(row['partner_id'] as num).toInt(),
+          'original_id':(row['id'] as num).toInt(),
+          'amount':correction,
+        });
+        excess -= correction;
+      }
+      directTotal = profit;
+    }
+    final remaining = (profit - directTotal).clamp(0,profit).toInt();
+    final active = db.select(
+      'SELECT id,ownership_mode,ownership_percentage,shares_count FROM partners WHERE station_id=? AND active=1',
+      [station],
+    );
+    final partners = <Map<String,Object?>>[
+      for (final row in active) {
+        'id':row['id'],
+        'ownership_mode':row['ownership_mode'],
+        'ownership_percentage':row['ownership_percentage'],
+        'shares_count':row['shares_count'],
+      }
+    ];
+    final allocations = AccountingCalculations.partnerDistributionAmounts(
+      distributable:remaining,partners:partners,
+    );
+    for (final partner in partners) {
+      final partnerId = (partner['id'] as num).toInt();
+      final amount = allocations[partnerId] ?? 0;
+      if (amount <= 0) continue;
+      planned.add({
+        'type':'share_accrual',
+        'reference_type':'profit_distribution',
+        'partner_id':partnerId,
+        'amount':amount,
+        'ownership_snapshot':partner['ownership_mode'] == 'percentage'
+            ? partner['ownership_percentage'] : partner['shares_count'],
+      });
+    }
+    if (planned.length != members.length) {
+      throw StateError('الربح المحسوب من قيود الخادم لا يطابق عدد حركات العميل');
+    }
+    final seenGlobal = <String>{};
+    int? distributionRef;
+    final rootRefs = payload['_global_refs'];
+    if (rootRefs is! Map || rootRefs['partner_id'] is! Map) {
+      throw StateError('مرجع شريك جذر التوزيع مفقود');
+    }
+    final prepared = <Map<String,Object?>>[];
+    for (var i=0;i<planned.length;i++) {
+      final row=planned[i], member=members[i];
+      if (member is! Map ||
+          member['global_id'] is! String ||
+          member['partner_ref'] is! Map ||
+          member['amount'] is! int) {
+        throw StateError('هوية أو قيمة حركة أرباح غير صالحة');
+      }
+      final global = member['global_id'] as String;
+      if (!uuid.hasMatch(global) || !seenGlobal.add(global) ||
+          identitySet.contains(global) ||
+          db.select(
+            "SELECT 1 FROM sync_entity_links WHERE entity_type='partner_transactions' AND global_id=? LIMIT 1",
+            [global],
+          ).isNotEmpty) {
+        throw StateError('UUID حصة الربح مستخدم أو مكرر');
+      }
+      final partnerId = _resolveSyncReference(
+        station:station,entityType:'partners',column:'partner_id',
+        references:{'partner_id':member['partner_ref']},
+      );
+      if (partnerId != row['partner_id'] ||
+          member['amount'] != row['amount'] ||
+          member['type'] != row['type'] ||
+          member['reference_type'] != row['reference_type']) {
+        throw StateError('حصة الشريك أو تسويته تختلف عن حسابات الخادم');
+      }
+      if (i==0 && (global != rootId ||
+          payload['type'] != row['type'] ||
+          payload['reference_type'] != row['reference_type'] ||
+          payload['amount'] != row['amount'] ||
+          (rootRefs['partner_id'] as Map)['global_id'] !=
+              (member['partner_ref'] as Map)['global_id'])) {
+        throw StateError('بيانات الجذر لا تطابق أول حركة توزيعية');
+      }
+      if (row['type'] == 'share_adjustment') {
+        final originalId = row['original_id'] as int;
+        final linked = db.select(
+          "SELECT global_id FROM sync_entity_links WHERE station_id=? AND entity_type='partner_transactions' AND local_id=? LIMIT 1",
+          [station,originalId],
+        );
+        if (linked.length != 1 ||
+            member['original_global_id'] != linked.single['global_id'] ||
+            i==0 && ((rootRefs['reference_id'] is! Map) ||
+              (rootRefs['reference_id'] as Map)['global_id'] != linked.single['global_id'])) {
+          throw StateError('مرجع التسوية الأصلي غير مطابق أو غير موثق');
+        }
+      } else {
+        final snapshot = row['ownership_snapshot'];
+        if (snapshot is num && member['ownership_snapshot'] is num) {
+          if ((snapshot - (member['ownership_snapshot'] as num)).abs() > 1e-8) {
+            throw StateError('لقطة ملكية الشريك تغيرت');
+          }
+        } else if (snapshot != member['ownership_snapshot']) {
+          throw StateError('لقطة ملكية الشريك غير مطابقة');
+        }
+      }
+      prepared.add({...row,'global_id':global});
+    }
+    if (prepared.first['type'] == 'share_accrual') {
+      final provided = payload['reference_id'];
+      if (provided is! int) throw StateError('مفتاح فترة التوزيع غير صالح');
+      distributionRef = provided;
+    }
+    // The first distribution might not be the root if corrective rows came
+    // first. Use its period-ref identity from the originating command; the
+    // immutable YYYY-MM-DD range, not the client-local row ID, owns uniqueness.
+    if (distributionRef == null) {
+      distributionRef = from.millisecondsSinceEpoch;
+    }
+    final periodKey = distributionRef;
+    for (final row in prepared) {
+      final partnerId = row['partner_id'] as int;
+      final amount = row['amount'] as int;
+      final adjustment = row['type']=='share_adjustment';
+      final idRef = adjustment ? row['original_id'] : periodKey;
+      final notes = adjustment
+          ? 'تسوية فائض استحقاق مباشر حتى لا يتجاوز صافي ربح الفترة | $marker'
+          : marker;
+      db.execute('''INSERT INTO partner_transactions
+        (station_id,partner_id,date,type,amount,ownership_snapshot,
+         reference_type,reference_id,notes,created_by)
+        VALUES(?,?,?,?,?,?,?,?,?,?)''',[
+        station,partnerId,finalDate.toIso8601String(),
+        row['type'],amount,row['ownership_snapshot'],
+        row['reference_type'],idRef,notes,userId,
+      ]);
+      final id=db.lastInsertRowId;
+      _journal(
+        description:adjustment ? 'تسوية فائض حصة أرباح مباشرة' : 'توزيع صافي الربح للشريك',
+        referenceType:adjustment ? 'partner_profit_adjustment' : 'partner',
+        referenceId:id,date:finalDate,userId:userId,
+        lines:adjustment
+          ? [
+              {'account_id':_syncPartnerAccountId(partnerId),'partner_id':partnerId,
+               'debit':amount,'credit':0},
+              {'account_id':_accountId('3200'),'partner_id':partnerId,
+               'debit':0,'credit':amount},
+            ]
+          : [
+              {'account_id':_accountId('3200'),'partner_id':partnerId,
+               'debit':amount,'credit':0},
+              {'account_id':_syncPartnerAccountId(partnerId),'partner_id':partnerId,
+               'debit':0,'credit':amount},
+            ],
+      );
+      db.execute('''INSERT INTO sync_entity_links
+        (station_id,entity_type,global_id,local_id,created_at)
+        VALUES(?,'partner_transactions',?,?,?)''',[
+        station,row['global_id'],id,now,
+      ]);
+    }
+  }
+
   /// P3b manual standalone partner share; periodic distribution and
   /// irrigation profit are different server-owned operations.
   void _applySyncPartnerStandaloneShare({
@@ -3172,6 +3485,14 @@ class SaqiaServer {
     }
     if (entityType == 'worker_transactions' && payload['type'] == 'accrual' && payload['reference_type'] == 'standalone_accrual') {
       _applySyncWorkerStandaloneAccrual(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'partner_transactions' &&
+        payload.containsKey('_p3d_distribution')) {
+      _applySyncPartnerProfitDistribution(
+        station:station,entityKey:entityKey,operation:operation,
+        payload:payload,now:now,userId:userId,role:role,
+      );
       return;
     }
     if (entityType == 'partner_transactions' && payload['type'] == 'share_accrual' && payload['reference_type'] == 'standalone_share') {
