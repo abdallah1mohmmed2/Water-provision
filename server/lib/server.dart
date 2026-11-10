@@ -9,7 +9,7 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:uuid/uuid.dart';
 import 'password_hasher.dart';
 import 'irrigation_calculations.dart';
-import '../../lib/domain/accounting/calculations.dart' show AccountingCalculations;
+import 'profit_distribution_calculations.dart';
 part 'irrigation_mutations.dart';
 part 'payment_mutations.dart';
 
@@ -2274,7 +2274,7 @@ class SaqiaServer {
       "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
     final worker = db.select(
       "SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
-    final profit = AccountingCalculations.distributableProfit(
+    final profit = ProfitDistributionCalculations.distributableProfit(
       totalRevenue:(rev.first['n'] as num).round(),
       generalExpenses:(general.first['n'] as num).round(),
       workerEntitlements:(worker.first['n'] as num).round(),
@@ -2323,7 +2323,7 @@ class SaqiaServer {
         'shares_count':row['shares_count'],
       }
     ];
-    final allocations = AccountingCalculations.partnerDistributionAmounts(
+    final allocations = ProfitDistributionCalculations.partnerDistributionAmounts(
       distributable:remaining,partners:partners,
     );
     for (final partner in partners) {
