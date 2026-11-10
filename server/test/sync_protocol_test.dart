@@ -1879,4 +1879,94 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(totals['c'],1000);
   });
 
+
+  test('P3a standalone worker accrual posts one server-owned balanced journal with replay and isolation', () async {
+    preparePartyDebtFixture();
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('5000','Worker Expense','expense')");
+    const rootId = '11111111-aaaa-4aaa-8aaa-111111111111';
+    final base = <String,dynamic>{
+      'event_id': '22222222-aaaa-4aaa-8aaa-222222222222',
+      'entity_type': 'worker_transactions',
+      'entity_key': 'worker_transactions:$rootId',
+      'operation': 'create',
+      'base_version': 0,
+      'payload': {
+        '_global_id': rootId, 'worker_id': 1, 'type': 'accrual',
+        'reference_type': 'standalone_accrual', 'reference_id': null,
+        'amount': 701, 'date': '2026-11-10T10:00:00.000',
+        'hours': 1.0, 'rate_snapshot': 701, 'percentage_snapshot': 0,
+        'notes': 'P3a accrual', 'cashbox_id': null,
+        '_global_refs': {
+          'worker_id': {
+            'table':'workers',
+            'global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          },
+        },
+        '_derived_global_ids': {
+          'journal_entries': ['33333333-aaaa-4aaa-8aaa-333333333333'],
+          'journal_lines': [
+            '44444444-aaaa-4aaa-8aaa-444444444444',
+            '55555555-aaaa-4aaa-8aaa-555555555555',
+          ],
+          'cashboxes': <String>[],
+        },
+      },
+    };
+    final missingIdentity = jsonDecode(jsonEncode(base)) as Map<String,dynamic>;
+    (missingIdentity['payload']['_derived_global_ids']['journal_lines'] as List).removeLast();
+    final failure = await postEvents(stationOneToken,[missingIdentity]);
+    expect((failure['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+    expect(database.select('SELECT id FROM journal_entries'),isEmpty);
+    expect(database.select("SELECT current_balance FROM cashboxes WHERE id=1").single['current_balance'],777);
+
+    final accepted = await postEvents(stationOneToken,[base]);
+    expect((accepted['results'] as List).single['status'],'accepted');
+    final row = database.select("SELECT * FROM worker_transactions WHERE type='accrual'").single;
+    expect(row['amount'],701);
+    expect(row['worker_id'],1);
+    final entries = database.select("SELECT * FROM journal_entries WHERE reference_type='worker' AND reference_id=?", [row['id']]);
+    expect(entries,hasLength(1));
+    final lines = database.select('SELECT debit,credit FROM journal_lines WHERE journal_entry_id=?',[entries.single['id']]);
+    expect(lines,hasLength(2));
+    expect(lines.fold<int>(0,(sum,line)=>sum+(line['debit'] as num).toInt()),701);
+    expect(lines.fold<int>(0,(sum,line)=>sum+(line['credit'] as num).toInt()),701);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+
+    final origin = await getInbox(stationOneToken,device:'device-a');
+    final projections = (origin['events'] as List).cast<Map>();
+    expect(projections.map((e)=>e['entity_type']).toList(),
+      ['journal_entries','journal_lines','journal_lines']);
+    final peer = await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
+      ['worker_transactions','journal_entries','journal_lines','journal_lines']);
+
+    final repeat = await postEvents(stationOneToken,[base]);
+    expect((repeat['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(1));
+
+    final reuse = jsonDecode(jsonEncode(base)) as Map<String,dynamic>;
+    reuse['event_id'] = '66666666-aaaa-4aaa-8aaa-666666666666';
+    final stale = await postEvents(stationOneToken,[reuse]);
+    expect((stale['results'] as List).single['status'],'conflict');
+    expect(database.select('SELECT id FROM worker_transactions'),hasLength(1));
+
+    final foreign = jsonDecode(jsonEncode(base)) as Map<String,dynamic>;
+    foreign['event_id'] = '77777777-aaaa-4aaa-8aaa-777777777777';
+    foreign['entity_key'] = 'worker_transactions:88888888-aaaa-4aaa-8aaa-888888888888';
+    foreign['payload']['_global_id'] = '88888888-aaaa-4aaa-8aaa-888888888888';
+    final otherStation = await postEvents(stationTwoToken,[foreign]);
+    expect((otherStation['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(1));
+
+    final wrongType = jsonDecode(jsonEncode(base)) as Map<String,dynamic>;
+    wrongType['event_id'] = '99999999-aaaa-4aaa-8aaa-999999999999';
+    wrongType['entity_key'] = 'worker_transactions:aaaaaaaa-bbbb-4bbb-8bbb-aaaaaaaaaaaa';
+    wrongType['payload']['_global_id'] = 'aaaaaaaa-bbbb-4bbb-8bbb-aaaaaaaaaaaa';
+    wrongType['payload']['reference_type'] = null; // payroll must not enter P3a
+    final unsupported = await postEvents(stationOneToken,[wrongType]);
+    expect((unsupported['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),hasLength(1));
+  });
+
 }
