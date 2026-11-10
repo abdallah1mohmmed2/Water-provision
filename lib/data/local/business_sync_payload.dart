@@ -167,8 +167,8 @@ class BusinessSyncPayload {
       if (markerAt < 0) throw StateError('حدود فترة الدفعة مفقودة');
       final bounds = notes.substring(markerAt + rangeMarker.length).split(':');
       if (bounds.length != 2 ||
-          !RegExp(r'^\\d{4}-\\d{2}-\\d{2}$').hasMatch(bounds[0]) ||
-          !RegExp(r'^\\d{4}-\\d{2}-\\d{2}$').hasMatch(bounds[1])) {
+          !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(bounds[0]) ||
+          !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(bounds[1])) {
         throw StateError('صيغة تواريخ فترة الدفعة غير صالحة');
       }
       payload['_p3c_batch'] = {
