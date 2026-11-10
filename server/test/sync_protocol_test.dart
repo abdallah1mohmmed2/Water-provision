@@ -2484,6 +2484,16 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     duplicatePeriod['payload']['_p3d_distribution']['members'][0]['global_id']='52525252-bbbb-4bbb-8bbb-525252525252';
     expect((await postEvents(stationOneToken,[duplicatePeriod]))['results'].single['status'],'rejected');
     expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='profit_distribution'"),hasLength(2));
+    final overlapping=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    overlapping['event_id']='53535353-aaaa-4aaa-8aaa-535353535353';
+    overlapping['entity_key']='partner_transactions:53535353-bbbb-4bbb-8bbb-535353535353';
+    overlapping['payload']['_global_id']='53535353-bbbb-4bbb-8bbb-535353535353';
+    overlapping['payload']['date']='2026-12-01T23:59:59.999999';
+    overlapping['payload']['_p3d_distribution']['period_end_exclusive']='2026-12-02';
+    overlapping['payload']['_p3d_distribution']['members'][0]['global_id']='53535353-bbbb-4bbb-8bbb-535353535353';
+    expect((await postEvents(stationOneToken,[overlapping]))['results'].single['status'],'rejected');
+    expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='profit_distribution'"),hasLength(2));
+
     final foreign=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
     foreign['event_id']='52525252-cccc-4ccc-8ccc-525252525252';
     foreign['entity_key']='partner_transactions:52525252-dddd-4ddd-8ddd-525252525252';
