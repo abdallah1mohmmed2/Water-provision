@@ -1825,6 +1825,34 @@ class SaqiaServer {
     ).isNotEmpty) {
       throw StateError('استحقاق هذا الشهر مسجل مسبقاً للعامل');
     }
+    final priorBatches = db.select(
+      "SELECT date,notes FROM worker_transactions WHERE station_id=? AND worker_id=? AND (reference_type='fixed_salary_batch' OR notes LIKE '%استحقاق راتب ثابت للفترة%')",
+      [station,workerId],
+    );
+    final monthStart = DateTime(year,month,1);
+    final monthEnd = DateTime(year,month+1,1);
+    for (final batch in priorBatches) {
+      final note = (batch['notes'] ?? '').toString();
+      const marker = ' | P3C_RANGE:';
+      final at = note.lastIndexOf(marker);
+      if (at >= 0) {
+        final bounds = note.substring(at + marker.length).split(':');
+        if (bounds.length == 2) {
+          final from = DateTime.tryParse(bounds[0]);
+          final to = DateTime.tryParse(bounds[1]);
+          if (from != null && to != null &&
+              from.isBefore(monthEnd) && to.isAfter(monthStart)) {
+            throw StateError('راتب العامل لهذا الشهر مرحّل ضمن دفعة استحقاقات');
+          }
+        }
+      } else {
+        final posted = DateTime.tryParse((batch['date'] ?? '').toString());
+        if (posted != null &&
+            !posted.isBefore(monthStart) && posted.isBefore(monthEnd)) {
+          throw StateError('استحقاق ثابت قديم للعامل موجود في الشهر');
+        }
+      }
+    }
     // Historical rows may predate the monthly_salary reference key. Preserve
     // the local service's second duplicate guard against an old posted journal.
     final periodStart = DateTime(year, month, 1).toIso8601String();
