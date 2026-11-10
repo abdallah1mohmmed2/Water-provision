@@ -2407,6 +2407,7 @@ class AccountingService {
     final accrualDate = month.year == now.year && month.month == now.month
         ? now
         : end.subtract(const Duration(seconds: 1));
+    final rootIds = <String, Set<int>>{'worker_transactions': <int>{}};
     return database.transaction((tx) async {
       final stationId = await _selectedStationIdTx(tx);
       await _assertPeriodOpen(tx, accrualDate, stationId: stationId);
@@ -2472,12 +2473,16 @@ class AccountingService {
           'notes': 'راتب شهري مستحق لشهر ${month.year}/${month.month.toString().padLeft(2, '0')}؛ الراتب المحفوظ وقت الترحيل: $amount',
           'created_by': userId,
         });
+        if (rootIds['worker_transactions']!.isEmpty) {
+          rootIds['worker_transactions']!.add(id);
+        }
         final exp = await _accountIdTx(tx, '5000'), payable = await _workerAccountIdTx(tx, wid);
         await _entry(tx, description: 'راتب العامل الشهري', referenceType: 'worker', referenceId: id, userId: userId, date: accrualDate, stationId: stationId, lines: [{'account_id': exp, 'worker_id': wid, 'debit': amount, 'credit': 0}, {'account_id': payable, 'worker_id': wid, 'debit': 0, 'credit': amount}]);
         count++;
       }
       return count;
-    }, captureSyncTables: const {'worker_transactions'});
+    }, captureSyncTables: const {'worker_transactions'},
+       captureSyncRecordIds: rootIds);
   }
 
   Future<int> distributePartnerProfits({required DateTime from, required DateTime to, int? userId}) async {
