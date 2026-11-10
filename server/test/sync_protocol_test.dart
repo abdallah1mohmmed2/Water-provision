@@ -2135,7 +2135,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       'payload':{
         '_global_id':firstId,'type':'accrual','reference_type':'fixed_salary_batch',
         'reference_id':null,'worker_id':1,'amount':1100,
-        'date':'2026-11-10T23:59:59.000',
+        'date':'2026-12-05T23:59:59.000',
         '_global_refs':{
           'worker_id':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
         },
