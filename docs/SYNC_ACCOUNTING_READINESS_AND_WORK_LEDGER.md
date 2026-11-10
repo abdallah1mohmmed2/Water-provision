@@ -9,7 +9,7 @@
 - المستودع: `abdallah1mohmmed2/Water-provision`
 - الفرع المستهدف: `feature/firebase-station-foundation`
 - تاريخ إعداد السجل: 2026-11-08
-- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ لم تبدأ P3 وما بعدها. الأقسام السابقة سجل تاريخي.**
+- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ بدأ تدقيق P3 فقط؛ التنفيذ البرمجي والاختبارات لم تبدأ، وP4 وما بعدها لم تبدأ. الأقسام السابقة سجل تاريخي.**
 - قاعدة الفروع: ممنوع العمل على `main` أو الدمج إليه دون موافقة صريحة.
 - لا تعتبر Firebase backend فعلياً؛ المعمارية المعتمدة في هذا الفرع هي Shelf API + JWT + SQLite مع Offline-First.
 
@@ -471,3 +471,13 @@
 - SHA-256 لأرشيف artifact: `8d839bd79b2773948e945ae6e97318254cfeb75ee6a5bc460e5f7e8ae4abd85c`.
 - حدود الإغلاق: السند التاريخي بلا عملة مثبتة يحتاج مراجعة قبل الاستبدال، وربط IRR القديم غير المثبت يحتاج مراجعة قبل الإلغاء. أوامر صرف قديمة بلا بيان آثار P2 لا تُعتمد تلقائياً؛ تبقى مرفوضة للمراجعة دون حذفها. لا تخمين لهوياتها أو إعادة إنشاء صامتة لها. الاختبار بقاعدتين محليتين وخادم Shelf فعلي، وليس اعتماد محطة إنتاج أو هاتفين فعليين.
 - لم يُعدل main ولم يُدمج PR. لم تبدأ P3 أو الحسابات العامة P5. المتابعة التالية هي P3 عند طلبها، بعد فحص الرأس والتوثيق، دون تكرار P0/P1/P2 المكتملة.
+
+## 17. P3 — initial verified inventory (2026-11-10; not a completion)
+
+- Requested scope: worker and partner movements. Current branch only: `feature/firebase-station-foundation`; do not modify `main`.
+- Rechecked the prior P2 implementation `fc1210862b57429432c7c0f296de746ec2ee2f26` against the branch: only one later ledger-documentation commit preceded this P3 audit; no new P3 business handlers were found.
+- Added the actual source-level command ownership / gap inventory at `docs/P3_PARTY_MOVEMENT_IMPLEMENTATION_AUDIT.md` in commit `59be54fa4f0864fd76901e2988389f4da9a84b56`.
+- Proven gap: `server.dart` routes all `worker_transactions` and `partner_transactions` root events through `_applySyncPartyOpeningDebt`, which only accepts `opening_balance/previous_debt`. Existing P2 payment subledger rows and P0/P1 irrigation derived wages/shares **must not** be resent as independent P3 commands.
+- Required next code slice: P3a standalone worker accrual with authoritative server posting and derived UUID IDs, followed by independent P3b partner share. Monthly accrual batches and profit distribution require separate server-authoritative atomic contracts. Do not globally enable generic party table sync.
+- Test status for this P3 checkpoint: **no P3 code-change tests executed; Flutter analyze/tests, Shelf analyze/tests, CI, APK, and two-client financial acceptance all unverified**. This entry is a source-audit record, not evidence of P3 functional completion.
+- No changes to P0/P1/P2 business logic, historical financial records, or `main`; no merge.
