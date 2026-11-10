@@ -1498,6 +1498,193 @@ class SaqiaServer {
 
 
 
+
+  /// P3c fixed-salary batch. One root event posts every worker movement and
+  /// balanced journal in a single outer sync SAVEPOINT. No per-worker event
+  /// can be acknowledged before all siblings pass validation and GL posting.
+  void _applySyncWorkerFixedSalaryBatch({
+    required int station, required String entityKey, required String operation,
+    required Map payload, required String now, required int? userId,
+    required String? role,
+  }) {
+    if (operation != 'create' || payload['type'] != 'accrual' ||
+        payload['reference_type'] != 'fixed_salary_batch' ||
+        payload['reference_id'] != null || payload['cashbox_id'] != null) {
+      throw UnsupportedError('P3c يقبل إنشاء دفعة استحقاقات ثابتة كاملة فقط');
+    }
+    if (role != 'manager' && role != 'accountant') {
+      throw StateError('دور المستخدم لا يسمح بترحيل دفعة الرواتب');
+    }
+    if (userId == null || _stationForUser(userId) != station) {
+      throw StateError('مستخدم الدفعة لا يتبع المحطة');
+    }
+    final rootId = (payload['_global_id'] ?? '').toString();
+    final uuid = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
+    );
+    if (!uuid.hasMatch(rootId) ||
+        entityKey != 'worker_transactions:' + rootId) {
+      throw StateError('هوية جذر دفعة الرواتب غير صالحة');
+    }
+    final batch = payload['_p3c_batch'];
+    final manifest = payload['_derived_global_ids'];
+    if (batch is! Map || manifest is! Map ||
+        batch['members'] is! List || batch['period_key'] is! String ||
+        batch['period_label'] is! String ||
+        batch['period_from'] is! String ||
+        batch['period_end_exclusive'] is! String) {
+      throw StateError('بيان دفعة الرواتب الموحد غير صالح');
+    }
+    final members = batch['members'] as List;
+    final key = (batch['period_key'] as String).trim();
+    final label = (batch['period_label'] as String).trim();
+    if (members.isEmpty || members.length > 100 ||
+        key.isEmpty || key.length > 120 ||
+        label.isEmpty || label.length > 120 ||
+        key.contains('%') || key.contains('_')) {
+      throw StateError('مفتاح الدفعة أو عدد العمال غير صالح');
+    }
+    final from = DateTime.tryParse(batch['period_from'] as String);
+    final until = DateTime.tryParse(batch['period_end_exclusive'] as String);
+    final posted = DateTime.tryParse((payload['date'] ?? '').toString());
+    if (from == null || until == null || posted == null ||
+        !until.isAfter(from) || until.difference(from).inDays > 366 ||
+        from.hour != 0 || until.hour != 0 ||
+        from.minute != 0 || until.minute != 0 ||
+        from.second != 0 || until.second != 0 ||
+        posted.isBefore(from) || !posted.isBefore(until)) {
+      throw StateError('تاريخ الدفعة وحدود الفترة غير صالحة');
+    }
+    if (manifest['journal_entries'] is! List ||
+        manifest['journal_lines'] is! List ||
+        manifest['cashboxes'] is! List ||
+        (manifest['journal_entries'] as List).length != members.length ||
+        (manifest['journal_lines'] as List).length != members.length * 2 ||
+        (manifest['cashboxes'] as List).isNotEmpty) {
+      throw StateError('الدفعة تتطلب قيداً متوازناً وسطرين لكل عامل دون حركة صندوق');
+    }
+    final identityIds = <String>{};
+    for (final name in ['journal_entries','journal_lines']) {
+      for (final entry in manifest[name] as List) {
+        if (entry is! String || !uuid.hasMatch(entry) ||
+            !identityIds.add(entry)) {
+          throw StateError('هويات آثار الدفعة غير فريدة أو غير صالحة');
+        }
+      }
+    }
+    if (_hasTable('period_closures')) {
+      final cols = db.select('PRAGMA table_info(period_closures)')
+          .map((row) => row['name'].toString()).toSet();
+      if (!{'station_id','period_start','period_end','status'}.every(cols.contains)) {
+        throw StateError('مخطط إقفال الفترات لا يدعم التحقق الآمن');
+      }
+      if (db.select(
+        "SELECT id FROM period_closures WHERE station_id=? AND status='locked' AND period_start<? AND COALESCE(period_end_exclusive,period_end)>? LIMIT 1",
+        [station,until.toIso8601String(),from.toIso8601String()],
+      ).isNotEmpty) {
+        throw StateError('فترة استحقاق العمال تتداخل مع فترة محاسبية مقفلة');
+      }
+    }
+    final columns = db.select('PRAGMA table_info(worker_transactions)')
+        .map((r) => r['name'].toString()).toSet();
+    if (!{'station_id','worker_id','date','type','hours','rate_snapshot',
+        'percentage_snapshot','amount','reference_type','notes','created_by'}
+        .every(columns.contains)) {
+      throw StateError('مخطط دفتر العمال لا يدعم الدفعة الموحدة');
+    }
+    final seenWorkers = <int>{};
+    final seenIds = <String>{};
+    final prepared = <Map<String,Object?>>[];
+    for (var index = 0; index < members.length; index++) {
+      final item = members[index];
+      if (item is! Map || item['global_id'] is! String ||
+          item['worker_ref'] is! Map || item['amount'] is! int) {
+        throw StateError('بيانات أحد عمال الدفعة غير صالحة');
+      }
+      final globalId = item['global_id'] as String;
+      final amount = item['amount'] as int;
+      if (!uuid.hasMatch(globalId) || !seenIds.add(globalId) ||
+          identityIds.contains(globalId) ||
+          amount <= 0 || amount > 1000000000000) {
+        throw StateError('هوية عامل أو مبلغ استحقاق غير صالح');
+      }
+      if (db.select(
+        "SELECT 1 FROM sync_entity_links WHERE entity_type='worker_transactions' AND global_id=? LIMIT 1",
+        [globalId],
+      ).isNotEmpty) {
+        throw StateError('هوية استحقاق مستخدمة مسبقاً');
+      }
+      final workerId = _resolveSyncReference(
+        station:station, entityType:'workers', column:'worker_id',
+        references:{'worker_id':item['worker_ref']},
+      );
+      if (!seenWorkers.add(workerId)) {
+        throw StateError('تكرر العامل داخل دفعة الاستحقاقات');
+      }
+      final rows = db.select(
+        "SELECT active,pay_type FROM workers WHERE id=? AND station_id=? LIMIT 1",
+        [workerId,station],
+      );
+      if (rows.isEmpty || (rows.single['active'] as num).toInt() != 1 ||
+          rows.single['pay_type'] != 'fixed') {
+        throw StateError('عامل الدفعة غير نشط أو ليس من فئة الراتب الثابت');
+      }
+      if (db.select(
+        """SELECT 1 FROM worker_transactions
+           WHERE station_id=? AND worker_id=? AND
+           (notes LIKE ? OR (reference_type='monthly_salary' AND date>=? AND date<?))
+           LIMIT 1""",
+        [station,workerId,'%' + key + '%',
+         from.toIso8601String(),until.toIso8601String()],
+      ).isNotEmpty) {
+        throw StateError('يوجد استحقاق سابق للعامل داخل الفترة');
+      }
+      prepared.add({'worker_id':workerId,'global_id':globalId,'amount':amount});
+    }
+    if (prepared.first['global_id'] != rootId ||
+        payload['amount'] != prepared.first['amount']) {
+      throw StateError('حدث جذر الدفعة لا يطابق العامل الأول');
+    }
+    final rootRefs = payload['_global_refs'];
+    if (rootRefs is! Map ||
+        rootRefs['worker_id'] is! Map ||
+        (rootRefs['worker_id'] as Map)['global_id'] !=
+            (members.first as Map)['worker_ref']['global_id']) {
+      throw StateError('مرجع جذر الدفعة لا يطابق العامل الأول');
+    }
+    final dateText = posted.toIso8601String();
+    for (final row in prepared) {
+      final workerId = row['worker_id'] as int;
+      final amount = row['amount'] as int;
+      db.execute('''INSERT INTO worker_transactions
+        (station_id,worker_id,date,type,hours,rate_snapshot,
+         percentage_snapshot,amount,reference_type,reference_id,notes,created_by)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''', [
+        station,workerId,dateText,'accrual',0,amount,0,amount,
+        'fixed_salary_batch',null,
+        '$key | استحقاق راتب ثابت للفترة $label | P3C_RANGE:' +
+          (batch['period_from'] as String) + ':' +
+          (batch['period_end_exclusive'] as String),userId,
+      ]);
+      final id = db.lastInsertRowId;
+      _journal(
+        description:'استحقاق راتب ثابت للعامل',
+        referenceType:'worker',referenceId:id,date:posted,userId:userId,
+        lines:[
+          {'account_id':_accountId('5000'),'worker_id':workerId,
+           'debit':amount,'credit':0},
+          {'account_id':_syncWorkerAccountId(workerId),'worker_id':workerId,
+           'debit':0,'credit':amount},
+        ],
+      );
+      db.execute('''INSERT INTO sync_entity_links
+        (station_id,entity_type,global_id,local_id,created_at)
+        VALUES(?,'worker_transactions',?,?,?)''',
+        [station,row['global_id'],id,now],
+      );
+    }
+  }
+
   /// P3c (per-worker slice only): reconcile a locally accrued fixed monthly
   /// salary against the authenticated station's authoritative worker snapshot.
   /// Entire multi-worker batches are NOT claimed atomic by this handler.
@@ -2678,6 +2865,15 @@ class SaqiaServer {
     }
     if (entityType == 'beneficiary_manual_debts') {
       _applySyncBeneficiaryManualDebt(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'worker_transactions' &&
+        payload['type'] == 'accrual' &&
+        payload['reference_type'] == 'fixed_salary_batch') {
+      _applySyncWorkerFixedSalaryBatch(
+        station:station,entityKey:entityKey,operation:operation,
+        payload:payload,now:now,userId:userId,role:role,
+      );
       return;
     }
     if (entityType == 'worker_transactions' && payload['type'] == 'accrual' && payload['reference_type'] == 'standalone_accrual') {
