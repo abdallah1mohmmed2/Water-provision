@@ -2673,15 +2673,21 @@ class AccountingService {
     if (amount <= 0) {
       throw ArgumentError('قيمة استحقاق العامل يجب أن تكون أكبر من صفر');
     }
-    await _assertPeriodOpen(tx, date);
+    if (hours < 0 || !hours.isFinite || rateSnapshot < 0 ||
+        !percentageSnapshot.isFinite || percentageSnapshot < 0 ||
+        percentageSnapshot > 100) {
+      throw ArgumentError('لقطات استحقاق العامل غير صالحة');
+    }
+    final stationId = await _selectedStationIdTx(tx);
+    await _assertPeriodOpen(tx, date, stationId: stationId);
     final worker = await tx.query(
       'workers',
       columns: ['id'],
-      where: 'id=?',
-      whereArgs: [workerId],
+      where: 'id=? AND station_id=? AND active=1',
+      whereArgs: [workerId, stationId],
       limit: 1,
     );
-    if (worker.isEmpty) throw StateError('العامل غير موجود');
+    if (worker.isEmpty) throw StateError('العامل غير نشط أو لا يتبع المحطة');
     final id = await tx.insert('worker_transactions', {
       'worker_id': workerId,
       'date': date.toIso8601String(),
@@ -2717,7 +2723,7 @@ class AccountingService {
       userId: userId,
       date: date,
     );
-  });
+  }, captureSyncTables: const {'worker_transactions'});
 
   Future<void> createPartnerShare({
     required int partnerId,
