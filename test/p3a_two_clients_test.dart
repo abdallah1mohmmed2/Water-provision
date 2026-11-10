@@ -28,12 +28,13 @@ void main() {
       for (final client in clients) {
         client.client.close();
       }
-      if (process != null) {
-        await process.stdin.close();
-        await process.exitCode.timeout(
+      final running = process;
+      if (running != null) {
+        await running.stdin.close();
+        await running.exitCode.timeout(
           const Duration(seconds: 10),
           onTimeout: () {
-            process.kill();
+            running.kill();
             return -1;
           },
         );
