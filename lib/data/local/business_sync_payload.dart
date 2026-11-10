@@ -107,10 +107,12 @@ class BusinessSyncPayload {
       );
       if (root.isEmpty) throw StateError('دفعة الاستحقاق غير موجودة');
       final notes = original['notes']?.toString() ?? '';
-      final match = RegExp(r'^([^|]+) \| استحقاق راتب ثابت للفترة (.*?) \|').firstMatch(notes);
-      if (match == null) throw StateError('مفتاح فترة دفعة الاستحقاق مفقود');
-      final periodKey = match.group(1)!.trim();
-      final label = match.group(2)!.trim();
+      final parts = notes.split(' | ');
+      if (parts.length < 4 || parts[1] != 'استحقاق راتب ثابت للفترة') {
+        throw StateError('بيان فترة دفعة الاستحقاق غير صالح');
+      }
+      final periodKey = parts[0].trim();
+      final label = parts[2].trim();
       if (periodKey.isEmpty || periodKey.length > 120 || label.isEmpty ||
           label.length > 120) throw StateError('بيانات فترة الاستحقاق غير صالحة');
       if (changes == null) throw StateError('سجل حركات الدفعة مطلوب');
@@ -159,7 +161,22 @@ class BusinessSyncPayload {
       }
       // The local domain method already validated the dates; the server
       // independently validates them against the signed station/period.
-      final dates = RegExp(r'\\| P3C_RANGE:(\\d{4}-\\d{2}-\\d{2}):(\\d{4}-\\d{2}-\\d{2})
+      const rangeMarker = ' | P3C_RANGE:';
+      final markerAt = notes.lastIndexOf(rangeMarker);
+      if (markerAt < 0) throw StateError('حدود فترة الدفعة مفقودة');
+      final bounds = notes.substring(markerAt + rangeMarker.length).split(':');
+      if (bounds.length != 2 ||
+          !RegExp(r'^\\d{4}-\\d{2}-\\d{2}$').hasMatch(bounds[0]) ||
+          !RegExp(r'^\\d{4}-\\d{2}-\\d{2}$').hasMatch(bounds[1])) {
+        throw StateError('صيغة تواريخ فترة الدفعة غير صالحة');
+      }
+      payload['_p3c_batch'] = {
+        'period_key':periodKey,
+        'period_label':label,
+        'period_from':bounds[0],
+        'period_end_exclusive':bounds[1],
+        'members':members,
+      };
       payload['_derived_global_ids'] = {
         'journal_entries':journals,
         'journal_lines':lines,
