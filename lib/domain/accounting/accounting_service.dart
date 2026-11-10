@@ -2426,6 +2426,37 @@ class AccountingService {
           [wid, monthKey],
         );
         if (recorded.isNotEmpty) continue;
+        // Fixed-salary batches and monthly payroll are two UIs for the same
+        // worker entitlement; never accrue twice for overlapping periods.
+        final batches = await tx.rawQuery(
+          "SELECT date,notes,reference_type FROM worker_transactions WHERE worker_id=? AND (reference_type='fixed_salary_batch' OR notes LIKE '%استحقاق راتب ثابت للفترة%')",
+          [wid],
+        );
+        var alreadyInBatch = false;
+        for (final batch in batches) {
+          final notes = (batch['notes'] ?? '').toString();
+          const marker = ' | P3C_RANGE:';
+          final mark = notes.lastIndexOf(marker);
+          if (mark >= 0) {
+            final bounds = notes.substring(mark + marker.length).split(':');
+            if (bounds.length == 2) {
+              final from = DateTime.tryParse(bounds[0]);
+              final to = DateTime.tryParse(bounds[1]);
+              if (from != null && to != null &&
+                  from.isBefore(end) && to.isAfter(start)) {
+                alreadyInBatch = true;
+                break;
+              }
+            }
+          } else {
+            final posted = DateTime.tryParse((batch['date'] ?? '').toString());
+            if (posted != null && !posted.isBefore(start) && posted.isBefore(end)) {
+              alreadyInBatch = true;
+              break;
+            }
+          }
+        }
+        if (alreadyInBatch) continue;
         final exists = await tx.rawQuery("SELECT 1 FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id WHERE je.station_id=? AND je.reference_type='worker' AND je.description='راتب العامل الشهري' AND jl.worker_id=? AND je.date>=? AND je.date<? LIMIT 1", [stationId, wid, start.toIso8601String(), end.toIso8601String()]);
         if (exists.isNotEmpty) continue;
         // حفظ نسخة الراتب وقت الاستحقاق؛ تعديل راتب العامل لاحقًا لا يغيّر التاريخ.
