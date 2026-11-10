@@ -2281,4 +2281,104 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT id FROM worker_transactions'),hasLength(2));
   });
 
+
+  test('P3c multi-worker monthly payroll is one transaction with GL rollback and peer effects', () async {
+    preparePartyDebtFixture();
+    database.execute("ALTER TABLE workers ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'fixed'");
+    database.execute("ALTER TABLE workers ADD COLUMN fixed_salary INTEGER NOT NULL DEFAULT 0");
+    database.execute("UPDATE workers SET fixed_salary=1100 WHERE id=1");
+    database.execute("INSERT INTO workers(id,station_id,name,active,pay_type,fixed_salary) VALUES(3,1,'Monthly Worker B',1,'fixed',2200)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'workers','41414141-aaaa-4aaa-8aaa-414141414141',3,'2026-11-08T00:00:00Z')");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('5000','Worker Expense','expense')");
+    const firstId='41414141-bbbb-4bbb-8bbb-414141414141';
+    const secondId='41414141-cccc-4ccc-8ccc-414141414141';
+    final event=<String,dynamic>{
+      'event_id':'41414141-dddd-4ddd-8ddd-414141414141',
+      'entity_type':'worker_transactions',
+      'entity_key':'worker_transactions:$firstId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':firstId,'type':'worker_entitlement',
+        'reference_type':'monthly_salary','reference_id':202611,
+        'date':'2026-11-10T10:00:00.000','amount':1100,'rate_snapshot':1100,
+        '_global_refs':{'worker_id':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'}},
+        '_p3c_monthly_batch':{
+          'month_key':202611,
+          'members':[
+            {'global_id':firstId,
+             'worker_ref':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+             'amount':1100,'rate_snapshot':1100},
+            {'global_id':secondId,
+             'worker_ref':{'table':'workers','global_id':'41414141-aaaa-4aaa-8aaa-414141414141'},
+             'amount':2200,'rate_snapshot':2200},
+          ],
+        },
+        '_derived_global_ids':{
+          'journal_entries':[
+            '41414141-1111-4111-8111-414141414141',
+            '41414141-2222-4222-8222-414141414141',
+          ],
+          'journal_lines':[
+            '41414141-3333-4333-8333-414141414141',
+            '41414141-4444-4444-8444-414141414141',
+            '41414141-5555-4555-8555-414141414141',
+            '41414141-6666-4666-8666-414141414141',
+          ],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+    final forged=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    forged['payload']['_p3c_monthly_batch']['members'][1]['amount']=2300;
+    expect((await postEvents(stationOneToken,[forged]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+
+    final invalid=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    invalid['payload']['_p3c_monthly_batch']=[];
+    expect((await postEvents(stationOneToken,[invalid]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+
+    database.execute("""CREATE TRIGGER p3c_monthly_fail_second
+      BEFORE INSERT ON journal_lines WHEN NEW.worker_id=3
+      BEGIN SELECT RAISE(ABORT,'forced second monthly journal failure'); END""");
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+    expect(database.select('SELECT id FROM journal_entries'),isEmpty);
+    expect(database.select('SELECT id FROM journal_lines'),isEmpty);
+    database.execute('DROP TRIGGER p3c_monthly_fail_second');
+
+    final posted=await postEvents(stationOneToken,[event]);
+    expect((posted['results'] as List).single['status'],'accepted');
+    expect(database.select("SELECT id FROM worker_transactions WHERE reference_type='monthly_salary'"),hasLength(2));
+    final journals=database.select("SELECT id FROM journal_entries WHERE reference_type='worker'");
+    expect(journals,hasLength(2));
+    final totals=database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
+    expect(totals['debit'],3300);
+    expect(totals['credit'],3300);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+    final source=await getInbox(stationOneToken,device:'device-a');
+    expect((source['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
+      ['worker_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    final peer=await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
+      ['worker_transactions','worker_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'duplicate');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
+    final newRoot=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    newRoot['event_id']='42424242-aaaa-4aaa-8aaa-424242424242';
+    newRoot['entity_key']='worker_transactions:42424242-bbbb-4bbb-8bbb-424242424242';
+    newRoot['payload']['_global_id']='42424242-bbbb-4bbb-8bbb-424242424242';
+    newRoot['payload']['_p3c_monthly_batch']['members'][0]['global_id']='42424242-bbbb-4bbb-8bbb-424242424242';
+    expect((await postEvents(stationOneToken,[newRoot]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
+    final foreign=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    foreign['event_id']='42424242-cccc-4ccc-8ccc-424242424242';
+    foreign['entity_key']='worker_transactions:42424242-dddd-4ddd-8ddd-424242424242';
+    foreign['payload']['_global_id']='42424242-dddd-4ddd-8ddd-424242424242';
+    foreign['payload']['_p3c_monthly_batch']['members'][0]['global_id']='42424242-dddd-4ddd-8ddd-424242424242';
+    expect((await postEvents(stationTwoToken,[foreign]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),hasLength(2));
+  });
+
 }
