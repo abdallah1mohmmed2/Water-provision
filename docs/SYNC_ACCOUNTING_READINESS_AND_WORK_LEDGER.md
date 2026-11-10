@@ -9,7 +9,7 @@
 - المستودع: `abdallah1mohmmed2/Water-provision`
 - الفرع المستهدف: `feature/firebase-station-foundation`
 - تاريخ إعداد السجل: 2026-11-08
-- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ P3a وP3b منفذتان ومختبرتان سابقاً؛ نُفّذ P3c برمجياً لراتب العامل الشهري الفردي ودفعات الاستحقاقات الذرية مع اختبارات مكتوبة، لكن قبول CI لهذه التعديلات غير متحقق بعد؛ P3d/P3e/P3f لم تُنفذ مزامنتها بعد. الأقسام السابقة سجل تاريخي.**
+- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ P3a وP3b منفذتان ومختبرتان سابقاً؛ نُفّذ P3c برمجياً لراتب العامل الفردي، ودفعات الاستحقاقات الثابتة الذرية، والرواتب الشهرية متعددة العمال كأمر ذري واحد، مع اختبارات مكتوبة لم تتحقق نتائج CI لها بعد؛ P3d/P3e/P3f لم تُنفذ مزامنتها بعد. الأقسام السابقة سجل تاريخي.**
 - قاعدة الفروع: ممنوع العمل على `main` أو الدمج إليه دون موافقة صريحة.
 - لا تعتبر Firebase backend فعلياً؛ المعمارية المعتمدة في هذا الفرع هي Shelf API + JWT + SQLite مع Offline-First.
 
@@ -562,3 +562,19 @@
 - Flutter Analyze, Shelf tests, Flutter tests, CI, APK: **not checked/not verified for current code**. The user explicitly requested no waiting or polling of CI; the user will report run conclusions.
 - Thus **P3c implemented in source; not yet accepted as a proven passing build**, and **P3 overall remains open**. Do not report a new pass count or production readiness before results.
 - **Next strict ledger gate**: record the owner's CI report, repair only newly evidenced failures (if any), then verify acceptance before opening P3d. No reruns of completed business implementation.
+
+## 22. P3c all-worker monthly salary atomic sync — source implementation (2026-11-10; CI not verified)
+
+**No-repeat verification:** `feature/firebase-station-foundation` matched exactly the previous ledger head `0f83913ca5527744e35db0d282e447c5b0bc7a16` before any change. Existing `accrueMonthlySalaries`, `_applySyncMonthlyWorkerSalary` and `fixed_salary_batch` handling were present and retained. No duplication of the P3c salary calculation, P3c fixed-salary batch, P3a/P3b or P0/P1/P2 operations. No changes to `main`.
+
+**Only new operation contract:** all newly posted monthly worker salaries (`type=worker_entitlement`, `reference_type=monthly_salary`) now generate a **single** Outbox root from the first created worker row by using the preexisting `captureSyncRecordIds` feature. `BusinessSyncPayload.prepare` attaches `_p3c_monthly_batch` (month YYYYMM, ordered worker transaction and global worker UUIDs, each salary snapshot/amount) and the UUID manifests of **N journals and 2N lines**. It does **not** enqueue the other worker rows or journals independently. Zero new salaries produce no command. One salary preserves the old single-worker command. More than 100 workers safely rejects the local transaction rather than partially committing remotely.
+
+**Shelf:** new `_applySyncMonthlySalaryBatch` validates all members against station JWT, manager/accountant role, worker UUIDs, active fixed-salary status, authoritative server salary snapshots, valid month and date, duplicate/historical monthly or fixed-batch entitlements, locked period, and exact journal identity shapes. It uses the existing sync `SAVEPOINT apply_sync_event` for all worker movements and balanced 5000 expense / 2100.W worker payable entries, link/event/version state and projections; one failure rolls back all workers. Unlike a plain multi-event HTTP POST, this is one root event. Malformed `_p3c_monthly_batch` payloads are explicitly routed to the rejecting batch handler, not accepted by the one-worker fallback.
+
+**Inbox corrections:** `_appendBusinessEffectProjections` reuses the working P3c fixed-batch mechanism to publish N-1 subordinate worker rows to origin and peer, followed by authoritative journals. `SyncInboxApplier` recognizes the private `_p3c_monthly_batch` and `_p3c_batch` envelopes and excludes them from SQLite column inserts. The `reference_id=YYYYMM` of monthly salaries is preserved as a validated non-FK business key on every receiving device; previously a generic polymorphic-reference branch discarded it.
+
+**Tests added/updated:** the prior monthly Outbox test in `test/database_sync_outbox_test.dart` was **updated in place**, now checking exactly one root for multiple workers and N/2N journal identities; `server/test/sync_protocol_test.dart` adds the two-worker monthly case, forged salary and malformed envelope rejection, forced failure of the second worker GL insert and full rollback, balanced successful journals, idempotent replay, duplicate month rejection under a new root UUID, foreign station rejection, and source/peer projections; `test/p3c_monthly_two_clients_test.dart` adds a full Shelf HTTP round-trip between two independent SQLite files and verifies journal/cashbox parity, replay, no Outbox echo and retention of YYYYMM on the peer.
+
+**Trace/documentation:** `docs/P3C_MONTHLY_ATOMIC_PAYROLL.md`, source checkpoint `6535fa382ac4872cdb3634e44866ab9afb1020c9` (before documentation commits). Exact final HEAD SHA should be taken from the latest documentation commit; do not mistake the historical checkpoint for HEAD.
+
+**Acceptance gate:** CI, Flutter analyze, Flutter tests, Shelf tests, APK and signed production build were **not checked or run locally** in this session. User explicitly supervises CI and asked not to wait/poll. Tests are authored, not verified passing. **P3c acceptance is pending proof from the owner**; P3d periodic profit distribution remains pending and must not be started by duplicating its existing local code. No production two-physical-device test is claimed.
