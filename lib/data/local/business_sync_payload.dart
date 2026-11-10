@@ -97,6 +97,25 @@ class BusinessSyncPayload {
     if (table == 'irrigations' || table == 'payments') {
       payload['_derived_global_ids'] = await _derivedGlobalIds(table, recordId);
     }
+    // P3c monthly payroll produces several worker rows in one local
+    // transaction. Each worker command must own only its journal identities,
+    // not those of the other salaries in the same transaction.
+    if (table == 'worker_transactions' &&
+        original['type'] == 'worker_entitlement' &&
+        original['reference_type'] == 'monthly_salary') {
+      payload['_derived_global_ids'] = {
+        'journal_entries': await _globalIdsForQuery(
+          "SELECT id FROM journal_entries WHERE reference_type='worker' AND reference_id=? ORDER BY id",
+          [recordId], 'journal_entries',
+        ),
+        'journal_lines': await _globalIdsForQuery(
+          "SELECT jl.id FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.reference_type='worker' AND je.reference_id=? ORDER BY jl.id",
+          [recordId], 'journal_lines',
+        ),
+        'cashboxes': <String>[],
+      };
+      return payload;
+    }
     if (additionalCommands.contains(table) && changes != null) {
       final ids = <String, List<String>>{};
       for (final child in const [
