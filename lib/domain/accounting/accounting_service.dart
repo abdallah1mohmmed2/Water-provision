@@ -2446,7 +2446,7 @@ class AccountingService {
         count++;
       }
       return count;
-    });
+    }, captureSyncTables: const {'worker_transactions'});
   }
 
   Future<int> distributePartnerProfits({required DateTime from, required DateTime to, int? userId}) async {
