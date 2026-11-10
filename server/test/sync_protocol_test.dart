@@ -2543,6 +2543,15 @@ test('legacy beneficiary rows receive a stable global identity on first API read
         },
       },
     };
+    final forgedRef=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    forgedRef['payload']['_global_refs']['reference_id']['global_id']='71717171-aaaa-4aaa-8aaa-717171717171';
+    expect((await postEvents(stationOneToken,[forgedRef]))['results'].single['status'],'rejected');
+    expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='partner_profit_adjustment'"),isEmpty);
+    final truncated=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    (truncated['payload']['_derived_global_ids']['journal_lines'] as List).removeLast();
+    expect((await postEvents(stationOneToken,[truncated]))['results'].single['status'],'rejected');
+    expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='partner_profit_adjustment'"),isEmpty);
+
     expect((await postEvents(stationOneToken,[evt]))['results'].single['status'],'accepted');
     expect(database.select("SELECT id,amount FROM partner_transactions WHERE reference_type='irrigation_profit'"),hasLength(1));
     final adjustments=database.select("SELECT amount,reference_id FROM partner_transactions WHERE reference_type='partner_profit_adjustment'");
