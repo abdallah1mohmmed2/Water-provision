@@ -9,7 +9,7 @@
 - المستودع: `abdallah1mohmmed2/Water-provision`
 - الفرع المستهدف: `feature/firebase-station-foundation`
 - تاريخ إعداد السجل: 2026-11-08
-- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ P3a وP3b منفذتان ومختبرتان سابقاً؛ بدأ P3c بعقد أولي لراتب العامل الشهري الفردي مع اختبارات مكتوبة ولم تتحقق نتائجها بعد؛ دفعات الاستحقاق الذرية وP3d/P3e/P3f لم تكتمل. الأقسام السابقة سجل تاريخي.**
+- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ P3a وP3b منفذتان ومختبرتان سابقاً؛ نُفّذ P3c برمجياً لراتب العامل الشهري الفردي ودفعات الاستحقاقات الذرية مع اختبارات مكتوبة، لكن قبول CI لهذه التعديلات غير متحقق بعد؛ P3d/P3e/P3f لم تُنفذ مزامنتها بعد. الأقسام السابقة سجل تاريخي.**
 - قاعدة الفروع: ممنوع العمل على `main` أو الدمج إليه دون موافقة صريحة.
 - لا تعتبر Firebase backend فعلياً؛ المعمارية المعتمدة في هذا الفرع هي Shelf API + JWT + SQLite مع Offline-First.
 
@@ -542,3 +542,23 @@
 6. Follow-up gate: have owner report the current branch-head CI result. Fix reported failures without redoing passed operations; then implement the remaining atomic P3c batch slice before opening P3d.
 
 **Code checkpoint before ledger update:** `d864275894e118835815159a92d26a155963a9fe`.
+
+## 21. P3c atomic fixed-worker batch — implementation checkpoint (2026-11-10; CI unverified)
+
+**Revalidation:** Target branch was identical to `3383c25b4bb5dc515bb1d71fba82af8e003ce91c` at the start. The existing local `createWorkerAccrualBatch`, `accrueMonthlySalaries` and `distributePartnerProfits` calculations were inspected and retained; no repeated P0/P1/P2/P3a/P3b implementation.
+
+**Changed scope:** `AccountingService.createWorkerAccrualBatch` now emits **one** `worker_transactions` Outbox root using the existing `captureSyncRecordIds` hook. The root's `_p3c_batch` includes all worker and GL child UUIDs, the period's key/label and exclusive date range. The server's `_applySyncWorkerFixedSalaryBatch` validates the **entire** group, creates each worker's journal itself, and returns only a whole-batch acknowledgement. All business rows, journals, links, event/version state and projections share the preexisting event SAVEPOINT. Non-root worker rows are published to the source and peer Inbox to reconcile UUIDs without duplicates. No cashbox changes occur.
+
+**Compatibility:** Preserves the prior ability to post a salary entitlement on a date distinct from the entitlement period; both the period and posting date must be open. Additional guards reject same-worker overlapping ranges (even with a renamed period key), prior monthly salary, historical salary rows when demonstrably overlapping, and monthly salary after fixed-salary batch. Historical rows lacking period metadata cannot always be proven non-overlapping automatically; operator reconciliation remains required.
+
+**Tests authored:** `server/test/sync_protocol_test.dart` has a multi-worker success/rollback/replay/foreign-station/duplicate manifest test and **forced journal failure during the second worker after the first was written**, proving the intended SAVEPOINT contract when executed. `test/database_sync_outbox_test.dart` covers a single root and exact 2/4 journal/line IDs, local duplicate exclusion, and cross-mode salary mutual exclusion. `test/p3c_batch_two_clients_test.dart` exercises two distinct SQLite clients over real Shelf HTTP including an out-of-period posting date, projection/GL parity, idempotence and empty child Outbox.
+
+**Source file integrity:** During code review, a duplicated `BusinessSyncPayload` body was detected and removed by reconstructing the file from the verified pre-P3c commit plus the single intended batch block. The ISO-date regex was also corrected. The final file contains one payload preparer, one monthly-salary handler and one batch handler. These earlier transient commits **must not be treated as usable baselines**.
+
+**Documentation:** `docs/P3C_ATOMIC_FIXED_SALARY_BATCH.md` records root/member ownership, JSON protocol, invariants, tests, and historical limitations.
+
+**Acceptance status at checkpoint:**
+- New source commits are pushed to `feature/firebase-station-foundation` only; `main` unchanged.
+- Flutter Analyze, Shelf tests, Flutter tests, CI, APK: **not checked/not verified for current code**. The user explicitly requested no waiting or polling of CI; the user will report run conclusions.
+- Thus **P3c implemented in source; not yet accepted as a proven passing build**, and **P3 overall remains open**. Do not report a new pass count or production readiness before results.
+- **Next strict ledger gate**: record the owner's CI report, repair only newly evidenced failures (if any), then verify acceptance before opening P3d. No reruns of completed business implementation.
