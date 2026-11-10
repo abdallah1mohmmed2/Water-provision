@@ -163,6 +163,8 @@ class BusinessSyncPayload {
           'reference_type':rows.single['reference_type'],
           'original_global_id':originalGlobalId,
           'amount':rows.single['amount'],
+          'reference_id':rows.single['reference_type'] == 'profit_distribution'
+              ? rows.single['reference_id'] : null,
           'ownership_snapshot':rows.single['ownership_snapshot'],
         });
         journals.addAll(await _globalIdsForQuery(
