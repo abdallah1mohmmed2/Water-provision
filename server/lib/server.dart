@@ -1662,7 +1662,7 @@ class SaqiaServer {
       if (db.select(
         """SELECT 1 FROM worker_transactions
            WHERE station_id=? AND worker_id=? AND
-           (notes LIKE ? OR (reference_type='monthly_salary' AND date>=? AND date<?))
+           (notes LIKE ? OR (reference_type IN ('monthly_salary','fixed_salary_batch') AND date>=? AND date<?))
            LIMIT 1""",
         [station,workerId,'%' + key + '%',
          from.toIso8601String(),until.toIso8601String()],
