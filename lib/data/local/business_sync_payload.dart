@@ -114,8 +114,8 @@ class BusinessSyncPayload {
       if (offset < 0) throw StateError('فترة توزيع الأرباح مفقودة');
       final dates = notes.substring(offset + marker.length).split(':');
       if (dates.length != 2 ||
-          !RegExp(r'^\\d{4}-\\d{2}-\\d{2}$').hasMatch(dates[0]) ||
-          !RegExp(r'^\\d{4}-\\d{2}-\\d{2}$').hasMatch(dates[1])) {
+          !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dates[0]) ||
+          !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(dates[1])) {
         throw StateError('تاريخ توزيع الأرباح غير صالح');
       }
       final members = <Map<String,Object?>>[];
