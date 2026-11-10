@@ -68,7 +68,7 @@ void main() {
     await db.close();
 
     final originFile = File('${origin.path}/saqia_station_v2.db');
-    final serverFile = await originFile.copy('${root.path}/p3a-server.db');
+    final serverFile = await originFile.copy('${root.path}/p0-server-fixture.db');
     await originFile.copy('${peer.path}/saqia_station_v2.db');
 
     process = await Process.start(
