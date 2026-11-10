@@ -176,8 +176,8 @@ void main() {
     // Independent device identity, even though the starter DB is a copy.
     await db.transaction((tx) async {
       await tx.rawInsert(
-        'INSERT OR REPLACE INTO sync_metadata(key,value) VALUES(?,?)',
-        ['device_id', 'p3a-peer-unique-device'],
+        'INSERT OR REPLACE INTO sync_metadata(key,value,updated_at) VALUES(?,?,?)',
+        ['device_id', 'p3a-peer-unique-device', DateTime.now().toUtc().toIso8601String()],
       );
     }, captureSync: false);
     final receiver = sync(newClient());
