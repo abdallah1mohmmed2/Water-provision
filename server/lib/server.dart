@@ -1387,7 +1387,7 @@ class SaqiaServer {
     required String? role,
   }) {
     if (operation != 'create' || payload['type'] != 'accrual' ||
-        payload['reference_type'] != null || payload['reference_id'] != null) {
+        payload['reference_type'] != 'standalone_accrual' || payload['reference_id'] != null) {
       throw UnsupportedError('P3a يقبل إنشاء استحقاق عامل مستقل فقط');
     }
     if (role != 'manager' && role != 'accountant') {
@@ -2327,7 +2327,7 @@ class SaqiaServer {
       _applySyncBeneficiaryManualDebt(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
       return;
     }
-    if (entityType == 'worker_transactions' && payload['type'] == 'accrual' && payload['reference_type'] == null) {
+    if (entityType == 'worker_transactions' && payload['type'] == 'accrual' && payload['reference_type'] == 'standalone_accrual') {
       _applySyncWorkerStandaloneAccrual(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
       return;
     }
