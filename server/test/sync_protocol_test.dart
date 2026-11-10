@@ -2118,4 +2118,101 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       ['worker_transactions','journal_entries','journal_lines','journal_lines']);
   });
 
+
+  test('P3c fixed salary batch is all-or-nothing across two workers and publishes every effect', () async {
+    preparePartyDebtFixture();
+    database.execute("ALTER TABLE workers ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'fixed'");
+    database.execute("INSERT INTO workers(id,station_id,name,active,pay_type) VALUES(3,1,'Worker C',1,'fixed')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'workers','33333333-aaaa-4aaa-8aaa-333333333333',3,'2026-11-08T00:00:00Z')");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('5000','Worker Expense','expense')");
+    const firstId = '33333333-bbbb-4bbb-8bbb-333333333333';
+    const secondId = '33333333-cccc-4ccc-8ccc-333333333333';
+    final evt = <String,dynamic>{
+      'event_id':'33333333-dddd-4ddd-8ddd-333333333333',
+      'entity_type':'worker_transactions',
+      'entity_key':'worker_transactions:$firstId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':firstId,'type':'accrual','reference_type':'fixed_salary_batch',
+        'reference_id':null,'worker_id':1,'amount':1100,
+        'date':'2026-11-10T23:59:59.000',
+        '_global_refs':{
+          'worker_id':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+        },
+        '_p3c_batch':{
+          'period_key':'P3C-NOV-2026','period_label':'November 2026',
+          'period_from':'2026-11-01','period_end_exclusive':'2026-12-01',
+          'members':[
+            {
+              'global_id':firstId,
+              'worker_ref':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+              'amount':1100,
+            },
+            {
+              'global_id':secondId,
+              'worker_ref':{'table':'workers','global_id':'33333333-aaaa-4aaa-8aaa-333333333333'},
+              'amount':2200,
+            },
+          ],
+        },
+        '_derived_global_ids':{
+          'journal_entries':[
+            '33333333-1111-4111-8111-333333333333',
+            '33333333-2222-4222-8222-333333333333',
+          ],
+          'journal_lines':[
+            '33333333-4444-4444-8444-333333333333',
+            '33333333-5555-4555-8555-333333333333',
+            '33333333-6666-4666-8666-333333333333',
+            '33333333-7777-4777-8777-333333333333',
+          ],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+
+    final invalid=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    invalid['payload']['_p3c_batch']['members'][1]['amount']=-10;
+    final failed=await postEvents(stationOneToken,[invalid]);
+    expect((failed['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+    expect(database.select('SELECT id FROM journal_entries'),isEmpty);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+
+    final brokenManifest=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    (brokenManifest['payload']['_derived_global_ids']['journal_lines'] as List).removeLast();
+    final broken=await postEvents(stationOneToken,[brokenManifest]);
+    expect((broken['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+
+    final good=await postEvents(stationOneToken,[evt]);
+    expect((good['results'] as List).single['status'],'accepted');
+    expect(database.select("SELECT id FROM worker_transactions WHERE reference_type='fixed_salary_batch'"),hasLength(2));
+    expect(database.select("SELECT id FROM journal_entries WHERE reference_type='worker'"),hasLength(2));
+    final totals=database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
+    expect(totals['debit'],3300);
+    expect(totals['credit'],3300);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+
+    final origin=await getInbox(stationOneToken,device:'device-a');
+    expect((origin['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),
+      ['worker_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    final peer=await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),
+      ['worker_transactions','worker_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    expect((await postEvents(stationOneToken,[evt]))['results'].single['status'],'duplicate');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
+    final replayNewId=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    replayNewId['event_id']='33333333-8888-4888-8888-333333333333';
+    expect((await postEvents(stationOneToken,[replayNewId]))['results'].single['status'],'conflict');
+
+    final foreign=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    foreign['event_id']='33333333-9999-4999-8999-333333333333';
+    foreign['entity_key']='worker_transactions:33333333-abab-4bab-8bab-333333333333';
+    foreign['payload']['_global_id']='33333333-abab-4bab-8bab-333333333333';
+    foreign['payload']['_p3c_batch']['members'][0]['global_id']='33333333-abab-4bab-8bab-333333333333';
+    expect((await postEvents(stationTwoToken,[foreign]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),hasLength(2));
+  });
+
 }
