@@ -703,6 +703,12 @@ void main() {
     expect(await database.query('sync_queue',
       where:'table_name IN (?,?)',
       whereArgs:['journal_entries','journal_lines']),isEmpty);
+    // The monthly salary UI must not post the same two workers again.
+    await batch.accrueMonthlySalaries(month:DateTime(2091,7),userId:1);
+    expect(await database.query(
+      "SELECT id FROM worker_transactions WHERE worker_id IN (?,?) AND reference_type='monthly_salary'",
+      args:[ids[0],ids[1]],
+    ),isEmpty);
     await expectLater(batch.createWorkerAccrualBatch(
       amounts:{ids[0]:1100,ids[1]:2200},
       from:DateTime(2091,7,1),to:DateTime(2091,7,31),
