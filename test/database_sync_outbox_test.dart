@@ -615,47 +615,47 @@ void main() {
   });
 
 
-  test('P3c monthly payroll produces one scoped GL manifest per worker without child Outbox echoes', () async {
+  test('P3c monthly payroll produces exactly one atomic Outbox root for all new fixed workers', () async {
     final stationId = await AccountingService(database).currentStationId();
     await database.transaction((tx) async {
       for (final name in ['SYNC-TEST-P3C-MONTH-A','SYNC-TEST-P3C-MONTH-B']) {
         await tx.insert('workers', {
-          'name': name,
-          'station_id': stationId,
-          'pay_type': 'fixed',
-          'fixed_salary': name.endsWith('A') ? 1101 : 2202,
-          'active': 1,
+          'name':name, 'station_id':stationId, 'pay_type':'fixed',
+          'fixed_salary':name.endsWith('A') ? 1101 : 2202, 'active':1,
         });
       }
-    }, captureSync: false);
+    },captureSync:false);
     await database.delete('sync_queue','1=1',const []);
-    final first = await AccountingService(database).accrueMonthlySalaries(
-      month: DateTime(2090, 4), userId: 1,
+    final service = AccountingService(database);
+    final first = await service.accrueMonthlySalaries(
+      month:DateTime(2090,4),userId:1,
     );
-    expect(first, greaterThanOrEqualTo(2));
-    final pending = await database.query('sync_queue',
+    expect(first,greaterThanOrEqualTo(2));
+    final pending=await database.query('sync_queue',
       where:"table_name='worker_transactions' AND status='pending'",
       orderBy:'id');
-    expect(pending.length,first);
-    final ids = <String>{};
-    for (final command in pending) {
-      final payload = jsonDecode(command['payload'] as String) as Map<String,dynamic>;
-      expect(payload['type'],'worker_entitlement');
-      expect(payload['reference_type'],'monthly_salary');
-      expect(payload['reference_id'],209004);
-      expect((payload['_derived_global_ids']['journal_entries'] as List),hasLength(1));
-      expect((payload['_derived_global_ids']['journal_lines'] as List),hasLength(2));
-      expect((payload['_derived_global_ids']['cashboxes'] as List),isEmpty);
-      final journalId = (payload['_derived_global_ids']['journal_entries'] as List).single as String;
-      expect(ids.add(journalId),isTrue);
-      expect((payload['_global_refs'] as Map)['worker_id']['table'],'workers');
-    }
+    expect(pending,hasLength(1));
+    final payload=jsonDecode(pending.single['payload'] as String) as Map<String,dynamic>;
+    expect(payload['type'],'worker_entitlement');
+    expect(payload['reference_type'],'monthly_salary');
+    expect(payload['reference_id'],209004);
+    final batch=payload['_p3c_monthly_batch'] as Map;
+    expect(batch['month_key'],209004);
+    final members=batch['members'] as List;
+    expect(members,hasLength(first));
+    expect(members.map((m)=>(m as Map)['global_id']).toSet(),hasLength(first));
+    expect(members.map((m)=>(m as Map)['worker_ref']['global_id']).toSet(),hasLength(first));
+    expect((payload['_derived_global_ids']['journal_entries'] as List),hasLength(first));
+    expect((payload['_derived_global_ids']['journal_lines'] as List),hasLength(first*2));
+    expect((payload['_derived_global_ids']['cashboxes'] as List),isEmpty);
+    expect((payload['_global_refs'] as Map)['worker_id']['table'],'workers');
     expect(await database.query('sync_queue',
-      where:'table_name IN (?,?)',
-      whereArgs:['journal_entries','journal_lines']),isEmpty);
-    expect(await AccountingService(database).accrueMonthlySalaries(
-      month: DateTime(2090, 4),userId:1,
+      where:'table_name IN (?,?)',whereArgs:['journal_entries','journal_lines'],
+    ),isEmpty);
+    expect(await service.accrueMonthlySalaries(
+      month:DateTime(2090,4),userId:1,
     ),0);
+    expect(await database.query('sync_queue',where:"status='pending'"),hasLength(1));
   });
 
 
