@@ -2218,6 +2218,30 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     replayNewId['event_id']='33333333-8888-4888-8888-333333333333';
     expect((await postEvents(stationOneToken,[replayNewId]))['results'].single['status'],'conflict');
 
+    // A new UUID and a renamed batch key must not post the same salary month.
+    final renamed=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    renamed['event_id']='34343434-aaaa-4aaa-8aaa-343434343434';
+    renamed['entity_key']='worker_transactions:34343434-bbbb-4bbb-8bbb-343434343434';
+    renamed['payload']['_global_id']='34343434-bbbb-4bbb-8bbb-343434343434';
+    renamed['payload']['_p3c_batch']['period_key']='ANOTHER-NOVEMBER-2026';
+    renamed['payload']['_p3c_batch']['members'][0]['global_id']='34343434-bbbb-4bbb-8bbb-343434343434';
+    renamed['payload']['_p3c_batch']['members'][1]['global_id']='34343434-cccc-4ccc-8ccc-343434343434';
+    renamed['payload']['_derived_global_ids']={
+      'journal_entries':[
+        '34343434-1111-4111-8111-343434343434',
+        '34343434-2222-4222-8222-343434343434',
+      ],
+      'journal_lines':[
+        '34343434-3333-4333-8333-343434343434',
+        '34343434-4444-4444-8444-343434343434',
+        '34343434-5555-4555-8555-343434343434',
+        '34343434-6666-4666-8666-343434343434',
+      ],
+      'cashboxes':[],
+    };
+    expect((await postEvents(stationOneToken,[renamed]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
+
     final foreign=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
     foreign['event_id']='33333333-9999-4999-8999-333333333333';
     foreign['entity_key']='worker_transactions:33333333-abab-4bab-8bab-333333333333';
