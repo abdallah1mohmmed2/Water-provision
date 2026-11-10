@@ -151,9 +151,10 @@ void main() {
       if (await sender.applyInbox() == 0) break;
     }
     final localRows = await db.query(
-      "SELECT type,amount,reference_type FROM worker_transactions WHERE reference_type='monthly_salary'",
+      "SELECT type,amount,reference_type,reference_id FROM worker_transactions WHERE reference_type='monthly_salary' ORDER BY amount",
     );
     expect(localRows, hasLength(2));
+    expect(localRows.every((row)=>row['reference_id']==209004),isTrue);
     expect(localRows.fold<int>(0,(n,row)=>n+(row['amount'] as num).toInt()),3300);
     expect((await db.query('cashboxes', where: 'id=1')).single['current_balance'], initialCash);
     final rootCount = (await db.query(
@@ -187,9 +188,10 @@ void main() {
       if (await receiver.applyInbox() == 0) break;
     }
     final peerRows = await db.query(
-      "SELECT type,amount,reference_type FROM worker_transactions WHERE reference_type='monthly_salary'",
+      "SELECT type,amount,reference_type,reference_id FROM worker_transactions WHERE reference_type='monthly_salary' ORDER BY amount",
     );
     expect(peerRows, localRows);
+    expect(peerRows.every((row)=>row['reference_id']==209004),isTrue);
     expect((await db.query('cashboxes', where: 'id=1')).single['current_balance'], initialCash);
     expect((await db.query(
       "SELECT COUNT(*) n FROM journal_entries WHERE description='راتب العامل الشهري'",
