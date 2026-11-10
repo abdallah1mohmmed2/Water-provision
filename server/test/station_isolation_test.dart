@@ -230,6 +230,13 @@ void main() {
     expect(rows.map((row) => row['id']), [1000]);
   });
 
+  test('legacy cancellation cannot bypass the audited P1 command', () async {
+    final token=await login();
+    final response=await request('POST','/api/v1/irrigations/1000/cancel',token,body:{'reason':'legacy'});
+    expect(response.statusCode,409);
+    expect(database.select('SELECT status FROM irrigations WHERE id=1000').single['status'],'posted');
+  });
+
   test('cannot cancel an irrigation belonging to another station', () async {
     final token = await login();
     final response = await request(

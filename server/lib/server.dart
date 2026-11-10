@@ -8,6 +8,8 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:uuid/uuid.dart';
 import 'password_hasher.dart';
+import 'irrigation_calculations.dart';
+part 'irrigation_mutations.dart';
 
 class SaqiaServer {
   final Database db;
@@ -16,6 +18,7 @@ class SaqiaServer {
     _ensureFinancialStationOwnership();
     _ensureLoginRateLimitTable();
     _ensureSyncTables();
+    _ensureP1Schema();
   }
 
   void _ensureLoginRateLimitTable() {
@@ -472,7 +475,9 @@ class SaqiaServer {
         'cashbox_id': 'cashboxes',
       },
       'partner_transactions': {'partner_id': 'partners'},
+      'payments': {'beneficiary_id':'beneficiaries','partner_id':'partners','worker_id':'workers','payment_method_id':'payment_methods','cashbox_id':'cashboxes','irrigation_id':'irrigations'},
       'diesel_movements': {
+        'reversal_of': 'diesel_movements',
         'beneficiary_id': 'beneficiaries',
         'irrigation_id': 'irrigations',
         'cashbox_id': 'cashboxes',
@@ -513,8 +518,13 @@ class SaqiaServer {
             'worker_opening' => 'workers',
             'partner_opening' => 'partners',
             'reversal' => 'journal_entries',
+              'partner_profit_adjustment' => 'partner_transactions',
             _ => null,
           },
+        'worker_transactions' when referenceType == 'irrigation_edit' => 'worker_transactions',
+        'partner_transactions' when const {'irrigation_edit','partner_profit_adjustment','partner_profit_adjustment_cancel'}.contains(referenceType) => 'partner_transactions',
+        'worker_transactions' || 'partner_transactions' when referenceType == 'irrigation_cancel' => 'irrigations',
+        'worker_transactions' || 'partner_transactions' when referenceType == 'payment_cancel' => 'payments',
         'worker_transactions' || 'partner_transactions' when referenceType == 'previous_debt' => 'journal_entries',
         'worker_transactions' when referenceType == 'irrigation' => 'irrigations',
         'partner_transactions' when const {'irrigation_profit', 'irrigation'}.contains(referenceType) => 'irrigations',
@@ -1263,6 +1273,14 @@ class SaqiaServer {
     if (!requiredColumns.every(columns.contains)) throw StateError('مخطط payments لا يدعم القبض الآمن');
     db.execute('INSERT INTO payments(station_id,beneficiary_id,amount,date,payment_method_id,cashbox_id,reference_number,notes,status,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[station,beneficiaryId,amountValue.toInt(),date.toIso8601String(),methodId,cashboxId,payload['reference_number'],payload['notes'],'posted',userId]);
     final paymentId = db.lastInsertRowId;
+    if (payload['irrigation_id'] != null) {
+      _ensureP1Schema();
+      final irrigationId=_resolveSyncReference(station:station,entityType:'irrigations',column:'irrigation_id',references:references);
+      final irrigation=db.select("SELECT beneficiary_id,status FROM irrigations WHERE id=? AND station_id=?",[irrigationId,station]).single;
+      if(irrigation['beneficiary_id']!=beneficiaryId || irrigation['status']!='posted') throw StateError('القبض لا يطابق السقاية المرتبطة');
+      db.execute('UPDATE payments SET irrigation_id=?,reference_number=? WHERE id=?',[irrigationId,'IRR-$irrigationId',paymentId]);
+      db.execute('UPDATE irrigations SET paid_amount=paid_amount+? WHERE id=?',[amountValue.toInt(),irrigationId]);
+    }
     db.execute('UPDATE cashboxes SET current_balance=current_balance+? WHERE id=? AND station_id=?',[amountValue.toInt(),cashboxId,station]);
     if ((db.select('SELECT changes() AS n').first['n'] as num).toInt()!=1) throw StateError('تعذر تحديث رصيد الصندوق');
     final cashCode = (cashbox['ledger_account_code'] ?? method['ledger_account_code'] ?? '1000').toString();
@@ -2258,7 +2276,12 @@ class SaqiaServer {
       return;
     }
     if (entityType == 'irrigations') {
-      if (operation != 'create') throw UnsupportedError('تعديل أو حذف السقاية يحتاج معالج عكس محاسبي مخصصاً');
+      if (operation == 'update') {
+        _ensureP1Schema();
+        _applyP1Irrigation(station:station,entityKey:entityKey,payload:payload,userId:userId,role:role);
+        return;
+      }
+      if (operation != 'create') throw UnsupportedError('الحذف المالي ممنوع؛ استخدم الإلغاء الصريح');
       _applySyncIrrigation(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
       return;
     }
@@ -2634,6 +2657,7 @@ class SaqiaServer {
         try {
           final journalStart = _hasTable('journal_entries')
               ? (db.select('SELECT COALESCE(MAX(id),0) n FROM journal_entries').single['n'] as num).toInt() : 0;
+          final p1Before = entityType == 'irrigations' && operation == 'update' ? _p1Snapshot(station) : null;
           _applySyncBusinessEvent(
             station: station,
             entityType: entityType,
@@ -2654,7 +2678,9 @@ class SaqiaServer {
             VALUES(?,?,?,?,?) ON CONFLICT(station_id,entity_type,entity_key)
             DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at''',
             [station,entityType,entityKey,nextVersion,now]);
-          if (const {'irrigations','payments','expenses','cashbox_transfers','diesel_movements',
+          if (p1Before != null) {
+            _appendP1Effects(station, device, payload, now, p1Before);
+          } else if (const {'irrigations','payments','expenses','cashbox_transfers','diesel_movements',
               'beneficiary_manual_debts','worker_transactions','partner_transactions'}.contains(entityType)) {
             final globalId = (payload['_global_id'] ?? '').toString();
             final linked = db.select(
@@ -3097,7 +3123,14 @@ if(paid>0){final pm=(b['payment_method_id'] as num?)?.toInt()??1;final cb=(b['ca
 return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'total_amount':total,'paid_amount':paid});}catch(e){return _json({'error':'تعذر تسجيل السقاية: $e'},status:422);} }
   Future<Response> _irrigationCreate(Request r,Map<String,dynamic> c) => _atomic(() => _irrigationCreateUnsafe(r,c));
   Future<Response> _irrigations(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT i.*,b.name beneficiary_name,p.name pump_name FROM irrigations i JOIN beneficiaries b ON b.id=i.beneficiary_id JOIN pumps p ON p.id=i.pump_id WHERE i.station_id=? AND b.station_id=? AND p.station_id=? AND i.status!=\'cancelled\' ORDER BY i.start_datetime DESC LIMIT 1000',[_stationId(c),_stationId(c),_stationId(c)])));
-  Future<Response> _irrigationCancel(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);final b=await _body(r);if('${b['reason']??''}'.trim().isEmpty)return _json({'error':'سبب الإلغاء مطلوب'},status:422);db.execute("UPDATE irrigations SET status='cancelled',override_reason=? WHERE id=? AND station_id=?",[b['reason'],id,_stationId(c)]);if((db.select('SELECT changes() affected').first['affected'] as num).toInt()==0)return _json({'error':'السقاية غير موجودة'},status:404);return _json({'ok':true});}
+  Future<Response> _irrigationCancel(Request r,Map<String,dynamic> c) async {
+    final id=int.tryParse(r.params['id']??'');
+    if(id==null || !_owns('irrigations',id,_stationId(c))) return _json({'error':'السقاية غير موجودة'},status:404);
+    // The old endpoint changed only status and left journals/stock behind.
+    // All writes now use the versioned, idempotent P1 command through Outbox.
+    return _json({'error':'استخدم إلغاء السقاية من التطبيق لإرسال أمر مزامنة موثق بالإصدار والهوية العالمية','code':'versioned_irrigation_command_required'},status:409);
+  }
+
 
   Future<Response> _sessions(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT s.*,b.name beneficiary_name,p.name pump_name FROM irrigation_sessions s JOIN beneficiaries b ON b.id=s.beneficiary_id JOIN pumps p ON p.id=s.pump_id WHERE p.station_id=? AND b.station_id=? ORDER BY COALESCE(s.actual_start,s.planned_start) DESC',[_stationId(c),_stationId(c)])));
   Future<Response> _sessionStart(Request r,Map<String,dynamic> c) async {final b=await _body(r);final pump=(b['pump_id'] as num?)?.toInt()??1;final beneficiary=(b['beneficiary_id'] as num?)?.toInt();final station=_stationId(c);_requireOwn('pumps',pump,station,'المضخة');_requireOwn('beneficiaries',beneficiary,station,'المستفيد');final queueId=(b['queue_id'] as num?)?.toInt();if(queueId!=null&&db.select("SELECT q.id FROM queue_entries q JOIN beneficiaries x ON x.id=q.beneficiary_id WHERE q.id=? AND q.beneficiary_id=? AND x.station_id=? AND q.status IN ('waiting','postponed')",[queueId,beneficiary,station]).isEmpty)return _json({'error':'عنصر الطابور لا يتبع المستفيد أو المحطة الحالية'},status:404);final bookingId=(b['booking_id'] as num?)?.toInt();if(bookingId!=null&&db.select("SELECT br.id FROM booking_requests br JOIN beneficiaries x ON x.id=br.beneficiary_id WHERE br.id=? AND br.beneficiary_id=? AND x.station_id=? AND br.status IN ('new','under_review','scheduled')",[bookingId,beneficiary,station]).isEmpty)return _json({'error':'الحجز لا يتبع المستفيد أو المحطة الحالية'},status:404);final active=db.select("SELECT id FROM irrigation_sessions WHERE pump_id=? AND status='running'",[pump]);if(active.isNotEmpty)return _json({'error':'المضخة لديها جلسة فعالة'},status:409);final now=DateTime.now().toIso8601String();db.execute("INSERT INTO irrigation_sessions(beneficiary_id,queue_entry_id,booking_id,pump_id,planned_start,actual_start,timer_started_at,status) VALUES(?,?,?,?,?,?,?,\'running\')",[beneficiary,queueId,bookingId,pump,now,now,now]);return _json({'id':db.lastInsertRowId,'started_at':now});}

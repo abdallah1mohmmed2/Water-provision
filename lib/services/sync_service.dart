@@ -145,7 +145,8 @@ class SyncService {
       // New writes already snapshot this metadata in their transaction. Upgrade
       // unsent legacy rows once, and persist BEFORE HTTP so retries stay identical.
       if ((table == 'irrigations' || table == 'payments') &&
-          recordId != null && !payload.containsKey('_derived_global_ids')) {
+          recordId != null && !payload.containsKey('_derived_global_ids') &&
+          !payload.containsKey('_p1_effect_ids')) {
         if ((row['attempts'] as num?) != 0 || row['status'] == 'sending') {
           await db.update('sync_queue', {
             'status': 'failed',

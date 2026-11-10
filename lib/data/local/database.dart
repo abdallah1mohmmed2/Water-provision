@@ -28,7 +28,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 29,
+      version: 30,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -564,6 +564,19 @@ class AppDatabase {
       PRIMARY KEY(table_name, record_id)
     )''');
 
+    for (final item in const [
+      ['irrigations', 'cancel_reason', 'TEXT'],
+      ['irrigations', 'cancelled_at', 'TEXT'],
+      ['diesel_movements', 'reversal_of', 'INTEGER REFERENCES diesel_movements(id)'],
+      ['payments', 'irrigation_id', 'INTEGER REFERENCES irrigations(id)'],
+    ]) {
+      final columns = await d.rawQuery('PRAGMA table_info(${item[0]})');
+      if (!columns.any((row) => row['name'] == item[1])) {
+        await d.execute('ALTER TABLE ${item[0]} ADD COLUMN ${item[1]} ${item[2]}');
+      }
+    }
+    await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_diesel_reversal ON diesel_movements(reversal_of) WHERE reversal_of IS NOT NULL');
+
     // Compatible storage for authoritative cancellation metadata (no row rewrite).
     for (final table in ['expenses', 'cashbox_transfers']) {
       final cols = (await d.rawQuery('PRAGMA table_info($table)')).map((r) => r['name']).toSet();
@@ -880,7 +893,8 @@ class AppDatabase {
           rawPayload,
           recordId,
         );
-        if ((operation == 'create' && (table == 'irrigations' || table == 'payments')) ||
+        if (((operation == 'create' && (table == 'irrigations' || table == 'payments')) ||
+             (table == 'irrigations' && captureSyncTables?.contains(table) == true)) ||
             (captureSyncTables?.contains(table) == true &&
              BusinessSyncPayload.additionalCommands.contains(table))) {
           payload = await BusinessSyncPayload(tx).prepare(table, recordId, payload,

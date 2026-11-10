@@ -20,6 +20,47 @@ class BusinessSyncPayload {
     List<Map<String, Object?>>? changes,
   }) async {
     final payload = Map<String, Object?>.from(original);
+    if (table == 'irrigations' &&
+        changes != null &&
+        changes.any(
+          (r) =>
+              r['table_name'] == table &&
+              r['record_id'] == recordId &&
+              r['operation'] == 'update',
+        )) {
+      final manifest = <String, List<String>>{};
+      for (final child in const [
+        'payments',
+        'worker_transactions',
+        'partner_transactions',
+        'diesel_movements',
+        'cloud_periods',
+        'journal_entries',
+        'journal_lines',
+        'cashboxes',
+        'irrigation_sessions',
+        'queue_entries',
+        'booking_requests',
+      ]) {
+        final added =
+            changes
+                .where(
+                  (r) => r['table_name'] == child && r['operation'] == 'create',
+                )
+                .map((r) => (r['record_id'] as num).toInt())
+                .toList()
+              ..sort();
+        manifest[child] = added.isEmpty
+            ? []
+            : await _globalIdsForQuery(
+                'SELECT id FROM $child WHERE id IN (${List.filled(added.length, '?').join(',')}) ORDER BY id',
+                added,
+                child,
+              );
+      }
+      payload['_p1_effect_ids'] = manifest;
+      return payload;
+    }
     if (table == 'irrigations') {
       // The receipt is a separate payments command; never charge it twice.
       payload['paid_amount'] = 0;

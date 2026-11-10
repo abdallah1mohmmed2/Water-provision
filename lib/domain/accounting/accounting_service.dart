@@ -1591,6 +1591,7 @@ class AccountingService {
           cashboxId: src['cashbox']!,
           userId: userId,
           referenceNumber: 'IRR-$id',
+          irrigationId: id,
         );
       }
       if (sessionId != null) {
@@ -1637,6 +1638,7 @@ class AccountingService {
     required int paymentMethodId,
     required int cashboxId,
     int? userId,
+    int? irrigationId,
     String? referenceNumber,
     String? notes,
     bool sendNotification = true,
@@ -1667,6 +1669,7 @@ class AccountingService {
       'payment_method_id': paymentMethodId,
       'cashbox_id': cashboxId,
       'reference_number': referenceNumber,
+      'irrigation_id': irrigationId,
       'notes': notes,
       'status': 'posted',
       'created_by': userId,
@@ -2854,6 +2857,20 @@ class AccountingService {
 
   /// يعدّل السقاية ويعيد احتساب القيود والحركات التابعة داخل معاملة واحدة.
   /// الفترات المقفلة والتعارضات الزمنية تُرفض صراحةً لحماية الإقفال وسجل تشغيل المضخة.
+  Future<void> _reverseIrrigationDieselTx(Transaction tx, int irrigationId, int? userId, String reason) async {
+    final moves = await tx.rawQuery("SELECT d.* FROM diesel_movements d WHERE d.irrigation_id=? AND d.reversal_of IS NULL AND NOT EXISTS (SELECT 1 FROM diesel_movements r WHERE r.reversal_of=d.id) ORDER BY d.id", [irrigationId]);
+    for (final move in moves) {
+      await _reverseEntriesTx(tx, referenceType: 'diesel_advance', referenceId: (move['id'] as num).toInt(), reason: reason, userId: userId);
+      await tx.insert('diesel_movements', {
+        'station_id': move['station_id'], 'beneficiary_id': move['beneficiary_id'],
+        'irrigation_id': irrigationId, 'kind': move['kind'],
+        'liters': -(move['liters'] as num).toDouble(), 'unit_price': move['unit_price'],
+        'amount': -(move['amount'] as num).toInt(), 'date': AppClock.now().toIso8601String(),
+        'notes': 'عكس حركة ${move['id']}: $reason', 'created_by': userId, 'reversal_of': move['id'],
+      });
+    }
+  }
+
   Future<int> updateIrrigationBasic({
     required int id,
     required DateTime start,
@@ -3106,7 +3123,8 @@ class AccountingService {
       for (final period in shiftedCloudPeriods) {
         final periodId = (period['id'] as num).toInt();
         if (period['delete'] == true) {
-          await tx.delete('cloud_periods', where: 'id=?', whereArgs: [periodId]);
+          await tx.update('cloud_periods', {'start_datetime': start.toIso8601String(),
+            'end_datetime': start.toIso8601String(), 'minutes': 0}, where: 'id=?', whereArgs: [periodId]);
         } else {
           await tx.update('cloud_periods', {
             'start_datetime': period['start_datetime'],
@@ -3116,54 +3134,27 @@ class AccountingService {
         }
       }
 
-      // Reconcile diesel movements with the newly calculated litres and shortage.
+      // Keep original stock movements and append signed, linked reversals.
       final oldDieselMoves = await tx.query('diesel_movements',
         where: 'irrigation_id=?', whereArgs: [id], orderBy: 'id');
+      await _reverseIrrigationDieselTx(tx, id, userId, 'تعديل السقاية');
       if (type == 'diesel' && partyType == 'beneficiary' && result.dieselLiters > 0) {
         final price = (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0;
-        final advances = oldDieselMoves.where((m) => '${m['kind']}' == 'advance').toList();
-        final consumptions = oldDieselMoves.where((m) => '${m['kind']}' == 'consumption').toList();
         if (shortageLiters > 0) {
-          final advanceValues = <String, Object?>{
+          await tx.insert('diesel_movements', {
             'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'advance',
             'liters': shortageLiters, 'unit_price': price,
             'amount': AccountingCalculations.roundAmount(shortageLiters * price, rounding),
             'date': start.toIso8601String(), 'created_by': userId,
             'notes': 'سلفة ديزل تلقائية (بعد تعديل السقاية)',
-          };
-          if (advances.isEmpty) {
-            await tx.insert('diesel_movements', advanceValues);
-          } else {
-            await tx.update('diesel_movements', advanceValues,
-              where: 'id=?', whereArgs: [advances.first['id']]);
-            for (final extra in advances.skip(1)) {
-              await tx.delete('diesel_movements', where: 'id=?', whereArgs: [extra['id']]);
-            }
-          }
-        } else {
-          for (final advance in advances) {
-            await tx.delete('diesel_movements', where: 'id=?', whereArgs: [advance['id']]);
-          }
+          });
         }
-        final consumptionValues = <String, Object?>{
+        await tx.insert('diesel_movements', {
           'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'consumption',
           'liters': result.dieselLiters, 'unit_price': price, 'amount': result.dieselAmount,
           'date': start.toIso8601String(), 'created_by': userId,
           'notes': 'استهلاك السقاية (بعد التعديل)',
-        };
-        if (consumptions.isEmpty) {
-          await tx.insert('diesel_movements', consumptionValues);
-        } else {
-          await tx.update('diesel_movements', consumptionValues,
-            where: 'id=?', whereArgs: [consumptions.first['id']]);
-          for (final extra in consumptions.skip(1)) {
-            await tx.delete('diesel_movements', where: 'id=?', whereArgs: [extra['id']]);
-          }
-        }
-      } else {
-        for (final move in oldDieselMoves) {
-          await tx.delete('diesel_movements', where: 'id=?', whereArgs: [move['id']]);
-        }
+        });
       }
       // Capture the persisted post-recalculation state, not the planning list:
       // this makes deleted/updated/inserted records reviewable from the audit log.
@@ -3267,7 +3258,7 @@ class AccountingService {
         table: 'irrigations', recordId: id, oldValues: old,
         newValues: values, reason: 'تعديل وقت السقاية وإعادة ترحيل قيدها');
       return result.totalAmount;
-    });
+    }, captureSyncTables: const {'irrigations'});
   }
 
   Future<void> cancelIrrigation(int id, int userId, String reason) async {
@@ -3283,13 +3274,17 @@ class AccountingService {
         throw StateError('السقاية غير موجودة أو ملغاة مسبقًا');
       }
       final old = rows.first;
-      await _assertPeriodOpen(tx, DateTime.parse('${old['start_datetime']}'));
+      final cancelledAt = AppClock.now().toIso8601String();
+      await _assertPeriodRangeOpen(tx, DateTime.parse('${old['start_datetime']}'), DateTime.parse('${old['end_datetime']}'), stationId: (old['station_id'] as num).toInt());
+      await _assertPeriodOpen(tx, AppClock.now(), stationId: (old['station_id'] as num).toInt());
       await tx.update(
         'irrigations',
         {
           'status': 'cancelled',
+          'cancel_reason': reason.trim(),
+          'cancelled_at': cancelledAt,
           'notes': '${old['notes'] ?? ''}\nإلغاء: $reason',
-          'updated_at': AppClock.now().toIso8601String(),
+          'updated_at': cancelledAt,
         },
         where: 'id=?',
         whereArgs: [id],
@@ -3297,8 +3292,8 @@ class AccountingService {
       // 1) عكس الدفعات المرتبطة (إن وُجدت). يُسمح برصيد صندوق سالب
       final pays = await tx.query(
         'payments',
-        where: "reference_number=? AND status='posted'",
-        whereArgs: ['IRR-$id'],
+        where: "(irrigation_id=? OR (irrigation_id IS NULL AND reference_number=?)) AND status='posted'",
+        whereArgs: [id, 'IRR-$id'],
       );
       for (final pay in pays) {
         await _cancelPaymentRowTx(tx, pay, reason: reason, userId: userId);
@@ -3311,33 +3306,12 @@ class AccountingService {
         reason: reason,
         userId: userId,
       );
-      // 3) حركات الديزل المرتبطة: تُحذف وتُحفظ قيمها في سجل التدقيق
-      final moves = await tx.query(
-        'diesel_movements',
-        where: 'irrigation_id=?',
-        whereArgs: [id],
-      );
-      if (moves.isNotEmpty) {
-        await tx.delete(
-          'diesel_movements',
-          where: 'irrigation_id=?',
-          whereArgs: [id],
-        );
-        await database.auditTx(
-          tx,
-          userId: userId,
-          operation: 'delete',
-          table: 'diesel_movements',
-          recordId: id,
-          oldValues: moves,
-          reason: 'إلغاء السقاية: $reason',
-        );
-      }
+      await _reverseIrrigationDieselTx(tx, id, userId, reason);
       // 4) عكس كل استحقاقات الأطراف المرتبطة بالسقاية (العامل والشركاء).
       // لا نحذف الحركة الأصلية حتى يبقى كشف الحساب قابلاً للتدقيق.
       final workerAccruals = await tx.query(
         'worker_transactions',
-        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation'",
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation' AND NOT EXISTS (SELECT 1 FROM worker_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=worker_transactions.id AND rev.type='irrigation_reversal')",
         whereArgs: [id],
       );
       for (final item in workerAccruals) {
@@ -3365,7 +3339,7 @@ class AccountingService {
       }
       final directPartnerIrrigations = await tx.query(
         'partner_transactions',
-        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation'",
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=partner_transactions.id AND rev.type='irrigation_reversal')",
         whereArgs: [id],
       );
       for (final item in directPartnerIrrigations) {
@@ -3382,7 +3356,7 @@ class AccountingService {
       }
       final partnerAccruals = await tx.query(
         'partner_transactions',
-        where: "reference_type='irrigation_profit' AND reference_id=? AND type='share_accrual'",
+        where: "reference_type='irrigation_profit' AND reference_id=? AND type='share_accrual' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=partner_transactions.id AND rev.type='irrigation_reversal')",
         whereArgs: [id],
       );
       for (final item in partnerAccruals) {
@@ -3398,7 +3372,7 @@ class AccountingService {
         // حتى لا يبقى خصم من حساب الشريك بعد إلغاء السقاية الأصلية.
         final adjustments = await tx.query(
           'partner_transactions',
-          where: "reference_type='partner_profit_adjustment' AND reference_id=? AND type='share_adjustment'",
+          where: "reference_type='partner_profit_adjustment' AND reference_id=? AND type='share_adjustment' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='partner_profit_adjustment_cancel' AND rev.reference_id=partner_transactions.id)",
           whereArgs: [accrualId],
         );
         for (final adjustment in adjustments) {
@@ -3441,7 +3415,7 @@ class AccountingService {
         oldValues: old,
         reason: reason,
       );
-    });
+    }, captureSyncTables: const {'irrigations'});
   }
 
   /// يلغي دفعة واحدة داخل معاملة قائمة: يغيّر حالتها، يعدّل رصيد الصندوق (ويُسمح بالسالب)،

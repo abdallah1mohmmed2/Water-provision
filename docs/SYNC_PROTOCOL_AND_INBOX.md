@@ -169,3 +169,43 @@
 أضيفت اختبارات بروتوكول تغطي إنشاء الجلسة، وربط السقاية بها، وإقفالها، وإعادة حدث الإنهاء دون مضاعفة القيود أو حركات الديزل، كما أضيف اختبار Inbox محلي لدورة الجلسة ورفض إعادة فتح المكتملة.
 
 **حدود ما أُنجز:** هذه الشريحة تغلق فجوة جلسة التشغيل مع السقاية، لكنها لا تعني اكتمال كل المجالات التشغيلية والمالية، ولا تثبت بعد اختبار جهازين فعليين أو نجاح CI على HEAD النهائي. تبقى حركات الديزل المستقلة، المصروفات والتحويلات، الإلغاءات والعكس المحاسبي، التسويات والإقفالات والحسابات العامة، ثم اختبار جهازين مستقلين.
+
+## P1: versioned irrigation edits and cancellation
+
+`irrigations/update` keeps the existing root UUID and uses `base_version`. The
+transaction snapshots `_p1_effect_ids`: UUIDs of newly created dependent rows,
+ordered by local insertion ID per table. These are identity claims, not trusted
+financial values. Shelf recalculates from its irrigation and price snapshots,
+checks the resulting amounts against the command, and publishes changed/new
+rows as server projections inside the same savepoint. A count/identity mismatch
+rolls back the root, accounting, versions, and change log. Children are never
+independent Outbox commands for these two operations.
+
+Cancellation requires `cancel_reason` and `cancelled_at` (equal to `updated_at`).
+Both original and cancellation dates respect period closure. Previously
+cancelled roots and stale versions are rejected. Diesel history is retained:
+new signed inverse movements point to originals with `reversal_of`; a unique
+partial index prevents a second reversal of the same movement. Existing sums
+therefore include each movement and its inverse without changing inventory
+formulas. Worker/partner cancellation excludes accruals already reversed during
+editing. Linked receipts reverse within the irrigation transaction.
+
+Schema 30 adds durable `payments.irrigation_id`, irrigation cancellation metadata,
+and diesel reversal links. Inbox resolves these through global identities and
+normalizes legacy display references to `IRR-<receiver-local-id>`. An old receipt
+with only an ambiguous numeric `IRR-...` link is rejected for server-side P1
+rather than guessed; it requires explicit review/link repair. This does not
+implement standalone receipt cancellation (P2).
+
+Time edits retain cloud rows outside the shortened interval as zero-duration
+rows, recording their before/after values in the audit. Billing correction or
+cancellation does not reopen an already completed physical session, booking or
+queue entry. The old REST cancel endpoint now returns 409 for owned irrigations
+and directs callers to the versioned Outbox command, since its previous
+status-only mutation did not reverse accounting. Foreign roots still return 404.
+
+`server/lib/irrigation_calculations.dart` mirrors the existing local calculation
+module; a parity test requires byte equality. The P1 server adapter mirrors the
+existing local edit/cancel rules and uses the outer sync savepoint. Real two-client
+tests exercise both implementations, including repeated edits, rollback,
+replay, stale versions, cloud clipping, price snapshots and final reversal.
