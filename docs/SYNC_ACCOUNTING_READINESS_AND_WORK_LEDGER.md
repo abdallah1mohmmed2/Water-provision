@@ -9,7 +9,7 @@
 - المستودع: `abdallah1mohmmed2/Water-provision`
 - الفرع المستهدف: `feature/firebase-station-foundation`
 - تاريخ إعداد السجل: 2026-11-08
-- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ بدأ تدقيق P3 فقط؛ التنفيذ البرمجي والاختبارات لم تبدأ، وP4 وما بعدها لم تبدأ. الأقسام السابقة سجل تاريخي.**
+- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ P3a (استحقاق العامل المستقل) منفذة ومختبرة عبر Shelf وعميلين وCI على نسخة الكود؛ P3b وما بعدها لم تُنفذ بعد. الأقسام السابقة سجل تاريخي.**
 - قاعدة الفروع: ممنوع العمل على `main` أو الدمج إليه دون موافقة صريحة.
 - لا تعتبر Firebase backend فعلياً؛ المعمارية المعتمدة في هذا الفرع هي Shelf API + JWT + SQLite مع Offline-First.
 
@@ -481,3 +481,27 @@
 - Required next code slice: P3a standalone worker accrual with authoritative server posting and derived UUID IDs, followed by independent P3b partner share. Monthly accrual batches and profit distribution require separate server-authoritative atomic contracts. Do not globally enable generic party table sync.
 - Test status for this P3 checkpoint: **no P3 code-change tests executed; Flutter analyze/tests, Shelf analyze/tests, CI, APK, and two-client financial acceptance all unverified**. This entry is a source-audit record, not evidence of P3 functional completion.
 - No changes to P0/P1/P2 business logic, historical financial records, or `main`; no merge.
+
+## 18. P3a standalone worker accrual — evidence gate (2026-11-10)
+
+**Scope:** Only `createWorkerAccrual` standalone manual accrual. The `standalone_accrual` reference marker deliberately excludes irrigation wages (P0/P1), payouts (P2), monthly payroll, fixed-salary batches, and old opening debt. No modification to those established handlers or to `main`.
+
+**Verified source path:**
+- Flutter/AccountingService: active worker bound to selected station and open posting period; a single `worker_transactions` root command captured atomically with the local posted journal. Child `journal_entries` / `journal_lines` are not separately enqueued.
+- Outbox/BusinessSyncPayload: stable root UUID and `_derived_global_ids` for one journal and two lines, with no cashbox movement.
+- Shelf: distinct `_applySyncWorkerStandaloneAccrual` validation for JWT station, manager/accountant, worker global UUID, amount, snapshots, date/period closure, strictly new identity and manifest. Server owns the balanced journal debit `5000` / credit `2100.W<worker-id>`. The existing event savepoint provides all-or-nothing rollback and idempotent replay.
+- Inbox: accepted root plus authoritative server projections resolve UUID references; the receiving client reconstructs the same GL without generating an Outbox echo.
+- `server/test/sync_protocol_test.dart`: positive amount and two balanced journal lines, unchanged cashbox, tampered manifest rollback, duplicate/replay, stale command, wrong station and unsupported old type.
+- `test/p3a_two_clients_test.dart`: two distinct SQLite paths and device identities, real Shelf HTTP, broken manifest rejection followed by successful posting, authoritative journal projection, replay and parity on peer.
+
+**Code commit accepted by CI:** `f22631f9f71d59a7cc6a2abf6737d971955899c5`. The intermediate test-only fixes and the prior malformed-source correction are superseded by this source tree; no earlier failing CI runs are represented as success.
+
+**CI on exact code commit:**
+- Build / SonarQube `success`: https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42825652522 — includes successful Shelf tests, Flutter analyze, complete Flutter test coverage, Android debug APK build and upload, SonarQube Scan.
+- Flutter Analyze `success`: https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42825652622
+- SonarCloud `success`: https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42825652543
+- Shelf: **88 passing**; Flutter: **152 passing** (151 preexisting + P3a two-client test). These counts are from successful CI run.
+- Debug APK artifact: `Saqia-App-Debug` id `13768822940`, 93,693,230 bytes, non-expired at review, https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42825652522/artifacts/13768822940. Release-signed production APK was not verified as part of P3a.
+- Limitations: test process uses two separate SQLite files and real Shelf loopback HTTP, not two physical phones or a deployed production station. No actual production accounting data touched. Full P3 is **not closed**; P3b and subsequent worker/partner movement classes remain pending.
+
+**Transition:** Proceed to P3b (standalone partner share) only; reuse the P3a validation/projection pattern without rewriting its working contract. Do not conflate a manually authorized share with server-computed periodic profit distribution (P3d).
