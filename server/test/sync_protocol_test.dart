@@ -2185,6 +2185,18 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect((broken['results'] as List).single['status'],'rejected');
     expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
 
+    // Fail only after worker A has posted, during worker B's journal lines.
+    // The event SAVEPOINT must remove A and B and their journals together.
+    database.execute("""CREATE TRIGGER p3c_fail_second_worker_line
+      BEFORE INSERT ON journal_lines WHEN NEW.worker_id=3
+      BEGIN SELECT RAISE(ABORT,'forced second worker GL failure'); END""");
+    final failedJournal = await postEvents(stationOneToken,[evt]);
+    expect((failedJournal['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+    expect(database.select('SELECT id FROM journal_entries'),isEmpty);
+    expect(database.select('SELECT id FROM journal_lines'),isEmpty);
+    database.execute('DROP TRIGGER p3c_fail_second_worker_line');
+
     final good=await postEvents(stationOneToken,[evt]);
     expect((good['results'] as List).single['status'],'accepted');
     expect(database.select("SELECT id FROM worker_transactions WHERE reference_type='fixed_salary_batch'"),hasLength(2));
