@@ -2280,8 +2280,8 @@ class SaqiaServer {
       workerEntitlements:(worker.first['n'] as num).round(),
     );
     final directRows = db.select(
-      "SELECT pt.id,pt.partner_id,pt.amount,COALESCE((SELECT SUM(adj.amount) FROM partner_transactions adj WHERE adj.reference_type='partner_profit_adjustment' AND adj.reference_id=pt.id AND adj.type='share_adjustment'),0) adjusted FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id JOIN irrigations i ON i.id=pt.reference_id WHERE p.station_id=? AND pt.reference_type='irrigation_profit' AND COALESCE(i.status,'')!='cancelled' AND pt.date>=? AND pt.date<? ORDER BY pt.id DESC",
-      args,
+      "SELECT pt.id,pt.partner_id,pt.amount,COALESCE((SELECT SUM(adj.amount) FROM partner_transactions adj WHERE adj.reference_type='partner_profit_adjustment' AND adj.reference_id=pt.id AND adj.type='share_adjustment'),0) adjusted FROM partner_transactions pt JOIN partners p ON p.id=pt.partner_id JOIN irrigations i ON i.id=pt.reference_id WHERE p.station_id=? AND i.station_id=? AND pt.reference_type='irrigation_profit' AND COALESCE(i.status,'')!='cancelled' AND pt.date>=? AND pt.date<? ORDER BY pt.id DESC",
+      [station,station,periodStart,periodEnd],
     );
     var directTotal = 0;
     for (final row in directRows) {
