@@ -185,6 +185,76 @@ class BusinessSyncPayload {
       };
       return payload;
     }
+    // Atomic month-wide payroll: retain the first worker as a single command,
+    // and map every member and journal to a stable UUID. An old single-worker
+    // monthly event remains supported through the existing handler below.
+    if (table == 'worker_transactions' &&
+        original['type'] == 'worker_entitlement' &&
+        original['reference_type'] == 'monthly_salary' &&
+        changes != null) {
+      final ids = changes.where((r) =>
+          r['table_name'] == 'worker_transactions' &&
+          r['operation'] == 'create',
+      ).map((r) => (r['record_id'] as num).toInt()).toList()..sort();
+      if (ids.length > 1) {
+        if (ids.first != recordId || ids.length > 100) {
+          throw StateError('هوية جذر الرواتب أو حجم دفعة الشهر غير صالح');
+        }
+        final monthKey = original['reference_id'];
+        final date = original['date'];
+        if (monthKey is! int || date is! String) {
+          throw StateError('فترة وتاريخ الرواتب غير صالحين');
+        }
+        final members = <Map<String,Object?>>[];
+        final journalIds = <String>[];
+        final lineIds = <String>[];
+        for (final id in ids) {
+          final rows = await executor.query('worker_transactions',
+            where:'id=?',whereArgs:[id],limit:1);
+          if (rows.length != 1 ||
+              rows.single['type'] != 'worker_entitlement' ||
+              rows.single['reference_type'] != 'monthly_salary' ||
+              rows.single['reference_id'] != monthKey ||
+              rows.single['date'] != date) {
+            throw StateError('دفعة الشهر تحتوي على حركة لا تنتمي لنفس الراتب');
+          }
+          final member = await GlobalIdentity.decoratePayload(
+            executor,'worker_transactions',rows.single,id,
+          );
+          final refs = member['_global_refs'];
+          if (refs is! Map || refs['worker_id'] is! Map) {
+            throw StateError('مرجع العامل العالمي مفقود في دفعة الرواتب');
+          }
+          members.add({
+            'global_id':member['_global_id'],
+            'worker_ref':refs['worker_id'],
+            'amount':rows.single['amount'],
+            'rate_snapshot':rows.single['rate_snapshot'],
+          });
+          journalIds.addAll(await _globalIdsForQuery(
+            "SELECT id FROM journal_entries WHERE reference_type='worker' AND reference_id=? ORDER BY id",
+            [id],'journal_entries',
+          ));
+          lineIds.addAll(await _globalIdsForQuery(
+            "SELECT jl.id FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.reference_type='worker' AND je.reference_id=? ORDER BY jl.id",
+            [id],'journal_lines',
+          ));
+        }
+        if (journalIds.length != ids.length || lineIds.length != ids.length*2) {
+          throw StateError('عدد قيود الرواتب لا يطابق عدد العمال');
+        }
+        payload['_p3c_monthly_batch'] = {
+          'month_key':monthKey,
+          'members':members,
+        };
+        payload['_derived_global_ids'] = {
+          'journal_entries':journalIds,
+          'journal_lines':lineIds,
+          'cashboxes':<String>[],
+        };
+        return payload;
+      }
+    }
     // P3c monthly payroll produces several worker rows in one local
     // transaction. Each worker command must own only its journal identities,
     // not those of the other salaries in the same transaction.
