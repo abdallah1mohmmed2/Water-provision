@@ -2593,6 +2593,15 @@ class AccountingService {
     if (endExclusive.isBefore(start) || !endExclusive.isAfter(start)) {
       throw ArgumentError('تاريخ بداية الفترة يجب ألا يتجاوز تاريخ نهايتها');
     }
+    if (periodKey.trim().isEmpty || periodKey.length > 120 ||
+        periodKey.contains('|') || periodKey.contains('%') ||
+        periodKey.contains('_') || periodLabel.trim().isEmpty ||
+        periodLabel.length > 120 || periodLabel.contains('|')) {
+      throw ArgumentError('مفتاح أو وصف فترة الاستحقاق غير صالح');
+    }
+    if (accrualDate.isBefore(start) || !accrualDate.isBefore(endExclusive)) {
+      throw ArgumentError('تاريخ ترحيل الدفعة يجب أن يقع ضمن فترة الاستحقاق');
+    }
     if (amounts.values.any((amount) => amount < 0)) {
       throw ArgumentError('مبالغ الاستحقاق يجب ألا تكون سالبة');
     }
@@ -2606,6 +2615,7 @@ class AccountingService {
     return database.transaction((tx) async {
       final stationId = await _selectedStationIdTx(tx);
       await _assertPeriodRangeOpen(tx, start, endExclusive, stationId: stationId);
+      await _assertPeriodOpen(tx, accrualDate, stationId: stationId);
       final workerRows = await tx.query(
         'workers',
         where: "station_id=? AND active=1 AND pay_type='fixed'",
