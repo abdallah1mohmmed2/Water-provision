@@ -254,8 +254,8 @@ class SyncInboxApplier {
              referenceType == 'profit_distribution')) {
           final monthKey = entry.value;
           if (table == 'partner_transactions') {
-            if (monthKey is! int || monthKey < 946684800000 ||
-                monthKey > 7258118400000) {
+            if (monthKey is! int || monthKey < -9007199254740991 ||
+                monthKey > 9007199254740991) {
               throw StateError('مرجع فترة توزيع الأرباح الوارد غير صالح');
             }
             values[column] = monthKey;
