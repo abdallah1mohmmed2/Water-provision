@@ -715,7 +715,11 @@ void main() {
       date:DateTime(2091,7,25),
       periodKey:'P3C-JUL-2091',periodLabel:'July 2091',userId:1,
     ),throwsStateError);
-    expect(await database.query('sync_queue',where:"status='pending'"),hasLength(1));
+    expect(await database.query(
+      'sync_queue',
+      where:"table_name='worker_transactions' AND record_id=?",
+      whereArgs:[pending.single['record_id']],
+    ),hasLength(1));
   });
 
 }
