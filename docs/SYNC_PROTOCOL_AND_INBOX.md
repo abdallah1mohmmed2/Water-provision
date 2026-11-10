@@ -216,3 +216,51 @@ This is a derived total: it does not enqueue another command or bump the root
 version. The initial creation payload deliberately has zero paid amount because
 receipt posting is separate. The P1 test verifies peer equality immediately
 after creation/receipt, before any edit, as well as after edit/cancellation.
+
+## P2: receipts, payouts, metadata, and atomic replacement
+
+The payment table represents beneficiary receipts and worker/partner payouts.
+General-account movements remain P5; standalone worker/partner accruals remain
+P3. `receivePayment` retains the P0 receipt posting. `payWorker`/`payPartner`
+now send one payment command; their subledger rows are server-owned effects.
+
+Schema 31 adds payment currency snapshots, cancellation reason/time, metadata
+update time and a unique `replaces_payment_id` backlink. No financial rows are
+deleted. Notes/reference-only edits use `updatePaymentDetails` from the payment
+screen without reposting money. Amount, date, party, method, cashbox and currency
+cannot be edited in place. Financial edits retain the existing local replacement
+semantics: cancel the old receipt/payout and create a linked replacement.
+
+A replacement is ONE update command for the old payment, with a globally
+referenced `_p2_replacement` and `_p2_effect_ids` for created children. The
+replacement payment is excluded from independent Outbox capture. Shelf validates
+and posts both halves inside the same sync savepoint, then emits the replacement
+as a child create. Count/identity failure rolls back all effects. Replays check
+that the payment exists even when cancelled; a new stale command conflicts.
+
+P2 reuses the P0 beneficiary-receipt handler and P1 reversal routine. P2 validates
+party/method/cashbox station ownership, active sources for creation, method to
+cashbox linkage, currency, original date and mutation-date closures. Cancellation
+uses the original amount and original journal lines. Previously reversed or
+foreign original journals fail closed. A payout still permits a negative cashbox
+balance under the existing cashier-account policy.
+
+Receipt cancellation updates a durably linked irrigation's paid total and
+publishes its new authoritative version. This preserves later P1 edits and
+prevents a stale concurrent irrigation command from overwriting the receipt
+change. Mutable projections wait while a local P1/P2 command remains unsettled.
+Inbox resolves payment/replacement/subledger references through UUIDs and emits
+no new Outbox command.
+
+Historical `IRR-...` receipts without a durable irrigation link require review;
+historical payments without a currency snapshot require review before financial
+replacement. These links/currencies are not guessed. Replacement of an irrigation
+receipt remains disallowed, as in the existing payment screen; cancellation is
+supported. The original financial date and currency are retained on replacement.
+
+`test/p2_two_clients_test.dart` uses two AppDatabase instances and a real Shelf
+HTTP process. It covers all three party types, metadata without new journals,
+cross-party replacement, rollback after deliberately damaged child identities,
+replay/conflict, cancellation with all account nets restored, closed periods,
+wrong currency, direct deletion, foreign references, permissions, and a linked
+receipt cancellation followed by a P1 irrigation cancellation.

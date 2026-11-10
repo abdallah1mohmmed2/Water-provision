@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import 'password_hasher.dart';
 import 'irrigation_calculations.dart';
 part 'irrigation_mutations.dart';
+part 'payment_mutations.dart';
 
 class SaqiaServer {
   final Database db;
@@ -19,6 +20,7 @@ class SaqiaServer {
     _ensureLoginRateLimitTable();
     _ensureSyncTables();
     _ensureP1Schema();
+    _ensureP2Schema();
   }
 
   void _ensureLoginRateLimitTable() {
@@ -462,6 +464,7 @@ class SaqiaServer {
     }
 
     const relations = <String, Map<String, String>>{
+      'irrigations': {'pump_id':'pumps','beneficiary_id':'beneficiaries','worker_id':'workers','partner_id':'partners','session_id':'irrigation_sessions','queue_entry_id':'queue_entries','booking_id':'booking_requests'},
       'cloud_periods': {'irrigation_id': 'irrigations'},
       'journal_lines': {
         'journal_entry_id': 'journal_entries',
@@ -475,7 +478,7 @@ class SaqiaServer {
         'cashbox_id': 'cashboxes',
       },
       'partner_transactions': {'partner_id': 'partners'},
-      'payments': {'beneficiary_id':'beneficiaries','partner_id':'partners','worker_id':'workers','payment_method_id':'payment_methods','cashbox_id':'cashboxes','irrigation_id':'irrigations'},
+      'payments': {'beneficiary_id':'beneficiaries','partner_id':'partners','worker_id':'workers','payment_method_id':'payment_methods','cashbox_id':'cashboxes','irrigation_id':'irrigations','replaces_payment_id':'payments'},
       'diesel_movements': {
         'reversal_of': 'diesel_movements',
         'beneficiary_id': 'beneficiaries',
@@ -524,7 +527,7 @@ class SaqiaServer {
         'worker_transactions' when referenceType == 'irrigation_edit' => 'worker_transactions',
         'partner_transactions' when const {'irrigation_edit','partner_profit_adjustment','partner_profit_adjustment_cancel'}.contains(referenceType) => 'partner_transactions',
         'worker_transactions' || 'partner_transactions' when referenceType == 'irrigation_cancel' => 'irrigations',
-        'worker_transactions' || 'partner_transactions' when referenceType == 'payment_cancel' => 'payments',
+        'worker_transactions' || 'partner_transactions' when const {'payment','payment_cancel'}.contains(referenceType) => 'payments',
         'worker_transactions' || 'partner_transactions' when referenceType == 'previous_debt' => 'journal_entries',
         'worker_transactions' when referenceType == 'irrigation' => 'irrigations',
         'partner_transactions' when const {'irrigation_profit', 'irrigation'}.contains(referenceType) => 'irrigations',
@@ -2298,8 +2301,7 @@ class SaqiaServer {
       return;
     }
     if (entityType == 'payments') {
-      if (operation != 'create') throw UnsupportedError('تعديل أو حذف القبض يحتاج معالج عكس محاسبي مخصصاً');
-      _applySyncPaymentReceipt(station:station,entityKey:entityKey,payload:payload,now:now,userId:userId,role:role);
+      _applyP2Payment(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
       return;
     }
     if (entityType == 'beneficiary_manual_debts') {
@@ -2522,7 +2524,7 @@ class SaqiaServer {
               businessRowExists = db.select('''
                 SELECT 1 FROM sync_entity_links l JOIN payments p
                   ON p.id=l.local_id AND p.station_id=l.station_id
-                WHERE l.station_id=? AND l.entity_type='payments' AND l.global_id=? AND p.status='posted' LIMIT 1
+                WHERE l.station_id=? AND l.entity_type='payments' AND l.global_id=? LIMIT 1
               ''', [station, globalId]).isNotEmpty;
             } else if (entityType == 'beneficiary_manual_debts') {
               businessRowExists = db.select('''
@@ -2657,6 +2659,7 @@ class SaqiaServer {
         try {
           final journalStart = _hasTable('journal_entries')
               ? (db.select('SELECT COALESCE(MAX(id),0) n FROM journal_entries').single['n'] as num).toInt() : 0;
+          final p2Before = entityType == 'payments' && payload['_p2_effect_ids'] is Map ? _p2Snapshot(station) : null;
           final p1Before = entityType == 'irrigations' && operation == 'update' ? _p1Snapshot(station) : null;
           _applySyncBusinessEvent(
             station: station,
@@ -2678,7 +2681,9 @@ class SaqiaServer {
             VALUES(?,?,?,?,?) ON CONFLICT(station_id,entity_type,entity_key)
             DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at''',
             [station,entityType,entityKey,nextVersion,now]);
-          if (p1Before != null) {
+          if (p2Before != null) {
+            _appendP2Effects(station, device, payload, now, p2Before);
+          } else if (p1Before != null) {
             _appendP1Effects(station, device, payload, now, p1Before);
           } else if (const {'irrigations','payments','expenses','cashbox_transfers','diesel_movements',
               'beneficiary_manual_debts','worker_transactions','partner_transactions'}.contains(entityType)) {

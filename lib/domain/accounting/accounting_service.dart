@@ -1639,6 +1639,7 @@ class AccountingService {
     required int cashboxId,
     int? userId,
     int? irrigationId,
+    int? replacesPaymentId,
     String? referenceNumber,
     String? notes,
     bool sendNotification = true,
@@ -1656,6 +1657,14 @@ class AccountingService {
     );
     paymentMethodId = src['method']!;
     cashboxId = src['cashbox']!;
+    final station = await _selectedStationIdTx(tx);
+    final partyIds = {'beneficiaries':beneficiaryId,'workers':workerId,'partners':partnerId};
+    if (partyIds.values.where((v)=>v!=null).length != 1) throw ArgumentError('يجب تحديد طرف واحد للسند');
+    for (final entry in {...partyIds,'cashboxes':cashboxId,'payment_methods':paymentMethodId}.entries) {
+      if (entry.value != null && (await tx.rawQuery('SELECT id FROM ${entry.key} WHERE id=? AND station_id=?',[entry.value,station])).isEmpty) throw StateError('مرجع السند لا يتبع المحطة');
+    }
+    final currency = (await tx.query('cashboxes',columns:['currency'],where:'id=?',whereArgs:[cashboxId])).single['currency'];
+    if (currency is! String || currency.trim().isEmpty) throw StateError('عملة الصندوق غير محددة');
     final isOutgoing = beneficiaryId == null;
     if (isOutgoing) {
       await _assertCashboxCanSpend(tx, cashboxId, amount);
@@ -1670,6 +1679,8 @@ class AccountingService {
       'cashbox_id': cashboxId,
       'reference_number': referenceNumber,
       'irrigation_id': irrigationId,
+      'replaces_payment_id': replacesPaymentId,
+      'currency': currency,
       'notes': notes,
       'status': 'posted',
       'created_by': userId,
@@ -1793,7 +1804,7 @@ class AccountingService {
       'created_by': userId,
     });
     return id;
-  });
+  }, captureSyncTables: const {'payments'});
   Future<int> payPartner({
     required int partnerId,
     required int amount,
@@ -1824,7 +1835,7 @@ class AccountingService {
       'created_by': userId,
     });
     return id;
-  });
+  }, captureSyncTables: const {'payments'});
 
   Future<int> addExpense({
     required String category,
@@ -1968,6 +1979,7 @@ class AccountingService {
   Future<void> addDieselMovement({
     int? beneficiaryId,
     int? irrigationId,
+    int? replacesPaymentId,
     required String kind,
     required double liters,
     required int unitPrice,
@@ -3447,6 +3459,8 @@ class AccountingService {
       'payments',
       {
         'status': 'cancelled',
+        'cancel_reason': reason.trim(),
+        'cancelled_at': AppClock.now().toIso8601String(),
         'notes': '${pay['notes'] ?? ''}\nإلغاء: $reason',
       },
       where: 'id=?',
@@ -3560,17 +3574,22 @@ class AccountingService {
       }
       final old = rows.first;
       final oldReference = '${old['reference_number'] ?? ''}';
-      if (oldReference.startsWith('IRR-')) {
+      if (old['irrigation_id'] != null || oldReference.startsWith('IRR-')) {
         throw StateError('هذا السند مرتبط بسقاية؛ عدّل السقاية من شاشة فواتير السقايات حتى يبقى رصيدها صحيحًا.');
       }
       await _assertPeriodOpen(tx, DateTime.parse('${old['date']}'));
+      await _assertPeriodOpen(tx, AppClock.now());
+      if (old['currency']==null) throw StateError('عملة السند التاريخي غير مثبتة؛ يلزم مراجعة قبل الاستبدال');
+      final newBox = (await tx.query('cashboxes',where:'id=?',whereArgs:[cashboxId])).single;
+      final oldBox = (await tx.query('cashboxes',where:'id=?',whereArgs:[old['cashbox_id']])).single;
+      if (newBox['currency'] != (old['currency'] ?? oldBox['currency'])) throw StateError('لا يسمح بتغيير عملة السند عند الاستبدال');
       await _cancelPaymentRowTx(tx, old,
         reason: 'تعديل السند: ${reason.trim()}', userId: userId);
       final replacementId = await _paymentInTx(
         tx, beneficiaryId: beneficiaryId, partnerId: partnerId, workerId: workerId,
         amount: amount, paymentMethodId: paymentMethodId, cashboxId: cashboxId,
         userId: userId, referenceNumber: referenceNumber, notes: notes,
-        sendNotification: false,
+        sendNotification: false, replacesPaymentId: id,
         paymentDate: DateTime.parse('${old['date']}'),
       );
       // Keep the party-specific subledgers in sync just as payWorker/payPartner do.
@@ -3610,7 +3629,21 @@ class AccountingService {
         },
         reason: reason.trim());
       return replacementId;
-    });
+    }, captureSyncTables: const {'payments'}, captureSyncRecordIds: {'payments':{id}});
+  }
+
+  Future<void> updatePaymentDetails({required int id, required int userId, String? referenceNumber, String? notes}) async {
+    await database.transaction((tx) async {
+      final rows=await tx.query('payments',where:'id=?',whereArgs:[id]);
+      if(rows.length!=1 || rows.single['status']!='posted') throw StateError('السند غير موجود أو ملغى');
+      final old=rows.single;
+      if(old['irrigation_id']!=null && referenceNumber!=old['reference_number']) throw StateError('مرجع قبض السقاية ثابت');
+      await _assertPeriodOpen(tx,DateTime.parse('${old['date']}'));
+      await _assertPeriodOpen(tx,AppClock.now());
+      final values={'reference_number':referenceNumber,'notes':notes,'updated_at':AppClock.now().toIso8601String()};
+      await tx.update('payments',values,where:'id=?',whereArgs:[id]);
+      await database.auditTx(tx,userId:userId,operation:'update',table:'payments',recordId:id,oldValues:old,newValues:values);
+    },captureSyncTables:const {'payments'});
   }
 
   /// إلغاء دفعة (قبض من مستفيد أو دفع لعامل/شريك) مع عكس أثرها كاملًا.
@@ -3626,9 +3659,11 @@ class AccountingService {
       if (r.isEmpty || r.first['status'] != 'posted') {
         throw StateError('الدفعة غير موجودة أو ملغاة مسبقًا');
       }
+      if (r.first['irrigation_id']==null && '${r.first['reference_number']??''}'.startsWith('IRR-')) throw StateError('ربط القبض القديم غير مثبت؛ يلزم مراجعة صريحة');
       await _assertPeriodOpen(tx, DateTime.parse('${r.first['date']}'));
+      await _assertPeriodOpen(tx, AppClock.now());
       await _cancelPaymentRowTx(tx, r.first, reason: reason, userId: userId);
-    });
+    }, captureSyncTables: const {'payments'});
   }
 
   /// إلغاء حركة ديزل يدوية (شراء/تسليم/سلفة/استهلاك/تصحيح): تُعكس قيودها ويُردّ أثرها على

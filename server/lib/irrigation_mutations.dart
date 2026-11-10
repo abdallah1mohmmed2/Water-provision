@@ -1131,7 +1131,7 @@ class _P1Mutations {
     final incoming = pay['beneficiary_id'] != null;
     tx.update(
       'payments',
-      {'status': 'cancelled', 'notes': '${pay['notes'] ?? ''}\nإلغاء: $reason'},
+      {'status': 'cancelled', 'cancel_reason':reason.trim(), 'cancelled_at':clock.toIso8601String(), 'notes': '${pay['notes'] ?? ''}\nإلغاء: $reason'},
       where: 'id=?',
       whereArgs: [payId],
     );

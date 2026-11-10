@@ -1683,7 +1683,7 @@ void main() {
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 30);
+    expect((version.single.values.single as num).toInt(), 31);
   });
 
   test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {

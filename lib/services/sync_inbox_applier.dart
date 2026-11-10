@@ -37,7 +37,7 @@ class SyncInboxApplier {
     'cash_reconciliations': 'accounting',
   };
 
-  static const _reserved = {'_global_id', '_global_refs', '_unresolved_refs', '_derived_global_ids', '_p1_effect_ids', '_command'};
+  static const _reserved = {'_global_id', '_global_refs', '_unresolved_refs', '_derived_global_ids', '_p1_effect_ids', '_p2_effect_ids', '_p2_replacement', '_command'};
   static const _localOnly = {'id', 'station_id', 'created_by', 'reference_id'};
   static const _noDelete = {
     'accounts', 'payments', 'expenses', 'cashbox_transfers', 'irrigations',
@@ -142,12 +142,12 @@ class SyncInboxApplier {
     // linked receipts). Keep the optimistic transaction intact until its root
     // command is acknowledged; then apply authoritative effects in order.
     if (event['source_device'] == '__server_projection__' &&
-        const {'cashboxes', 'cloud_periods', 'payments'}.contains(table)) {
+        const {'cashboxes', 'cloud_periods', 'payments', 'irrigations'}.contains(table)) {
       final pendingEdits = await tx.rawQuery(
-        "SELECT payload FROM sync_queue WHERE table_name='irrigations' AND status IN ('pending','sending','conflict','failed')");
+        "SELECT payload FROM sync_queue WHERE table_name IN ('irrigations','payments') AND status IN ('pending','sending','conflict','failed')");
       if (pendingEdits.any((row) =>
-          (jsonDecode(row['payload'] as String) as Map).containsKey('_p1_effect_ids'))) {
-        throw StateError('تأكيد تعديل السقاية المحلي لم يصل بعد');
+          ((jsonDecode(row['payload'] as String) as Map).containsKey('_p1_effect_ids') || (jsonDecode(row['payload'] as String) as Map).containsKey('_p2_effect_ids')))) {
+        throw StateError('تأكيد الأمر المالي المحلي لم يصل بعد');
       }
     }
 
@@ -266,7 +266,7 @@ class SyncInboxApplier {
           'worker_transactions' when referenceType == 'irrigation_edit' => 'worker_transactions',
         'partner_transactions' when const {'irrigation_edit','partner_profit_adjustment','partner_profit_adjustment_cancel'}.contains(referenceType) => 'partner_transactions',
         'worker_transactions' || 'partner_transactions' when referenceType == 'irrigation_cancel' => 'irrigations',
-        'worker_transactions' || 'partner_transactions' when referenceType == 'payment_cancel' => 'payments',
+        'worker_transactions' || 'partner_transactions' when const {'payment','payment_cancel'}.contains(referenceType) => 'payments',
         'worker_transactions' || 'partner_transactions' when referenceType == 'previous_debt' => 'journal_entries',
           'worker_transactions' when referenceType == 'irrigation' => 'irrigations',
           'partner_transactions' when const {'irrigation_profit', 'irrigation'}.contains(referenceType) => 'irrigations',

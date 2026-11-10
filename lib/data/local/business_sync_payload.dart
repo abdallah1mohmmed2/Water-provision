@@ -1,4 +1,5 @@
 import 'package:sqflite/sqflite.dart';
+import 'global_identity.dart';
 
 /// Snapshots a business command and its derived identities in the write transaction.
 class BusinessSyncPayload {
@@ -20,6 +21,22 @@ class BusinessSyncPayload {
     List<Map<String, Object?>>? changes,
   }) async {
     final payload = Map<String, Object?>.from(original);
+    if (table == 'payments' && changes != null &&
+        (original['beneficiary_id'] == null || changes.any((r) => r['table_name']==table && r['record_id']==recordId && r['operation']=='update'))) {
+      final manifest = <String,List<String>>{};
+      for (final child in const ['payments','worker_transactions','partner_transactions','journal_entries','journal_lines','cashboxes','irrigations']) {
+        final ids = changes.where((r) => r['table_name']==child && r['operation']=='create' && !(child==table && r['record_id']==recordId)).map((r)=>(r['record_id'] as num).toInt()).toList()..sort();
+        manifest[child] = ids.isEmpty ? [] : await _globalIdsForQuery('SELECT id FROM $child WHERE id IN (${List.filled(ids.length,'?').join(',')}) ORDER BY id',ids,child);
+      }
+      payload['_p2_effect_ids'] = manifest;
+      final replacements = await executor.query('payments',where:'replaces_payment_id=?',whereArgs:[recordId]);
+      if (replacements.length > 1) throw StateError('أكثر من سند بديل للأصل');
+      if (replacements.isNotEmpty) {
+        final replacement = replacements.single;
+        payload['_p2_replacement'] = await GlobalIdentity.decoratePayload(executor,'payments',replacement,(replacement['id'] as num).toInt());
+      }
+      return payload;
+    }
     if (table == 'irrigations' &&
         changes != null &&
         changes.any(

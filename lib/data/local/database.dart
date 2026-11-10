@@ -28,7 +28,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 30,
+      version: 31,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -565,6 +565,11 @@ class AppDatabase {
     )''');
 
     for (final item in const [
+      ['payments', 'updated_at', 'TEXT'],
+      ['payments', 'cancel_reason', 'TEXT'],
+      ['payments', 'cancelled_at', 'TEXT'],
+      ['payments', 'currency', 'TEXT'],
+      ['payments', 'replaces_payment_id', 'INTEGER REFERENCES payments(id)'],
       ['irrigations', 'cancel_reason', 'TEXT'],
       ['irrigations', 'cancelled_at', 'TEXT'],
       ['diesel_movements', 'reversal_of', 'INTEGER REFERENCES diesel_movements(id)'],
@@ -575,6 +580,7 @@ class AppDatabase {
         await d.execute('ALTER TABLE ${item[0]} ADD COLUMN ${item[1]} ${item[2]}');
       }
     }
+    await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_replacement ON payments(replaces_payment_id) WHERE replaces_payment_id IS NOT NULL');
     await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_diesel_reversal ON diesel_movements(reversal_of) WHERE reversal_of IS NOT NULL');
 
     // Compatible storage for authoritative cancellation metadata (no row rewrite).
@@ -841,6 +847,7 @@ class AppDatabase {
     Future<T> Function(Transaction tx) action, {
     bool captureSync = true,
     Set<String>? captureSyncTables,
+    Map<String, Set<int>>? captureSyncRecordIds,
   }) async {
     final database = await db;
     return database.transaction((tx) async {
@@ -874,6 +881,8 @@ class AppDatabase {
         final recordId = (change['record_id'] as num).toInt();
         final operation = '${change['operation']}';
         if (operation == 'noop') continue;
+        if (captureSyncRecordIds?.containsKey(table) == true &&
+            !captureSyncRecordIds![table]!.contains(recordId)) { continue; }
 
         await GlobalIdentity.ensureRecord(tx, table, recordId);
         Map<String, Object?> rawPayload = {'id': recordId};
@@ -894,7 +903,7 @@ class AppDatabase {
           recordId,
         );
         if (((operation == 'create' && (table == 'irrigations' || table == 'payments')) ||
-             (table == 'irrigations' && captureSyncTables?.contains(table) == true)) ||
+             ((table == 'irrigations' || table == 'payments') && captureSyncTables?.contains(table) == true)) ||
             (captureSyncTables?.contains(table) == true &&
              BusinessSyncPayload.additionalCommands.contains(table))) {
           payload = await BusinessSyncPayload(tx).prepare(table, recordId, payload,

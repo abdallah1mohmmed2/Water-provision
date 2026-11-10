@@ -8328,8 +8328,12 @@ class _PaymentsState extends State<PaymentsPage> {
     if (ok == true) {
       if (!mounted) return;
       try {
+        final descriptionOnly = existing != null &&
+            (existing['amount'] as num?)?.toInt() == int.tryParse(amount.text) &&
+            existing['${target}_id'] == party &&
+            existing['payment_method_id'] == method && existing['cashbox_id'] == cb;
         String? editReason;
-        if (existing != null) {
+        if (existing != null && !descriptionOnly) {
           // Recheck immediately before using State.context after the dialog await.
           if (!mounted) return;
           editReason = await askReason(
@@ -8359,7 +8363,11 @@ class _PaymentsState extends State<PaymentsPage> {
           }
         }
         int paymentId;
-        if (existing != null) {
+        if (existing != null && descriptionOnly) {
+          paymentId = existing['id'] as int;
+          await widget.r.accounting.updatePaymentDetails(id: paymentId,
+            userId: widget.userId, referenceNumber: reference.text, notes: note.text);
+        } else if (existing != null) {
           paymentId = await widget.r.accounting.replacePayment(
             id: existing['id'] as int,
             userId: widget.userId,
