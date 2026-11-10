@@ -2381,4 +2381,115 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT id FROM worker_transactions'),hasLength(2));
   });
 
+
+  test('P3d distributes server-computed period profit atomically across two partners', () async {
+    preparePartyDebtFixture();
+    database.execute("ALTER TABLE partners ADD COLUMN ownership_mode TEXT NOT NULL DEFAULT 'shares'");
+    database.execute("ALTER TABLE partners ADD COLUMN ownership_percentage REAL NOT NULL DEFAULT 0");
+    database.execute("ALTER TABLE partners ADD COLUMN shares_count REAL NOT NULL DEFAULT 1");
+    database.execute("INSERT INTO partners(id,station_id,name,active,shares_count) VALUES(3,1,'Partner C',1,2)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'partners','51515151-aaaa-4aaa-8aaa-515151515151',3,'2026-11-08T00:00:00Z')");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('3200','Partner equity','equity')");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('4000','Revenue','revenue')");
+    database.execute("CREATE TABLE irrigations(id INTEGER PRIMARY KEY,station_id INTEGER,status TEXT)");
+    database.execute("""INSERT INTO journal_entries
+      (station_id,date,reference_type,reference_id,description,status,created_by,created_at)
+      VALUES(1,'2026-11-15T10:00:00.000','manual',NULL,'Revenue','posted',11,'2026-11-15T10:00:00.000')""");
+    final revenueJournal=database.lastInsertRowId;
+    database.execute("INSERT INTO journal_lines(journal_entry_id,account_id,debit,credit) VALUES(?,?,0,1200)",[revenueJournal,database.select("SELECT id FROM accounts WHERE code='4000'").single['id']]);
+    const rootId='51515151-bbbb-4bbb-8bbb-515151515151';
+    const secondId='51515151-cccc-4ccc-8ccc-515151515151';
+    final periodRef=DateTime(2026,11,1).millisecondsSinceEpoch;
+    final event=<String,dynamic>{
+      'event_id':'51515151-dddd-4ddd-8ddd-515151515151',
+      'entity_type':'partner_transactions',
+      'entity_key':'partner_transactions:$rootId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':rootId,'partner_id':1,
+        'date':'2026-11-30T23:59:59.999999',
+        'type':'share_accrual','amount':400,
+        'ownership_snapshot':1,
+        'reference_type':'profit_distribution','reference_id':periodRef,
+        '_global_refs':{
+          'partner_id':{'table':'partners','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+        '_p3d_distribution':{
+          'period_from':'2026-11-01',
+          'period_end_exclusive':'2026-12-01',
+          'members':[
+            {'global_id':rootId,
+             'partner_ref':{'table':'partners','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+             'type':'share_accrual','reference_type':'profit_distribution',
+             'original_global_id':null,'reference_id':periodRef,
+             'amount':400,'ownership_snapshot':1},
+            {'global_id':secondId,
+             'partner_ref':{'table':'partners','global_id':'51515151-aaaa-4aaa-8aaa-515151515151'},
+             'type':'share_accrual','reference_type':'profit_distribution',
+             'original_global_id':null,'reference_id':periodRef,
+             'amount':800,'ownership_snapshot':2},
+          ],
+        },
+        '_derived_global_ids':{
+          'journal_entries':[
+            '51515151-1111-4111-8111-515151515151',
+            '51515151-2222-4222-8222-515151515151',
+          ],
+          'journal_lines':[
+            '51515151-3333-4333-8333-515151515151',
+            '51515151-4444-4444-8444-515151515151',
+            '51515151-5555-4555-8555-515151515151',
+            '51515151-6666-4666-8666-515151515151',
+          ],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+    final forged=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    forged['payload']['_p3d_distribution']['members'][1]['amount']=801;
+    expect((await postEvents(stationOneToken,[forged]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM partner_transactions'),isEmpty);
+
+    database.execute("""CREATE TRIGGER p3d_fail_second_partner
+      BEFORE INSERT ON journal_lines WHEN NEW.partner_id=3
+      BEGIN SELECT RAISE(ABORT,'second partner failure'); END""");
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM partner_transactions'),isEmpty);
+    expect(database.select("SELECT id FROM journal_entries WHERE reference_type='partner'"),isEmpty);
+    database.execute('DROP TRIGGER p3d_fail_second_partner');
+
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'accepted');
+    final movements=database.select("SELECT amount,reference_id FROM partner_transactions WHERE reference_type='profit_distribution' ORDER BY amount");
+    expect(movements,hasLength(2));
+    expect(movements.map((r)=>r['amount']).toList(),[400,800]);
+    expect(movements.every((r)=>r['reference_id']==periodRef),isTrue);
+    final total=database.select("""SELECT SUM(jl.debit) debit,SUM(jl.credit) credit
+      FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id
+      WHERE je.reference_type='partner'""").single;
+    expect(total['debit'],1200);
+    expect(total['credit'],1200);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'duplicate');
+    expect(database.select("SELECT id FROM journal_entries WHERE reference_type='partner'"),hasLength(2));
+    final source=await getInbox(stationOneToken,device:'device-a');
+    expect((source['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
+      ['partner_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    final peer=await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
+      ['partner_transactions','partner_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    final duplicatePeriod=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    duplicatePeriod['event_id']='52525252-aaaa-4aaa-8aaa-525252525252';
+    duplicatePeriod['entity_key']='partner_transactions:52525252-bbbb-4bbb-8bbb-525252525252';
+    duplicatePeriod['payload']['_global_id']='52525252-bbbb-4bbb-8bbb-525252525252';
+    duplicatePeriod['payload']['_p3d_distribution']['members'][0]['global_id']='52525252-bbbb-4bbb-8bbb-525252525252';
+    expect((await postEvents(stationOneToken,[duplicatePeriod]))['results'].single['status'],'rejected');
+    expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='profit_distribution'"),hasLength(2));
+    final foreign=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    foreign['event_id']='52525252-cccc-4ccc-8ccc-525252525252';
+    foreign['entity_key']='partner_transactions:52525252-dddd-4ddd-8ddd-525252525252';
+    foreign['payload']['_global_id']='52525252-dddd-4ddd-8ddd-525252525252';
+    foreign['payload']['_p3d_distribution']['members'][0]['global_id']='52525252-dddd-4ddd-8ddd-525252525252';
+    expect((await postEvents(stationTwoToken,[foreign]))['results'].single['status'],'rejected');
+  });
+
 }
