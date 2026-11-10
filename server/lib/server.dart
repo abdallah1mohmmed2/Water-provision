@@ -1496,6 +1496,117 @@ class SaqiaServer {
       [station,globalId,movementId,now]);
   }
 
+
+  /// P3b manual standalone partner share; periodic distribution and
+  /// irrigation profit are different server-owned operations.
+  void _applySyncPartnerStandaloneShare({
+    required int station, required String entityKey, required String operation,
+    required Map payload, required String now, required int? userId,
+    required String? role,
+  }) {
+    if (operation != 'create' || payload['type'] != 'share_accrual' ||
+        payload['reference_type'] != 'standalone_share' ||
+        payload['reference_id'] != null) {
+      throw UnsupportedError('P3b يقبل حصة شريك مستقلة جديدة فقط');
+    }
+    if (role != 'manager' && role != 'accountant') {
+      throw StateError('صلاحية المستخدم لا تسمح بترحيل حصة الشريك');
+    }
+    if (userId == null || _stationForUser(userId) != station) {
+      throw StateError('مستخدم حصة الشريك لا يتبع المحطة');
+    }
+    final globalId = (payload['_global_id'] ?? '').toString();
+    if (!RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$').hasMatch(globalId) ||
+        entityKey != 'partner_transactions:' + globalId) {
+      throw StateError('هوية حصة الشريك العالمية غير صالحة');
+    }
+    if (db.select(
+      "SELECT 1 FROM sync_entity_links WHERE entity_type='partner_transactions' AND global_id=? LIMIT 1",
+      [globalId],
+    ).isNotEmpty) throw StateError('هوية حصة الشريك مستخدمة مسبقاً');
+    final manifest = payload['_derived_global_ids'];
+    if (manifest is! Map ||
+        manifest['journal_entries'] is! List ||
+        (manifest['journal_entries'] as List).length != 1 ||
+        manifest['journal_lines'] is! List ||
+        (manifest['journal_lines'] as List).length != 2 ||
+        manifest['cashboxes'] is! List ||
+        (manifest['cashboxes'] as List).isNotEmpty) {
+      throw StateError('حصة الشريك تتطلب قيداً وسطرين دون حركة صندوق');
+    }
+    if (payload['cashbox_id'] != null || payload['worker_id'] != null) {
+      throw StateError('حصة الشريك ليست صرفاً من الصندوق أو حركة عامل');
+    }
+    final refs = payload['_global_refs'];
+    if (refs is! Map) throw StateError('مرجع الشريك العالمي مطلوب');
+    final partnerId = _resolveSyncReference(
+      station: station, entityType: 'partners', column: 'partner_id',
+      references: refs,
+    );
+    final partner = db.select(
+      'SELECT active FROM partners WHERE id=? AND station_id=? LIMIT 1',
+      [partnerId,station],
+    );
+    if (partner.isEmpty || (partner.single['active'] as num).toInt() != 1) {
+      throw StateError('الشريك غير نشط أو لا يتبع المحطة');
+    }
+    final amountValue = payload['amount'];
+    if (amountValue is! int || amountValue <= 0 || amountValue > 1000000000000) {
+      throw StateError('قيمة حصة الشريك يجب أن تكون عدداً صحيحاً موجباً ضمن الحد');
+    }
+    final ownership = payload['ownership_snapshot'];
+    if (ownership != null &&
+        (ownership is! num || !ownership.toDouble().isFinite ||
+         ownership < 0 || ownership > 100)) {
+      throw StateError('لقطة حصة الشريك غير صالحة');
+    }
+    final date = DateTime.tryParse((payload['date'] ?? '').toString());
+    if (date == null) throw StateError('تاريخ حصة الشريك غير صالح');
+    if (_hasTable('period_closures')) {
+      final cols = db.select('PRAGMA table_info(period_closures)')
+          .map((row) => row['name'].toString()).toSet();
+      if (!{'station_id','period_start','period_end','status'}.every(cols.contains)) {
+        throw StateError('مخطط الإقفال غير صالح');
+      }
+      final key = date.toIso8601String();
+      if (db.select(
+        "SELECT id FROM period_closures WHERE station_id=? AND status='locked' AND period_start<=? AND COALESCE(period_end_exclusive,period_end)>? LIMIT 1",
+        [station,key,key],
+      ).isNotEmpty) throw StateError('لا يجوز ترحيل حصة ضمن فترة مقفلة');
+    }
+    const required = {'id','partner_id','station_id','date','type','amount',
+      'ownership_snapshot','reference_type','reference_id','notes','created_by'};
+    final columns = db.select('PRAGMA table_info(partner_transactions)')
+        .map((r) => r['name'].toString()).toSet();
+    if (!required.every(columns.contains)) {
+      throw StateError('مخطط دفتر الشريك لا يدعم P3b');
+    }
+    db.execute('''INSERT INTO partner_transactions
+      (partner_id,station_id,date,type,amount,ownership_snapshot,
+       reference_type,reference_id,notes,created_by)
+       VALUES(?,?,?,?,?,?,?,?,?,?)''',
+      [partnerId,station,date.toIso8601String(),'share_accrual',
+       amountValue,ownership,'standalone_share',null,null,userId]);
+    final movementId = db.lastInsertRowId;
+    _journal(
+      description: 'حصة شريك من النشاط',
+      referenceType: 'partner',
+      referenceId: movementId,
+      userId: userId,
+      date: date,
+      lines: [
+        {'account_id': _accountId('3200'), 'partner_id': partnerId,
+         'debit': amountValue, 'credit': 0},
+        {'account_id': _syncPartnerAccountId(partnerId), 'partner_id': partnerId,
+         'debit': 0, 'credit': amountValue},
+      ],
+    );
+    db.execute('''INSERT INTO sync_entity_links
+      (station_id,entity_type,global_id,local_id,created_at)
+      VALUES(?,'partner_transactions',?,?,?)''',
+      [station,globalId,movementId,now]);
+  }
+
   void _applySyncPartyOpeningDebt({
     required int station, required String entityType, required String entityKey,
     required String operation, required Map payload, required String now,
@@ -2428,6 +2539,10 @@ class SaqiaServer {
     }
     if (entityType == 'worker_transactions' && payload['type'] == 'accrual' && payload['reference_type'] == 'standalone_accrual') {
       _applySyncWorkerStandaloneAccrual(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
+      return;
+    }
+    if (entityType == 'partner_transactions' && payload['type'] == 'share_accrual' && payload['reference_type'] == 'standalone_share') {
+      _applySyncPartnerStandaloneShare(station:station,entityKey:entityKey,operation:operation,payload:payload,now:now,userId:userId,role:role);
       return;
     }
     if (entityType == 'worker_transactions' || entityType == 'partner_transactions') {
