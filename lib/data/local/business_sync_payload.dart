@@ -97,6 +97,80 @@ class BusinessSyncPayload {
     if (table == 'irrigations' || table == 'payments') {
       payload['_derived_global_ids'] = await _derivedGlobalIds(table, recordId);
     }
+    // One fixed-salary batch root owns all worker transactions and journals.
+    // Only the first worker row goes to Outbox; every member has a stable UUID.
+    if (table == 'worker_transactions' &&
+        original['type'] == 'accrual' &&
+        original['reference_type'] == 'fixed_salary_batch') {
+      final root = await executor.query(
+        'worker_transactions', where: 'id=?', whereArgs: [recordId], limit: 1,
+      );
+      if (root.isEmpty) throw StateError('دفعة الاستحقاق غير موجودة');
+      final notes = original['notes']?.toString() ?? '';
+      final match = RegExp(r'^([^|]+) \\| استحقاق راتب ثابت للفترة (.*?) \\|').firstMatch(notes);
+      if (match == null) throw StateError('مفتاح فترة دفعة الاستحقاق مفقود');
+      final periodKey = match.group(1)!.trim();
+      final label = match.group(2)!.trim();
+      if (periodKey.isEmpty || periodKey.length > 120 || label.isEmpty ||
+          label.length > 120) throw StateError('بيانات فترة الاستحقاق غير صالحة');
+      if (changes == null) throw StateError('سجل حركات الدفعة مطلوب');
+      final ids = changes.where(
+        (change) => change['table_name'] == 'worker_transactions' &&
+            change['operation'] == 'create',
+      ).map((change) => (change['record_id'] as num).toInt()).toList()
+        ..sort();
+      if (ids.isEmpty || ids.first != recordId) {
+        throw StateError('جذر الدفعة لا يطابق هويات الحركات التابعة');
+      }
+      final members = <Map<String,Object?>>[];
+      final journals = <String>[], lines = <String>[];
+      for (final id in ids) {
+        final rows = await executor.query('worker_transactions',
+          where:'id=?', whereArgs:[id],limit:1);
+        if (rows.length != 1 ||
+            rows.single['type'] != 'accrual' ||
+            rows.single['reference_type'] != 'fixed_salary_batch' ||
+            !(rows.single['notes']?.toString() ?? '').startsWith('$periodKey |')) {
+          throw StateError('حركات الدفعة غير متجانسة');
+        }
+        final decorated = await GlobalIdentity.decoratePayload(
+          executor,'worker_transactions',rows.single,id,
+        );
+        final refs = decorated['_global_refs'];
+        if (refs is! Map || refs['worker_id'] is! Map) {
+          throw StateError('هوية عامل في الدفعة مفقودة');
+        }
+        members.add({
+          'global_id':decorated['_global_id'],
+          'worker_ref':refs['worker_id'],
+          'amount':rows.single['amount'],
+        });
+        journals.addAll(await _globalIdsForQuery(
+          "SELECT id FROM journal_entries WHERE reference_type='worker' AND reference_id=? ORDER BY id",
+          [id],'journal_entries',
+        ));
+        lines.addAll(await _globalIdsForQuery(
+          "SELECT jl.id FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.reference_type='worker' AND je.reference_id=? ORDER BY jl.id",
+          [id],'journal_lines',
+        ));
+      }
+      if (journals.length != ids.length || lines.length != ids.length * 2) {
+        throw StateError('عدد القيود التابعة لا يطابق دفعة الاستحقاق');
+      }
+      // The local domain method already validated the dates; the server
+      // independently validates them against the signed station/period.
+      payload['_p3c_batch'] = {
+        'period_key':periodKey,
+        'period_label':label,
+        'members':members,
+      };
+      payload['_derived_global_ids'] = {
+        'journal_entries':journals,
+        'journal_lines':lines,
+        'cashboxes':<String>[],
+      };
+      return payload;
+    }
     // P3c monthly payroll produces several worker rows in one local
     // transaction. Each worker command must own only its journal identities,
     // not those of the other salaries in the same transaction.
