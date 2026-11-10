@@ -2736,19 +2736,25 @@ class AccountingService {
     if (amount <= 0) {
       throw ArgumentError('قيمة حصة الشريك يجب أن تكون أكبر من صفر');
     }
-    await _assertPeriodOpen(tx, date);
+    if (percentage != null && (!percentage.isFinite || percentage < 0 ||
+        percentage > 100)) {
+      throw ArgumentError('لقطة نسبة الشريك غير صالحة');
+    }
+    final stationId = await _selectedStationIdTx(tx);
+    await _assertPeriodOpen(tx, date, stationId: stationId);
     final partner = await tx.query(
       'partners',
       columns: ['id'],
-      where: 'id=?',
-      whereArgs: [partnerId],
+      where: 'id=? AND station_id=? AND active=1',
+      whereArgs: [partnerId, stationId],
       limit: 1,
     );
-    if (partner.isEmpty) throw StateError('الشريك غير موجود');
+    if (partner.isEmpty) throw StateError('الشريك غير نشط أو لا يتبع المحطة');
     final id = await tx.insert('partner_transactions', {
       'partner_id': partnerId,
       'date': date.toIso8601String(),
       'type': 'share_accrual',
+      'reference_type': 'standalone_share',
       'amount': amount,
       'ownership_snapshot': percentage,
       'created_by': userId,
@@ -2778,7 +2784,7 @@ class AccountingService {
       userId: userId,
       date: date,
     );
-  });
+  }, captureSyncTables: const {'partner_transactions'});
 
   Future<Map<String, int>> beneficiaryBalance(int id) async {
     final r = await database.query(
