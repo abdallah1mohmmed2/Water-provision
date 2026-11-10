@@ -2379,18 +2379,29 @@ class SaqiaServer {
       }
       prepared.add({...row,'global_id':global});
     }
-    if (prepared.first['type'] == 'share_accrual') {
-      final provided = payload['reference_id'];
-      if (provided is! int) throw StateError('مفتاح فترة التوزيع غير صالح');
-      distributionRef = provided;
+    for (var index = 0; index < prepared.length; index++) {
+      final row = prepared[index];
+      if (row['type'] != 'share_accrual') continue;
+      final member = members[index] as Map;
+      final candidate = member['reference_id'];
+      // Client timezone may differ from server timezone. Match the first
+      // local midnight within one day of the authoritative UTC period start,
+      // and require the same immutable period key for every distribution row.
+      final utcStart = DateTime.utc(from.year,from.month,from.day)
+          .millisecondsSinceEpoch;
+      if (candidate is! int ||
+          (candidate-utcStart).abs() > const Duration(days:1).inMilliseconds ||
+          distributionRef != null && distributionRef != candidate) {
+        throw StateError('مفتاح فترة توزيع الأرباح غير متطابق بين الشركاء');
+      }
+      distributionRef = candidate;
     }
-    // The first distribution might not be the root if corrective rows came
-    // first. Use its period-ref identity from the originating command; the
-    // immutable YYYY-MM-DD range, not the client-local row ID, owns uniqueness.
-    if (distributionRef == null) {
-      distributionRef = from.millisecondsSinceEpoch;
+    if (prepared.first['type'] == 'share_accrual' &&
+        payload['reference_id'] != distributionRef) {
+      throw StateError('مفتاح فترة الجذر مختلف');
     }
-    final periodKey = distributionRef;
+    final periodKeyRef = distributionRef ?? from.millisecondsSinceEpoch;
+    final periodKey = periodKeyRef;
     for (final row in prepared) {
       final partnerId = row['partner_id'] as int;
       final amount = row['amount'] as int;
