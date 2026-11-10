@@ -97,6 +97,88 @@ class BusinessSyncPayload {
     if (table == 'irrigations' || table == 'payments') {
       payload['_derived_global_ids'] = await _derivedGlobalIds(table, recordId);
     }
+    // P3d: the whole profit period (including irrigation share corrections)
+    // is a single partner_transaction command; all later rows are projections.
+    if (table == 'partner_transactions' &&
+        const {'profit_distribution','partner_profit_adjustment'}
+            .contains(original['reference_type']) && changes != null) {
+      final ids = changes.where((r) =>
+          r['table_name'] == 'partner_transactions' && r['operation'] == 'create'
+      ).map((r) => (r['record_id'] as num).toInt()).toList()..sort();
+      if (ids.isEmpty || ids.first != recordId || ids.length > 100) {
+        throw StateError('جذر أو حجم دفعة توزيع الأرباح غير صالح');
+      }
+      final notes = (original['notes'] ?? '').toString();
+      const marker = 'P3D_RANGE:';
+      final offset = notes.lastIndexOf(marker);
+      if (offset < 0) throw StateError('فترة توزيع الأرباح مفقودة');
+      final dates = notes.substring(offset + marker.length).split(':');
+      if (dates.length != 2 ||
+          !RegExp(r'^\\d{4}-\\d{2}-\\d{2}$').hasMatch(dates[0]) ||
+          !RegExp(r'^\\d{4}-\\d{2}-\\d{2}$').hasMatch(dates[1])) {
+        throw StateError('تاريخ توزيع الأرباح غير صالح');
+      }
+      final members = <Map<String,Object?>>[];
+      final journals = <String>[], lines = <String>[];
+      for (final id in ids) {
+        final rows = await executor.query('partner_transactions',
+          where:'id=?',whereArgs:[id],limit:1);
+        if (rows.length != 1 ||
+            !const {'profit_distribution','partner_profit_adjustment'}
+                .contains(rows.single['reference_type']) ||
+            !(rows.single['notes'] ?? '').toString().contains('P3D_RANGE:${dates[0]}:${dates[1]}')) {
+          throw StateError('حركات دفعة التوزيع لا تتبع فترة واحدة');
+        }
+        final item = await GlobalIdentity.decoratePayload(
+          executor,'partner_transactions',rows.single,id,
+        );
+        final refs = item['_global_refs'];
+        if (refs is! Map || refs['partner_id'] is! Map) {
+          throw StateError('مرجع شريك التوزيع العالمي مفقود');
+        }
+        String? originalGlobalId;
+        if (rows.single['reference_type'] == 'partner_profit_adjustment') {
+          final oldId = rows.single['reference_id'];
+          final links = await executor.query('sync_global_identities',
+            columns:['global_id'],
+            where:'table_name=? AND local_id=?',
+            whereArgs:['partner_transactions',oldId],limit:1);
+          if (links.isEmpty) throw StateError('مرجع تسوية الربح القديم بلا UUID');
+          originalGlobalId = links.single['global_id'] as String;
+        }
+        members.add({
+          'global_id':item['_global_id'],
+          'partner_ref':refs['partner_id'],
+          'type':rows.single['type'],
+          'reference_type':rows.single['reference_type'],
+          'original_global_id':originalGlobalId,
+          'amount':rows.single['amount'],
+          'ownership_snapshot':rows.single['ownership_snapshot'],
+        });
+        journals.addAll(await _globalIdsForQuery(
+          "SELECT id FROM journal_entries WHERE (reference_type='partner' OR reference_type='partner_profit_adjustment') AND reference_id=? ORDER BY id",
+          [id],'journal_entries',
+        ));
+        lines.addAll(await _globalIdsForQuery(
+          "SELECT jl.id FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id WHERE je.reference_type IN ('partner','partner_profit_adjustment') AND je.reference_id=? ORDER BY jl.id",
+          [id],'journal_lines',
+        ));
+      }
+      if (journals.length != ids.length || lines.length != ids.length * 2) {
+        throw StateError('بيان قيود توزيع الأرباح غير مكتمل');
+      }
+      payload['_p3d_distribution'] = {
+        'period_from':dates[0],
+        'period_end_exclusive':dates[1],
+        'members':members,
+      };
+      payload['_derived_global_ids'] = {
+        'journal_entries':journals,
+        'journal_lines':lines,
+        'cashboxes':<String>[],
+      };
+      return payload;
+    }
     // One fixed-salary batch root owns all worker transactions and journals.
     // Only the first worker row goes to Outbox; every member has a stable UUID.
     if (table == 'worker_transactions' &&
