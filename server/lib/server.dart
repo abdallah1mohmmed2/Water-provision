@@ -3181,7 +3181,7 @@ class SaqiaServer {
     if (entityType == 'worker_transactions' &&
         payload['type'] == 'worker_entitlement' &&
         payload['reference_type'] == 'monthly_salary' &&
-        payload['_p3c_monthly_batch'] is Map) {
+        payload.containsKey('_p3c_monthly_batch')) {
       _applySyncMonthlySalaryBatch(
         station:station,entityKey:entityKey,operation:operation,
         payload:payload,now:now,userId:userId,role:role,
