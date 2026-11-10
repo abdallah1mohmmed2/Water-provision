@@ -2599,9 +2599,6 @@ class AccountingService {
         periodLabel.length > 120 || periodLabel.contains('|')) {
       throw ArgumentError('مفتاح أو وصف فترة الاستحقاق غير صالح');
     }
-    if (accrualDate.isBefore(start) || !accrualDate.isBefore(endExclusive)) {
-      throw ArgumentError('تاريخ ترحيل الدفعة يجب أن يقع ضمن فترة الاستحقاق');
-    }
     if (amounts.values.any((amount) => amount < 0)) {
       throw ArgumentError('مبالغ الاستحقاق يجب ألا تكون سالبة');
     }
@@ -2635,6 +2632,27 @@ class AccountingService {
         if (duplicate.isNotEmpty) {
           final name = workersById[entry.key]?['name'] ?? 'العامل';
           throw StateError('يوجد استحقاق مرحّل مسبقًا للعامل $name ضمن الفترة المحددة؛ لم يتم ترحيل أي مبالغ جديدة.');
+        }
+        // An authorized posting date may differ from the entitlement period.
+        // Compare stored period ranges, not just a mutable batch label/date.
+        final earlier = await tx.rawQuery(
+          "SELECT notes FROM worker_transactions WHERE worker_id=? AND reference_type='fixed_salary_batch'",
+          [entry.key],
+        );
+        for (final row in earlier) {
+          final note = (row['notes'] ?? '').toString();
+          const marker = ' | P3C_RANGE:';
+          final at = note.lastIndexOf(marker);
+          if (at < 0) continue; // legacy rows still covered by period-key check
+          final bounds = note.substring(at + marker.length).split(':');
+          if (bounds.length != 2) continue;
+          final previousStart = DateTime.tryParse(bounds[0]);
+          final previousEnd = DateTime.tryParse(bounds[1]);
+          if (previousStart != null && previousEnd != null &&
+              previousStart.isBefore(endExclusive) &&
+              previousEnd.isAfter(start)) {
+            throw StateError('تتداخل فترة الاستحقاق مع دفعة عامل مرحّلة مسبقًا');
+          }
         }
       }
       final expenseAccount = await _accountIdTx(tx, '5000');
