@@ -9,7 +9,7 @@
 - المستودع: `abdallah1mohmmed2/Water-provision`
 - الفرع المستهدف: `feature/firebase-station-foundation`
 - تاريخ إعداد السجل: 2026-11-08
-- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ P3a وP3b (الاستحقاق المستقل للعامل وحصة الشريك المستقلة) منفذتان ومختبرتان على الخادم وعميلين وCI؛ بقية نطاق P3 وP4 وما بعدها لم تكتمل. الأقسام السابقة سجل تاريخي.**
+- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ P3a وP3b منفذتان ومختبرتان سابقاً؛ بدأ P3c بعقد أولي لراتب العامل الشهري الفردي مع اختبارات مكتوبة ولم تتحقق نتائجها بعد؛ دفعات الاستحقاق الذرية وP3d/P3e/P3f لم تكتمل. الأقسام السابقة سجل تاريخي.**
 - قاعدة الفروع: ممنوع العمل على `main` أو الدمج إليه دون موافقة صريحة.
 - لا تعتبر Firebase backend فعلياً؛ المعمارية المعتمدة في هذا الفرع هي Shelf API + JWT + SQLite مع Offline-First.
 
@@ -521,3 +521,24 @@
 - APK debug artifact: `Saqia-App-Debug` ID `13769454649`, ZIP size 93,689,703 bytes, nonexpired at inspection, https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42827879252/artifacts/13769454649.
 - Not covered: P3c fixed salary and monthly batches, P3d periodic profit distribution, P3e advances/deposits/settlements/reversals, P3f private statements/permissions, live production two-phone acceptance, and signed Release APK. Therefore **P3 is NOT fully closed**, even though P3a and P3b are accepted within their independently tested slices.
 - No edits or merge to `main`, no historical accounting rewrite, and no replication of previously completed P0/P1/P2 logic. This section records a code-verified acceptance, not an assertion of production readiness.
+
+## 20. P3c monthly fixed salary — source checkpoint, CI delegated to repository owner (2026-11-10)
+
+**Task boundary:** Started after verifying the branch was identical to the P3b ledger checkpoint `8526bfb8265eec0467c8d4847e6548c5a76079b1`. No successful P3c financial command existed on that branch. The local `accrueMonthlySalaries`, `createWorkerAccrualBatch` and `distributePartnerProfits` implementations **already existed** and were intentionally not recreated.
+
+**Code changed (only P3c individual salary slice):**
+- `lib/domain/accounting/accounting_service.dart`: existing `accrueMonthlySalaries` retains original calculations, period key and local journal, and now captures only created `worker_transactions` roots (no journal-line echo).
+- `lib/data/local/business_sync_payload.dart`: when `type=worker_entitlement` and `reference_type=monthly_salary`, derive exactly this worker movement's journal entry/line UUIDs. Do not collect journals for all workers into every root event.
+- `server/lib/server.dart`: dedicated `_applySyncMonthlyWorkerSalary` handler for one worker/month. Enforces trusted JWT station + role, version/replay via existing sync pipeline, worker UUID and fixed/active status, valid YYYYMM and date, positive integer amount exactly equal to **server worker.fixed_salary**, rate snapshot match, business-month and legacy-journal duplicate prevention, locked-period rejection, mandatory 1-entry/2-line identity manifest, and server-owned balanced `5000` → `2100.W<worker>` journal without cash movement.
+- `server/test/sync_protocol_test.dart`: new checks for forged amount, correct ledger, replay, duplicate month under a different UUID, station isolation, and source/peer projections.
+- `test/database_sync_outbox_test.dart`: a multi-worker local-monthly test verifies distinct journal identity manifests for each worker root, suppression of child journal Outbox events, and local duplicate-period guard.
+
+**Important limitations / next work:**
+1. The new handler validates **each worker salary event independently**. If several worker salary events are pushed together and one is rejected, the other events may already be accepted. This **does not** satisfy the P3c requirement for an all-or-nothing monthly payroll batch. Implement a dedicated atomic batch contract for `createWorkerAccrualBatch` / all-workers monthly posting before claiming P3c complete.
+2. Salary changes between the local offline accrual and server receipt cause a safe rejection rather than silent payment based on an obsolete client snapshot. An authoritative versioned salary-history contract remains to be designed.
+3. The local calculations were retained. The older unmarked batch accrual rows still have **no supported server command**; do not route them via P3a.
+4. No changes were made to P3a/P3b, P0/P1/P2 handling, periodic partner profit distribution, historical financial rows or `main`.
+5. **CI/tests status: NOT verified in this session.** The repository owner requested that the assistant neither wait for nor poll CI runs and will communicate their result. The test source was added, but no passing test count, two-client P3c acceptance, APK success or production readiness is claimed. GitHub push commits may trigger repository automation automatically.
+6. Follow-up gate: have owner report the current branch-head CI result. Fix reported failures without redoing passed operations; then implement the remaining atomic P3c batch slice before opening P3d.
+
+**Code checkpoint before ledger update:** `d864275894e118835815159a92d26a155963a9fe`.
