@@ -246,6 +246,19 @@ class SyncInboxApplier {
       }
       if (column == 'reference_id' && entry.value != null) {
         final referenceType = '${payload['reference_type'] ?? ''}';
+        // This field is a YYYYMM business key for monthly worker salaries,
+        // not a foreign key. Keep it on every peer for duplicate prevention.
+        if (table == 'worker_transactions' &&
+            referenceType == 'monthly_salary') {
+          final monthKey = entry.value;
+          if (monthKey is! int || monthKey ~/ 100 < 2000 ||
+              monthKey ~/ 100 > 2200 || monthKey % 100 < 1 ||
+              monthKey % 100 > 12) {
+            throw StateError('مرجع شهر الراتب الوارد غير صالح');
+          }
+          values[column] = monthKey;
+          continue;
+        }
         final referenceTable = switch (table) {
           'journal_entries' => switch (referenceType) {
               'irrigation' => 'irrigations',
