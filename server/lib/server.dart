@@ -2236,6 +2236,35 @@ class SaqiaServer {
     ).isNotEmpty) {
       throw StateError('توزيع أرباح الفترة مرحّل مسبقاً');
     }
+    // A changed period label or an extended end date must not cause a
+    // second distribution of previously distributed profits.
+    final historical = db.select(
+      "SELECT notes,reference_type,reference_id FROM partner_transactions WHERE station_id=? AND reference_type IN ('profit_distribution','partner_profit_adjustment')",
+      [station],
+    );
+    final utcStartKey = DateTime.utc(from.year,from.month,from.day)
+        .millisecondsSinceEpoch;
+    for (final row in historical) {
+      final note = (row['notes'] ?? '').toString();
+      const range = 'P3D_RANGE:';
+      final mark = note.lastIndexOf(range);
+      if (mark >= 0) {
+        final parts = note.substring(mark + range.length).split(':');
+        if (parts.length == 2) {
+          final previousFrom = DateTime.tryParse(parts[0]);
+          final previousUntil = DateTime.tryParse(parts[1]);
+          if (previousFrom != null && previousUntil != null &&
+              previousFrom.isBefore(until) && previousUntil.isAfter(from)) {
+            throw StateError('تتداخل الفترة الجديدة مع توزيع أرباح سابق');
+          }
+        }
+      } else if (row['reference_type'] == 'profit_distribution' &&
+          row['reference_id'] is num &&
+          ((row['reference_id'] as num).toInt()-utcStartKey).abs() <=
+              const Duration(days:1).inMilliseconds) {
+        throw StateError('يوجد توزيع أرباح تاريخي لنفس بداية الفترة');
+      }
+    }
     // Use posted server GL, not the client's declared amount, as the source
     // of truth. These three SQL aggregates are the existing local algorithm.
     final args = [station,periodStart,periodEnd];
