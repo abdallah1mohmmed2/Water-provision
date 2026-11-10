@@ -2600,6 +2600,9 @@ class AccountingService {
       amounts.entries.where((entry) => entry.value > 0),
     );
     if (positiveAmounts.isEmpty) return 0;
+    // The first movement is the only Outbox root; all others are derived
+    // children of the same all-or-nothing batch command.
+    final rootIds = <String, Set<int>>{'worker_transactions': <int>{}};
     return database.transaction((tx) async {
       final stationId = await _selectedStationIdTx(tx);
       await _assertPeriodRangeOpen(tx, start, endExclusive, stationId: stationId);
@@ -2625,14 +2628,16 @@ class AccountingService {
         }
       }
       final expenseAccount = await _accountIdTx(tx, '5000');
+      final ordered = positiveAmounts.entries.toList()..sort((a,b) => a.key.compareTo(b.key));
       var count = 0;
-      for (final entry in positiveAmounts.entries) {
+      for (final entry in ordered) {
         final workerId = entry.key;
         final amount = entry.value;
         final id = await tx.insert('worker_transactions', {
           'worker_id': workerId,
           'date': accrualDate.toIso8601String(),
           'type': 'accrual',
+          'reference_type': 'fixed_salary_batch',
           'hours': 0,
           'rate_snapshot': amount,
           'percentage_snapshot': 0,
@@ -2640,6 +2645,9 @@ class AccountingService {
           'notes': '$periodKey | استحقاق راتب ثابت للفترة $periodLabel | العامل: ${workersById[workerId]?['name'] ?? ''}',
           'created_by': userId,
         });
+        if (rootIds['worker_transactions']!.isEmpty) {
+          rootIds['worker_transactions']!.add(id);
+        }
         final payableAccount = await _workerAccountIdTx(tx, workerId);
         await _entry(
           tx,
@@ -2657,7 +2665,8 @@ class AccountingService {
         count++;
       }
       return count;
-    });
+    }, captureSyncTables: const {'worker_transactions'},
+       captureSyncRecordIds: rootIds);
   }
 
   Future<void> createWorkerAccrual({
