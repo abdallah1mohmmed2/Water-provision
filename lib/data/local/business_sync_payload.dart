@@ -108,11 +108,12 @@ class BusinessSyncPayload {
       if (root.isEmpty) throw StateError('دفعة الاستحقاق غير موجودة');
       final notes = original['notes']?.toString() ?? '';
       final parts = notes.split(' | ');
-      if (parts.length < 4 || parts[1] != 'استحقاق راتب ثابت للفترة') {
+      const labelPrefix = 'استحقاق راتب ثابت للفترة ';
+      if (parts.length < 4 || !parts[1].startsWith(labelPrefix)) {
         throw StateError('بيان فترة دفعة الاستحقاق غير صالح');
       }
       final periodKey = parts[0].trim();
-      final label = parts[2].trim();
+      final label = parts[1].substring(labelPrefix.length).trim();
       if (periodKey.isEmpty || periodKey.length > 120 || label.isEmpty ||
           label.length > 120) throw StateError('بيانات فترة الاستحقاق غير صالحة');
       if (changes == null) throw StateError('سجل حركات الدفعة مطلوب');
