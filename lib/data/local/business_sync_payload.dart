@@ -145,6 +145,16 @@ class BusinessSyncPayload {
             whereArgs:['partner_transactions',oldId],limit:1);
           if (links.isEmpty) throw StateError('مرجع تسوية الربح القديم بلا UUID');
           originalGlobalId = links.single['global_id'] as String;
+          if (id == recordId) {
+            final rootRefs = Map<String,Object?>.from(
+              (payload['_global_refs'] as Map?) ?? {},
+            );
+            rootRefs['reference_id'] = {
+              'table':'partner_transactions',
+              'global_id':originalGlobalId,
+            };
+            payload['_global_refs'] = rootRefs;
+          }
         }
         members.add({
           'global_id':item['_global_id'],
