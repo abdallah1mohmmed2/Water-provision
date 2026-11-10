@@ -658,4 +658,58 @@ void main() {
     ),0);
   });
 
+
+  test('P3c fixed salary batch creates one Outbox root for every worker and GL effect', () async {
+    final stationId = await AccountingService(database).currentStationId();
+    await database.transaction((tx) async {
+      for (final name in ['SYNC-TEST-P3C-BATCH-A','SYNC-TEST-P3C-BATCH-B']) {
+        await tx.insert('workers', {
+          'name':name,
+          'station_id':stationId,
+          'pay_type':'fixed',
+          'fixed_salary':name.endsWith('A') ? 1100 : 2200,
+          'active':1,
+        });
+      }
+    },captureSync:false);
+    final rows = await database.query(
+      "SELECT id FROM workers WHERE name LIKE 'SYNC-TEST-P3C-BATCH-%' ORDER BY id",
+    );
+    expect(rows,hasLength(2));
+    final ids = rows.map((r)=>(r['id'] as num).toInt()).toList();
+    await database.delete('sync_queue','1=1',const []);
+    final batch = AccountingService(database);
+    expect(await batch.createWorkerAccrualBatch(
+      amounts:{ids[0]:1100,ids[1]:2200},
+      from:DateTime(2091,7,1),to:DateTime(2091,7,31),
+      date:DateTime(2091,7,25),
+      periodKey:'P3C-JUL-2091',periodLabel:'July 2091',userId:1,
+    ),2);
+    final pending=await database.query('sync_queue',
+      where:"status='pending'",orderBy:'id');
+    expect(pending,hasLength(1));
+    expect(pending.single['table_name'],'worker_transactions');
+    final payload=jsonDecode(pending.single['payload'] as String) as Map<String,dynamic>;
+    expect(payload['reference_type'],'fixed_salary_batch');
+    final group=payload['_p3c_batch'] as Map;
+    expect(group['period_from'],'2091-07-01');
+    expect(group['period_end_exclusive'],'2091-08-01');
+    expect((group['members'] as List),hasLength(2));
+    expect((payload['_derived_global_ids']['journal_entries'] as List),hasLength(2));
+    expect((payload['_derived_global_ids']['journal_lines'] as List),hasLength(4));
+    expect((payload['_derived_global_ids']['cashboxes'] as List),isEmpty);
+    expect((group['members'] as List).map((m)=>(m as Map)['global_id']).toSet(),hasLength(2));
+    expect((group['members'] as List).map((m)=>(m as Map)['worker_ref']['global_id']).toSet(),hasLength(2));
+    expect(await database.query('sync_queue',
+      where:'table_name IN (?,?)',
+      whereArgs:['journal_entries','journal_lines']),isEmpty);
+    await expectLater(batch.createWorkerAccrualBatch(
+      amounts:{ids[0]:1100,ids[1]:2200},
+      from:DateTime(2091,7,1),to:DateTime(2091,7,31),
+      date:DateTime(2091,7,25),
+      periodKey:'P3C-JUL-2091',periodLabel:'July 2091',userId:1,
+    ),throwsStateError);
+    expect(await database.query('sync_queue',where:"status='pending'"),hasLength(1));
+  });
+
 }
