@@ -1581,8 +1581,7 @@ class SaqiaServer {
         !until.isAfter(from) || until.difference(from).inDays > 366 ||
         from.hour != 0 || until.hour != 0 ||
         from.minute != 0 || until.minute != 0 ||
-        from.second != 0 || until.second != 0 ||
-        posted.isBefore(from) || !posted.isBefore(until)) {
+        from.second != 0 || until.second != 0) {
       throw StateError('تاريخ الدفعة وحدود الفترة غير صالحة');
     }
     if (manifest['journal_entries'] is! List ||
@@ -1613,6 +1612,13 @@ class SaqiaServer {
         [station,until.toIso8601String(),from.toIso8601String()],
       ).isNotEmpty) {
         throw StateError('فترة استحقاق العمال تتداخل مع فترة محاسبية مقفلة');
+      }
+      final dateKey = posted.toIso8601String();
+      if (db.select(
+        "SELECT id FROM period_closures WHERE station_id=? AND status='locked' AND period_start<=? AND COALESCE(period_end_exclusive,period_end)>? LIMIT 1",
+        [station,dateKey,dateKey],
+      ).isNotEmpty) {
+        throw StateError('تاريخ ترحيل دفعة العمال واقع في فترة مقفلة');
       }
     }
     final columns = db.select('PRAGMA table_info(worker_transactions)')
@@ -1668,6 +1674,24 @@ class SaqiaServer {
          from.toIso8601String(),until.toIso8601String()],
       ).isNotEmpty) {
         throw StateError('يوجد استحقاق سابق للعامل داخل الفترة');
+      }
+      final priorBatches = db.select(
+        "SELECT notes FROM worker_transactions WHERE station_id=? AND worker_id=? AND reference_type='fixed_salary_batch'",
+        [station,workerId],
+      );
+      for (final old in priorBatches) {
+        final oldNotes = (old['notes'] ?? '').toString();
+        const marker = ' | P3C_RANGE:';
+        final mark = oldNotes.lastIndexOf(marker);
+        if (mark < 0) continue; // pre-P3c rows retain the existing key check
+        final bounds = oldNotes.substring(mark + marker.length).split(':');
+        if (bounds.length != 2) continue;
+        final previousStart = DateTime.tryParse(bounds[0]);
+        final previousEnd = DateTime.tryParse(bounds[1]);
+        if (previousStart != null && previousEnd != null &&
+            previousStart.isBefore(until) && previousEnd.isAfter(from)) {
+          throw StateError('تتداخل فترة الدفعة مع استحقاق عامل مرحّل سابقاً');
+        }
       }
       prepared.add({'worker_id':workerId,'global_id':globalId,'amount':amount,
         'worker_name':rows.single['name']});
