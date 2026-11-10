@@ -1570,7 +1570,8 @@ class SaqiaServer {
     if (members.isEmpty || members.length > 100 ||
         key.isEmpty || key.length > 120 ||
         label.isEmpty || label.length > 120 ||
-        key.contains('%') || key.contains('_')) {
+        key.contains('%') || key.contains('_') || key.contains('|') ||
+        label.contains('|')) {
       throw StateError('مفتاح الدفعة أو عدد العمال غير صالح');
     }
     final from = DateTime.tryParse(batch['period_from'] as String);
@@ -1651,7 +1652,7 @@ class SaqiaServer {
         throw StateError('تكرر العامل داخل دفعة الاستحقاقات');
       }
       final rows = db.select(
-        "SELECT active,pay_type FROM workers WHERE id=? AND station_id=? LIMIT 1",
+        "SELECT active,pay_type,name FROM workers WHERE id=? AND station_id=? LIMIT 1",
         [workerId,station],
       );
       if (rows.isEmpty || (rows.single['active'] as num).toInt() != 1 ||
@@ -1668,7 +1669,8 @@ class SaqiaServer {
       ).isNotEmpty) {
         throw StateError('يوجد استحقاق سابق للعامل داخل الفترة');
       }
-      prepared.add({'worker_id':workerId,'global_id':globalId,'amount':amount});
+      prepared.add({'worker_id':workerId,'global_id':globalId,'amount':amount,
+        'worker_name':rows.single['name']});
     }
     if (prepared.first['global_id'] != rootId ||
         payload['amount'] != prepared.first['amount']) {
@@ -1691,7 +1693,7 @@ class SaqiaServer {
         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''', [
         station,workerId,dateText,'accrual',0,amount,0,amount,
         'fixed_salary_batch',null,
-        '$key | استحقاق راتب ثابت للفترة $label | P3C_RANGE:' +
+        '$key | استحقاق راتب ثابت للفترة $label | العامل: ${row['worker_name']} | P3C_RANGE:' +
           (batch['period_from'] as String) + ':' +
           (batch['period_end_exclusive'] as String),userId,
       ]);
