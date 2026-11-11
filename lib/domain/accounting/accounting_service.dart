@@ -1837,6 +1837,66 @@ class AccountingService {
     return id;
   }, captureSyncTables: const {'payments'});
 
+  /// سلفة نقدية للعامل أو الشريك: تُصرف من الصندوق عبر أمر P2 المالي
+  /// المعتمد، وتُخصم من رصيد الطرف المستحق دون إنشاء قيد مكرر.
+  /// المبلغ الزائد عن المستحق يظهر رصيداً مديناً للطرف (سلفة مستردة لاحقاً).
+  Future<int> recordPartyCashAdvance({
+    required String partyType,
+    required int partyId,
+    required int amount,
+    required int paymentMethodId,
+    required int cashboxId,
+    int? userId,
+    String? referenceNumber,
+    String? notes,
+  }) {
+    if (amount <= 0) throw ArgumentError('مبلغ السلفة يجب أن يكون موجباً');
+    final memo = 'سلفة نقدية | ${(notes ?? '').trim()}'.trim();
+    if (partyType == 'worker') {
+      return payWorker(workerId: partyId, amount: amount,
+        paymentMethodId: paymentMethodId, cashboxId: cashboxId,
+        userId: userId, referenceNumber: referenceNumber, notes: memo);
+    }
+    if (partyType == 'partner') {
+      return payPartner(partnerId: partyId, amount: amount,
+        paymentMethodId: paymentMethodId, cashboxId: cashboxId,
+        userId: userId, referenceNumber: referenceNumber, notes: memo);
+    }
+    throw ArgumentError('السلفة النقدية متاحة للعامل أو الشريك فقط');
+  }
+
+  /// تسوية نقدية لمستحقات قائمة. لا تسمح بتجاوز المستحق؛ السلف
+  /// التي تتجاوز المستحق تُسجّل حصراً عبر recordPartyCashAdvance.
+  /// يستخدم نفس مسار سندات P2 الذري والعكس والاستبدال والمزامنة.
+  Future<int> settlePartyPayable({
+    required String partyType,
+    required int partyId,
+    required int amount,
+    required int paymentMethodId,
+    required int cashboxId,
+    int? userId,
+    String? referenceNumber,
+    String? notes,
+  }) async {
+    if (amount <= 0) throw ArgumentError('مبلغ التسوية يجب أن يكون موجباً');
+    if (partyType != 'worker' && partyType != 'partner') {
+      throw ArgumentError('التسوية النقدية متاحة للعامل أو الشريك فقط');
+    }
+    final balance = partyType == 'worker'
+        ? await workerBalance(partyId) : await partnerBalance(partyId);
+    if (amount > (balance['due'] ?? 0)) {
+      throw StateError('مبلغ التسوية يتجاوز المستحق؛ استخدم السلفة للمبلغ الزائد');
+    }
+    final memo = 'تسوية مستحقات | ${(notes ?? '').trim()}'.trim();
+    return partyType == 'worker'
+        ? payWorker(workerId: partyId, amount: amount,
+            paymentMethodId: paymentMethodId, cashboxId: cashboxId,
+            userId: userId, referenceNumber: referenceNumber, notes: memo)
+        : payPartner(partnerId: partyId, amount: amount,
+            paymentMethodId: paymentMethodId, cashboxId: cashboxId,
+            userId: userId, referenceNumber: referenceNumber, notes: memo);
+  }
+
   Future<int> addExpense({
     required String category,
     required String title,
