@@ -1897,6 +1897,31 @@ class AccountingService {
             userId: userId, referenceNumber: referenceNumber, notes: memo);
   }
 
+  /// عكس سلفة أو تسوية نقدية دون حذف سندها أو قيدها الأصلي.
+  /// ينفذ أمر الإلغاء P2 نفسه، بما فيه القيد العكسي ومزامنة خادم Shelf
+  /// ومنع تطبيق الحدث مرتين بواسطة معرف العملية العالمي.
+  Future<void> reversePartyCashMovement({
+    required int paymentId,
+    required int userId,
+    required String reason,
+  }) async {
+    if (reason.trim().isEmpty) throw ArgumentError('سبب العكس مطلوب');
+    final rows = await database.query(
+      'payments', where: 'id=?', whereArgs: [paymentId], limit: 1,
+    );
+    if (rows.isEmpty) throw StateError('سند السلفة أو التسوية غير موجود');
+    final payment = rows.single;
+    if (payment['worker_id'] == null && payment['partner_id'] == null) {
+      throw StateError('السند ليس سند عامل أو شريك');
+    }
+    final memo = '${payment['notes'] ?? ''}';
+    if (!memo.startsWith('سلفة نقدية |') &&
+        !memo.startsWith('تسوية مستحقات |')) {
+      throw StateError('السند ليس سلفة أو تسوية مسجلة عبر P3e');
+    }
+    await cancelPayment(paymentId, userId, reason.trim());
+  }
+
   Future<int> addExpense({
     required String category,
     required String title,
