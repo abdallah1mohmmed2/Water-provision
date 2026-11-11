@@ -9,7 +9,7 @@
 - المستودع: `abdallah1mohmmed2/Water-provision`
 - الفرع المستهدف: `feature/firebase-station-foundation`
 - تاريخ إعداد السجل: 2026-11-08
-- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ P3a وP3b منفذتان ومختبرتان سابقاً؛ نُفّذ P3c برمجياً لراتب العامل الفردي، ودفعات الاستحقاقات الثابتة الذرية، والرواتب الشهرية متعددة العمال كأمر ذري واحد، مع اختبارات مكتوبة لم تتحقق نتائج CI لها بعد؛ نُفّذ P3d برمجياً لعقد توزيع الأرباح الدوري الخادمي الذري وتسويات الحصص مع اختبارات مكتوبة غير معتمدة بعد؛ P3e/P3f لم تُستكمل مزامنتهما. الأقسام السابقة سجل تاريخي.**
+- حالة الوثيقة: **P0 مكتملة بالنطاق المثبت في القسم 12؛ P1 مكتملة بالنطاق والأدلة في القسم 14؛ P2 مكتملة بالنطاق والأدلة في القسم 16؛ P3a وP3b منفذتان ومختبرتان سابقاً؛ نُفّذ P3c برمجياً لراتب العامل الفردي، ودفعات الاستحقاقات الثابتة الذرية، والرواتب الشهرية متعددة العمال كأمر ذري واحد، مع اختبارات مكتوبة لم تتحقق نتائج CI لها بعد؛ P3d مكتملة ومعتمدة باختبارات CI (97 اختبار خادم و158 Flutter، تحليل وبناء APK تجريبي وSonarCloud/SonarQube ناجحة) ضمن نطاق مزامنة التوزيع الدوري وتسويات الحصص فقط؛ P3e/P3f لم تُستكمل مزامنتهما. الأقسام السابقة سجل تاريخي.**
 - قاعدة الفروع: ممنوع العمل على `main` أو الدمج إليه دون موافقة صريحة.
 - لا تعتبر Firebase backend فعلياً؛ المعمارية المعتمدة في هذا الفرع هي Shelf API + JWT + SQLite مع Offline-First.
 
@@ -596,3 +596,33 @@
 **Limitations and next gate:** CI, Dart/Flutter analyze/tests and APK remain **unverified** for all commits in this source slice. Per user direction, no workflows were manually triggered, monitored or awaited. Two SQLite fixture databases are not two physical deployed phones. Existing historical direct-profit corrections require original global UUID links on server; missing links need separate explicit reconciliation. Zero-effect periods have no durable no-op approval. P3d code is **implemented but not CI-accepted**. P3c CI acceptance is also still pending the user's result. Do not mark P3 complete, do not start P3e by duplicating local functionality, and do not edit `main`. See `docs/P3D_PERIODIC_PROFIT_DISTRIBUTION.md`.
 
 **Updated P3d source checkpoint after final station-isolation fix:** `6b25a3e978eecaf13867f04341d2ca20ba29b223`; it follows earlier source checkpoints `2bff9e60a0b72a302688d323b3d07413c9bfd44d` and `b668f58e994268e2a5e40443d3b442501462cdd6`. The Shelf direct-irrigation-profit calculation now enforces matching irrigation and partner station IDs. These are implementation checkpoints, **not CI acceptance evidence**. No CI execution was awaited or observed.
+
+## 24. P3d CI acceptance — confirmed on code commit `8089811aed5e955a10800ced0625e95f40654664` (2026-11-11)
+
+**Decision: P3d ACCEPTED in its tested source/SQLite synchronization scope.** This entry supersedes the "not yet CI-accepted" historical statuses in §23 and `docs/P3D_PERIODIC_PROFIT_DISTRIBUTION.md`; it does not retroactively alter the history of failed runs. P3 overall remains **OPEN** because P3e and P3f are not complete. This is **not a production release authorization**.
+
+### Actual CI evidence, exact source revision
+
+The branch was verified identical to source commit `8089811aed5e955a10800ced0625e95f40654664` (zero ahead/behind) immediately before recording acceptance. GitHub Actions results for this commit:
+
+| Workflow / CI proof | Run | Final status and checked evidence |
+| --- | --- | --- |
+| Flutter Analyze | [42972049114](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42972049114) | **SUCCESS**, no analysis findings |
+| SonarCloud | [42972049001](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42972049001) | **SUCCESS**, **158/158 Flutter tests**, P3d and P3c real Shelf / two SQLite client tests included, LCOV artifact uploaded, scanner reports successful analysis |
+| Build + SonarQube | [42972049028](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42972049028) | **SUCCESS**, **97/97 Shelf tests**, clean Flutter Analyze, **158/158 Flutter tests**, verified LCOV, Android Debug APK build/upload success, SonarQube Scan success |
+
+**Built debug artifact:** [Saqia-App-Debug / artifact 13834151432](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42972049028/artifacts/13834151432). It was present and not expired during inspection. This is an **Android Debug** build, **not** a signed Release or physical-device production test.
+
+### Failure analysis and precisely scoped repairs
+
+The earlier P3d runs [42866489719](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42866489719), [42866489524](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42866489524), and [42866489590](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42866489590) had failed. Their job logs exposed two Flutter info-level lint issues treated as failure, a test-fixture foreign-key error from deleting chart-of-account entries still linked to posted journal lines, and three two-client failures in P3c/P3d where only the first party row arrived.
+
+The second diagnostic run [42971344632](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42971344632) revealed the **root cause**: a newly created derived `worker_transactions` or `partner_transactions` server row was published to the peer as `update`, because its UUID link was already present in `sync_entity_links`. The peer had no prior record, so correctly rejected `update`; its journal reference and lines subsequently failed too. The repair uses `sync_entity_versions` for the first event of only the partner/worker child projections belonging to same-table financial commands (`_appendSyncProjectionRow`), preserving existing P0/P1/P2 projection routing. New server regression assertions explicitly require `create` for such children. This is an **Inbox protocol correctness fix**, not a replay of any already working financial calculation or operation.
+
+Files repaired: `server/lib/server.dart` (child projection operation), `server/test/sync_protocol_test.dart` (three create-verb regressions), `lib/data/local/business_sync_payload.dart` (exact analyzer-reported P3c braces), `test/p3d_two_clients_test.dart` (const fixture timestamp and missing-Inbox diagnostics), `test/database_sync_outbox_test.dart` (do not delete account rows with live journal FK links), `test/p3c_batch_two_clients_test.dart` and `test/p3c_monthly_two_clients_test.dart` (derived Inbox diagnostics). The correction's final tested code SHA is `8089811aed5e955a10800ced0625e95f40654664`.
+
+**Preserved prior work:** No functional change to `main`, P0/P1/P2 domain computations, worker salary posting or partner profit formulas. The same regression suites passed on the accepted code revision. All accepted event/version/GL/UUID link effects remain handled inside the pre-existing Shelf SAVEPOINT.
+
+**Limits:** P3d cannot independently attest to live two-phone deployment, signed Release APK, production Firebase/Shelf configuration, historically unlinked direct profit records, or a no-op durable approval for zero-effect periods. These remain explicitly outside the accepted slice. Do not mark the entire P3 phase or production deployment complete. Next P3e/P3f requires the usual duplicate guard against its existing local code.
+
+**Documentation-only checkpoint:** This ledger acceptance is committed **after** successful CI on exact code SHA `8089811a`. If this documentation commit triggers a new workflow run, its result must be recorded separately for documentation HEAD; no code or behavioral change is introduced by this ledger update.
