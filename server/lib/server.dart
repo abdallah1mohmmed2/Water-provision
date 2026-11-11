@@ -567,7 +567,15 @@ class SaqiaServer {
         ? 0
         : (versions.first['version'] as num).toInt();
     final nextVersion = currentVersion + 1;
-    final operation = existing.isEmpty ? 'create' : 'update';
+    // P3c/P3d prelink child UUIDs to locally posted server rows before
+    // emitting projections. A UUID link is not proof that the peer has
+    // received a create event; the server version tracks that distinction.
+    // Keep the established behavior for older P0/P1/P2 projections.
+    final newPartyChild = requestedGlobalId != null &&
+        command?['table'] == table &&
+        const {'worker_transactions','partner_transactions'}.contains(table) &&
+        versions.isEmpty;
+    final operation = (newPartyChild || existing.isEmpty) ? 'create' : 'update';
     db.execute('''INSERT INTO sync_event_log
       (station_id,event_id,source_device,entity_type,entity_key,operation,payload_json,base_version,server_version,status,created_at)
       VALUES(?,?,?,?,?,?,?,?,?,'accepted',?)''', [
