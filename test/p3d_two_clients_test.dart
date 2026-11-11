@@ -56,7 +56,7 @@ void main() {
       }
       final account=await tx.query('accounts',
         where:'code=?',whereArgs:['4000'],limit:1);
-      final created='2090-04-15T10:00:00.000';
+      const created='2090-04-15T10:00:00.000';
       final entry=await tx.insert('journal_entries',{
         'station_id':1,'date':created,'reference_type':'manual',
         'description':'P3d test revenue','status':'posted',
