@@ -2,7 +2,7 @@
 
 Date: 2026-11-10  
 Branch: `feature/firebase-station-foundation`  
-**Status: code and regression tests authored; final CI/build acceptance not verified.**
+**Status: **P3d source slice CI-ACCEPTED on commit `8089811aed5e955a10800ced0625e95f40654664` (2026-11-11)**; production rollout not approved.**
 
 ## Baseline and no-repeat rule
 
@@ -34,5 +34,17 @@ Branch: `feature/firebase-station-foundation`
 - If local and server GL differ, the source event is **rejected** to protect accounting truth. No automatic adjustment of client totals, period rewrite, or deletion of existing financial movements is permitted.
 - Zero-effect periods do not produce a financial command; posting status for an empty period is not modelled as a standalone durable period-closure event.
 - At most 100 newly created partner/adjustment movements fit one command. Larger groups fail without partial local posting, pending a distinct scalable design.
-- The code and tests in this change **have not been run locally** (no Dart/Flutter executable available). Per the owner's instruction, CI runs were not manually triggered, polled, or awaited. CI, analyzer, test suite, APK and production acceptance are **not verified**.
-- **P3d is implemented in source but NOT marked accepted.** Before moving to P3e or calling P3 completed, use the owner's final CI results for the exact branch head and fix only proven failures. No P0/P1/P2/P3a/P3b/P3c reimplementation.
+- No Dart/Flutter executable was available in the assistant's local container. **GitHub CI was explicitly inspected at the owner's request**; its final results are now recorded below. No production physical-device test is claimed.
+- **P3d is CI-accepted within the source and two-SQLite-client test scope**, not equivalent to completing P3 or approving production rollout. P3e/P3f remain open; legacy unlinked records and empty-period close semantics remain separate constraints.
+
+## CI acceptance evidence — 2026-11-11
+
+- Verified branch source HEAD at acceptance: `8089811aed5e955a10800ced0625e95f40654664`; branch compare at inspection: **identical, zero ahead/behind**.
+- **Flutter Analyze**: GitHub Actions run [42972049114](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42972049114), final **success**.
+- **SonarCloud**: run [42972049001](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42972049001), final **success**; its Flutter suite recorded **158/158 passed**, including `test/p3d_two_clients_test.dart`, both P3c two-client tests, and all existing regressions.
+- **Build / SonarQube**: run [42972049028](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42972049028), final **success**. Shelf suite **97/97 passed**, Flutter Analyze **no issues found**, Flutter **158/158 passed**, LCOV verification succeeded, Android Debug APK built and uploaded, SonarQube scanner reported `ANALYSIS SUCCESSFUL`.
+- Debug artifact: [Saqia-App-Debug, artifact 13834151432](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/42972049028/artifacts/13834151432) (93,700,988 archive bytes when inspected; not a signed Release).
+- Original P3d commit `6b25a3e978eecaf13867f04341d2ca20ba29b223` had **failed** runs 42866489719 / 42866489524 / 42866489590. Log review found two Flutter lints, a test-fixture account-deletion FK failure, and missing peer child rows.
+- Fix commits up to `8089811a` corrected the lints, preserved journal-referenced accounts in test cleanup, and repaired the actual sync bug: newly posted child `worker_transactions`/`partner_transactions` had been projected with `operation=update` merely because the server UUID link existed before its first Inbox event. For these child projections, version absence now yields `create`, **without changing** previously working P0/P1/P2 projection semantics. Added explicit server regression tests for child `create` events and peer Inbox error assertions. All three CI workflows subsequently passed on the identical code commit.
+- Sonar scanner execution success does not independently certify a remote quality-gate status beyond the successful CI workflow. No physical-device pairing, production backup/restore rehearsal, signed Release, or deployment approval is asserted.
+
