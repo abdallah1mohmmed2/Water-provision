@@ -211,7 +211,9 @@ class BusinessSyncPayload {
       final periodKey = parts[0].trim();
       final label = parts[1].substring(labelPrefix.length).trim();
       if (periodKey.isEmpty || periodKey.length > 120 || label.isEmpty ||
-          label.length > 120) throw StateError('بيانات فترة الاستحقاق غير صالحة');
+          label.length > 120) {
+        throw StateError('بيانات فترة الاستحقاق غير صالحة');
+      }
       if (changes == null) throw StateError('سجل حركات الدفعة مطلوب');
       final ids = changes.where(
         (change) => change['table_name'] == 'worker_transactions' &&
