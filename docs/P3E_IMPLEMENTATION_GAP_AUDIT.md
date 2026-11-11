@@ -31,3 +31,24 @@ Status: **audit only; P3e is NOT implemented or accepted by this document.**
 - `docs/SYNC_ACCOUNTING_READINESS_AND_WORK_LEDGER.md`: §24 P3d acceptance.
 
 This audit deliberately makes no assertion that P3e synchronization works, and makes no change to existing financial source or historical records.
+
+## Source-level trace — payment creation and reversal (2026-11-11)
+
+Verified exact local implementation, rather than treating all P3e operations as missing:
+
+| Operation | Existing client path | Outbox / server route | Status |
+| --- | --- | --- | --- |
+| Worker payment | `AccountingService.payWorker` invokes `_paymentInTx`, inserts linked `worker_transactions(type=payment, reference_type=payment)` | Single `payments` root; `BusinessSyncPayload` P2 effect manifest; server dispatcher calls `_applyP2Payment` | Existing route; peer effect correctness requires targeted tests |
+| Partner payment | `AccountingService.payPartner` invokes `_paymentInTx`, inserts linked `partner_transactions(type=payment, reference_type=payment)` | Same single `payments` root and P2 server dispatcher | Existing route; do not duplicate |
+| Payment cancellation | Existing local cancellation updates `payments.status=cancelled`, changes cashbox balance, invokes `_reverseEntriesTx`, and inserts `payment_reversal` party row referencing original payment ID | `BusinessSyncPayload.prepare` captures updated payment and created child effects under P2 manifest | Existing local code; server acceptance and two-client replay need verification |
+| Payment replacement | `AccountingService.replacePayment` documented to reverse original and create replacement in one local transaction | `BusinessSyncPayload.prepare` supports `_p2_replacement` | Existing contract; needs explicit worker/partner regression proof |
+| Beneficiary diesel advance | `diesel_movements(kind=advance)` and `diesel_advance` journal logic | Diesel domain, not worker/partner cash advance | **Not** evidence that P3e party advances exist |
+| Party opening debt | `_applySyncPartyOpeningDebt` requires `opening_balance/previous_debt` | Dedicated worker/partner fallback | Existing only for opening debt; never accept arbitrary party types |
+
+### Important no-repeat implementation decision
+
+**Do not add a new worker/partner payment handler, payment-reversal handler or independent party-payment Outbox root before exercising the existing P2 path.** A second handler would risk double-posting cashbox and journal effects. The P2 effect manifest already explicitly captures created `worker_transactions` and `partner_transactions` as derived rows. The local cancellation preserves original journals and posts reversals.
+
+The first safe executable change should be a focused regression test for a worker payment and partner payment across two independent SQLite clients, followed by cancellation/replacement and replay checks. Only failures proven by that test should be repaired. Genuine P3e party advance/deposit/settlement contracts must be separately identified; neither the diesel advance nor the previous-debt handler can substitute for them.
+
+This section records source inspection only. No test execution or CI acceptance is asserted.
