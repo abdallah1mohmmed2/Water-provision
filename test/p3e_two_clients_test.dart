@@ -99,12 +99,6 @@ void main() {
           });
         }, captureSync: false);
         await GlobalIdentity.ensure(await db.db);
-        final originalCash =
-            (await db.query(
-                  'cashboxes',
-                  where: 'id=1',
-                )).single['current_balance']
-                as num;
         await db.close();
         final originalFile = File('${origin.path}/saqia_station_v2.db');
         final serverFile = await originalFile.copy(
@@ -152,7 +146,7 @@ void main() {
         );
         final first = sync(api);
         final now = DateTime(2090, 1, 1, 8);
-        final beneficiary = await db.insert('beneficiaries', {
+        await db.insert('beneficiaries', {
           'name': 'P2 beneficiary',
           'created_at': now.toIso8601String(),
           'updated_at': now.toIso8601String(),
