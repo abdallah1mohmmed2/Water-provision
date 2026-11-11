@@ -2215,6 +2215,9 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     final peer=await getInbox(stationOneToken,device:'device-b');
     expect((peer['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),
       ['worker_transactions','worker_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    // The second party row is new to the receiving device even though its
+    // UUID was already linked to the server-side transaction.
+    expect((peer['events'] as List)[1]['operation'],'create');
     expect((await postEvents(stationOneToken,[evt]))['results'].single['status'],'duplicate');
     expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
     final replayNewId=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
@@ -2362,6 +2365,9 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     final peer=await getInbox(stationOneToken,device:'device-b');
     expect((peer['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
       ['worker_transactions','worker_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    // The second party row is new to the receiving device even though its
+    // UUID was already linked to the server-side transaction.
+    expect((peer['events'] as List)[1]['operation'],'create');
 
     expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'duplicate');
     expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
@@ -2477,6 +2483,9 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     final peer=await getInbox(stationOneToken,device:'device-b');
     expect((peer['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
       ['partner_transactions','partner_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    // The second party row is new to the receiving device even though its
+    // UUID was already linked to the server-side transaction.
+    expect((peer['events'] as List)[1]['operation'],'create');
     final duplicatePeriod=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
     duplicatePeriod['event_id']='52525252-aaaa-4aaa-8aaa-525252525252';
     duplicatePeriod['entity_key']='partner_transactions:52525252-bbbb-4bbb-8bbb-525252525252';
