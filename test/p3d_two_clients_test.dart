@@ -198,6 +198,12 @@ void main() {
       await receiver.retryDeferredInbox();
       if (await receiver.applyInbox() == 0) break;
     }
+    final pendingPeerInbox = await db.query(
+      "SELECT entity_type,entity_key,status,last_error FROM sync_inbox WHERE status<>'applied'",
+      orderBy:'server_sequence',
+    );
+    expect(pendingPeerInbox,isEmpty,
+      reason:'Authoritative derived rows must all apply before comparing peer balances');
     final peerRows = await db.query(
       "SELECT type,amount,reference_type,reference_id FROM partner_transactions WHERE reference_type='profit_distribution' ORDER BY amount",
     );
