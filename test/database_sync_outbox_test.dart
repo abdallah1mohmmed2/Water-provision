@@ -83,7 +83,13 @@ void main() {
     await database.delete('partner_transactions', "notes LIKE 'SYNC-TEST-PREVIOUS-DEBT-%'", const []);
     await database.delete('journal_lines', "journal_entry_id IN (SELECT id FROM journal_entries WHERE reference_type IN ('worker_opening','partner_opening'))", const []);
     await database.delete('journal_entries', "reference_type IN ('worker_opening','partner_opening')", const []);
-    await database.delete('accounts', "code LIKE '2100.W%' OR code LIKE '2200.P%'", const []);
+    // Keep personal GL accounts while any posted journal references them.
+    // Removing them violates FK constraints when earlier tests posted salaries.
+    await database.delete(
+      'accounts',
+      "(code LIKE '2100.W%' OR code LIKE '2200.P%') AND NOT EXISTS (SELECT 1 FROM journal_lines WHERE journal_lines.account_id=accounts.id)",
+      const [],
+    );
     await database.delete('workers', "name LIKE 'SYNC-TEST-PREVIOUS-DEBT-%'", const []);
     await database.delete('partners', "name LIKE 'SYNC-TEST-PREVIOUS-DEBT-%'", const []);
     await database.delete('beneficiaries', "name LIKE 'SYNC-TEST-%'", const []);
