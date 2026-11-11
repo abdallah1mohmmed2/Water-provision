@@ -199,7 +199,9 @@ class BusinessSyncPayload {
       final root = await executor.query(
         'worker_transactions', where: 'id=?', whereArgs: [recordId], limit: 1,
       );
-      if (root.isEmpty) throw StateError('دفعة الاستحقاق غير موجودة');
+      if (root.isEmpty) {
+        throw StateError('دفعة الاستحقاق غير موجودة');
+      }
       final notes = original['notes']?.toString() ?? '';
       final parts = notes.split(' | ');
       const labelPrefix = 'استحقاق راتب ثابت للفترة ';
