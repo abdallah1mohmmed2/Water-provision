@@ -4132,6 +4132,208 @@ class AccountingService {
     }, captureSyncTables: {transactionTable});
   }
 
+
+  /// Corrects the beneficiary debt with an audited reversal and a fresh
+  /// posting in ONE transaction. The original journal remains immutable.
+  Future<void> reviseBeneficiaryDebt({
+    required int debtId,
+    required int amount,
+    required String notes,
+    int? userId,
+  }) async {
+    if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
+    if (notes.trim().isEmpty) throw ArgumentError('بيان المديونية مطلوب');
+    await database.transaction((tx) async {
+      final station = await _selectedStationIdTx(tx);
+      final now = AppClock.now();
+      await _assertPeriodOpen(tx, now, stationId: station);
+      final rows = await tx.rawQuery(
+        """SELECT md.*,b.name FROM beneficiary_manual_debts md
+           JOIN beneficiaries b ON b.id=md.beneficiary_id
+           WHERE md.id=? AND b.station_id=? AND md.status='posted' LIMIT 1""",
+        [debtId, station],
+      );
+      if (rows.isEmpty) throw StateError('المديونية غير موجودة أو ملغاة');
+      final original = rows.single;
+      final oldAmount = (original['amount'] as num).toInt();
+      final oldNotes = '\${original['notes'] ?? ''}';
+      if (oldAmount == amount && oldNotes == notes.trim()) {
+        throw StateError('لم تتغير بيانات المديونية');
+      }
+      final originalJournal = (original['journal_entry_id'] as num?)?.toInt();
+      if (originalJournal == null) throw StateError('القيد المحاسبي للمديونية مفقود');
+      final journal = await tx.query('journal_entries',
+        where: 'id=? AND station_id=? AND reference_type=? AND reference_id=? AND status=?',
+        whereArgs: [originalJournal, station, 'beneficiary_manual_debt', debtId, 'posted'],
+        limit: 1);
+      if (journal.isEmpty) throw StateError('القيد المحاسبي غير مرتبط بالمديونية');
+      if ((await tx.query('journal_entries',
+        where: 'reference_type=? AND reference_id=?',
+        whereArgs: ['reversal', originalJournal],limit: 1)).isNotEmpty) {
+        throw StateError('القيد سبق عكسه');
+      }
+      final lines = await tx.query('journal_lines',
+        where: 'journal_entry_id=?',whereArgs: [originalJournal]);
+      if (lines.length != 2 ||
+          lines.fold<int>(0,(n,l)=>n+(l['debit'] as num).toInt()) != oldAmount ||
+          lines.fold<int>(0,(n,l)=>n+(l['credit'] as num).toInt()) != oldAmount) {
+        throw StateError('القيد الأصلي غير متوازن');
+      }
+      await _entry(tx, description: 'عكس المديونية رقم $debtId بغرض التصحيح',
+        referenceType: 'reversal', referenceId: originalJournal,
+        stationId: station, userId: userId, date: now,
+        lines: [
+          for (final line in lines)
+            {
+              'account_id': line['account_id'],
+              'beneficiary_id': line['beneficiary_id'],
+              'worker_id': line['worker_id'],
+              'partner_id': line['partner_id'],
+              'debit': line['credit'],
+              'credit': line['debit'],
+              'memo': 'تصحيح: \${line['memo'] ?? ''}',
+            },
+        ]);
+      final receivable = await _accountIdTx(tx, '1200');
+      final carried = await _accountIdTx(tx, '3100');
+      final correctedJournal = await _entry(tx,
+        description: 'مديونية مصححة للمستفيد: \${original['name']}',
+        referenceType: 'beneficiary_manual_debt',referenceId: debtId,
+        stationId: station,userId: userId,date: now,
+        lines: [
+          {'account_id': receivable, 'beneficiary_id': original['beneficiary_id'],
+            'debit': amount, 'credit': 0, 'memo': notes.trim()},
+          {'account_id': carried, 'debit': 0, 'credit': amount,
+            'memo': 'مقابل تصحيح مديونية سابقة'},
+        ]);
+      final changed = await tx.update('beneficiary_manual_debts',
+        {'amount': amount,'notes': notes.trim(),'journal_entry_id': correctedJournal},
+        where: 'id=? AND status=?',whereArgs: [debtId,'posted']);
+      if (changed != 1) throw StateError('تعذر حفظ تصحيح المديونية');
+      await database.auditTx(tx,userId: userId,operation: 'update',
+        table: 'beneficiary_manual_debts',recordId: debtId,
+        oldValues: original,
+        newValues: {'amount': amount,'notes': notes.trim(),
+          'journal_entry_id': correctedJournal},
+        reason: 'تصحيح مديونية مستفيد بقيد عكسي وقيد بديل');
+    }, captureSyncTables: {'beneficiary_manual_debts'});
+  }
+
+  /// Revises/cancels a worker or partner receivable. Only debts created by
+  /// the new "previous_receivable" flow may be changed; old payable opening
+  /// balances and all unrelated transactions remain untouched.
+  Future<void> revisePreviousPartyDebt({
+    required String partyType,
+    required int transactionId,
+    int? amount,
+    String? notes,
+    String? cancellationReason,
+    int? userId,
+  }) async {
+    if (partyType != 'worker' && partyType != 'partner') {
+      throw ArgumentError('نوع الطرف غير صالح');
+    }
+    final cancel = cancellationReason != null;
+    if (cancel) {
+      if (cancellationReason.trim().isEmpty) throw ArgumentError('سبب الإلغاء مطلوب');
+    } else {
+      if (amount == null || amount <= 0 || notes == null || notes.trim().isEmpty) {
+        throw ArgumentError('المبلغ والبيان مطلوبان للتعديل');
+      }
+    }
+    final isWorker = partyType == 'worker';
+    final table = isWorker ? 'worker_transactions' : 'partner_transactions';
+    final partyCol = isWorker ? 'worker_id' : 'partner_id';
+    final reference = isWorker ? 'worker_opening' : 'partner_opening';
+    await database.transaction((tx) async {
+      final station = await _selectedStationIdTx(tx);
+      final now = AppClock.now();
+      await _assertPeriodOpen(tx, now, stationId: station);
+      final found = await tx.rawQuery(
+        'SELECT t.* FROM $table t JOIN \${isWorker ? 'workers' : 'partners'} p '
+        'ON p.id=t.$partyCol AND p.station_id=t.station_id '
+        "WHERE t.id=? AND t.station_id=? AND t.reference_type='previous_debt' "
+        "AND t.type='previous_receivable' LIMIT 1",
+        [transactionId, station]);
+      if (found.isEmpty) throw StateError('المديونية غير موجودة أو معدلة/ملغاة مسبقاً');
+      final original = found.single;
+      final id = (original[partyCol] as num).toInt();
+      final oldAmount = (original['amount'] as num).toInt();
+      final oldNotes = '\${original['notes'] ?? ''}';
+      if (!cancel && oldAmount == amount && oldNotes == notes!.trim()) {
+        throw StateError('لم تتغير بيانات المديونية');
+      }
+      final oldJournalId = (original['reference_id'] as num?)?.toInt();
+      if (oldJournalId == null) throw StateError('قيد المديونية مفقود');
+      final journal = await tx.query('journal_entries',
+        where:'id=? AND station_id=? AND reference_type=? AND reference_id=? AND status=?',
+        whereArgs:[oldJournalId,station,reference,id,'posted'],limit: 1);
+      if (journal.isEmpty ||
+          !'\${journal.single['description']}'.startsWith('مديونية سابقة على ') &&
+          !'\${journal.single['description']}'.startsWith('مديونية مصححة على ')) {
+        throw StateError('قيد المديونية الأصلي غير صالح');
+      }
+      if ((await tx.query('journal_entries',
+        where:'reference_type=? AND reference_id=?',
+        whereArgs:['reversal',oldJournalId],limit: 1)).isNotEmpty) {
+        throw StateError('القيد سبق عكسه');
+      }
+      final lines = await tx.query('journal_lines',
+        where:'journal_entry_id=?',whereArgs:[oldJournalId]);
+      if (lines.length != 2 ||
+          lines.fold<int>(0,(n,l)=>n+(l['debit'] as num).toInt())!=oldAmount ||
+          lines.fold<int>(0,(n,l)=>n+(l['credit'] as num).toInt())!=oldAmount) {
+        throw StateError('القيد غير متوازن أو لا يطابق المديونية');
+      }
+      await _entry(tx,description: cancel
+          ? 'إلغاء مديونية سابقة على $partyType رقم $transactionId: \${cancellationReason!.trim()}'
+          : 'عكس مديونية سابقة على $partyType رقم $transactionId للتعديل',
+        referenceType:'reversal',referenceId:oldJournalId,
+        stationId:station,date:now,userId:userId,
+        lines: [
+          for(final line in lines)
+            {
+              'account_id':line['account_id'],
+              'beneficiary_id':line['beneficiary_id'],
+              'worker_id':line['worker_id'],
+              'partner_id':line['partner_id'],
+              'debit':line['credit'],'credit':line['debit'],
+              'memo':'عكس: \${line['memo'] ?? ''}',
+            },
+        ]);
+      if (cancel) {
+        final cancellationNote = 'إلغاء مديونية: \${cancellationReason!.trim()} | البيان الأصلي: $oldNotes';
+        final changed = await tx.update(table,
+          {'type':'previous_receivable_cancelled','notes':cancellationNote},
+          where:"id=? AND type='previous_receivable'",whereArgs:[transactionId]);
+        if (changed!=1) throw StateError('تعذر إلغاء المديونية');
+      } else {
+        final account = isWorker
+            ? await _workerAccountIdTx(tx,id)
+            : await _partnerAccountIdTx(tx,id);
+        final equity = await _accountIdTx(tx,'3000');
+        final newJournal = await _entry(tx,
+          description:'مديونية مصححة على \${isWorker ? 'العامل' : 'الشريك'} رقم $id',
+          referenceType:reference,referenceId:id,
+          stationId:station,date:now,userId:userId,
+          lines:[
+            {'account_id':account,partyCol:id,'debit':amount!,'credit':0,'memo':notes!.trim()},
+            {'account_id':equity,'debit':0,'credit':amount,'memo':'مقابل تصحيح المديونية'},
+          ]);
+        final changed = await tx.update(table,
+          {'amount':amount,'notes':notes.trim(),'reference_id':newJournal},
+          where:"id=? AND type='previous_receivable'",whereArgs:[transactionId]);
+        if (changed!=1) throw StateError('تعذر حفظ تصحيح المديونية');
+      }
+      await database.auditTx(tx,userId:userId,operation:cancel?'cancel':'update',
+        table:table,recordId:transactionId,oldValues:original,
+        newValues:cancel
+          ? {'type':'previous_receivable_cancelled','cancel_reason':cancellationReason}
+          : {'amount':amount,'notes':notes},
+        reason:cancel?'إلغاء مديونية على الطرف بقيد عكسي':'تصحيح مديونية على الطرف بقيد عكسي وقيد بديل');
+    },captureSyncTables:{table});
+  }
+
   /// يلغي سند مديونية سابقاً بعكس قيده مع إبقاء السند الأصلي للتدقيق.
   Future<void> cancelBeneficiaryDebt(
     int debtId,
