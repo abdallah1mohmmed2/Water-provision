@@ -1370,19 +1370,35 @@ class StationRepository {
       legacyAccountCode: '2100',
     );
     if (ledgerRows.isNotEmpty) {
+      final debtRows = await db.query('worker_transactions',
+        columns: ['id','reference_id','amount','notes'],
+        where: "worker_id=? AND reference_type='previous_debt' AND type='previous_receivable'",
+        whereArgs: [id]);
+      final activeDebts = <int, Map<String,Object?>>{
+        for (final debt in debtRows)
+          if (debt['reference_id'] is num)
+            (debt['reference_id'] as num).toInt(): debt,
+      };
       return ledgerRows.map((row) {
+        final currentDebt = activeDebts[(row['journal_entry_id'] as num?)?.toInt()];
+        final detail = <String,Object?>{
+          ...row,
+          if (currentDebt != null) 'previous_debt_transaction_id': currentDebt['id'],
+          if (currentDebt != null) 'previous_debt_amount': currentDebt['amount'],
+          if (currentDebt != null) 'previous_debt_notes': currentDebt['notes'],
+        };
         final note = '${row['transaction_notes'] ?? row['notes'] ?? row['memo'] ?? ''}'.trim();
         final isPayment = row['type'] == 'payment' || row['type'] == 'worker_payment';
-        if (!isPayment) return row;
+        if (!isPayment) return detail;
         if (note.isNotEmpty) {
           return {
-            ...row,
+            ...detail,
             'type': 'payment_note',
             'notes': note,
             'description': 'صرف - $note',
           };
         }
-        return {...row, 'type': 'payment', 'description': 'صرف'};
+        return {...detail, 'type': 'payment', 'description': 'صرف'};
       }).toList();
     }
 
@@ -1456,10 +1472,26 @@ class StationRepository {
     // ترحيلها إلى الأستاذ. لا نخلط المصدرين إذا كان الأستاذ يحتوي حركات؛
     // نستخدم السجل التشغيلي فقط كمسار استعادة عندما يكون كشف الأستاذ فارغًا.
     if (ledgerRows.isNotEmpty) {
+      final debtRows = await db.query('partner_transactions',
+        columns: ['id','reference_id','amount','notes'],
+        where: "partner_id=? AND reference_type='previous_debt' AND type='previous_receivable'",
+        whereArgs: [id]);
+      final activeDebts = <int, Map<String,Object?>>{
+        for (final debt in debtRows)
+          if (debt['reference_id'] is num)
+            (debt['reference_id'] as num).toInt(): debt,
+      };
       return ledgerRows.map((row) {
-        if (row['type'] != 'payment') return row;
+        final currentDebt = activeDebts[(row['journal_entry_id'] as num?)?.toInt()];
+        final detail = <String,Object?>{
+          ...row,
+          if (currentDebt != null) 'previous_debt_transaction_id': currentDebt['id'],
+          if (currentDebt != null) 'previous_debt_amount': currentDebt['amount'],
+          if (currentDebt != null) 'previous_debt_notes': currentDebt['notes'],
+        };
+        if (row['type'] != 'payment') return detail;
         final note = '${row['memo'] ?? row['notes'] ?? ''}'.trim();
-        return {...row, 'description': note.isEmpty ? 'صرف' : 'صرف - $note'};
+        return {...detail, 'description': note.isEmpty ? 'صرف' : 'صرف - $note'};
       }).toList();
     }
 
