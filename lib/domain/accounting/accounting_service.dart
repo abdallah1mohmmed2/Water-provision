@@ -4235,7 +4235,7 @@ class AccountingService {
     }
     final cancel = cancellationReason != null;
     if (cancel) {
-      if (cancellationReason.trim().isEmpty) throw ArgumentError('سبب الإلغاء مطلوب');
+      if (cancellationReason!.trim().isEmpty) throw ArgumentError('سبب الإلغاء مطلوب');
     } else {
       if (amount == null || amount <= 0 || notes == null || notes.trim().isEmpty) {
         throw ArgumentError('المبلغ والبيان مطلوبان للتعديل');
@@ -4321,7 +4321,7 @@ class AccountingService {
             {'account_id':equity,'debit':0,'credit':amount,'memo':'مقابل تصحيح المديونية'},
           ]);
         final changed = await tx.update(table,
-          {'amount':amount,'notes':notes.trim(),'reference_id':newJournal},
+          {'amount':amount,'notes':notes!.trim(),'reference_id':newJournal},
           where:"id=? AND type='previous_receivable'",whereArgs:[transactionId]);
         if (changed!=1) throw StateError('تعذر حفظ تصحيح المديونية');
       }
