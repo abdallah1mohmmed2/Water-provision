@@ -2694,8 +2694,14 @@ class SaqiaServer {
       final oldAmount=(original['amount'] as num).toInt();
       if (movementType=='previous_receivable' &&
           oldAmount==amount && original['notes']==notes) throw StateError('لم تتغير بيانات المديونية');
-      if (movementType=='previous_receivable_cancelled' &&
-          !notes.startsWith('إلغاء مديونية: ') ) throw StateError('سبب الإلغاء مطلوب');
+      if (movementType=='previous_receivable_cancelled') {
+        const prefix='إلغاء مديونية: ';
+        final suffix=' | البيان الأصلي: ' + (original['notes']??'').toString();
+        final reason=notes.startsWith(prefix) && notes.endsWith(suffix)
+            ? notes.substring(prefix.length, notes.length-suffix.length).trim()
+            : '';
+        if (reason.isEmpty) throw StateError('سبب الإلغاء ومطابقة البيان الأصلي مطلوبان');
+      }
       final oldJournal=(original['reference_id'] as num?)?.toInt();
       if (oldJournal==null) throw StateError('قيد المديونية السابق مفقود');
       final expectedReference=isWorker?'worker_opening':'partner_opening';
