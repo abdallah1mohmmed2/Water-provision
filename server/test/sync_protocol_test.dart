@@ -345,6 +345,7 @@ void main() {
     String? partyGlobalId,
     int amount = 4200,
     int baseVersion = 0,
+    String movementType = 'previous_receivable',
   }) {
     final table = worker ? 'worker_transactions' : 'partner_transactions';
     final partyColumn = worker ? 'worker_id' : 'partner_id';
@@ -365,7 +366,7 @@ void main() {
       'payload':{
         '_global_id':globalId,
         if(worker) 'worker_id':1 else 'partner_id':1,
-        'type':'opening_balance',
+        'type':movementType,
         'date':'2026-11-07T09:00:00.000',
         'amount':amount,
         'reference_type':'previous_debt',
@@ -506,10 +507,32 @@ void main() {
       expect(totals['debit'],4200);
       expect(totals['credit'],4200);
       expect(totals['lines'],2);
+      final personal = database.select('''SELECT jl.debit,jl.credit FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE jl.journal_entry_id=? AND a.code=?''',[journal,worker ? '2100.W1' : '2200.P1']).single;
+      expect(personal['debit'],4200,reason:'المديونية على الطرف يجب أن تخصم من رصيده له');
+      expect(personal['credit'],0);
+      final opening = database.select('''SELECT jl.debit,jl.credit FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE jl.journal_entry_id=? AND a.code='3000' ''',[journal]).single;
+      expect(opening['debit'],0);
+      expect(opening['credit'],4200);
       expect(database.select('SELECT reference_id FROM ' + table).single['reference_id'],journal);
       expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type=?",[table]).single['n'],1);
     }
     expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+  });
+
+  test('legacy party opening payable commands preserve their original credit direction', () async {
+    preparePartyDebtFixture();
+    for (final worker in [true,false]) {
+      final command = partyDebtEvent(worker:worker,movementType:'opening_balance');
+      final result = await postEvents(stationOneToken,[command]);
+      expect((result['results'] as List).first['status'],'accepted');
+      final journal = database.select('SELECT id FROM journal_entries ORDER BY id DESC LIMIT 1').single['id'];
+      final personal = database.select(
+        'SELECT jl.debit,jl.credit FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE jl.journal_entry_id=? AND a.code=?',
+        [journal,worker ? '2100.W1' : '2200.P1'],
+      ).single;
+      expect(personal['debit'],0);
+      expect(personal['credit'],4200);
+    }
   });
 
   test('worker and partner debt handlers reject a party owned by another station', () async {
