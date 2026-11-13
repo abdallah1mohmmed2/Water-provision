@@ -2610,7 +2610,11 @@ class SaqiaServer {
     final validGlobalId = globalId.length == 36 &&
       RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}').hasMatch(globalId);
     if (!validGlobalId || entityKey != entityType + ':' + globalId) throw StateError('هوية حركة المديونية العالمية غير صالحة');
-    if ((payload['type'] ?? '') != 'opening_balance' || (payload['reference_type'] ?? '') != 'previous_debt') throw StateError('المعالج يقبل مديونية سابقة فقط');
+    // opening_balance is the historical amount payable TO the party.
+    // previous_receivable is a new debt owed BY the party to the station.
+    final movementType = (payload['type'] ?? '').toString();
+    if (!const {'opening_balance','previous_receivable'}.contains(movementType) || (payload['reference_type'] ?? '') != 'previous_debt') throw StateError('المعالج يقبل مديونية سابقة فقط');
+    final receivable = movementType == 'previous_receivable';
     if (payload[isWorker ? 'partner_id' : 'worker_id'] != null) throw StateError('نوع الطرف في حمولة المديونية غير متطابق');
     final refs = payload['_global_refs'];
     if (refs is! Map) throw StateError('المرجع العالمي للطرف مفقود');
@@ -2663,22 +2667,22 @@ class SaqiaServer {
       ? 'worker_id,station_id,date,type,hours,rate_snapshot,percentage_snapshot,amount,reference_type,reference_id,notes,created_by'
       : 'partner_id,station_id,date,type,amount,ownership_snapshot,reference_type,reference_id,notes,created_by';
     final values = isWorker
-      ? [partyId,station,debtDate.toIso8601String(),'opening_balance',0,0,0,amount,'previous_debt',null,notes,userId]
-      : [partyId,station,debtDate.toIso8601String(),'opening_balance',amount,null,'previous_debt',null,notes,userId];
+      ? [partyId,station,debtDate.toIso8601String(),movementType,0,0,0,amount,'previous_debt',null,notes,userId]
+      : [partyId,station,debtDate.toIso8601String(),movementType,amount,null,'previous_debt',null,notes,userId];
     final placeholders = List.filled(values.length,'?').join(',');
     db.execute('INSERT INTO ' + entityType + '(' + columns + ') VALUES(' + placeholders + ')',values);
     final transactionId = db.lastInsertRowId;
     final referenceType = isWorker ? 'worker_opening' : 'partner_opening';
-    final description = 'مديونية سابقة مستحقة لـ' + (isWorker ? 'العامل ' : 'الشريك ') + partyRows.first['name'].toString();
+    final description = (receivable ? 'مديونية سابقة على ' : 'مديونية سابقة مستحقة لـ') + (isWorker ? 'العامل ' : 'الشريك ') + partyRows.first['name'].toString();
     db.execute('INSERT INTO journal_entries(station_id,date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)',
       [station,debtDate.toIso8601String(),referenceType,partyId,description,'posted',userId,now]);
     final journalId = db.lastInsertRowId;
     if (isWorker) {
-      db.execute('INSERT INTO journal_lines(journal_entry_id,account_id,worker_id,debit,credit,memo) VALUES(?,?,?,?,?,?)',[journalId,personalAccount,partyId,0,amount,notes]);
+      db.execute('INSERT INTO journal_lines(journal_entry_id,account_id,worker_id,debit,credit,memo) VALUES(?,?,?,?,?,?)',[journalId,personalAccount,partyId,receivable ? amount : 0,receivable ? 0 : amount,notes]);
     } else {
-      db.execute('INSERT INTO journal_lines(journal_entry_id,account_id,partner_id,debit,credit,memo) VALUES(?,?,?,?,?,?)',[journalId,personalAccount,partyId,0,amount,notes]);
+      db.execute('INSERT INTO journal_lines(journal_entry_id,account_id,partner_id,debit,credit,memo) VALUES(?,?,?,?,?,?)',[journalId,personalAccount,partyId,receivable ? amount : 0,receivable ? 0 : amount,notes]);
     }
-    db.execute('INSERT INTO journal_lines(journal_entry_id,account_id,debit,credit,memo) VALUES(?,?,?,?,?)',[journalId,openingAccount,amount,0,'مقابل مديونية سابقة']);
+    db.execute('INSERT INTO journal_lines(journal_entry_id,account_id,debit,credit,memo) VALUES(?,?,?,?,?)',[journalId,openingAccount,receivable ? 0 : amount,receivable ? amount : 0,'مقابل مديونية سابقة']);
     final totals = db.select('SELECT COALESCE(SUM(debit),0) debit,COALESCE(SUM(credit),0) credit,COUNT(*) lines FROM journal_lines WHERE journal_entry_id=?',[journalId]).single;
     if ((totals['debit'] as num).toInt()!=amount || (totals['credit'] as num).toInt()!=amount || (totals['lines'] as num).toInt()!=2) throw StateError('القيد المركزي للمديونية غير متوازن');
     db.execute('UPDATE ' + entityType + ' SET reference_id=? WHERE id=?',[journalId,transactionId]);
