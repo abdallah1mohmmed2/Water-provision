@@ -2991,6 +2991,7 @@ class AccountingService {
         final notes = '${row['notes'] ?? ''}';
         final signed = switch (type) {
           'accrual' || 'salary' || 'worker_entitlement' || 'opening_balance' => amount,
+          'previous_receivable' => -amount,
           'payment' => -amount,
           'payment_reversal' => amount,
           'irrigation' => notes.startsWith('خصم قيمة سقاية')
@@ -3032,6 +3033,7 @@ class AccountingService {
         final notes = '${row['notes'] ?? ''}';
         final signed = switch (type) {
           'share_accrual' || 'opening_balance' || 'contribution' => amount,
+          'previous_receivable' => -amount,
           'payment' || 'irrigation' || 'share_adjustment' => -amount,
           'payment_reversal' || 'share_adjustment_reversal' => amount,
           'irrigation_reversal' => notes.startsWith('عكس سقاية الشريك')
