@@ -476,6 +476,7 @@ void main() {
           whereArgs: ['previous_debt'],
         )).single;
         expect(transaction['${type}_id'], party['id']);
+        expect(transaction['type'], 'previous_receivable');
         final journal = (await db.query(
           'journal_entries',
           where: 'id=?',
@@ -483,7 +484,7 @@ void main() {
         )).single;
         expect(journal['reference_id'], party['id']);
         final lines = await db.query(
-          'SELECT a.code FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE jl.journal_entry_id=? AND jl.credit>0',
+          'SELECT a.code FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE jl.journal_entry_id=? AND jl.debit>0',
           args: [journal['id']],
         );
         expect(
