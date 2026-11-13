@@ -4156,7 +4156,7 @@ class AccountingService {
       if (rows.isEmpty) throw StateError('المديونية غير موجودة أو ملغاة');
       final original = rows.single;
       final oldAmount = (original['amount'] as num).toInt();
-      final oldNotes = '\${original['notes'] ?? ''}';
+      final oldNotes = '${original['notes'] ?? ''}';
       if (oldAmount == amount && oldNotes == notes.trim()) {
         throw StateError('لم تتغير بيانات المديونية');
       }
@@ -4191,13 +4191,13 @@ class AccountingService {
               'partner_id': line['partner_id'],
               'debit': line['credit'],
               'credit': line['debit'],
-              'memo': 'تصحيح: \${line['memo'] ?? ''}',
+              'memo': 'تصحيح: ${line['memo'] ?? ''}',
             },
         ]);
       final receivable = await _accountIdTx(tx, '1200');
       final carried = await _accountIdTx(tx, '3100');
       final correctedJournal = await _entry(tx,
-        description: 'مديونية مصححة للمستفيد: \${original['name']}',
+        description: 'مديونية مصححة للمستفيد: ${original['name']}',
         referenceType: 'beneficiary_manual_debt',referenceId: debtId,
         stationId: station,userId: userId,date: now,
         lines: [
@@ -4250,7 +4250,7 @@ class AccountingService {
       final now = AppClock.now();
       await _assertPeriodOpen(tx, now, stationId: station);
       final found = await tx.rawQuery(
-        'SELECT t.* FROM $table t JOIN \${isWorker ? 'workers' : 'partners'} p '
+        'SELECT t.* FROM $table t JOIN ${isWorker ? 'workers' : 'partners'} p '
         'ON p.id=t.$partyCol AND p.station_id=t.station_id '
         "WHERE t.id=? AND t.station_id=? AND t.reference_type='previous_debt' "
         "AND t.type='previous_receivable' LIMIT 1",
@@ -4259,7 +4259,7 @@ class AccountingService {
       final original = found.single;
       final id = (original[partyCol] as num).toInt();
       final oldAmount = (original['amount'] as num).toInt();
-      final oldNotes = '\${original['notes'] ?? ''}';
+      final oldNotes = '${original['notes'] ?? ''}';
       if (!cancel && oldAmount == amount && oldNotes == notes!.trim()) {
         throw StateError('لم تتغير بيانات المديونية');
       }
@@ -4269,8 +4269,8 @@ class AccountingService {
         where:'id=? AND station_id=? AND reference_type=? AND reference_id=? AND status=?',
         whereArgs:[oldJournalId,station,reference,id,'posted'],limit: 1);
       if (journal.isEmpty ||
-          !'\${journal.single['description']}'.startsWith('مديونية سابقة على ') &&
-          !'\${journal.single['description']}'.startsWith('مديونية مصححة على ')) {
+          !'${journal.single['description']}'.startsWith('مديونية سابقة على ') &&
+          !'${journal.single['description']}'.startsWith('مديونية مصححة على ')) {
         throw StateError('قيد المديونية الأصلي غير صالح');
       }
       if ((await tx.query('journal_entries',
@@ -4286,7 +4286,7 @@ class AccountingService {
         throw StateError('القيد غير متوازن أو لا يطابق المديونية');
       }
       await _entry(tx,description: cancel
-          ? 'إلغاء مديونية سابقة على $partyType رقم $transactionId: \${cancellationReason!.trim()}'
+          ? 'إلغاء مديونية سابقة على $partyType رقم $transactionId: ${cancellationReason!.trim()}'
           : 'عكس مديونية سابقة على $partyType رقم $transactionId للتعديل',
         referenceType:'reversal',referenceId:oldJournalId,
         stationId:station,date:now,userId:userId,
@@ -4298,11 +4298,11 @@ class AccountingService {
               'worker_id':line['worker_id'],
               'partner_id':line['partner_id'],
               'debit':line['credit'],'credit':line['debit'],
-              'memo':'عكس: \${line['memo'] ?? ''}',
+              'memo':'عكس: ${line['memo'] ?? ''}',
             },
         ]);
       if (cancel) {
-        final cancellationNote = 'إلغاء مديونية: \${cancellationReason!.trim()} | البيان الأصلي: $oldNotes';
+        final cancellationNote = 'إلغاء مديونية: ${cancellationReason!.trim()} | البيان الأصلي: $oldNotes';
         final changed = await tx.update(table,
           {'type':'previous_receivable_cancelled','notes':cancellationNote},
           where:"id=? AND type='previous_receivable'",whereArgs:[transactionId]);
@@ -4313,7 +4313,7 @@ class AccountingService {
             : await _partnerAccountIdTx(tx,id);
         final equity = await _accountIdTx(tx,'3000');
         final newJournal = await _entry(tx,
-          description:'مديونية مصححة على \${isWorker ? 'العامل' : 'الشريك'} رقم $id',
+          description:'مديونية مصححة على ${isWorker ? 'العامل' : 'الشريك'} رقم $id',
           referenceType:reference,referenceId:id,
           stationId:station,date:now,userId:userId,
           lines:[
