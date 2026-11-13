@@ -282,6 +282,50 @@ void main() {
         ),
         isEmpty,
       );
+      // Posted debt corrections are one root update each: the original
+      // journals are reversed and replacement journals stay auditable.
+      final workerDebt = (await db.query('worker_transactions',
+        where: "reference_type='previous_debt' AND worker_id=?",
+        whereArgs: [workerId])).single;
+      final partnerDebt = (await db.query('partner_transactions',
+        where: "reference_type='previous_debt' AND partner_id=?",
+        whereArgs: [partnerId])).single;
+      await accounting.revisePreviousPartyDebt(
+        partyType: 'worker',
+        transactionId: (workerDebt['id'] as num).toInt(),
+        amount: 75,
+        notes: 'corrected worker debt',
+        userId: 1,
+      );
+      await accounting.revisePreviousPartyDebt(
+        partyType: 'partner',
+        transactionId: (partnerDebt['id'] as num).toInt(),
+        cancellationReason: 'partner debt entered in error',
+        userId: 1,
+      );
+      await accounting.reviseBeneficiaryDebt(
+        debtId: debtId, amount: 45, notes: 'corrected beneficiary debt', userId: 1,
+      );
+      expect((await accounting.workerBalance(workerId))['balance'], -75);
+      expect((await accounting.partnerBalance(partnerId))['balance'], 0);
+      await expectLater(
+        accounting.revisePreviousPartyDebt(
+          partyType: 'partner',
+          transactionId: (partnerDebt['id'] as num).toInt(),
+          cancellationReason: 'duplicate cancellation',
+          userId: 1,
+        ),
+        throwsA(isA<StateError>()),
+      );
+      final correctionEvents = await db.query(
+        "SELECT * FROM sync_queue WHERE status='pending' ORDER BY id",
+      );
+      expect(correctionEvents.map((x) => x['table_name']).toList(), [
+        'worker_transactions', 'partner_transactions', 'beneficiary_manual_debts',
+      ]);
+      commands.addAll(correctionEvents);
+      await originSync.push();
+      expect(await db.query("SELECT * FROM sync_queue WHERE status<>'acknowledged'"), isEmpty);
       await accounting.cancelExpense(expenseId, 1, 'P0 reversal');
       await accounting.cancelBeneficiaryDebt(debtId, 1, 'P0 reversal');
       commands.addAll(
@@ -446,6 +490,8 @@ void main() {
       expect((await db.query('expenses')).single['status'], 'cancelled');
       final peerDebt = (await db.query('beneficiary_manual_debts')).single;
       expect(peerDebt['status'], 'cancelled');
+      expect(peerDebt['amount'], 45);
+      expect(peerDebt['notes'], 'corrected beneficiary debt');
       expect(peerDebt['journal_entry_id'], isNotNull);
       expect(
         (await db.query(
@@ -476,7 +522,13 @@ void main() {
           whereArgs: ['previous_debt'],
         )).single;
         expect(transaction['${type}_id'], party['id']);
-        expect(transaction['type'], 'previous_receivable');
+        expect(transaction['type'],
+            type == 'worker' ? 'previous_receivable' : 'previous_receivable_cancelled');
+        expect(transaction['amount'], type == 'worker' ? 75 : 60);
+        final peerBalance = type == 'worker'
+            ? await AccountingService(db).workerBalance(party['id'] as int)
+            : await AccountingService(db).partnerBalance(party['id'] as int);
+        expect(peerBalance['balance'], type == 'worker' ? -75 : 0);
         final journal = (await db.query(
           'journal_entries',
           where: 'id=?',
@@ -497,7 +549,10 @@ void main() {
       );
       expect(reversals.map((r) => r['reference_type']), [
         'beneficiary_manual_debt',
+        'beneficiary_manual_debt',
         'expense',
+        'partner_opening',
+        'worker_opening',
       ]);
       expect(irrigationId, greaterThan(0));
       expect(await db.query('sync_queue'), isEmpty);
