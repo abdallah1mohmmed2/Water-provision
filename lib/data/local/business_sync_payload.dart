@@ -413,7 +413,20 @@ class BusinessSyncPayload {
       }
       if ((table == 'worker_transactions' || table == 'partner_transactions') &&
           payload['reference_type'] == 'previous_debt') {
-        payload['reference_id'] = null;
+        if (payload['type'] == 'previous_receivable_cancelled') {
+          // A cancellation has only a reversal journal, not a replacement.
+          // Preserve the peer's existing original-journal backlink.
+          payload.remove('reference_id');
+          final refs = Map<String, dynamic>.from(
+            payload['_global_refs'] as Map? ?? {},
+          );
+          refs.remove('reference_id');
+          payload['_global_refs'] = refs;
+        } else {
+          // Creation and correction get the authoritative backlink from
+          // the server's new opening/correction journal projection.
+          payload['reference_id'] = null;
+        }
       }
     }
     return payload;
