@@ -8489,9 +8489,7 @@ class _PaymentsState extends State<PaymentsPage> {
         : target == 'worker'
             ? 'العامل'
             : 'الشريك';
-    final balanceMeaning = target == 'beneficiary'
-        ? 'سيُضاف المبلغ على المستفيد لصالح المحطة.'
-        : 'سيُضاف المبلغ كمستحق سابق للطرف على المحطة.';
+    final balanceMeaning = 'سيُسجّل المبلغ على $partyLabel لصالح المحطة، دون قبض أو صرف.';
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
