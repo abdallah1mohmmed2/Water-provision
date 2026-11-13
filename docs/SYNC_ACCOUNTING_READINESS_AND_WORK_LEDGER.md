@@ -626,3 +626,26 @@ Files repaired: `server/lib/server.dart` (child projection operation), `server/t
 **Limits:** P3d cannot independently attest to live two-phone deployment, signed Release APK, production Firebase/Shelf configuration, historically unlinked direct profit records, or a no-op durable approval for zero-effect periods. These remain explicitly outside the accepted slice. Do not mark the entire P3 phase or production deployment complete. Next P3e/P3f requires the usual duplicate guard against its existing local code.
 
 **Documentation-only checkpoint:** This ledger acceptance is committed **after** successful CI on exact code SHA `8089811a`. If this documentation commit triggers a new workflow run, its result must be recorded separately for documentation HEAD; no code or behavioral change is introduced by this ledger update.
+
+
+## 25. تصحيح اتجاه مديونية الأطراف في زر مركز المدفوعات — 2026-11-13
+
+**نوع المهمة:** إصلاح دلالة محاسبية محددة لمديونية **على العامل والشريك لصالح المحطة**؛ ليس إعادة تنفيذ P0/P1/P2/P3 المكتملة، ولا نقل قاعدة البيانات أو تعديل Firebase. راجعت HEAD قبل التغيير: `2cff584ace803e08ffb8459ce010bf07d42b5f44`؛ وراجعت `AGENTS.md`، السجل الحالي، القرار المعماري، وتصميم `MANUAL_PARTY_DEBT_SYNC_DESIGN.md`، والزر وخدمة المحاسبة وOutbox ومعالج Shelf وكشوف الحساب واختبارات المديونية القائمة.
+
+**الفجوة المؤكدة:** الزر كان يحفظ مديونية المستفيد **عليه** صحيحة، ولكنه يحفظ العامل والشريك **لهما** على المحطة (دائن الحساب الشخصي/مدين 3000) مع تنبيه واجهة صريح بنفس المعنى. طلب صاحب المشروع الآن أن تكون المديونية الجديدة **على الشخص المختار** في الحالات الثلاث.
+
+**الذي تغير:**
+- `lib/features/app.dart`: توحيد بيان الزر ليصرح أن المبلغ على الطرف لصالح المحطة.
+- `lib/domain/accounting/accounting_service.dart`: حفظ حركة `previous_receivable + previous_debt` للعامل والشريك، ومدين حسابه الشخصي `2100.W{id}` أو `2200.P{id}`، دائن 3000، مع المحافظة على معاملة SQLite وOutbox وعدم حركة الصندوق؛ والمستفيد يظل على سند `beneficiary_manual_debts` الحالي.
+- `server/lib/server.dart`: قبول `previous_receivable` الجديد وبناء القيد بنفس الاتجاه المعتمد من الخادم داخل SAVEPOINT؛ ولا يزال يقبل `opening_balance + previous_debt` التاريخي بمعناه القديم لحماية أوامر لم تزامن بعد. لا إعادة تصنيف تلقائي ولا تعديل على السجلات القديمة.
+- `lib/data/repositories/repositories.dart` والمسارات الاحتياطية للأرصدة في `accounting_service.dart`: السطر الجديد يظهر «عليه» بقيمة صحيحة (سالب في رصيد العامل/الشريك الذي يعرّف الموجب بأنه «له»)، مع بقاء الدلالات التاريخية.
+- الاختبارات: `test/database_sync_outbox_test.dart` يثبت نوع الأمر الجديد وOutbox واحد بلا إرسال قيود مشتقة ورصيد العامل/الشريك وكشوفهما؛ `server/test/sync_protocol_test.dart` يثبت debit/credit الصحيح والتكرار والتوافق مع `opening_balance` التاريخي؛ `test/accounting_integration_test.dart` يمرر سند المستفيد عبر الدالة الموحدة التي يستعملها الزر.
+- توثيق التوافق الجديد في `docs/MANUAL_PARTY_DEBT_SYNC_DESIGN.md`، مع الإبقاء على الأقسام التاريخية بلا تحريف.
+
+**التزامات الكود:** `05c73ff842a907bbfdd5fbd58a6643475376ab53`، `9fb559980559aedb40b4d0b3863bc42f2ac19427`، `0d254f34ed50c1d98d16de6dcebf6081189b376f`، `8f3f26b45ee31f87ee1e34fad0a74ad09a1c28c3`، `95913f9c21aafc25189d4da838a3138aa0204903`، `2ad29a3ef3d65e72cd4a9d7931ce4ddca68b27c0`، `1cd3cda078ffe3849b770699dc0dceb26d5e1387`، `a792f2316de5a1aab3fd4d13f59a18286b823108`. توثيق التصميم: `77b3c05f5c5038745661417bde190eb4316d5718`.
+
+**الدليل المحاسبي المتوقع:** العامل/الشريك الجديد 4200: مدين حساب الطرف 4200، دائن 3000 بمقدار 4200؛ لا مساس بالصندوق أو الأرباح المكتسبة. المستفيد يبقى مدين 1200 ودائن 3100. ويجب أن يظهر السطر على كشف الطرف نفسه في خانة «عليه». لا إعادة تشغيل أو تغيير لأي قيد تاريخي.
+
+**بوابة اعتماد هذا التصحيح:** اختبارات Flutter/خادم Shelf والتحليل وCI وAPK على HEAD النهائي **غير متحققة بعد**؛ حتى 2026-11-13 كانت تشغيلات أحدث فرع قيد التشغيل، ولا ندعي نجاحها. يلزم فحص الحالات النهائية وروابط Actions وArtifact قبل إغلاق المهمة. لا يوجد اختبار ميداني على أجهزة فعلية.
+
+**عمل غير منفذ ولا يجوز ادعاؤه:** إضافة زر إلغاء/قيد عكسي لمديونية العامل أو الشريك غير موجود في هذا التغيير؛ تحتاج عقد عكس مستقل لا يحذف الأصول. إعادة تصحيح المديونيات التاريخية القديمة تحتاج مراجعة بشرية وعكساً مدققاً، لا قلباً آلياً لصافياتها. لم يُعدل أو يُدمج `main`.
