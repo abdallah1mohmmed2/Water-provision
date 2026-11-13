@@ -4011,7 +4011,7 @@ class AccountingService {
   }
 
   /// إضافة مديونية سابقة من مركز المدفوعات دون أي حركة صندوق.
-  /// للمستفيد: المبلغ عليه للمحطة؛ للعامل والشريك: المبلغ مستحق لهما على المحطة.
+  /// لجميع الأطراف: المبلغ عليهم للمحطة. الأرصدة التاريخية المستحقة للأطراف لا تُمس.
   Future<int> addPreviousPartyDebt({
     required String partyType,
     required int partyId,
@@ -4059,7 +4059,7 @@ class AccountingService {
       final openingEquity = await _accountIdTx(tx, '3000');
       final entryId = await _entry(
         tx,
-        description: 'مديونية سابقة مستحقة لـ${isWorker ? 'العامل' : 'الشريك'} $name',
+        description: 'مديونية سابقة على ${isWorker ? 'العامل' : 'الشريك'} $name',
         referenceType: isWorker ? 'worker_opening' : 'partner_opening',
         referenceId: partyId,
         date: date,
@@ -4069,15 +4069,15 @@ class AccountingService {
           {
             'account_id': partyAccount,
             if (isWorker) 'worker_id': partyId else 'partner_id': partyId,
-            'debit': 0,
-            'credit': amount,
+            'debit': amount,
+            'credit': 0,
             'memo': notes.trim(),
           },
           {
             'account_id': openingEquity,
-            'debit': amount,
-            'credit': 0,
-            'memo': 'مقابل مديونية سابقة',
+            'debit': 0,
+            'credit': amount,
+            'memo': 'مقابل مديونية سابقة على الطرف',
           },
         ],
       );
@@ -4086,7 +4086,7 @@ class AccountingService {
           'worker_id': partyId,
           'station_id': stationId,
           'date': date.toIso8601String(),
-          'type': 'opening_balance',
+          'type': 'previous_receivable',
           'hours': 0,
           'rate_snapshot': 0,
           'percentage_snapshot': 0,
@@ -4101,7 +4101,7 @@ class AccountingService {
           'partner_id': partyId,
           'station_id': stationId,
           'date': date.toIso8601String(),
-          'type': 'opening_balance',
+          'type': 'previous_receivable',
           'amount': amount,
           'ownership_snapshot': null,
           'reference_type': 'previous_debt',
@@ -4124,7 +4124,7 @@ class AccountingService {
           'notes': notes.trim(),
           'reference_type': isWorker ? 'worker_opening' : 'partner_opening',
         },
-        reason: 'إضافة مديونية سابقة دون حركة نقدية',
+        reason: 'إضافة مديونية سابقة على الطرف دون حركة نقدية',
       );
       return entryId;
     }, captureSyncTables: {transactionTable});
