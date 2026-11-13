@@ -1400,6 +1400,7 @@ class StationRepository {
       final notes = '${row['notes'] ?? ''}';
       final signed = switch (type) {
         'accrual' || 'salary' || 'worker_entitlement' || 'opening_balance' => amount,
+        'previous_receivable' => -amount,
         'payment' => -amount,
         'payment_reversal' => amount,
         'irrigation' => notes.startsWith('خصم قيمة سقاية')
@@ -1479,6 +1480,7 @@ class StationRepository {
       final amount = (row['amount'] as num?)?.round() ?? 0;
       final signed = switch (type) {
         'share_accrual' || 'opening_balance' || 'contribution' || 'share_adjustment_reversal' => amount,
+        'previous_receivable' => -amount,
         'payment' || 'irrigation' || 'share_adjustment' => -amount,
         'irrigation_reversal' =>
           (row['reversal_of_direct_irrigation'] as num?)?.toInt() == 1
@@ -1526,7 +1528,7 @@ class StationRepository {
     for (final row in rows) {
       final debit=(row['debit'] as num?)?.round() ?? 0, credit=(row['credit'] as num?)?.round() ?? 0, signed=credit-debit;
       running += signed; final ref='${row['reference_type']}';
-      final type=switch(ref){'payment'=>'payment','worker_payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=>'opening_balance',_=>ref};
+      final type=switch(ref){'payment'=>'payment','worker_payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=> '${row['description'] ?? ''}'.startsWith('مديونية سابقة على ') ? 'previous_receivable' : 'opening_balance',_=>ref};
       out.add({...row,'type':type,'amount':signed.abs(),'signed_amount':signed,'description':row['memo'] ?? row['description'],'balance':running,'lah':signed>0?signed:0,'alayh':signed<0?-signed:0});
     }
     return out.reversed.toList();
@@ -1654,6 +1656,7 @@ class StationRepository {
           final notes = '${row['notes'] ?? ''}';
           bal += switch (type) {
             'accrual' || 'salary' || 'worker_entitlement' || 'opening_balance' => amount,
+            'previous_receivable' => -amount,
             'payment' => -amount,
             'payment_reversal' => amount,
             'irrigation' => notes.startsWith('خصم قيمة سقاية')
@@ -1868,6 +1871,7 @@ class StationRepository {
           final notes = '${row['notes'] ?? ''}';
           bal += switch (type) {
             'share_accrual' || 'opening_balance' || 'contribution' => amount,
+            'previous_receivable' => -amount,
             'payment' || 'irrigation' || 'share_adjustment' => -amount,
             'payment_reversal' => amount,
             'irrigation_reversal' => notes.startsWith('عكس سقاية الشريك')
