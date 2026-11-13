@@ -507,15 +507,22 @@ void main() {
     expect(events.map((e)=>e['operation']).toList(),['create','create']);
     final workerPayload = jsonDecode(events[0]['payload'] as String) as Map<String,dynamic>;
     final partnerPayload = jsonDecode(events[1]['payload'] as String) as Map<String,dynamic>;
-    expect(workerPayload['type'],'opening_balance');
+    expect(workerPayload['type'],'previous_receivable');
     expect(workerPayload['reference_type'],'previous_debt');
     expect(workerPayload['_global_id'],isA<String>());
     expect((workerPayload['_global_refs'] as Map)['worker_id']['table'],'workers');
-    expect(partnerPayload['type'],'opening_balance');
+    expect(partnerPayload['type'],'previous_receivable');
     expect(partnerPayload['reference_type'],'previous_debt');
     expect(partnerPayload['_global_id'],isA<String>());
     expect((partnerPayload['_global_refs'] as Map)['partner_id']['table'],'partners');
     expect(await database.query('sync_queue',where:'table_name IN (?,?)',whereArgs:['journal_entries','journal_lines']),isEmpty);
+    expect((await service.workerBalance(workerId))['balance'],-4200);
+    expect((await service.partnerBalance(partnerId))['balance'],-5200);
+    final repository = StationRepository(database);
+    final workerStatement = await repository.workerTransactions(workerId);
+    final partnerStatement = await repository.partnerTransactions(partnerId);
+    expect(workerStatement.any((row)=>row['type']=='previous_receivable' && row['alayh']==4200 && row['lah']==0),isTrue);
+    expect(partnerStatement.any((row)=>row['type']=='previous_receivable' && row['alayh']==5200 && row['lah']==0),isTrue);
   });
 
 
