@@ -942,8 +942,9 @@ void main() {
     final revenueBefore = await accountNet('4000');
     final receivableBefore = await accountNet('1200');
     final carriedBefore = await accountNet('3100');
-    final debtId = await svc.addBeneficiaryDebt(
-      beneficiaryId: b,
+    final debtId = await svc.addPreviousPartyDebt(
+      partyType: 'beneficiary',
+      partyId: b,
       amount: 25000,
       date: DateTime.now(),
       notes: 'رصيد مديونية سابق للمحطة',
