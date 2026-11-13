@@ -1416,12 +1416,41 @@ class SaqiaServer {
       return;
     }
     if (operation!='update') throw UnsupportedError('حذف سند المديونية ممنوع؛ استخدم إلغاءً محاسبياً');
-    if (links.isEmpty || payload['status']!='cancelled') throw StateError('التحديث الوحيد المسموح هو إلغاء سند موجود');
+    if (links.isEmpty) throw StateError('سند المديونية غير موجود');
     final debtId=(links.first['local_id'] as num).toInt();
     final rows=db.select("SELECT md.* FROM beneficiary_manual_debts md JOIN beneficiaries b ON b.id=md.beneficiary_id WHERE md.id=? AND b.station_id=? LIMIT 1",[debtId,station]);
     if (rows.isEmpty) throw StateError('سند المديونية لا يتبع المحطة الحالية');
     final debt=rows.first;
     if (debt['status']!='posted') throw StateError('سند المديونية ملغى مسبقاً أو غير مرحّل');
+    if (payload['status']=='posted') {
+      if ((debt['beneficiary_id'] as num).toInt()!=beneficiaryId ||
+          DateTime.tryParse(debt['date'].toString())?.toIso8601String()!=debtDate.toIso8601String()) {
+        throw StateError('لا يمكن نقل المديونية إلى مستفيد أو تاريخ آخر');
+      }
+      final oldAmount=(debt['amount'] as num).toInt();
+      if (amount==oldAmount && notes==debt['notes']) throw StateError('لم تتغير المديونية');
+      final oldJournal=(debt['journal_entry_id'] as num?)?.toInt();
+      if (oldJournal==null) throw StateError('قيد المديونية السابق مفقود');
+      final posted=db.select("SELECT id FROM journal_entries WHERE id=? AND station_id=? AND reference_type='beneficiary_manual_debt' AND reference_id=? AND status='posted'",[oldJournal,station,debtId]);
+      if (posted.length!=1 || db.select("SELECT 1 FROM journal_entries WHERE reference_type='reversal' AND reference_id=? LIMIT 1",[oldJournal]).isNotEmpty) throw StateError('قيد المديونية السابق غير صالح أو معكوس');
+      final lines=db.select("SELECT jl.*,a.code FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE jl.journal_entry_id=? ORDER BY jl.id",[oldJournal]);
+      if (lines.length!=2 ||
+          !lines.any((l)=>l['code']=='1200' && (l['beneficiary_id'] as num?)?.toInt()==beneficiaryId && l['debit']==oldAmount && l['credit']==0) ||
+          !lines.any((l)=>l['code']=='3100' && l['beneficiary_id']==null && l['credit']==oldAmount && l['debit']==0)) throw StateError('القيد السابق لا يطابق المديونية');
+      db.execute("INSERT INTO journal_entries(station_id,date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)",[station,now,'reversal',oldJournal,'عكس المديونية رقم '+debtId.toString()+' للتصحيح','posted',userId,now]);
+      final reversal=db.lastInsertRowId;
+      for (final line in lines) {
+        db.execute("INSERT INTO journal_lines(journal_entry_id,account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo) VALUES(?,?,?,?,?,?,?,?)",[reversal,line['account_id'],line['beneficiary_id'],line['worker_id'],line['partner_id'],line['credit'],line['debit'],'تصحيح: '+(line['memo']??'').toString()]);
+      }
+      db.execute("INSERT INTO journal_entries(station_id,date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)",[station,now,'beneficiary_manual_debt',debtId,'مديونية مصححة للمستفيد: '+beneficiaries.first['name'].toString(),'posted',userId,now]);
+      final current=db.lastInsertRowId;
+      db.execute("INSERT INTO journal_lines(journal_entry_id,account_id,beneficiary_id,debit,credit,memo) VALUES(?,?,?,?,?,?)",[current,_accountId('1200'),beneficiaryId,amount,0,notes]);
+      db.execute("INSERT INTO journal_lines(journal_entry_id,account_id,debit,credit,memo) VALUES(?,?,?,?,?)",[current,_accountId('3100'),0,amount,'مقابل تصحيح مديونية سابقة']);
+      db.execute("UPDATE beneficiary_manual_debts SET amount=?,notes=?,journal_entry_id=? WHERE id=? AND status='posted'",[amount,notes,current,debtId]);
+      if ((db.select('SELECT changes() n').single['n'] as num).toInt()!=1) throw StateError('تعذر تحديث المديونية');
+      return;
+    }
+    if (payload['status']!='cancelled') throw StateError('حالة المديونية غير مدعومة');
     if ((debt['beneficiary_id'] as num).toInt()!=beneficiaryId ||
         (debt['amount'] as num).toInt()!=amount ||
         DateTime.tryParse(debt['date'].toString())?.toIso8601String()!=debtDate.toIso8601String() ||
@@ -2597,7 +2626,7 @@ class SaqiaServer {
     required String operation, required Map payload, required String now,
     required int? userId, required String? role,
   }) {
-    if (operation != 'create') throw UnsupportedError('تعديل أو حذف المديونية السابقة للعامل أو الشريك غير مسموح؛ يلزم قيد عكسي مخصص');
+    if (operation != 'create' && operation != 'update') throw UnsupportedError('حذف المديونية السابقة ممنوع');
     if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بإضافة مديونية سابقة');
     if (userId == null || userId <= 0 || _stationForUser(userId) != station) throw StateError('مستخدم المديونية لا يتبع المحطة الموثقة');
     final isWorker = entityType == 'worker_transactions';
@@ -2613,7 +2642,7 @@ class SaqiaServer {
     // opening_balance is the historical amount payable TO the party.
     // previous_receivable is a new debt owed BY the party to the station.
     final movementType = (payload['type'] ?? '').toString();
-    if (!const {'opening_balance','previous_receivable'}.contains(movementType) || (payload['reference_type'] ?? '') != 'previous_debt') throw StateError('المعالج يقبل مديونية سابقة فقط');
+    if (!const {'opening_balance','previous_receivable','previous_receivable_cancelled'}.contains(movementType) || (payload['reference_type'] ?? '') != 'previous_debt' || (operation=='create' && movementType=='previous_receivable_cancelled')) throw StateError('المعالج يقبل مديونية سابقة فقط');
     final receivable = movementType == 'previous_receivable';
     if (payload[isWorker ? 'partner_id' : 'worker_id'] != null) throw StateError('نوع الطرف في حمولة المديونية غير متطابق');
     final refs = payload['_global_refs'];
@@ -2644,8 +2673,71 @@ class SaqiaServer {
       ? {'id','worker_id','station_id','date','type','hours','rate_snapshot','percentage_snapshot','amount','reference_type','reference_id','notes','created_by'}
       : {'id','partner_id','station_id','date','type','amount','ownership_snapshot','reference_type','reference_id','notes','created_by'};
     if (!requiredColumns.every(transactionColumns.contains)) throw StateError('مخطط دفتر الطرف لا يدعم معالجة المديونية الآمنة');
+
     final existing = db.select('SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type=? AND global_id=? LIMIT 1',[station,entityType,globalId]);
     final collision = db.select('SELECT station_id FROM sync_entity_links WHERE entity_type=? AND global_id=? AND station_id<>? LIMIT 1',[entityType,globalId,station]);
+    if (operation == 'update') {
+      if (existing.length!=1 || collision.isNotEmpty ||
+          !const {'previous_receivable','previous_receivable_cancelled'}.contains(movementType)) {
+        throw StateError('تعديل المديونية غير مسموح أو غير مرتبط بالمحطة');
+      }
+      final transactionId=(existing.single['local_id'] as num).toInt();
+      final originals=db.select("SELECT * FROM " + entityType +
+        " WHERE id=? AND station_id=? AND reference_type='previous_debt' AND type='previous_receivable' LIMIT 1",
+        [transactionId,station]);
+      if (originals.length!=1) throw StateError('المديونية غير موجودة أو مصححة/ملغاة مسبقاً');
+      final original=originals.single;
+      if ((original[partyColumn] as num).toInt()!=partyId ||
+          DateTime.tryParse(original['date'].toString())?.toIso8601String()!=debtDate.toIso8601String()) {
+        throw StateError('لا يمكن تغيير الطرف أو تاريخ المديونية');
+      }
+      final oldAmount=(original['amount'] as num).toInt();
+      if (movementType=='previous_receivable' &&
+          oldAmount==amount && original['notes']==notes) throw StateError('لم تتغير بيانات المديونية');
+      if (movementType=='previous_receivable_cancelled' &&
+          !notes.startsWith('إلغاء مديونية: ') ) throw StateError('سبب الإلغاء مطلوب');
+      final oldJournal=(original['reference_id'] as num?)?.toInt();
+      if (oldJournal==null) throw StateError('قيد المديونية السابق مفقود');
+      final expectedReference=isWorker?'worker_opening':'partner_opening';
+      final journal=db.select("SELECT id,description FROM journal_entries WHERE id=? AND station_id=? AND reference_type=? AND reference_id=? AND status='posted'",[oldJournal,station,expectedReference,partyId]);
+      if (journal.length!=1 ||
+          !(journal.single['description'].toString().startsWith('مديونية سابقة على ') ||
+            journal.single['description'].toString().startsWith('مديونية مصححة على ')) ||
+          db.select("SELECT 1 FROM journal_entries WHERE reference_type='reversal' AND reference_id=? LIMIT 1",[oldJournal]).isNotEmpty) {
+        throw StateError('قيد المديونية السابق غير صالح أو سبق عكسه');
+      }
+      final lines=db.select("SELECT jl.*,a.code FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE jl.journal_entry_id=? ORDER BY jl.id",[oldJournal]);
+      final personalCode=(isWorker?'2100.W':'2200.P')+partyId.toString();
+      if (lines.length!=2 ||
+          !lines.any((l)=>l['code']==personalCode && (l[partyColumn] as num?)?.toInt()==partyId && l['debit']==oldAmount && l['credit']==0) ||
+          !lines.any((l)=>l['code']=='3000' && l['credit']==oldAmount && l['debit']==0)) throw StateError('القيد السابق لا يطابق حساب الطرف');
+      db.execute("INSERT INTO journal_entries(station_id,date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        [station,now,'reversal',oldJournal,'عكس مديونية سابقة '+partyType+': '+notes,'posted',userId,now]);
+      final reversal=db.lastInsertRowId;
+      for (final line in lines) {
+        db.execute("INSERT INTO journal_lines(journal_entry_id,account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo) VALUES(?,?,?,?,?,?,?,?)",
+          [reversal,line['account_id'],line['beneficiary_id'],line['worker_id'],line['partner_id'],line['credit'],line['debit'],'عكس: '+(line['memo']??'').toString()]);
+      }
+      if (movementType=='previous_receivable_cancelled') {
+        if (amount!=oldAmount) throw StateError('لا يمكن تغيير المبلغ أثناء الإلغاء');
+        db.execute('UPDATE '+entityType+' SET type=?,notes=? WHERE id=? AND type=?',
+          [movementType,notes,transactionId,'previous_receivable']);
+      } else {
+        db.execute("INSERT INTO journal_entries(station_id,date,reference_type,reference_id,description,status,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)",
+          [station,now,expectedReference,partyId,'مديونية مصححة على '+(isWorker?'العامل ':'الشريك ')+partyRows.single['name'].toString(),'posted',userId,now]);
+        final corrected=db.lastInsertRowId;
+        final personal=db.select("SELECT id FROM accounts WHERE code=? LIMIT 1",[personalCode]);
+        if (personal.length!=1) throw StateError('حساب الطرف الشخصي مفقود');
+        db.execute("INSERT INTO journal_lines(journal_entry_id,account_id,beneficiary_id,worker_id,partner_id,debit,credit,memo) VALUES(?,?,?,?,?,?,?,?)",
+          [corrected,personal.single['id'],null,isWorker?partyId:null,isWorker?null:partyId,amount,0,notes]);
+        db.execute("INSERT INTO journal_lines(journal_entry_id,account_id,debit,credit,memo) VALUES(?,?,?,?,?)",
+          [corrected,_accountId('3000'),0,amount,'مقابل تصحيح المديونية']);
+        db.execute('UPDATE '+entityType+' SET amount=?,notes=?,reference_id=? WHERE id=? AND type=?',
+          [amount,notes,corrected,transactionId,'previous_receivable']);
+      }
+      if ((db.select('SELECT changes() n').single['n'] as num).toInt()!=1) throw StateError('تعذر تحديث المديونية');
+      return;
+    }
     if (existing.isNotEmpty || collision.isNotEmpty) throw StateError('هوية حركة المديونية مستخدمة مسبقاً');
     final accountColumns = db.select('PRAGMA table_info(accounts)').map((row)=>row['name'].toString()).toSet();
     if (!{'id','code','name','type','parent_id'}.every(accountColumns.contains)) throw StateError('مخطط دليل الحسابات لا يدعم الحسابات الفرعية');
