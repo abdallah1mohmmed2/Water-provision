@@ -3208,8 +3208,11 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
           amount:int.parse(amount.text),notes:notes.text.trim()));
     if(!success || !mounted) return;
     await load();
-    if(mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content:Text('تم تصحيح المديونية بقيد عكسي وقيد جديد')));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تصحيح المديونية بقيد عكسي وقيد جديد')),
+      );
+    }
   }
 
   Future<void> cancelPriorDebt(Map<String,Object?> row) async {
@@ -3227,8 +3230,11 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
       cancellationReason:reason));
     if(!success || !mounted) return;
     await load();
-    if(mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content:Text('تم إلغاء المديونية بقيد عكسي موثق')));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم إلغاء المديونية بقيد عكسي موثق')),
+      );
+    }
   }
 
   Widget historyView(BuildContext c) {
