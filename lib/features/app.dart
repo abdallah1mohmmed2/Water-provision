@@ -8481,7 +8481,8 @@ class _PaymentsState extends State<PaymentsPage> {
       msg('لا يوجد ${targetName(target)} متاحون لإضافة مديونية سابقة');
       return;
     }
-    int? partyId = parties.first['id'] as int;
+    // Require deliberate selection: never post a debt to the first party by default.
+    int? partyId;
     final amount = TextEditingController();
     final notes = TextEditingController();
     final partyLabel = target == 'beneficiary'
@@ -8506,7 +8507,7 @@ class _PaymentsState extends State<PaymentsPage> {
                   ),
               ],
               onChanged: (v) => setDialogState(() => partyId = v),
-              decoration: InputDecoration(labelText: partyLabel),
+              decoration: InputDecoration(labelText: 'اختر $partyLabel *'),
             ),
             TextField(
               controller: amount,
