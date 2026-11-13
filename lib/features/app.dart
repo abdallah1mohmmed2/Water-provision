@@ -3165,6 +3165,72 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     }
   }
 
+
+  /// Editing posts an audited reversal plus a new balanced journal entry.
+  /// The party and original date stay immutable; use cancellation and a new
+  /// voucher to correct a mistaken party selection.
+  Future<void> editPriorDebt(Map<String,Object?> row) async {
+    final beneficiary = widget.kind == 'beneficiary';
+    final voucherId = (beneficiary
+        ? row['id'] : row['previous_debt_transaction_id']) as num?;
+    if (voucherId == null) return;
+    final oldAmount = (beneficiary
+        ? row['debit'] : row['previous_debt_amount']) as num?;
+    final oldNotes = beneficiary ? row['notes'] : row['previous_debt_notes'];
+    final amount = TextEditingController(text: (oldAmount ?? 0).toInt().toString());
+    final notes = TextEditingController(text: '${oldNotes ?? ''}');
+    final ok = await showDialog<bool>(
+      context:context,
+      builder:(dialogContext)=>FormDialog(
+        title:'تعديل المديونية السابقة',
+        children:[
+          const Text('سيُعكس القيد السابق ويُنشأ قيد مصحح. لا يمكن تغيير الطرف أو التاريخ؛ لإصلاح طرف خاطئ ألغِ السند ثم أضف سنداً جديداً للطرف الصحيح.'),
+          TextField(
+            controller:amount,keyboardType:TextInputType.number,
+            decoration:const InputDecoration(labelText:'مبلغ المديونية الجديد *'),
+          ),
+          TextField(
+            controller:notes,minLines:2,maxLines:3,
+            decoration:const InputDecoration(labelText:'البيان الجديد *'),
+          ),
+        ],
+        onSave:()=>Navigator.pop(dialogContext,
+          (int.tryParse(amount.text) ?? 0)>0 && notes.text.trim().isNotEmpty),
+      ),
+    );
+    if(ok!=true || !mounted) return;
+    final success = await runGuarded(context,()=>beneficiary
+      ? widget.r.accounting.reviseBeneficiaryDebt(
+          debtId:voucherId.toInt(),amount:int.parse(amount.text),
+          notes:notes.text.trim())
+      : widget.r.accounting.revisePreviousPartyDebt(
+          partyType:widget.kind,transactionId:voucherId.toInt(),
+          amount:int.parse(amount.text),notes:notes.text.trim()));
+    if(!success || !mounted) return;
+    await load();
+    if(mounted) ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content:Text('تم تصحيح المديونية بقيد عكسي وقيد جديد')));
+  }
+
+  Future<void> cancelPriorDebt(Map<String,Object?> row) async {
+    if(widget.kind=='beneficiary') {
+      await cancelManualDebt(row);
+      return;
+    }
+    final voucherId=(row['previous_debt_transaction_id'] as num?)?.toInt();
+    if(voucherId==null) return;
+    final reason=await askReason(context,'إلغاء مديونية سابقة',
+      message:'سيُعكس القيد المالي، ويبقى السند في سجل التدقيق. لا تُمس حركة الصندوق.');
+    if(reason==null || !mounted) return;
+    final success=await runGuarded(context,()=>widget.r.accounting.revisePreviousPartyDebt(
+      partyType:widget.kind,transactionId:voucherId,
+      cancellationReason:reason));
+    if(!success || !mounted) return;
+    await load();
+    if(mounted) ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content:Text('تم إلغاء المديونية بقيد عكسي موثق')));
+  }
+
   Widget historyView(BuildContext c) {
     if (history.isEmpty) {
       return Container(
@@ -3199,12 +3265,22 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                   amount: _historyAmount(history[i]),
                 ),
               ),
-              if (widget.kind == 'beneficiary' && history[i]['type'] == 'manual_debt' && history[i]['status'] == 'posted')
+              if ((widget.kind == 'beneficiary' &&
+                  history[i]['type'] == 'manual_debt' &&
+                  history[i]['status'] == 'posted') ||
+                  ((widget.kind == 'worker' || widget.kind == 'partner') &&
+                   history[i]['previous_debt_transaction_id'] != null)) ...[
+                IconButton(
+                  tooltip: 'تعديل المديونية بقيد تصحيحي',
+                  onPressed: () => editPriorDebt(history[i]),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
                 IconButton(
                   tooltip: 'إلغاء المديونية بعكس القيد',
-                  onPressed: () => cancelManualDebt(history[i]),
+                  onPressed: () => cancelPriorDebt(history[i]),
                   icon: const Icon(Icons.undo_rounded, color: Colors.red),
                 ),
+              ],
             ],
           ),
         if (history.length > maxItems)
@@ -8523,7 +8599,7 @@ class _PaymentsState extends State<PaymentsPage> {
               maxLines: 3,
               decoration: const InputDecoration(
                 labelText: 'البيان / سبب المديونية *',
-                hintText: 'مثال: رصيد مستحق من فترة سابقة',
+                hintText: 'مثال: دين سابق على الطرف لصالح المحطة',
               ),
             ),
             Text(balanceMeaning),
