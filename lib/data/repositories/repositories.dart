@@ -526,6 +526,27 @@ class StationRepository {
     final initialBalance = opening + carried;
     final creditDelivery =
         (await settings())['diesel_delivery_financial_credit'] == 'true';
+    // Display-only values. A beneficiary's statement always uses the
+    // immutable special minute-rate snapshot where one exists, regardless
+    // of the optional "فارق العمل" invoices switch.
+    final irrigationPrices = await db.rawQuery(
+      "SELECT id,COALESCE(chargeable_minutes,minutes,0) chargeable_minutes,"
+      "COALESCE(work_minute_rate_snapshot,0) minute_rate,"
+      "COALESCE(diesel_amount,0) diesel_amount,"
+      "COALESCE(total_amount,0) saved_total "
+      "FROM irrigations WHERE beneficiary_id=? AND status!='cancelled'",
+      [id],
+    );
+    final displayedIrrigationTotals = <int,int>{
+      for (final irrigation in irrigationPrices)
+        (irrigation['id'] as num).toInt():
+          ((irrigation['minute_rate'] as num).toInt() > 0
+            ? ReportMinutePricing.amountAtMinuteRate(
+                (irrigation['chargeable_minutes'] as num).toInt(),
+                (irrigation['minute_rate'] as num).toInt(),
+              ) + (irrigation['diesel_amount'] as num).toInt()
+            : (irrigation['saved_total'] as num).toInt()),
+    };
     final events = await db.rawQuery(
       "SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.cloud_minutes,i.chargeable_minutes,i.total_amount,i.paid_amount,'s' type,i.total_amount debit,0 credit,0 lah,i.total_amount alayh,'سقاية' description,'posted' status,i.notes notes FROM irrigations i WHERE i.beneficiary_id=? AND i.status!='cancelled' "
       "UNION ALL SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,'p',0,p.amount,p.amount,0,'قبض','posted',p.notes FROM payments p WHERE p.beneficiary_id=? AND p.status='posted' "
@@ -548,7 +569,11 @@ class StationRepository {
     final result = <Map<String, Object?>>[];
 
     for (final raw in events) {
-      final debit = (raw['debit'] as num?)?.round() ?? 0;
+      final isIrrigation = raw['type'] == 's';
+      final savedDebit = (raw['debit'] as num?)?.round() ?? 0;
+      final debit = isIrrigation
+          ? displayedIrrigationTotals[(raw['id'] as num).toInt()] ?? savedDebit
+          : savedDebit;
       final credit = (raw['credit'] as num?)?.round() ?? 0;
       running += debit - credit;
       final date = DateTime.tryParse('${raw['date'] ?? ''}');
@@ -566,6 +591,9 @@ class StationRepository {
       final description = '${raw['description'] ?? ''}'.trim();
       result.add({
         ...raw,
+        if (isIrrigation) 'total_amount': debit,
+        if (isIrrigation) 'debit': debit,
+        if (isIrrigation) 'alayh': debit,
         'description': note.isEmpty || description.isEmpty ? description : '$description - $note',
         'balance': running,
       });
@@ -3095,12 +3123,9 @@ class StationRepository {
         }
       case 'debts':
         {
-          // Keep the saved ledger untouched. Revalue only irrigation contributions
-          // for this report according to the shared report-display setting.
-          final reportSettings = await settings();
-          final useSpecialMinuteRate =
-              reportSettings['work_price_report_display_special_rate'] == 'true';
-          final partialHour = reportSettings['partial_hour'] != 'false';
+          // The beneficiary statement/debts always display their saved
+          // special-minute-rate snapshots. "فارق العمل" affects invoices only;
+          // the posted journal, partner profit and stored amounts remain intact.
           final cutoff = to?.add(const Duration(days: 1)).toIso8601String();
           final balanceExpression = cutoff == null
               ? await _balanceSql()
@@ -3158,18 +3183,9 @@ class StationRepository {
             final minuteSnapshot =
                 (irrigation['work_minute_rate_snapshot'] as num?)?.round() ?? 0;
             final minuteRate = minuteSnapshot;
-            final hourlyRate = switch ('${irrigation['system_type'] ?? ''}') {
-              'solar' => (irrigation['solar_hourly_rate_snapshot'] as num?)?.round() ?? 0,
-              'equivalent_hybrid' => (irrigation['third_type_hourly_rate_snapshot'] as num?)?.round() ?? 0,
-              _ => (irrigation['water_hourly_rate_snapshot'] as num?)?.round() ?? 0,
-            };
-            final displayedWater = useSpecialMinuteRate && minuteRate > 0
+            final displayedWater = minuteRate > 0
                 ? ReportMinutePricing.amountAtMinuteRate(minutes, minuteRate)
-                : hourlyRate > 0
-                    ? AccountingCalculations.amountForMinutes(
-                        minutes, hourlyRate, 'up', partialHour,
-                      )
-                    : savedAmount - diesel;
+                : savedAmount - diesel;
             final displayedAmount = displayedWater + diesel;
             adjustments[id] = (adjustments[id] ?? 0) + displayedAmount - savedAmount;
           }
