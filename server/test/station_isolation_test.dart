@@ -262,7 +262,70 @@ void main() {
     expect(response.statusCode, 404);
   });
 
-  test('queue list only returns beneficiaries from the manager station',
+  test('beneficiary statement always displays saved minute-rate snapshot even with work difference disabled', () async {
+    // The test database is intentionally minimal; add only the fields that
+    // exist in the operational schema for the statement route.
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN carried_balance INTEGER NOT NULL DEFAULT 0');
+    for (final column in [
+      'date TEXT', 'end_datetime TEXT', 'system_type TEXT',
+      'minutes INTEGER', 'cloud_minutes INTEGER',
+      'chargeable_minutes INTEGER', 'total_amount INTEGER',
+      'paid_amount INTEGER', 'notes TEXT', 'diesel_amount INTEGER',
+      'work_minute_rate_snapshot INTEGER',
+    ]) {
+      database.execute('ALTER TABLE irrigations ADD COLUMN $column');
+    }
+    database.execute('''
+      CREATE TABLE payments (
+        id INTEGER PRIMARY KEY,station_id INTEGER,beneficiary_id INTEGER,
+        date TEXT,amount INTEGER,notes TEXT,status TEXT
+      )
+    ''');
+    database.execute('''
+      CREATE TABLE diesel_movements (
+        id INTEGER PRIMARY KEY,station_id INTEGER,beneficiary_id INTEGER,
+        date TEXT,amount INTEGER,kind TEXT,irrigation_id INTEGER
+      )
+    ''');
+    database.execute('''
+      CREATE TABLE beneficiary_manual_debts (
+        id INTEGER PRIMARY KEY,beneficiary_id INTEGER,date TEXT,
+        amount INTEGER,status TEXT,notes TEXT,cancelled_at TEXT,cancel_reason TEXT
+      )
+    ''');
+    database.execute("""
+      UPDATE irrigations SET date='2026-11-01',end_datetime='2026-11-01T09:00:00',
+          system_type='solar',minutes=60,cloud_minutes=5,
+          chargeable_minutes=55,work_minute_rate_snapshot=120,
+          diesel_amount=0,total_amount=6417,paid_amount=0
+      WHERE id=1000
+    """);
+    database.execute("""
+      INSERT INTO station_settings(station_id,key,value,updated_at)
+      VALUES(7,'work_price_report_display_special_rate','false','now')
+    """);
+    final token=await login();
+    Future<void> checkStatement() async {
+      final response=await request('GET','/api/v1/beneficiaries/10/statement',token);
+      expect(response.statusCode,200);
+      final rows=jsonDecode(await response.readAsString()) as List;
+      final irrigation=rows.singleWhere((row)=>row['type']=='s') as Map;
+      expect(irrigation['debit'],6600);
+      expect(irrigation['alayh'],6600);
+      expect(irrigation['balance'],6600);
+    }
+    await checkStatement();
+    database.execute("""
+      UPDATE station_settings SET value='true'
+      WHERE station_id=7 AND key='work_price_report_display_special_rate'
+    """);
+    await checkStatement();
+    expect(database.select('SELECT total_amount FROM irrigations WHERE id=1000')
+        .single['total_amount'],6417);
+  });
+
+    test('queue list only returns beneficiaries from the manager station',
       () async {
     final token = await login();
     final response = await request('GET', '/api/v1/queue', token);
