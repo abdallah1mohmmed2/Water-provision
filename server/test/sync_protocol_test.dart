@@ -1,0 +1,2613 @@
+import 'dart:convert';
+
+import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
+import 'package:shelf/shelf.dart';
+import 'package:sqlite3/sqlite3.dart';
+import 'package:test/test.dart';
+
+import '../lib/server.dart';
+
+void main() {
+  const secret = 'sync-protocol-test-secret-at-least-32-bytes';
+  late Database database;
+  late SaqiaServer server;
+  late String stationOneToken;
+  late String stationTwoToken;
+
+  setUp(() {
+    database = sqlite3.openInMemory();
+    database.execute('CREATE TABLE stations(id INTEGER PRIMARY KEY, name TEXT NOT NULL)');
+    database.execute('INSERT INTO stations(id,name) VALUES(1,\'Station One\'),(2,\'Station Two\')');
+    database.execute('''CREATE TABLE beneficiaries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      station_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      phone TEXT,
+      address TEXT,
+      location TEXT,
+      jerba_number TEXT,
+      area TEXT,
+      is_needy INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT,
+      updated_at TEXT
+    )''');
+    database.execute('''CREATE TABLE app_users(
+      id INTEGER PRIMARY KEY, station_id INTEGER, role TEXT, active INTEGER
+    )''');
+    database.execute("INSERT INTO app_users(id,station_id,role,active) VALUES(11,1,'manager',1),(22,2,'manager',1)");
+    database.execute('''CREATE TABLE queue_entries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, beneficiary_id INTEGER NOT NULL,
+      position INTEGER NOT NULL, cycle_number INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL, last_served_at TEXT, postponed_count INTEGER NOT NULL DEFAULT 0,
+      skip_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE booking_requests(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, beneficiary_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL, status TEXT NOT NULL, scheduled_date TEXT,
+      scheduled_start TEXT, scheduled_end TEXT, priority INTEGER, notes TEXT,
+      cancel_reason TEXT, reviewed_by INTEGER, reviewed_at TEXT
+    )''');
+    server = SaqiaServer(database, jwtSecret: secret);
+    stationOneToken = JWT({'kind':'admin','userId':11,'stationId':1,'role':'manager'})
+        .sign(SecretKey(secret));
+    stationTwoToken = JWT({'kind':'admin','userId':22,'stationId':2,'role':'manager'})
+        .sign(SecretKey(secret));
+  });
+
+  tearDown(() => database.dispose());
+
+  Future<Map<String, dynamic>> postEvents(
+    String token,
+    List<Map<String, dynamic>> events, {
+    String device = 'device-a',
+  }) async {
+    final response = await server.router().call(Request(
+      'POST',
+      Uri.parse('http://localhost/api/v1/sync/events'),
+      headers: {
+        'authorization': 'Bearer $token',
+        'content-type': 'application/json',
+      },
+      body: jsonEncode({'device_id':device,'events':events}),
+    ));
+    return jsonDecode(await response.readAsString()) as Map<String,dynamic>;
+  }
+
+  Future<Map<String, dynamic>> getInbox(
+    String token, {
+    String device = 'device-b',
+  }) async {
+    final response = await server.router().call(Request(
+      'GET',
+      Uri.parse('http://localhost/api/v1/sync/inbox?after=0&device_id=$device'),
+      headers: {'authorization':'Bearer $token'},
+    ));
+    return jsonDecode(await response.readAsString()) as Map<String,dynamic>;
+  }
+
+  Map<String,dynamic> event({
+    String id = '11111111-1111-4111-8111-111111111111',
+    String globalId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    int baseVersion = 0,
+    String operation = 'create',
+    Map<String,dynamic>? payload,
+  }) => {
+    'event_id':id,
+    'entity_type':'beneficiaries',
+    'entity_key':'beneficiaries:$globalId',
+    'operation':operation,
+    'base_version':baseVersion,
+    'payload':{
+      '_global_id':globalId,
+      'name':'Test Beneficiary',
+      ...?payload,
+    },
+  };
+
+  void prepareReceiptFixture({String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}) {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'Receipt Beneficiary','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries',?,1,'2026-11-08T00:00:00Z')", [beneficiaryGlobalId]);
+    database.execute('''CREATE TABLE cashboxes(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL,
+      opening_balance INTEGER NOT NULL DEFAULT 0, current_balance INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'YER', active INTEGER NOT NULL DEFAULT 1,
+      ledger_account_code TEXT
+    )''');
+    database.execute('''CREATE TABLE payment_methods(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL,
+      type TEXT NOT NULL, cashbox_id INTEGER, ledger_account_code TEXT, active INTEGER NOT NULL DEFAULT 1
+    )''');
+    database.execute('''CREATE TABLE payments(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, beneficiary_id INTEGER,
+      partner_id INTEGER, worker_id INTEGER, amount INTEGER NOT NULL, date TEXT NOT NULL,
+      payment_method_id INTEGER NOT NULL, cashbox_id INTEGER NOT NULL, reference_number TEXT,
+      notes TEXT, status TEXT NOT NULL, created_by INTEGER
+    )''');
+    database.execute('CREATE TABLE accounts(id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL)');
+    database.execute('''CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY, station_id INTEGER, date TEXT NOT NULL, reference_type TEXT,
+      reference_id INTEGER, description TEXT NOT NULL, status TEXT NOT NULL,
+      created_by INTEGER, created_at TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY, journal_entry_id INTEGER NOT NULL, account_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER, debit INTEGER NOT NULL DEFAULT 0,
+      credit INTEGER NOT NULL DEFAULT 0, memo TEXT
+    )''');
+    database.execute("INSERT INTO cashboxes(id,station_id,name,current_balance,currency,active,ledger_account_code) VALUES(1,1,'Main Cashbox',500,'YER',1,'1000')");
+    database.execute("INSERT INTO payment_methods(id,station_id,name,type,cashbox_id,ledger_account_code,active) VALUES(1,1,'Cash','cash',1,'1000',1)");
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1000','Cash','asset'),(2,'1200','Beneficiary receivables','asset')");
+  }
+
+
+  void prepareDieselFixture() {
+    database.execute('''CREATE TABLE diesel_movements(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, irrigation_id INTEGER, cashbox_id INTEGER,
+      kind TEXT NOT NULL, liters REAL NOT NULL, unit_price INTEGER NOT NULL,
+      amount INTEGER NOT NULL, date TEXT NOT NULL, notes TEXT, created_by INTEGER
+    )''');
+    database.execute('''CREATE TABLE cashboxes(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL,
+      current_balance INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
+      ledger_account_code TEXT, currency TEXT NOT NULL DEFAULT 'YER'
+    )''');
+    database.execute('''CREATE TABLE payment_methods(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL,
+      type TEXT NOT NULL, cashbox_id INTEGER, ledger_account_code TEXT, active INTEGER NOT NULL DEFAULT 1
+    )''');
+    database.execute('CREATE TABLE station_settings(station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
+    database.execute('CREATE TABLE accounts(id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL)');
+    database.execute('''CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL, date TEXT NOT NULL,
+      reference_type TEXT, reference_id INTEGER, description TEXT NOT NULL,
+      status TEXT NOT NULL, created_by INTEGER, created_at TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, journal_entry_id INTEGER NOT NULL,
+      account_id INTEGER NOT NULL, beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER,
+      debit INTEGER NOT NULL DEFAULT 0, credit INTEGER NOT NULL DEFAULT 0, memo TEXT
+    )''');
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1000','Cash','asset'),(2,'1200','Receivables','asset'),(3,'1300','Diesel inventory','asset'),(4,'3000','Opening balances','equity'),(5,'5010','Fuel expense','expense')");
+    database.execute("INSERT INTO cashboxes(id,station_id,name,current_balance,active,ledger_account_code) VALUES(1,1,'Main',5000,1,'1000'),(2,2,'Foreign',5000,1,'1000')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'cashboxes','eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',2,'2026-11-08T00:00:00Z')");
+  }
+  void prepareExpenseAndTransferFixture() {
+    database.execute('''CREATE TABLE cashboxes(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL,
+      opening_balance INTEGER NOT NULL DEFAULT 0, current_balance INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'YER', active INTEGER NOT NULL DEFAULT 1, ledger_account_code TEXT
+    )''');
+    database.execute('''CREATE TABLE payment_methods(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL,
+      cashbox_id INTEGER, ledger_account_code TEXT, active INTEGER NOT NULL DEFAULT 1
+    )''');
+    database.execute('''CREATE TABLE expenses(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL, category TEXT NOT NULL,
+      title TEXT NOT NULL, amount INTEGER NOT NULL, date TEXT NOT NULL, payment_method_id INTEGER,
+      cashbox_id INTEGER, beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER,
+      attachment_path TEXT, notes TEXT, status TEXT NOT NULL, created_by INTEGER
+    )''');
+    database.execute('''CREATE TABLE cashbox_transfers(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL, from_cashbox_id INTEGER,
+      to_cashbox_id INTEGER NOT NULL, amount INTEGER NOT NULL, date TEXT NOT NULL,
+      is_opening_transfer INTEGER NOT NULL DEFAULT 0, reference TEXT, notes TEXT, created_by INTEGER
+    )''');
+    database.execute('CREATE TABLE accounts(id INTEGER PRIMARY KEY, parent_id INTEGER, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL)');
+    database.execute('''CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL, date TEXT NOT NULL,
+      reference_type TEXT, reference_id INTEGER, description TEXT NOT NULL, status TEXT NOT NULL,
+      created_by INTEGER, created_at TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, journal_entry_id INTEGER NOT NULL, account_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER, debit INTEGER NOT NULL DEFAULT 0,
+      credit INTEGER NOT NULL DEFAULT 0, memo TEXT
+    )''');
+    database.execute("INSERT INTO cashboxes(id,station_id,name,current_balance,active,ledger_account_code,currency) VALUES(1,1,'Cash',5000,1,'1000','YER'),(2,1,'Bank',2000,1,'1100','YER'),(3,2,'Foreign',7000,1,'1000','YER')");
+    database.execute("INSERT INTO payment_methods(id,station_id,name,type,cashbox_id,ledger_account_code,active) VALUES(1,1,'Cash','cash',1,'1000',1),(2,1,'Bank','bank_transfer',2,'1100',1)");
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1000','Cash','asset'),(2,'1100','Bank','asset'),(3,'3000','Opening balances','equity'),(4,'5010','Fuel expense','expense'),(5,'5020','Oil expense','expense'),(6,'5030','Other expense','expense'),(7,'5000','Wages','expense'),(8,'2200','Partner balances','liability')");
+    const methodGlobal = '11111111-1111-4111-8111-111111111111';
+    const cashGlobal = '22222222-2222-4222-8222-222222222222';
+    const bankGlobal = '33333333-3333-4333-8333-333333333333';
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'payment_methods',?,1,'2026-11-08T00:00:00Z'),(1,'cashboxes',?,1,'2026-11-08T00:00:00Z'),(1,'cashboxes',?,2,'2026-11-08T00:00:00Z')",[methodGlobal,cashGlobal,bankGlobal]);
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'cashboxes','44444444-4444-4444-8444-444444444444',3,'2026-11-08T00:00:00Z')");
+  }
+  void prepareManualDebtFixture({
+    String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  }) {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'Debt Beneficiary','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries',?,1,'2026-11-08T00:00:00Z')",[beneficiaryGlobalId]);
+    database.execute("""CREATE TABLE beneficiary_manual_debts(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, beneficiary_id INTEGER NOT NULL,
+      date TEXT NOT NULL, amount INTEGER NOT NULL, notes TEXT NOT NULL,
+      status TEXT NOT NULL, journal_entry_id INTEGER, created_by INTEGER,
+      created_at TEXT NOT NULL, cancelled_at TEXT, cancel_reason TEXT
+    )""");
+    database.execute("CREATE TABLE accounts(id INTEGER PRIMARY KEY,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,type TEXT NOT NULL)");
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1200','Beneficiary receivables','asset'),(2,'3100','Carried balances','equity')");
+    database.execute("""CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL, date TEXT NOT NULL,
+      reference_type TEXT, reference_id INTEGER, description TEXT NOT NULL,
+      status TEXT NOT NULL, created_by INTEGER, created_at TEXT NOT NULL
+    )""");
+    database.execute("""CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, journal_entry_id INTEGER NOT NULL,
+      account_id INTEGER NOT NULL, beneficiary_id INTEGER, worker_id INTEGER,
+      partner_id INTEGER, debit INTEGER NOT NULL DEFAULT 0,
+      credit INTEGER NOT NULL DEFAULT 0, memo TEXT
+    )""");
+  }
+
+  Map<String,dynamic> manualDebtEvent({
+    String id = '55555555-5555-4555-8555-555555555555',
+    String debtGlobalId = 'abababab-abab-4bab-8bab-abababababab',
+    String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    int amount = 1800,
+    String operation = 'create',
+    int? baseVersion,
+    String status = 'posted',
+    String? cancelledAt,
+    String? cancelReason,
+  }) => {
+    'event_id': id,
+    'entity_type': 'beneficiary_manual_debts',
+    'entity_key': 'beneficiary_manual_debts:$debtGlobalId',
+    'operation': operation,
+    'base_version': baseVersion ?? (operation == 'create' ? 0 : 1),
+    'payload': {
+      '_global_id': debtGlobalId,
+      'beneficiary_id': 1,
+      'date': '2026-11-07T09:00:00.000',
+      'amount': amount,
+      'notes': 'رصيد سابق مثبت',
+      'status': status,
+      'journal_entry_id': 1,
+      'created_by': 11,
+      'created_at': '2026-11-08T00:00:00.000',
+      if (cancelledAt != null) 'cancelled_at': cancelledAt,
+      if (cancelReason != null) 'cancel_reason': cancelReason,
+      '_global_refs': {
+        'beneficiary_id': {'table':'beneficiaries','global_id':beneficiaryGlobalId},
+      },
+      '_unresolved_refs': {},
+    },
+  };
+
+  Map<String,dynamic> receiptEvent({
+    String id = '33333333-3333-4333-8333-333333333333',
+    String paymentGlobalId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    String beneficiaryGlobalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    int amount = 250,
+  }) => {
+    'event_id': id,
+    'entity_type': 'payments',
+    'entity_key': 'payments:$paymentGlobalId',
+    'operation': 'create',
+    'base_version': 0,
+    'payload': {
+      '_global_id': paymentGlobalId, 'beneficiary_id': 1, 'partner_id': null, 'worker_id': null,
+      'amount': amount, 'date': '2026-11-08T08:30:00.000', 'status': 'posted',
+      'payment_method_id': 1, 'cashbox_id': 1, 'reference_number': 'RCPT-001', 'notes': 'test receipt',
+      '_global_refs': {
+        'beneficiary_id': {'table':'beneficiaries','global_id':beneficiaryGlobalId},
+        'payment_method_id': {'table':'payment_methods','global_id':'dddddddd-dddd-4ddd-8ddd-dddddddddddd','name':'Cash','type':'cash'},
+        'cashbox_id': {'table':'cashboxes','global_id':'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','name':'Main Cashbox','currency':'YER'},
+      },
+      '_unresolved_refs': {},
+    },
+  };
+
+
+
+  void preparePartyDebtFixture() {
+    database.execute("CREATE TABLE workers(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1)");
+    database.execute("CREATE TABLE partners(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1)");
+    database.execute("""CREATE TABLE worker_transactions(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,worker_id INTEGER NOT NULL,station_id INTEGER NOT NULL,
+      date TEXT NOT NULL,type TEXT NOT NULL,hours REAL NOT NULL DEFAULT 0,
+      rate_snapshot REAL NOT NULL DEFAULT 0,percentage_snapshot REAL NOT NULL DEFAULT 0,
+      amount INTEGER NOT NULL,reference_type TEXT,reference_id INTEGER,notes TEXT,created_by INTEGER
+    )""");
+    database.execute("""CREATE TABLE partner_transactions(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,partner_id INTEGER NOT NULL,station_id INTEGER NOT NULL,
+      date TEXT NOT NULL,type TEXT NOT NULL,amount INTEGER NOT NULL,ownership_snapshot REAL,
+      reference_type TEXT,reference_id INTEGER,notes TEXT,created_by INTEGER
+    )""");
+    database.execute("""CREATE TABLE accounts(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,
+      type TEXT NOT NULL,parent_id INTEGER
+    )""");
+    database.execute("INSERT INTO accounts(id,code,name,type,parent_id) VALUES(1,'2100','Workers','liability',NULL),(2,'2200','Partners','liability',NULL),(3,'3000','Opening equity','equity',NULL)");
+    database.execute("""CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,date TEXT NOT NULL,
+      reference_type TEXT,reference_id INTEGER,description TEXT NOT NULL,status TEXT NOT NULL,
+      created_by INTEGER,created_at TEXT NOT NULL
+    )""");
+    database.execute("""CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,journal_entry_id INTEGER NOT NULL,account_id INTEGER NOT NULL,
+      beneficiary_id INTEGER,worker_id INTEGER,partner_id INTEGER,debit INTEGER NOT NULL DEFAULT 0,
+      credit INTEGER NOT NULL DEFAULT 0,memo TEXT
+    )""");
+    database.execute("CREATE TABLE cashboxes(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,current_balance INTEGER NOT NULL)");
+    database.execute("INSERT INTO cashboxes(id,station_id,current_balance) VALUES(1,1,777)");
+    database.execute("INSERT INTO workers(id,station_id,name,active) VALUES(1,1,'Worker A',1),(2,2,'Worker B',1)");
+    database.execute("INSERT INTO partners(id,station_id,name,active) VALUES(1,1,'Partner A',1),(2,2,'Partner B',1)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'workers','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',1,'2026-11-08T00:00:00Z'),(2,'workers','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',2,'2026-11-08T00:00:00Z'),(1,'partners','cccccccc-cccc-4ccc-8ccc-cccccccccccc',1,'2026-11-08T00:00:00Z'),(2,'partners','dddddddd-dddd-4ddd-8ddd-dddddddddddd',2,'2026-11-08T00:00:00Z')");
+  }
+
+  Map<String,dynamic> partyDebtEvent({
+    required bool worker,
+    String? eventId,
+    String? transactionGlobalId,
+    String? partyGlobalId,
+    int amount = 4200,
+    int baseVersion = 0,
+    String movementType = 'previous_receivable',
+  }) {
+    final table = worker ? 'worker_transactions' : 'partner_transactions';
+    final partyColumn = worker ? 'worker_id' : 'partner_id';
+    final globalId = transactionGlobalId ?? (worker
+      ? 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+      : 'ffffffff-ffff-4fff-8fff-ffffffffffff');
+    final partyId = partyGlobalId ?? (worker
+      ? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      : 'cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+    return {
+      'event_id':eventId ?? (worker
+        ? '11111111-aaaa-4111-8111-111111111111'
+        : '22222222-bbbb-4222-8222-222222222222'),
+      'entity_type':table,
+      'entity_key':'$table:$globalId',
+      'operation':'create',
+      'base_version':baseVersion,
+      'payload':{
+        '_global_id':globalId,
+        if(worker) 'worker_id':1 else 'partner_id':1,
+        'type':movementType,
+        'date':'2026-11-07T09:00:00.000',
+        'amount':amount,
+        'reference_type':'previous_debt',
+        'reference_id':99999,
+        'notes':'مديونية سابقة تجريبية',
+        if(worker) 'hours':0,
+        if(worker) 'rate_snapshot':0,
+        if(worker) 'percentage_snapshot':0,
+        if(!worker) 'ownership_snapshot':null,
+        '_global_refs': worker
+          ? {'worker_id':{'table':'workers','global_id':partyId}}
+          : {'partner_id':{'table':'partners','global_id':partyId}},
+        '_unresolved_refs':{},
+      },
+    };
+  }
+
+  test('sync enforces terminal queue transitions and rejects reopening completed turns', () async {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'A','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1,'2026-11-08T00:00:00Z')");
+    const global = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    final create = await postEvents(stationOneToken, [{
+      'event_id':'15111111-1111-4111-8111-111111111111',
+      'entity_type':'queue_entries', 'entity_key':'queue_entries:$global',
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':global, 'position':1, 'status':'waiting',
+        '_global_refs':{'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}},
+      },
+    }]);
+    expect(create['results'][0]['status'], 'accepted');
+    final complete = await postEvents(stationOneToken, [{
+      'event_id':'16111111-1111-4111-8111-111111111111',
+      'entity_type':'queue_entries', 'entity_key':'queue_entries:$global',
+      'operation':'update', 'base_version':1,
+      'payload':{
+        '_global_id':global, 'status':'completed',
+        '_global_refs':{'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}},
+      },
+    }]);
+    expect(complete['results'][0]['status'], 'accepted');
+    final reopen = await postEvents(stationOneToken, [{
+      'event_id':'17111111-1111-4111-8111-111111111111',
+      'entity_type':'queue_entries', 'entity_key':'queue_entries:$global',
+      'operation':'update', 'base_version':2,
+      'payload':{
+        '_global_id':global, 'status':'waiting',
+        '_global_refs':{'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}},
+      },
+    }]);
+    expect(reopen['results'][0]['status'], 'rejected');
+    expect(database.select('SELECT status FROM queue_entries').first['status'], 'completed');
+  });
+
+  test('sync applies queue and booking creates using station-owned global beneficiary refs', () async {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'A','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1,'2026-11-08T00:00:00Z')");
+    final queueGlobal = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    final bookingGlobal = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    final results = await postEvents(stationOneToken, [
+      {
+        'event_id':'12111111-1111-4111-8111-111111111111',
+        'entity_type':'queue_entries',
+        'entity_key':'queue_entries:$queueGlobal',
+        'operation':'create',
+        'base_version':0,
+        'payload':{
+          '_global_id':queueGlobal, 'position':1, 'cycle_number':1,
+          'status':'waiting', 'postponed_count':0,
+          '_global_refs':{
+            'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          },
+        },
+      },
+      {
+        'event_id':'13111111-1111-4111-8111-111111111111',
+        'entity_type':'booking_requests',
+        'entity_key':'booking_requests:$bookingGlobal',
+        'operation':'create',
+        'base_version':0,
+        'payload':{
+          '_global_id':bookingGlobal, 'status':'new',
+          'scheduled_date':'2026-11-09',
+          '_global_refs':{
+            'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          },
+        },
+      },
+    ]);
+    final statuses = (results['results'] as List).map((x) => x['status']).toList();
+    expect(statuses, everyElement('accepted'));
+    expect(database.select("SELECT COUNT(*) n FROM queue_entries WHERE beneficiary_id=1 AND status='waiting'").first['n'], 1);
+    expect(database.select("SELECT COUNT(*) n FROM booking_requests WHERE beneficiary_id=1 AND status='new'").first['n'], 1);
+    expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type IN ('queue_entries','booking_requests')").first['n'], 2);
+  });
+
+  test('sync rejects queue and booking references owned by another station', () async {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(2,2,'B','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'beneficiaries','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',2,'2026-11-08T00:00:00Z')");
+    final global = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    final result = await postEvents(stationOneToken, [{
+      'event_id':'14111111-1111-4111-8111-111111111111',
+      'entity_type':'queue_entries',
+      'entity_key':'queue_entries:$global',
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':global, 'position':1, 'status':'waiting',
+        '_global_refs':{
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+        },
+      },
+    }]);
+    expect(result['results'][0]['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM queue_entries').first['n'], 0);
+  });
+
+  test('worker and partner opening debts create balanced central journals once', () async {
+    preparePartyDebtFixture();
+    for (final worker in [true,false]) {
+      final command = partyDebtEvent(worker:worker);
+      final first = await postEvents(stationOneToken,[command]);
+      final replay = await postEvents(stationOneToken,[command]);
+      final table = worker ? 'worker_transactions' : 'partner_transactions';
+      expect((first['results'] as List).first['status'],'accepted');
+      expect((replay['results'] as List).first['status'],'duplicate');
+      final duplicateIdentity = partyDebtEvent(
+        worker:worker,
+        eventId:worker?'99999999-aaaa-4999-8999-999999999999':'aaaaaaaa-bbbb-4aaa-8aaa-aaaaaaaaaaaa',
+        baseVersion:1,
+      );
+      final duplicateIdentityResult = await postEvents(stationOneToken,[duplicateIdentity]);
+      expect((duplicateIdentityResult['results'] as List).first['status'],'rejected');
+      expect(database.select('SELECT COUNT(*) n FROM ' + table).single['n'],1);
+      expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],worker ? 1 : 2);
+      final journal = database.select('SELECT id FROM journal_entries ORDER BY id DESC LIMIT 1').single['id'];
+      final totals = database.select('SELECT SUM(debit) debit,SUM(credit) credit,COUNT(*) lines FROM journal_lines WHERE journal_entry_id=?',[journal]).single;
+      expect(totals['debit'],4200);
+      expect(totals['credit'],4200);
+      expect(totals['lines'],2);
+      final personal = database.select('''SELECT jl.debit,jl.credit FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE jl.journal_entry_id=? AND a.code=?''',[journal,worker ? '2100.W1' : '2200.P1']).single;
+      expect(personal['debit'],4200,reason:'المديونية على الطرف يجب أن تخصم من رصيده له');
+      expect(personal['credit'],0);
+      final opening = database.select('''SELECT jl.debit,jl.credit FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE jl.journal_entry_id=? AND a.code='3000' ''',[journal]).single;
+      expect(opening['debit'],0);
+      expect(opening['credit'],4200);
+      expect(database.select('SELECT reference_id FROM ' + table).single['reference_id'],journal);
+      expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type=?",[table]).single['n'],1);
+    }
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+  });
+
+  test('legacy party opening payable commands preserve their original credit direction', () async {
+    preparePartyDebtFixture();
+    for (final worker in [true,false]) {
+      final command = partyDebtEvent(worker:worker,movementType:'opening_balance');
+      final result = await postEvents(stationOneToken,[command]);
+      expect((result['results'] as List).first['status'],'accepted');
+      final journal = database.select('SELECT id FROM journal_entries ORDER BY id DESC LIMIT 1').single['id'];
+      final personal = database.select(
+        'SELECT jl.debit,jl.credit FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE jl.journal_entry_id=? AND a.code=?',
+        [journal,worker ? '2100.W1' : '2200.P1'],
+      ).single;
+      expect(personal['debit'],0);
+      expect(personal['credit'],4200);
+    }
+  });
+
+  test('worker and partner debt handlers reject a party owned by another station', () async {
+    preparePartyDebtFixture();
+    for (final worker in [true,false]) {
+      final command = partyDebtEvent(
+        worker:worker,
+        eventId:worker?'33333333-aaaa-4333-8333-333333333333':'44444444-bbbb-4444-8444-444444444444',
+        transactionGlobalId:worker?'12121212-1212-4212-8212-121212121212':'13131313-1313-4313-8313-131313131313',
+        partyGlobalId:worker?'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb':'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      );
+      final result = await postEvents(stationOneToken,[command]);
+      expect((result['results'] as List).first['status'],'rejected');
+    }
+    expect(database.select('SELECT COUNT(*) n FROM worker_transactions').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM partner_transactions').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],0);
+  });
+
+  test('worker and partner debt handlers roll back transaction and journal when a journal line fails', () async {
+    preparePartyDebtFixture();
+    for (final worker in [true,false]) {
+      database.execute("CREATE TRIGGER fail_party_debt_line BEFORE INSERT ON journal_lines WHEN NEW.memo='مديونية سابقة تجريبية' BEGIN SELECT RAISE(ABORT,'forced journal line failure'); END");
+      final command = partyDebtEvent(
+        worker:worker,
+        eventId:worker?'55555555-aaaa-4555-8555-555555555555':'66666666-bbbb-4666-8666-666666666666',
+        transactionGlobalId:worker?'14141414-1414-4414-8414-141414141414':'15151515-1515-4515-8515-151515151515',
+      );
+      final result = await postEvents(stationOneToken,[command]);
+      expect((result['results'] as List).first['status'],'rejected');
+      database.execute('DROP TRIGGER fail_party_debt_line');
+    }
+    expect(database.select('SELECT COUNT(*) n FROM worker_transactions').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM partner_transactions').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'],0);
+    expect(database.select("SELECT COUNT(*) n FROM accounts WHERE code LIKE '2100.W%' OR code LIKE '2200.P%'").single['n'],0);
+    expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type IN ('worker_transactions','partner_transactions')").single['n'],0);
+  });
+
+  test('worker and partner handlers reject invalid amount, role, and non-debt transaction types', () async {
+    preparePartyDebtFixture();
+    final invalid = partyDebtEvent(worker:true,amount:0);
+    expect(((await postEvents(stationOneToken,[invalid]))['results'] as List).first['status'],'rejected');
+    final badType = partyDebtEvent(worker:false,eventId:'77777777-bbbb-4777-8777-777777777777');
+    (badType['payload'] as Map)['reference_type']='profit_share';
+    expect(((await postEvents(stationOneToken,[badType]))['results'] as List).first['status'],'rejected');
+    final operationsToken = JWT({'kind':'admin','userId':11,'stationId':1,'role':'operations'}).sign(SecretKey(secret));
+    database.execute("UPDATE app_users SET role='operations' WHERE id=11");
+    final denied = partyDebtEvent(worker:true,eventId:'88888888-aaaa-4888-8888-888888888888');
+    expect(((await postEvents(operationsToken,[denied]))['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM worker_transactions').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM partner_transactions').single['n'],0);
+  });
+
+  test('manual beneficiary debt creates one balanced journal and replay is idempotent', () async {
+    prepareManualDebtFixture();
+    final command = manualDebtEvent();
+    final first = await postEvents(stationOneToken,[command]);
+    final replay = await postEvents(stationOneToken,[command]);
+    expect((first['results'] as List).first['status'],'accepted');
+    expect((replay['results'] as List).first['status'],'duplicate');
+    expect(database.select('SELECT COUNT(*) n FROM beneficiary_manual_debts').single['n'],1);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],1);
+    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'],2);
+    final totals=database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
+    expect(totals['debit'],1800);
+    expect(totals['credit'],1800);
+    expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type='beneficiary_manual_debts'").single['n'],1);
+  });
+
+  test('manual beneficiary debt rejects a beneficiary owned by another station', () async {
+    prepareManualDebtFixture();
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(2,2,'Foreign Debt Beneficiary','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'beneficiaries','ffffffff-ffff-4fff-8fff-ffffffffffff',2,'2026-11-08T00:00:00Z')");
+    final result=await postEvents(stationOneToken,[manualDebtEvent(beneficiaryGlobalId:'ffffffff-ffff-4fff-8fff-ffffffffffff')]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM beneficiary_manual_debts').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type=' + "'beneficiary_manual_debts'").single['n'],0);
+  });
+
+  test('manual beneficiary debt rejects non-positive or fractional amounts', () async {
+    prepareManualDebtFixture();
+    for (final amount in [0,-5]) {
+      final result=await postEvents(stationOneToken,[manualDebtEvent(id:amount==0?'56565656-5656-4565-8565-565656565656':'57575757-5757-4575-8575-575757575757',amount:amount)]);
+      expect((result['results'] as List).first['status'],'rejected');
+    }
+    final fractional=manualDebtEvent(id:'58585858-5858-4585-8585-585858585858');
+    (fractional['payload'] as Map<String,dynamic>)['amount']=12.5;
+    final result=await postEvents(stationOneToken,[fractional]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM beneficiary_manual_debts').single['n'],0);
+  });
+
+  test('operations role cannot create manual beneficiary debt', () async {
+    prepareManualDebtFixture();
+    database.execute("UPDATE app_users SET role='operations' WHERE id=11");
+    final token=JWT({'kind':'admin','userId':11,'stationId':1,'role':'operations'}).sign(SecretKey(secret));
+    final result=await postEvents(token,[manualDebtEvent()]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM beneficiary_manual_debts').single['n'],0);
+  });
+
+  test('manual beneficiary debt rolls back fully when journal creation fails', () async {
+    prepareManualDebtFixture();
+    database.execute("""CREATE TRIGGER reject_manual_debt_journal BEFORE INSERT ON journal_entries
+      BEGIN SELECT RAISE(ABORT,'journal unavailable'); END""");
+    final result=await postEvents(stationOneToken,[manualDebtEvent()]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM beneficiary_manual_debts').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'],0);
+    expect(database.select('SELECT COUNT(*) n FROM sync_entity_versions').single['n'],0);
+    expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type='beneficiary_manual_debts'").single['n'],0);
+  });
+
+  test('manual beneficiary debt cancellation reverses the journal exactly once', () async {
+    prepareManualDebtFixture();
+    final create=manualDebtEvent();
+    final accepted=await postEvents(stationOneToken,[create]);
+    expect((accepted['results'] as List).first['status'],'accepted');
+    final cancel=manualDebtEvent(
+      id:'59595959-5959-4595-8595-595959595959',
+      operation:'update',
+      status:'cancelled',
+      cancelledAt:'2026-11-08T10:00:00.000',
+      cancelReason:'إدخال مكرر',
+    );
+    final cancelled=await postEvents(stationOneToken,[cancel]);
+    expect((cancelled['results'] as List).first['status'],'accepted');
+    expect(database.select("SELECT status FROM beneficiary_manual_debts").single['status'],'cancelled');
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+    final totals=database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
+    expect(totals['debit'],3600);
+    expect(totals['credit'],3600);
+    final repeated=manualDebtEvent(
+      id:'60606060-6060-4606-8606-606060606060',
+      operation:'update',
+      baseVersion:2,
+      status:'cancelled',
+      cancelledAt:'2026-11-08T10:01:00.000',
+      cancelReason:'إلغاء مكرر',
+    );
+    final rejected=await postEvents(stationOneToken,[repeated]);
+    expect((rejected['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],2);
+  });
+
+  test('manual debt cancellation cannot alter the amount', () async {
+    prepareManualDebtFixture();
+    await postEvents(stationOneToken,[manualDebtEvent()]);
+    final altered=manualDebtEvent(
+      id:'61616161-6161-4616-8616-616161616161',
+      amount:9999,
+      operation:'update',
+      status:'cancelled',
+      cancelledAt:'2026-11-08T10:00:00.000',
+      cancelReason:'tamper',
+    );
+    final result=await postEvents(stationOneToken,[altered]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select("SELECT status FROM beneficiary_manual_debts").single['status'],'posted');
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],1);
+  });
+
+  test('beneficiary receipt applies once and replay returns duplicate without double posting', () async {
+    prepareReceiptFixture();
+    final command = receiptEvent();
+    final first = await postEvents(stationOneToken, [command]);
+    final replay = await postEvents(stationOneToken, [command]);
+    expect((first['results'] as List).first['status'], 'accepted');
+    expect((replay['results'] as List).first['status'], 'duplicate');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'], 1);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'], 750);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'], 1);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_lines').single['n'], 2);
+    expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['debit'], 250);
+    expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['credit'], 250);
+  });
+
+  test('receipt publishes server-owned journal and cashbox projections to the second device once', () async {
+    prepareReceiptFixture();
+    final command = receiptEvent();
+    final payload = Map<String, dynamic>.from(command['payload'] as Map);
+    payload['_derived_global_ids'] = {
+      'journal_entries': ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab'],
+      'journal_lines': [
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc',
+        'cccccccc-cccc-4ccc-8ccc-cccccccccccd',
+      ],
+      'cashboxes': ['eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'],
+    };
+    command['payload'] = payload;
+    final accepted = await postEvents(stationOneToken, [command], device: 'device-a');
+    expect((accepted['results'] as List).first['status'], 'accepted');
+
+    final originInbox = await getInbox(stationOneToken, device: 'device-a');
+    final originEvents = originInbox['events'] as List;
+    expect(
+      originEvents.map((event) => (event as Map)['entity_type']).toList(),
+      ['journal_entries', 'journal_lines', 'journal_lines', 'cashboxes'],
+    );
+
+    final secondDeviceInbox = await getInbox(stationOneToken, device: 'device-b');
+    final events = secondDeviceInbox['events'] as List;
+    expect(
+      events.map((event) => (event as Map)['entity_type']).toList(),
+      ['payments', 'journal_entries', 'journal_lines', 'journal_lines', 'cashboxes'],
+    );
+    expect(
+      events.skip(1).map((event) => (event as Map)['source_device']).toSet(),
+      {'__server_projection__'},
+    );
+
+    final replay = await postEvents(stationOneToken, [command], device: 'device-a');
+    expect((replay['results'] as List).first['status'], 'duplicate');
+    expect(database.select('SELECT COUNT(*) n FROM payments').single['n'], 1);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'], 1);
+    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'], 2);
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'], 5);
+    final totals = database.select(
+      'SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines',
+    ).single;
+    expect(totals['debit'], 250);
+    expect(totals['credit'], 250);
+  });
+
+  test('receipt rejects an incomplete derived identity manifest atomically', () async {
+    prepareReceiptFixture();
+    final command = receiptEvent();
+    final payload = Map<String, dynamic>.from(command['payload'] as Map);
+    payload['_derived_global_ids'] = {
+      'journal_entries': ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab'],
+      'journal_lines': [
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc',
+        'cccccccc-cccc-4ccc-8ccc-cccccccccccd',
+      ],
+      // cashboxes intentionally omitted: every projected effect must have
+      // a stable client identity before the command can be committed.
+    };
+    command['payload'] = payload;
+
+    final result = await postEvents(stationOneToken, [command], device: 'device-a');
+    expect((result['results'] as List).single['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM payments').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'], 0);
+  });
+
+  test('receipt rejects a beneficiary identity owned by another station without writes', () async {
+    prepareReceiptFixture();
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(2,2,'Foreign Beneficiary','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'beneficiaries','ffffffff-ffff-4fff-8fff-ffffffffffff',2,'2026-11-08T00:00:00Z')");
+    final result = await postEvents(stationOneToken, [receiptEvent(beneficiaryGlobalId:'ffffffff-ffff-4fff-8fff-ffffffffffff')]);
+    expect((result['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'], 0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'], 500);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').single['n'], 0);
+  });
+
+  test('receipt rejects a globally identified payment method from another station', () async {
+    prepareReceiptFixture();
+    database.execute("INSERT INTO payment_methods(id,station_id,name,type,cashbox_id,ledger_account_code,active) VALUES(2,2,'Cash','cash',NULL,'1000',1)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(2,'payment_methods','ffffffff-ffff-4fff-8fff-ffffffffffff',2,'2026-11-08T00:00:00Z')");
+    final command = receiptEvent();
+    final payload = Map<String,dynamic>.from(command['payload'] as Map);
+    final refs = Map<String,dynamic>.from(payload['_global_refs'] as Map);
+    refs['payment_method_id'] = {'table':'payment_methods','global_id':'ffffffff-ffff-4fff-8fff-ffffffffffff','name':'Cash','type':'cash'};
+    payload['_global_refs'] = refs;
+    command['payload'] = payload;
+    final result = await postEvents(stationOneToken,[command]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'],0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],500);
+  });
+
+  test('operations role cannot submit beneficiary receipt commands', () async {
+    prepareReceiptFixture();
+    // Keep the database account role consistent with the signed JWT so the
+    // request reaches the payment-domain authorization check.
+    database.execute("UPDATE app_users SET role='operations' WHERE id=11");
+    final operationsToken = JWT({'kind':'admin','userId':11,'stationId':1,'role':'operations'}).sign(SecretKey(secret));
+    final result = await postEvents(operationsToken,[receiptEvent()]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'],0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],500);
+  });
+
+  test('receipt rejects zero amount without creating any financial rows', () async {
+    prepareReceiptFixture();
+    final result = await postEvents(stationOneToken,[receiptEvent(amount:0)]);
+    expect((result['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'],0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],500);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'],0);
+  });
+
+  test('receipt event id cannot be reused with a changed amount', () async {
+    prepareReceiptFixture();
+    final first = await postEvents(stationOneToken,[receiptEvent()]);
+    final changed = await postEvents(stationOneToken,[receiptEvent(amount:999)]);
+    expect((first['results'] as List).first['status'],'accepted');
+    expect((changed['results'] as List).first['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'],1);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],750);
+  });
+
+  test('receipt journal failure rolls back payment and cashbox balance', () async {
+    prepareReceiptFixture();
+    database.execute("DELETE FROM accounts WHERE code='1200'");
+    final result = await postEvents(stationOneToken, [receiptEvent()]);
+    expect((result['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'], 0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'], 500);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').single['n'], 0);
+  });
+
+  test('replayed event is acknowledged as duplicate and stored once', () async {
+    final first = await postEvents(stationOneToken,[event()]);
+    final replay = await postEvents(stationOneToken,[event()]);
+    expect((first['results'] as List).first['status'],'accepted');
+    expect((replay['results'] as List).first['status'],'duplicate');
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').first['n'],1);
+    expect(database.select('SELECT COUNT(*) AS n FROM beneficiaries WHERE station_id=1').first['n'],1);
+  });
+
+  test('reusing an event id with a different payload is rejected', () async {
+    final first = await postEvents(stationOneToken, [event()]);
+    final changed = event();
+    changed['payload'] = {
+      '_global_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'name': 'Tampered Beneficiary',
+    };
+    final replay = await postEvents(stationOneToken, [changed]);
+    expect((first['results'] as List).first['status'], 'accepted');
+    expect((replay['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').first['n'], 1);
+    expect(database.select('SELECT payload_json FROM sync_event_log').first['payload_json'],
+        '{"_global_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","name":"Test Beneficiary"}');
+  });
+
+  test('unsupported entity types are rejected before entering the event log', () async {
+    final invalid = event();
+    invalid['entity_type'] = 'app_users';
+    invalid['entity_key'] = 'app_users:admin';
+    final response = await postEvents(stationOneToken, [invalid]);
+    expect((response['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').first['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_entity_versions').first['n'], 0);
+  });
+
+  test('recognized but unimplemented financial events are rejected without acknowledgement', () async {
+    final invalid = event();
+    invalid['entity_type'] = 'payments';
+    invalid['entity_key'] = 'payments:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    final response = await postEvents(stationOneToken, [invalid]);
+    expect((response['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').single['n'], 0);
+  });
+
+  test('stale base version is recorded as conflict without advancing version', () async {
+    await postEvents(stationOneToken,[event()]);
+    final stale = event(
+      id:'22222222-2222-4222-8222-222222222222',
+      baseVersion:0,
+    );
+    final result = await postEvents(stationOneToken,[stale],device:'device-c');
+    expect((result['results'] as List).first['status'],'conflict');
+    expect(database.select(
+      "SELECT version FROM sync_entity_versions WHERE station_id=1 AND entity_key='beneficiaries:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'",
+    ).first['version'],1);
+  });
+
+  test('inbox is isolated by authenticated station', () async {
+    await postEvents(stationOneToken,[event()]);
+    final one = await getInbox(stationOneToken);
+    final two = await getInbox(stationTwoToken);
+    expect((one['events'] as List).length,1);
+    expect((two['events'] as List),isEmpty);
+  });
+
+  test('inbox does not echo events back to their originating device', () async {
+    await postEvents(stationOneToken,[event()],device:'device-a');
+    final inbox = await getInbox(stationOneToken,device:'device-a');
+    expect((inbox['events'] as List),isEmpty);
+  });
+  test('beneficiary create and update are applied atomically to business rows', () async {
+    const globalId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    final first = await postEvents(stationOneToken, [
+      event(globalId: globalId, payload: {'phone': '777'}),
+    ]);
+    expect((first['results'] as List).first['status'], 'accepted');
+    final row = database.select(
+      "SELECT id,name,phone,station_id FROM beneficiaries WHERE station_id=1",
+    ).single;
+    expect(row['name'], 'Test Beneficiary');
+    expect(row['phone'], '777');
+    expect(row['station_id'], 1);
+
+    final second = await postEvents(stationOneToken, [
+      event(
+        id: '44444444-4444-4444-8444-444444444444',
+        globalId: globalId,
+        baseVersion: 1,
+        operation: 'update',
+        payload: {'name': 'Updated Beneficiary'},
+      ),
+    ]);
+    expect((second['results'] as List).first['status'], 'accepted');
+    expect(database.select(
+      "SELECT name FROM beneficiaries WHERE station_id=1",
+    ).single['name'], 'Updated Beneficiary');
+    expect(database.select(
+      "SELECT version FROM sync_entity_versions WHERE station_id=1 AND entity_key='beneficiaries:$globalId'",
+    ).single['version'], 2);
+  });
+
+  test('failed business application rolls back event log and entity version', () async {
+    final invalid = event(payload: {'name': ''});
+    final response = await postEvents(stationOneToken, [invalid]);
+    expect((response['results'] as List).first['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM beneficiaries').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_event_log').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM sync_entity_versions').single['n'], 0);
+  });
+
+  test('event from another station cannot create a row in the first station', () async {
+    final response = await postEvents(stationTwoToken, [event()]);
+    expect((response['results'] as List).first['status'], 'accepted');
+    expect(database.select('SELECT COUNT(*) AS n FROM beneficiaries WHERE station_id=1').single['n'], 0);
+    expect(database.select('SELECT COUNT(*) AS n FROM beneficiaries WHERE station_id=2').single['n'], 1);
+  });
+
+
+  test('beneficiary API reads expose the stable global identity for client mapping', () async {
+    const globalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    final created = await postEvents(stationOneToken, [
+      event(globalId: globalId, payload: {'name': 'Mapped Beneficiary'}),
+    ]);
+    expect((created['results'] as List).first['status'], 'accepted');
+
+    final response = await server.router().call(Request(
+      'GET',
+      Uri.parse('http://localhost/api/v1/beneficiaries'),
+      headers: {'authorization': 'Bearer $stationOneToken'},
+    ));
+    expect(response.statusCode, 200);
+    final rows = jsonDecode(await response.readAsString()) as List;
+    expect(rows, hasLength(1));
+    expect(rows.single['_global_id'], globalId);
+    expect(rows.single['name'], 'Mapped Beneficiary');
+  });
+
+
+
+    test('beneficiary detail and irrigation history resolve global UUID within JWT station', () async {
+    const globalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN carried_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('''CREATE TABLE station_settings(
+      station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+      PRIMARY KEY(station_id,key)
+    )''');
+    await postEvents(stationOneToken, [
+      event(globalId: globalId, payload: {'name': 'Global Detail'}),
+    ]);
+    database.execute('''CREATE TABLE irrigations(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER NOT NULL, date TEXT NOT NULL DEFAULT '2026-11-08',
+      start_datetime TEXT NOT NULL, end_datetime TEXT,
+      system_type TEXT, minutes INTEGER NOT NULL DEFAULT 0,
+      cloud_minutes INTEGER NOT NULL DEFAULT 0,
+      chargeable_minutes INTEGER NOT NULL DEFAULT 0,
+      total_amount INTEGER NOT NULL DEFAULT 0,
+      paid_amount INTEGER NOT NULL DEFAULT 0, notes TEXT,
+      status TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE payments(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, date TEXT NOT NULL,
+      amount INTEGER NOT NULL, status TEXT NOT NULL, notes TEXT
+    )''');
+    database.execute('''CREATE TABLE diesel_movements(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, irrigation_id INTEGER,
+      kind TEXT NOT NULL, amount INTEGER NOT NULL,
+      date TEXT NOT NULL, notes TEXT
+    )''');
+    database.execute('''CREATE TABLE beneficiary_manual_debts(
+      id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL,
+      date TEXT NOT NULL, amount INTEGER NOT NULL, notes TEXT,
+      status TEXT NOT NULL, cancelled_at TEXT, cancel_reason TEXT
+    )''');
+    database.execute("INSERT INTO irrigations(id,station_id,beneficiary_id,start_datetime,status) VALUES(1,1,1,'2026-11-08T08:00:00','posted')");
+    Future<Response> get(String token, String suffix) => server.router().call(Request(
+      'GET',
+      Uri.parse('http://localhost/api/v1/beneficiaries/$globalId$suffix'),
+      headers: {'authorization': 'Bearer $token'},
+    ));
+    final detail = await get(stationOneToken, '');
+    expect(detail.statusCode, 200);
+    final body = jsonDecode(await detail.readAsString()) as Map<String, dynamic>;
+    expect(body['_global_id'], globalId);
+    expect(body['name'], 'Global Detail');
+    final history = await get(stationOneToken, '/statement');
+    expect(history.statusCode, 200);
+    final rows = jsonDecode(await history.readAsString()) as List;
+    expect(rows, hasLength(1));
+    expect(rows.single['id'], 1);
+    final crossStation = await get(stationTwoToken, '');
+    expect(crossStation.statusCode, 404);
+  });
+
+  test('complete beneficiary statement is station-isolated and does not duplicate ledger movements', () async {
+    const globalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN carried_balance INTEGER NOT NULL DEFAULT 0');
+    await postEvents(stationOneToken, [
+      event(globalId: globalId, payload: {'name': 'Statement Beneficiary'}),
+    ]);
+    database.execute("UPDATE beneficiaries SET opening_balance=40,carried_balance=5 WHERE station_id=1");
+    database.execute('''CREATE TABLE irrigations(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER NOT NULL, date TEXT NOT NULL,
+      start_datetime TEXT, end_datetime TEXT, system_type TEXT,
+      minutes INTEGER, cloud_minutes INTEGER, chargeable_minutes INTEGER,
+      total_amount INTEGER NOT NULL, paid_amount INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL, notes TEXT
+    )''');
+    database.execute('''CREATE TABLE payments(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, date TEXT NOT NULL, amount INTEGER NOT NULL,
+      status TEXT NOT NULL, notes TEXT
+    )''');
+    database.execute('''CREATE TABLE diesel_movements(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL,
+      beneficiary_id INTEGER, irrigation_id INTEGER, kind TEXT NOT NULL,
+      amount INTEGER NOT NULL, date TEXT NOT NULL, notes TEXT
+    )''');
+    database.execute('''CREATE TABLE beneficiary_manual_debts(
+      id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL,
+      date TEXT NOT NULL, amount INTEGER NOT NULL, notes TEXT,
+      status TEXT NOT NULL, cancelled_at TEXT, cancel_reason TEXT
+    )''');
+    database.execute('''CREATE TABLE station_settings(
+      station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+      PRIMARY KEY(station_id,key)
+    )''');
+    database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'diesel_delivery_financial_credit','true')");
+    database.execute("INSERT INTO irrigations(id,station_id,beneficiary_id,date,start_datetime,end_datetime,system_type,minutes,cloud_minutes,chargeable_minutes,total_amount,paid_amount,status,notes) VALUES(1,1,1,'2026-11-01','2026-11-01T08:00:00','2026-11-01T09:00:00','diesel',60,0,60,100,0,'posted','first irrigation')");
+    database.execute("INSERT INTO payments(id,station_id,beneficiary_id,date,amount,status,notes) VALUES(1,1,1,'2026-11-02',30,'posted','cash receipt')");
+    database.execute("INSERT INTO diesel_movements(id,station_id,beneficiary_id,irrigation_id,kind,amount,date,notes) VALUES(1,1,1,NULL,'advance',10,'2026-11-03','diesel advance'),(2,1,1,NULL,'delivery',5,'2026-11-04','diesel delivery')");
+    database.execute("INSERT INTO beneficiary_manual_debts(id,beneficiary_id,date,amount,notes,status) VALUES(1,1,'2026-11-02',20,'manual balance','posted')");
+    database.execute("INSERT INTO beneficiary_manual_debts(id,beneficiary_id,date,amount,notes,status,cancelled_at,cancel_reason) VALUES(2,1,'2026-11-01',7,'cancelled debt','cancelled','2026-11-05','duplicate entry')");
+
+    Future<List<dynamic>> read(String token, String suffix) async {
+      final response = await server.router().call(Request(
+        'GET',
+        Uri.parse('http://localhost/api/v1/beneficiaries/$globalId/statement$suffix'),
+        headers: {'authorization': 'Bearer $token'},
+      ));
+      expect(response.statusCode, 200);
+      return jsonDecode(await response.readAsString()) as List<dynamic>;
+    }
+
+    final first = await read(stationOneToken, '');
+    final replay = await read(stationOneToken, '');
+    expect(first, hasLength(9)); // 2 opening rows + 7 distinct source movements.
+    expect(replay, first);
+    expect(first.map((row) => '${row['type']}:${row['id']}').toSet(), hasLength(9));
+    expect(first.last['balance'], 140); // 45 + 100 - 30 + 10 + 20 - 5.
+    expect(first.map((row) => row['type']), containsAll([
+      's','p','a','manual_debt','manual_debt_reversal','d',
+    ]));
+    final period = await read(
+      stationOneToken,
+      '?from=2026-11-02&to=2026-11-03',
+    );
+    expect(period.first['type'], 'opening_balance');
+    expect(period.first['balance'], 152); // Includes the cancelled debt until its 5 November reversal.
+    expect(period.last['balance'], 152); // 152 - 30 + 20 + 10.
+    final foreign = await server.router().call(Request(
+      'GET',
+      Uri.parse('http://localhost/api/v1/beneficiaries/$globalId/statement'),
+      headers: {'authorization': 'Bearer $stationTwoToken'},
+    ));
+    expect(foreign.statusCode, 404);
+  });
+
+test('legacy beneficiary rows receive a stable global identity on first API read', () async {
+    database.execute(
+      "INSERT INTO beneficiaries(station_id,name,status) VALUES(1,'Legacy Beneficiary','active')",
+    );
+    Future<Map<String, dynamic>> read() async {
+      final response = await server.router().call(Request(
+        'GET',
+        Uri.parse('http://localhost/api/v1/beneficiaries'),
+        headers: {'authorization': 'Bearer $stationOneToken'},
+      ));
+      expect(response.statusCode, 200);
+      final rows = jsonDecode(await response.readAsString()) as List;
+      return Map<String, dynamic>.from(
+        rows.singleWhere((row) => row['name'] == 'Legacy Beneficiary') as Map,
+      );
+    }
+    final first = await read();
+    final second = await read();
+    expect(first['_global_id'], isA<String>());
+    expect(first['_global_id'], isNotEmpty);
+    expect(second['_global_id'], first['_global_id']);
+    expect(first['balance'], 0);
+  });
+
+
+
+  test('beneficiary API computes balance using only the authenticated station data', () async {
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('ALTER TABLE beneficiaries ADD COLUMN carried_balance INTEGER NOT NULL DEFAULT 0');
+    database.execute('''CREATE TABLE station_settings(
+      station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+      PRIMARY KEY(station_id,key)
+    )''');
+    database.execute('''CREATE TABLE irrigations(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, beneficiary_id INTEGER NOT NULL,
+      total_amount INTEGER NOT NULL, status TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE payments(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, beneficiary_id INTEGER NOT NULL,
+      amount INTEGER NOT NULL, status TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE diesel_movements(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, beneficiary_id INTEGER NOT NULL,
+      amount INTEGER NOT NULL, kind TEXT NOT NULL, irrigation_id INTEGER
+    )''');
+    database.execute('''CREATE TABLE beneficiary_manual_debts(
+      id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL,
+      amount INTEGER NOT NULL, status TEXT NOT NULL
+    )''');
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status,opening_balance,carried_balance) VALUES(1,1,'Balance A','active',100,20),(2,2,'Balance B','active',500,0)");
+    database.execute("INSERT INTO irrigations(station_id,beneficiary_id,total_amount,status) VALUES(1,1,300,'posted'),(2,2,9000,'posted')");
+    database.execute("INSERT INTO payments(station_id,beneficiary_id,amount,status) VALUES(1,1,50,'posted'),(2,2,1000,'posted')");
+    database.execute("INSERT INTO beneficiary_manual_debts(beneficiary_id,amount,status) VALUES(1,30,'posted')");
+    database.execute("INSERT INTO diesel_movements(station_id,beneficiary_id,amount,kind,irrigation_id) VALUES(1,1,10,'advance',NULL)");
+    database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'diesel_delivery_financial_credit','false')");
+
+    final response = await server.router().call(Request(
+      'GET',
+      Uri.parse('http://localhost/api/v1/beneficiaries'),
+      headers: {'authorization': 'Bearer $stationOneToken'},
+    ));
+    expect(response.statusCode, 200);
+    final rows = jsonDecode(await response.readAsString()) as List;
+    final beneficiary = rows.singleWhere((row) => row['name'] == 'Balance A');
+    // Opening 120 + irrigation 300 + manual debt 30 + diesel advance 10 - payment 50.
+    expect(beneficiary['balance'], 410);
+    expect(rows.where((row) => row['name'] == 'Balance B'), isEmpty);
+  });
+
+
+
+  test('master-data events apply atomically with station ownership and soft deletion', () async {
+    database.execute('''CREATE TABLE pumps(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL,
+      name TEXT NOT NULL, system_type TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+      notes TEXT, created_at TEXT, updated_at TEXT
+    )''');
+    const globalId = 'abababab-abab-4bab-8bab-abababababab';
+    Map<String, dynamic> masterEvent({
+      required String eventId,
+      required String operation,
+      required int baseVersion,
+      required Map<String, dynamic> payload,
+    }) => {
+      'event_id': eventId,
+      'entity_type': 'pumps',
+      'entity_key': 'pumps:$globalId',
+      'operation': operation,
+      'base_version': baseVersion,
+      'payload': {'_global_id': globalId, ...payload},
+    };
+
+    final created = await postEvents(stationOneToken, [
+      masterEvent(
+        eventId: '12111111-1111-4111-8111-111111111111',
+        operation: 'create',
+        baseVersion: 0,
+        payload: {'name': 'Pump A', 'system_type': 'diesel'},
+      ),
+    ]);
+    expect((created['results'] as List).single['status'], 'accepted');
+    final row = database.select(
+      'SELECT * FROM pumps WHERE station_id=1 AND name=?',
+      ['Pump A'],
+    ).single;
+    expect(row['active'], 1);
+    expect(database.select(
+      "SELECT local_id FROM sync_entity_links WHERE station_id=1 AND entity_type='pumps' AND global_id=?",
+      [globalId],
+    ), hasLength(1));
+
+    final updated = await postEvents(stationOneToken, [
+      masterEvent(
+        eventId: '13111111-1111-4111-8111-111111111111',
+        operation: 'update',
+        baseVersion: 1,
+        payload: {'name': 'Pump A Updated'},
+      ),
+    ]);
+    expect((updated['results'] as List).single['status'], 'accepted');
+    expect(database.select('SELECT name FROM pumps WHERE id=?', [row['id']]).single['name'],
+        'Pump A Updated');
+
+    final deleted = await postEvents(stationOneToken, [
+      masterEvent(
+        eventId: '14111111-1111-4111-8111-111111111111',
+        operation: 'delete',
+        baseVersion: 2,
+        payload: const {},
+      ),
+    ]);
+    expect((deleted['results'] as List).single['status'], 'accepted');
+    expect(database.select('SELECT active FROM pumps WHERE id=?', [row['id']]).single['active'], 0);
+
+    final replay = await postEvents(stationOneToken, [
+      masterEvent(
+        eventId: '14111111-1111-4111-8111-111111111111',
+        operation: 'delete',
+        baseVersion: 2,
+        payload: const {},
+      ),
+    ]);
+    expect((replay['results'] as List).single['status'], 'duplicate');
+
+    final crossStation = await postEvents(stationTwoToken, [
+      masterEvent(
+        eventId: '15111111-1111-4111-8111-111111111111',
+        operation: 'create',
+        baseVersion: 0,
+        payload: {'name': 'Foreign Pump', 'system_type': 'diesel'},
+      ),
+    ]);
+    expect((crossStation['results'] as List).single['status'], 'rejected');
+    expect(database.select("SELECT * FROM pumps WHERE name='Foreign Pump'"), isEmpty);
+  });
+
+  test('cashbox master sync cannot initialize or overwrite financial balances', () async {
+    database.execute('''CREATE TABLE cashboxes(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL,
+      name TEXT NOT NULL, opening_balance INTEGER NOT NULL DEFAULT 0,
+      current_balance INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'YER',
+      active INTEGER NOT NULL DEFAULT 1, ledger_account_code TEXT
+    )''');
+    const globalId = 'acacacac-acac-4cac-8cac-acacacacacac';
+    final response = await postEvents(stationOneToken, [{
+      'event_id': '16111111-1111-4111-8111-111111111111',
+      'entity_type': 'cashboxes',
+      'entity_key': 'cashboxes:$globalId',
+      'operation': 'create',
+      'base_version': 0,
+      'payload': {
+        '_global_id': globalId,
+        'name': 'Cashbox Injected',
+        'currency': 'YER',
+        'opening_balance': 900000,
+        'current_balance': 900000,
+      },
+    }]);
+    expect((response['results'] as List).single['status'], 'rejected');
+    expect(database.select("SELECT * FROM cashboxes WHERE name='Cashbox Injected'"), isEmpty);
+  });
+
+
+  test('irrigation sync recalculates charges and posts diesel effects atomically', () async {
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,status) VALUES(1,1,'Irrigation Beneficiary','active')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'beneficiaries','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',1,'2026-11-08T00:00:00Z')");
+    database.execute("CREATE TABLE pumps(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,system_type TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1)");
+    database.execute("INSERT INTO pumps(id,station_id,name,system_type,active) VALUES(1,1,'Pump A','diesel',1)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'pumps','cccccccc-cccc-4ccc-8ccc-cccccccccccc',1,'2026-11-08T00:00:00Z')");
+    database.execute("CREATE TABLE workers(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,pay_type TEXT NOT NULL,fixed_salary INTEGER NOT NULL DEFAULT 0,hourly_rate INTEGER NOT NULL DEFAULT 0,percentage_rate REAL NOT NULL DEFAULT 0,active INTEGER NOT NULL DEFAULT 1)");
+    database.execute("CREATE TABLE partners(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,ownership_mode TEXT NOT NULL,shares_count REAL NOT NULL DEFAULT 0,ownership_percentage REAL NOT NULL DEFAULT 0,active INTEGER NOT NULL DEFAULT 1)");
+    database.execute("INSERT INTO workers(id,station_id,name,pay_type,hourly_rate,active) VALUES(1,1,'Hourly Worker','hourly',100,1)");
+    database.execute("INSERT INTO partners(id,station_id,name,ownership_mode,shares_count,active) VALUES(1,1,'Share Partner','shares',1,1)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'workers','abababab-1111-4111-8111-111111111111',1,'2026-11-08T00:00:00Z'),(1,'partners','bcbcbcbc-2222-4222-8222-222222222222',1,'2026-11-08T00:00:00Z')");
+    database.execute("CREATE TABLE worker_transactions(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,worker_id INTEGER NOT NULL,date TEXT NOT NULL,type TEXT NOT NULL,hours REAL NOT NULL DEFAULT 0,rate_snapshot REAL NOT NULL DEFAULT 0,percentage_snapshot REAL NOT NULL DEFAULT 0,amount INTEGER NOT NULL,reference_type TEXT,reference_id INTEGER,notes TEXT,created_by INTEGER)");
+    database.execute("CREATE TABLE partner_transactions(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,partner_id INTEGER NOT NULL,date TEXT NOT NULL,type TEXT NOT NULL,amount INTEGER NOT NULL,ownership_snapshot REAL,reference_type TEXT,reference_id INTEGER,notes TEXT,created_by INTEGER)");
+    database.execute("CREATE TABLE irrigations(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,pump_id INTEGER NOT NULL,beneficiary_id INTEGER,worker_id INTEGER,partner_id INTEGER,party_type TEXT NOT NULL,date TEXT NOT NULL,start_datetime TEXT NOT NULL,end_datetime TEXT NOT NULL,minutes INTEGER NOT NULL,system_type TEXT NOT NULL,water_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,diesel_liters_per_hour_snapshot REAL NOT NULL DEFAULT 0,diesel_price_snapshot INTEGER NOT NULL DEFAULT 0,solar_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,third_type_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,cloud_minutes INTEGER NOT NULL DEFAULT 0,chargeable_minutes INTEGER NOT NULL,water_amount INTEGER NOT NULL DEFAULT 0,diesel_amount INTEGER NOT NULL DEFAULT 0,total_amount INTEGER NOT NULL DEFAULT 0,paid_amount INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL,created_by INTEGER,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)");
+    database.execute("CREATE TABLE irrigation_sessions(id INTEGER PRIMARY KEY AUTOINCREMENT,beneficiary_id INTEGER NOT NULL,queue_entry_id INTEGER,booking_id INTEGER,pump_id INTEGER NOT NULL,planned_start TEXT,actual_start TEXT,actual_end TEXT,status TEXT NOT NULL,timer_started_at TEXT,timer_stopped_at TEXT,diesel_before REAL DEFAULT 0,diesel_consumed REAL DEFAULT 0,diesel_after REAL DEFAULT 0,diesel_warning_shown INTEGER NOT NULL DEFAULT 0,postponement_reason TEXT,notes TEXT)");
+    database.execute("ALTER TABLE irrigations ADD COLUMN session_id INTEGER");
+    database.execute("ALTER TABLE irrigations ADD COLUMN queue_entry_id INTEGER");
+    database.execute("ALTER TABLE irrigations ADD COLUMN booking_id INTEGER");
+    const sessionGlobalId = 'eeeeeeee-1111-4111-8111-111111111111';
+
+    database.execute("CREATE TABLE station_settings(station_id INTEGER NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(station_id,key))");
+    database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'diesel_hourly_water_rate','6000'),(1,'diesel_liters_per_hour','2'),(1,'diesel_price_per_liter','500')");
+    database.execute("CREATE TABLE accounts(id INTEGER PRIMARY KEY,parent_id INTEGER,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,type TEXT NOT NULL)");
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1200','Receivables','asset'),(2,'4000','Water Revenue','income'),(3,'4010','Diesel Revenue','income'),(4,'1000','Cash','asset'),(5,'5000','Worker Expense','expense'),(6,'2100','Worker Payables','liability'),(7,'2200','Partner Payables','liability'),(8,'3200','Partner Equity','equity')");
+    database.execute("CREATE TABLE journal_entries(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,date TEXT NOT NULL,reference_type TEXT,reference_id INTEGER,description TEXT NOT NULL,status TEXT NOT NULL,created_by INTEGER,created_at TEXT NOT NULL)");
+    database.execute("CREATE TABLE journal_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,journal_entry_id INTEGER NOT NULL,account_id INTEGER NOT NULL,beneficiary_id INTEGER,worker_id INTEGER,partner_id INTEGER,debit INTEGER NOT NULL DEFAULT 0,credit INTEGER NOT NULL DEFAULT 0,memo TEXT)");
+    database.execute("CREATE TABLE cloud_periods(id INTEGER PRIMARY KEY AUTOINCREMENT,irrigation_id INTEGER NOT NULL,start_datetime TEXT NOT NULL,end_datetime TEXT NOT NULL,minutes INTEGER NOT NULL,created_at TEXT NOT NULL)");
+    database.execute("CREATE TABLE diesel_movements(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER,beneficiary_id INTEGER,irrigation_id INTEGER,cashbox_id INTEGER,kind TEXT NOT NULL,liters REAL NOT NULL,unit_price INTEGER NOT NULL DEFAULT 0,amount INTEGER NOT NULL DEFAULT 0,date TEXT NOT NULL,notes TEXT,created_by INTEGER)");
+    const globalId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    final payload = {
+      '_global_id': globalId,
+      'session_id':1,
+      '_global_refs': {
+        'pump_id': {'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        'beneficiary_id': {'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+        'session_id': {'table':'irrigation_sessions','global_id':sessionGlobalId},
+      },
+      'start_datetime':'2026-11-08T08:00:00.000',
+      'end_datetime':'2026-11-08T09:00:00.000',
+      'system_type':'diesel',
+      'cloud_minutes':10,
+      'cloud_periods':[{'start_datetime':'2026-11-08T08:20:00.000','end_datetime':'2026-11-08T08:30:00.000'}],
+      'paid_amount':0,
+      '_derived_global_ids': {
+        'cloud_periods': ['ababcdcd-abab-4bab-8bab-ababcdcdabab'],
+        'worker_transactions': ['acacacac-acac-4cac-8cac-acacacacacab'],
+        'partner_transactions': ['adadadad-adad-4dad-8dad-adadadadadad'],
+        'diesel_movements': [
+          'aeaeaeae-aeae-4eae-8eae-aeaeaeaeaeae',
+          'afafafaf-afaf-4faf-8faf-afafafafafaf',
+        ],
+        'journal_entries': [
+          'babababa-baba-4bba-8bba-babababababa',
+          'bcbcbcbc-bcbc-4cbc-8cbc-bcbcbcbcbcbc',
+          'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd',
+        ],
+        'journal_lines': [
+          '11111111-aaaa-4aaa-8aaa-111111111111',
+          '22222222-aaaa-4aaa-8aaa-222222222222',
+          '33333333-aaaa-4aaa-8aaa-333333333333',
+          '44444444-aaaa-4aaa-8aaa-444444444444',
+          '55555555-aaaa-4aaa-8aaa-555555555555',
+          '66666666-aaaa-4aaa-8aaa-666666666666',
+          '77777777-aaaa-4aaa-8aaa-777777777777',
+        ],
+        'irrigation_sessions': [sessionGlobalId],
+        'queue_entries': [],
+        'booking_requests': [],
+      },
+    };
+    final event = {
+      'event_id':'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      'entity_type':'irrigations',
+      'entity_key':'irrigations:$globalId',
+      'operation':'create',
+      'base_version':0,
+      'payload':payload,
+    };
+    final sessionCreate = await postEvents(stationOneToken,[{
+      'event_id':'eeeeeeee-2222-4222-8222-222222222222',
+      'entity_type':'irrigation_sessions',
+      'entity_key':'irrigation_sessions:' + sessionGlobalId,
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':sessionGlobalId,
+        'beneficiary_id':1,
+        'pump_id':1,
+        'status':'running',
+        'actual_start':'2026-11-08T08:00:00.000',
+        'timer_started_at':'2026-11-08T08:00:00.000',
+        '_global_refs':{
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          'pump_id':{'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+      },
+    }]);
+    expect((sessionCreate['results'] as List).single['status'],'accepted');
+    final sessionReplay = await postEvents(stationOneToken,[{
+      'event_id':'eeeeeeee-2222-4222-8222-222222222222',
+      'entity_type':'irrigation_sessions',
+      'entity_key':'irrigation_sessions:' + sessionGlobalId,
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':sessionGlobalId,
+        'beneficiary_id':1,
+        'pump_id':1,
+        'status':'running',
+        'actual_start':'2026-11-08T08:00:00.000',
+        'timer_started_at':'2026-11-08T08:00:00.000',
+        '_global_refs':{
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          'pump_id':{'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+      },
+    }]);
+    expect((sessionReplay['results'] as List).single['status'],'duplicate');
+    final staleSnapshot = await postEvents(stationOneToken, [{
+      ...event, 'event_id': 'fafafafa-1111-4111-8111-fafafafafafa',
+      'payload': {...payload, 'total_amount': 1},
+    }]);
+    expect((staleSnapshot['results'] as List).single['status'], 'rejected');
+    expect(database.select('SELECT * FROM irrigations'), isEmpty);
+    expect(database.select('SELECT * FROM journal_entries'), isEmpty);
+    final response = await postEvents(stationOneToken,[event]);
+    final irrigationResult = (response['results'] as List).single;
+    expect(irrigationResult['status'],'accepted', reason: irrigationResult.toString());
+    final irrigation = database.select('SELECT * FROM irrigations WHERE station_id=1').single;
+    expect(irrigation['minutes'],60);
+    expect(irrigation['cloud_minutes'],10);
+    expect(irrigation['chargeable_minutes'],60); // Diesel billing is not reduced by cloud periods.
+    expect(irrigation['water_amount'],6000);
+    expect(irrigation['diesel_amount'],1000);
+    expect(irrigation['total_amount'],7000);
+    expect(irrigation['session_id'],1);
+    expect(database.select('SELECT status,actual_end,diesel_consumed FROM irrigation_sessions WHERE id=1').single['status'],'completed');
+    expect((database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type='irrigation_sessions' AND global_id=?",[sessionGlobalId]).single['n'] as num).toInt(),1);
+    final sessionFinish = await postEvents(stationOneToken,[{
+      'event_id':'eeeeeeee-3333-4333-8333-333333333333',
+      'entity_type':'irrigation_sessions',
+      'entity_key':'irrigation_sessions:' + sessionGlobalId,
+      'operation':'update',
+      'base_version':1,
+      'payload':{
+        '_global_id':sessionGlobalId,
+        'beneficiary_id':1,
+        'pump_id':1,
+        'status':'completed',
+        'actual_start':'2026-11-08T08:00:00.000',
+        'actual_end':'2026-11-08T09:00:00.000',
+        'timer_started_at':'2026-11-08T08:00:00.000',
+        'timer_stopped_at':'2026-11-08T09:00:00.000',
+        '_global_refs':{
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          'pump_id':{'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+      },
+    }]);
+    expect((sessionFinish['results'] as List).single['status'],'superseded');
+    expect(database.select('SELECT * FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]),hasLength(1));
+    expect(database.select('SELECT kind FROM diesel_movements WHERE station_id=1 ORDER BY id').map((r)=>r['kind']).toList(),['advance','consumption']);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
+    expect(database.select("SELECT amount FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=?",[irrigation['id']]).single['amount'],100);
+    expect(database.select("SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?",[irrigation['id']]).single['amount'],6900);
+    final ledgerTotals = database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
+    expect(ledgerTotals['debit'], ledgerTotals['credit']);
+
+    final originInbox = await getInbox(stationOneToken, device: 'device-a');
+    final originTypes = (originInbox['events'] as List)
+        .map((item) => (item as Map)['entity_type'])
+        .toList();
+    expect(originTypes, [
+      'cloud_periods', 'worker_transactions', 'partner_transactions',
+      'diesel_movements', 'diesel_movements',
+      'journal_entries', 'journal_entries', 'journal_entries',
+      'journal_lines', 'journal_lines', 'journal_lines', 'journal_lines',
+      'journal_lines', 'journal_lines', 'journal_lines', 'irrigation_sessions',
+    ]);
+    expect(
+      (originInbox['events'] as List).every(
+        (item) => (item as Map)['source_device'] == '__server_projection__',
+      ),
+      isTrue,
+    );
+
+    final peerInbox = await getInbox(stationOneToken, device: 'device-b');
+    final peerTypes = (peerInbox['events'] as List)
+        .map((item) => (item as Map)['entity_type'])
+        .toList();
+    expect(peerTypes.indexOf('irrigations'), greaterThanOrEqualTo(0));
+    expect(peerTypes.indexOf('cloud_periods'), greaterThan(peerTypes.indexOf('irrigations')));
+    expect(peerTypes.indexOf('worker_transactions'), greaterThan(peerTypes.indexOf('irrigations')));
+    expect(peerTypes.indexOf('partner_transactions'), greaterThan(peerTypes.indexOf('worker_transactions')));
+    expect(peerTypes.indexOf('diesel_movements'), greaterThan(peerTypes.indexOf('irrigations')));
+    expect(peerTypes.indexOf('journal_entries'), greaterThan(peerTypes.indexOf('diesel_movements')));
+    expect(peerTypes.indexOf('journal_lines'), greaterThan(peerTypes.indexOf('journal_entries')));
+    expect(peerTypes.where((type) => type == 'worker_transactions'), hasLength(1));
+    expect(peerTypes.where((type) => type == 'partner_transactions'), hasLength(1));
+    expect(peerTypes.where((type) => type == 'journal_entries'), hasLength(3));
+    expect(peerTypes.where((type) => type == 'journal_lines'), hasLength(7));
+    expect(peerTypes.lastIndexOf('irrigation_sessions'), greaterThan(peerTypes.indexOf('irrigations')));
+    final projectionLogCount = database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'];
+
+    const cloudGlobalId = 'ababcdcd-abab-4bab-8bab-ababcdcdabab';
+    final cloudEvent = {
+      'event_id':'abab1111-abab-4111-8111-abab1111abab',
+      'entity_type':'cloud_periods',
+      'entity_key':'cloud_periods:$cloudGlobalId',
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':cloudGlobalId,
+        '_global_refs':{'irrigation_id':{'table':'irrigations','global_id':globalId}},
+        'start_datetime':'2026-11-08T08:20:00.000',
+        'end_datetime':'2026-11-08T08:30:00.000',
+        'minutes':10,
+      },
+    };
+    final cloudResponse = await postEvents(stationOneToken,[cloudEvent]);
+    expect((cloudResponse['results'] as List).single['status'],'superseded');
+    expect(database.select('SELECT COUNT(*) n FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]).single['n'],1);
+    final cloudReplay = await postEvents(stationOneToken,[cloudEvent]);
+    expect((cloudReplay['results'] as List).single['status'],'superseded');
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'],projectionLogCount);
+    final replay = await postEvents(stationOneToken,[event]);
+    expect((replay['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'],projectionLogCount);
+    final foreign = await postEvents(stationTwoToken,[{...event,'event_id':'ffffffff-ffff-4fff-8fff-ffffffffffff'}]);
+    expect((foreign['results'] as List).single['status'],'rejected');
+    const secondSessionGlobalId = '11111111-2222-4222-8222-222222222222';
+    final secondSession = await postEvents(stationOneToken,[{
+      'event_id':'11111111-3333-4333-8333-333333333333',
+      'entity_type':'irrigation_sessions',
+      'entity_key':'irrigation_sessions:' + secondSessionGlobalId,
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':secondSessionGlobalId,
+        'beneficiary_id':1,
+        'pump_id':1,
+        'status':'running',
+        'actual_start':'2026-11-08T10:00:00.000',
+        'timer_started_at':'2026-11-08T10:00:00.000',
+        '_global_refs':{
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          'pump_id':{'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+      },
+    }]);
+    expect((secondSession['results'] as List).single['status'],'accepted');
+    database.execute("DELETE FROM accounts WHERE code='4010'");
+    const failedIrrigationGlobalId = '22222222-3333-4333-8333-333333333333';
+    final failedIrrigation = await postEvents(stationOneToken,[{
+      'event_id':'22222222-4444-4444-8444-444444444444',
+      'entity_type':'irrigations',
+      'entity_key':'irrigations:' + failedIrrigationGlobalId,
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':failedIrrigationGlobalId,
+        'session_id':2,
+        '_global_refs':{
+          'pump_id':{'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+          'beneficiary_id':{'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+          'session_id':{'table':'irrigation_sessions','global_id':secondSessionGlobalId},
+        },
+        'start_datetime':'2026-11-08T10:00:00.000',
+        'end_datetime':'2026-11-08T11:00:00.000',
+        'system_type':'diesel',
+        'cloud_minutes':0,
+        'cloud_periods':[],
+        'paid_amount':0,
+      },
+    }]);
+    expect((failedIrrigation['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
+    expect(database.select('SELECT status FROM irrigation_sessions WHERE id=2').single['status'],'running');
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
+    expect(database.select('SELECT COUNT(*) n FROM diesel_movements').single['n'],2);
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
+  });
+
+  test('sync applies independent diesel opening stock once with balanced journal', () async {
+    prepareDieselFixture();
+    const globalId = 'abababab-abab-4bab-8bab-abababababab';
+    final event = {
+      'event_id':'abababab-abab-4bab-8bab-abababababac',
+      'entity_type':'diesel_movements', 'entity_key':'diesel_movements:' + globalId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':globalId, '_global_refs':{},
+        'kind':'opening_balance', 'liters':20.0, 'unit_price':100,
+        'amount':2000, 'date':'2026-11-08T08:00:00.000', 'notes':'opening stock',
+      },
+    };
+    final first = await postEvents(stationOneToken,[event]);
+    expect((first['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT SUM(liters) AS stock FROM diesel_movements WHERE station_id=1').single['stock'],20);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'],1);
+    expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['debit'],2000);
+    expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['credit'],2000);
+    final replay = await postEvents(stationOneToken,[event]);
+    expect((replay['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT COUNT(*) AS n FROM diesel_movements').single['n'],1);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'],1);
+  });
+
+  test('sync debits purchase cashbox and journals diesel receipt exactly once', () async {
+    prepareDieselFixture();
+    const cashboxGlobalId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeef';
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'cashboxes',?,1,'2026-11-08T00:00:00Z')",[cashboxGlobalId]);
+    const globalId = 'abababab-abab-4bab-8bab-abababababac';
+    final result = await postEvents(stationOneToken,[{
+      'event_id':'abababab-abab-4bab-8bab-abababababad',
+      'entity_type':'diesel_movements', 'entity_key':'diesel_movements:' + globalId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':globalId, 'kind':'receipt', 'liters':10.0, 'unit_price':100,
+        'amount':1000, 'cashbox_id':1, 'date':'2026-11-08T09:00:00.000',
+        '_global_refs':{'cashbox_id':{'table':'cashboxes','global_id':cashboxGlobalId,'name':'Main','currency':'YER'}},
+      },
+    }]);
+    expect((result['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],4000);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries WHERE reference_type=\'diesel_receipt\'').single['n'],1);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['d'],1000);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['c'],1000);
+    final versionsBefore = database.select("SELECT version FROM sync_entity_versions WHERE entity_type='cashboxes'").single['version'];
+    final notesUpdate = await postEvents(stationOneToken,[{
+      'event_id':'abababab-abab-4bab-8bab-abababababaf',
+      'entity_type':'diesel_movements', 'entity_key':'diesel_movements:' + globalId,
+      'operation':'update', 'base_version':1,
+      'payload':{
+        '_global_id':globalId, 'kind':'receipt', 'liters':10.0, 'unit_price':100,
+        'amount':1000, 'cashbox_id':1, 'date':'2026-11-08T09:00:00.000', 'notes':'metadata only',
+        '_global_refs':{'cashbox_id':{'table':'cashboxes','global_id':cashboxGlobalId}},
+      },
+    }]);
+    expect((notesUpdate['results'] as List).single['status'],'accepted');
+    expect(database.select("SELECT version FROM sync_entity_versions WHERE entity_type='cashboxes'").single['version'],versionsBefore);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],1);
+
+  });
+
+  test('sync rejects diesel movement references from another station', () async {
+    prepareDieselFixture();
+    const globalId = 'abababab-abab-4bab-8bab-abababababab';
+    final result = await postEvents(stationOneToken,[{
+      'event_id':'abababab-abab-4bab-8bab-abababababac',
+      'entity_type':'diesel_movements', 'entity_key':'diesel_movements:' + globalId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':globalId, 'kind':'receipt', 'liters':10.0, 'unit_price':100,
+        'amount':1000, 'cashbox_id':2, 'date':'2026-11-08T09:00:00.000',
+        '_global_refs':{'cashbox_id':{'table':'cashboxes','global_id':'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'}},
+      },
+    }]);
+    expect((result['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM diesel_movements').single['n'],0);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],5000);
+  });
+
+  test('sync posts expense, reduces its cashbox, and creates one balanced journal', () async {
+    prepareExpenseAndTransferFixture();
+    const globalId = '55555555-5555-4555-8555-555555555555';
+    final event = {
+      'event_id':'55555555-5555-4555-8555-555555555556',
+      'entity_type':'expenses', 'entity_key':'expenses:' + globalId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':globalId, 'category':'fuel', 'title':'Diesel generator fuel',
+        'amount':750, 'date':'2026-11-08T10:00:00.000', 'status':'posted', 'notes':'test expense',
+        'payment_method_id':1, 'cashbox_id':1,
+        '_global_refs':{
+          'payment_method_id':{'table':'payment_methods','global_id':'11111111-1111-4111-8111-111111111111'},
+          'cashbox_id':{'table':'cashboxes','global_id':'22222222-2222-4222-8222-222222222222','name':'Cash','currency':'YER'},
+        },
+      },
+    };
+    final first = await postEvents(stationOneToken,[event]);
+    expect((first['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],4250);
+    expect(database.select('SELECT COUNT(*) AS n FROM expenses WHERE station_id=1').single['n'],1);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries WHERE reference_type=\'expense\'').single['n'],1);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['d'],750);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['c'],750);
+    final replay = await postEvents(stationOneToken,[event]);
+    expect((replay['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],4250);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'],1);
+  });
+
+  test('sync transfers cash between two cashboxes and supports opening transfer', () async {
+    prepareExpenseAndTransferFixture();
+    const transferId = '66666666-6666-4666-8666-666666666666';
+    final normal = {
+      'event_id':'66666666-6666-4666-8666-666666666667',
+      'entity_type':'cashbox_transfers', 'entity_key':'cashbox_transfers:' + transferId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':transferId, 'from_cashbox_id':1, 'to_cashbox_id':2,
+        'amount':1200, 'date':'2026-11-08T11:00:00.000', 'is_opening_transfer':false, 'reference':'bank deposit',
+        '_global_refs':{
+          'from_cashbox_id':{'table':'cashboxes','global_id':'22222222-2222-4222-8222-222222222222','name':'Cash','currency':'YER'},
+          'to_cashbox_id':{'table':'cashboxes','global_id':'33333333-3333-4333-8333-333333333333','name':'Bank','currency':'YER'},
+        },
+      },
+    };
+    final first = await postEvents(stationOneToken,[normal]);
+    expect((first['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],3800);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],3200);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['d'],1200);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['c'],1200);
+    final replay = await postEvents(stationOneToken,[normal]);
+    expect((replay['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT COUNT(*) AS n FROM cashbox_transfers').single['n'],1);
+    const openingId = '77777777-7777-4777-8777-777777777777';
+    final opening = await postEvents(stationOneToken,[{
+      'event_id':'77777777-7777-4777-8777-777777777778',
+      'entity_type':'cashbox_transfers', 'entity_key':'cashbox_transfers:' + openingId,
+      'operation':'create', 'base_version':0,
+      'payload':{
+        '_global_id':openingId, 'from_cashbox_id':null, 'to_cashbox_id':2,
+        'amount':500, 'date':'2026-11-08T12:00:00.000', 'is_opening_transfer':true,
+        '_global_refs':{'to_cashbox_id':{'table':'cashboxes','global_id':'33333333-3333-4333-8333-333333333333','name':'Bank','currency':'YER'}},
+      },
+    }]);
+    expect((opening['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],3700);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['d'],1700);
+    expect(database.select('SELECT SUM(debit) AS d,SUM(credit) AS c FROM journal_lines').single['c'],1700);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'],2);
+  });
+
+  test('sync rejects expenses and transfers referencing another station', () async {
+    prepareExpenseAndTransferFixture();
+    const globalId = '88888888-8888-4888-8888-888888888888';
+    final expense = await postEvents(stationOneToken,[{
+      'event_id':'88888888-8888-4888-8888-888888888889',
+      'entity_type':'expenses', 'entity_key':'expenses:' + globalId, 'operation':'create', 'base_version':0,
+      'payload':{'_global_id':globalId,'category':'fuel','title':'Fuel','amount':100,'date':'2026-11-08T10:00:00.000','payment_method_id':1,'cashbox_id':3,
+        '_global_refs':{'payment_method_id':{'table':'payment_methods','global_id':'11111111-1111-4111-8111-111111111111'},'cashbox_id':{'table':'cashboxes','global_id':'44444444-4444-4444-8444-444444444444'}}},
+    }]);
+    expect((expense['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT COUNT(*) AS n FROM expenses').single['n'],0);
+    const transferGlobal = '99999999-9999-4999-8999-999999999999';
+    final transfer = await postEvents(stationOneToken,[{
+      'event_id':'99999999-9999-4999-8999-999999999998',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:' + transferGlobal,'operation':'create','base_version':0,
+      'payload':{'_global_id':transferGlobal,'from_cashbox_id':1,'to_cashbox_id':3,'amount':100,'date':'2026-11-08T10:00:00.000','is_opening_transfer':false,
+        '_global_refs':{'from_cashbox_id':{'table':'cashboxes','global_id':'22222222-2222-4222-8222-222222222222'},'to_cashbox_id':{'table':'cashboxes','global_id':'44444444-4444-4444-8444-444444444444'}}},
+    }]);
+    expect((transfer['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=3').single['current_balance'],7000);
+    expect(database.select('SELECT COUNT(*) AS n FROM cashbox_transfers').single['n'],0);
+  });
+
+
+  test('sync cancellation refunds expense cashbox and posts one balanced reversal', () async {
+    prepareExpenseAndTransferFixture();
+    const globalId = 'aaaaaaaa-1111-4111-8111-111111111111';
+    final created = await postEvents(stationOneToken,[{
+      'event_id':'aaaaaaaa-1111-4111-8111-111111111112',
+      'entity_type':'expenses','entity_key':'expenses:$globalId','operation':'create','base_version':0,
+      'payload':{
+        '_global_id':globalId,'category':'fuel','title':'Fuel','amount':750,
+        'date':'2026-11-08T10:00:00.000','status':'posted','payment_method_id':1,'cashbox_id':1,
+        '_global_refs':{
+          'payment_method_id':{'table':'payment_methods','global_id':'11111111-1111-4111-8111-111111111111'},
+          'cashbox_id':{'table':'cashboxes','global_id':'22222222-2222-4222-8222-222222222222'},
+        },
+      },
+    }]);
+    expect((created['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],4250);
+    final cancelled = await postEvents(stationOneToken,[{
+      'event_id':'aaaaaaaa-1111-4111-8111-111111111113',
+      'entity_type':'expenses','entity_key':'expenses:$globalId','operation':'update','base_version':1,
+      'payload':{
+        '_global_id':globalId,'status':'cancelled','cancelled_at':'2026-11-08T12:00:00.000',
+        'cancel_reason':'إدخال بالخطأ',
+      },
+    }]);
+    expect((cancelled['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+    expect(database.select('SELECT status FROM expenses').single['status'],'cancelled');
+    expect(database.select("SELECT COUNT(*) n FROM journal_entries WHERE reference_type='reversal'").single['n'],1);
+    final totals=database.select('SELECT SUM(debit) d,SUM(credit) c FROM journal_lines').single;
+    expect(totals['d'],1500);
+    expect(totals['c'],1500);
+    final repeated=await postEvents(stationOneToken,[{
+      'event_id':'aaaaaaaa-1111-4111-8111-111111111114',
+      'entity_type':'expenses','entity_key':'expenses:$globalId','operation':'update','base_version':2,
+      'payload':{
+        '_global_id':globalId,'status':'cancelled','cancelled_at':'2026-11-08T12:01:00.000',
+        'cancel_reason':'إلغاء مكرر',
+      },
+    }]);
+    expect((repeated['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+    expect(database.select("SELECT COUNT(*) n FROM journal_entries WHERE reference_type='reversal'").single['n'],1);
+  });
+
+  test('sync cancellation reverses normal and opening cashbox transfers exactly once', () async {
+    prepareExpenseAndTransferFixture();
+    const globalId = 'bbbbbbbb-2222-4222-8222-222222222222';
+    final created = await postEvents(stationOneToken,[{
+      'event_id':'bbbbbbbb-2222-4222-8222-222222222223',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:$globalId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':globalId,'from_cashbox_id':1,'to_cashbox_id':2,'amount':1200,
+        'date':'2026-11-08T11:00:00.000','is_opening_transfer':false,
+        '_global_refs':{
+          'from_cashbox_id':{'table':'cashboxes','global_id':'22222222-2222-4222-8222-222222222222'},
+          'to_cashbox_id':{'table':'cashboxes','global_id':'33333333-3333-4333-8333-333333333333'},
+        },
+      },
+    }]);
+    expect((created['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],3800);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],3200);
+    final cancelled = await postEvents(stationOneToken,[{
+      'event_id':'bbbbbbbb-2222-4222-8222-222222222224',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:$globalId',
+      'operation':'update','base_version':1,
+      'payload':{
+        '_global_id':globalId,'status':'cancelled','cancelled_at':'2026-11-08T13:00:00.000',
+        'cancel_reason':'تحويل غير مقصود',
+      },
+    }]);
+    expect((cancelled['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],2000);
+    expect(database.select('SELECT status FROM cashbox_transfers').single['status'],'cancelled');
+    expect(database.select("SELECT COUNT(*) n FROM journal_entries WHERE reference_type='reversal'").single['n'],1);
+    final totals=database.select('SELECT SUM(debit) d,SUM(credit) c FROM journal_lines').single;
+    expect(totals['d'],2400);
+    expect(totals['c'],2400);
+    final repeated=await postEvents(stationOneToken,[{
+      'event_id':'bbbbbbbb-2222-4222-8222-222222222225',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:$globalId',
+      'operation':'update','base_version':2,
+      'payload':{
+        '_global_id':globalId,'status':'cancelled','cancelled_at':'2026-11-08T13:01:00.000',
+        'cancel_reason':'إلغاء مكرر',
+      },
+    }]);
+    expect((repeated['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],2000);
+    expect(database.select("SELECT COUNT(*) n FROM journal_entries WHERE reference_type='reversal'").single['n'],1);
+  });
+
+
+  test('sync cancellation reverses an opening cashbox transfer against opening equity', () async {
+    prepareExpenseAndTransferFixture();
+    const globalId = 'cccccccc-3333-4333-8333-333333333333';
+    final created = await postEvents(stationOneToken,[{
+      'event_id':'cccccccc-3333-4333-8333-333333333334',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:$globalId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':globalId,'from_cashbox_id':null,'to_cashbox_id':2,'amount':500,
+        'date':'2026-11-08T11:00:00.000','is_opening_transfer':true,
+        '_global_refs':{
+          'to_cashbox_id':{'table':'cashboxes','global_id':'33333333-3333-4333-8333-333333333333'},
+        },
+      },
+    }]);
+    expect((created['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],2500);
+    final cancelled = await postEvents(stationOneToken,[{
+      'event_id':'cccccccc-3333-4333-8333-333333333335',
+      'entity_type':'cashbox_transfers','entity_key':'cashbox_transfers:$globalId',
+      'operation':'update','base_version':1,
+      'payload':{
+        '_global_id':globalId,'status':'cancelled','cancelled_at':'2026-11-08T13:00:00.000',
+        'cancel_reason':'تصحيح الرصيد الافتتاحي',
+      },
+    }]);
+    expect((cancelled['results'] as List).single['status'],'accepted');
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=2').single['current_balance'],2000);
+    final lines=database.select('SELECT jl.debit,jl.credit,a.code FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id ORDER BY jl.id');
+    expect(lines.where((line)=>line['code']=='3000').length,2);
+    final totals=database.select('SELECT SUM(debit) d,SUM(credit) c FROM journal_lines').single;
+    expect(totals['d'],1000);
+    expect(totals['c'],1000);
+  });
+
+
+  test('P3a standalone worker accrual posts one server-owned balanced journal with replay and isolation', () async {
+    preparePartyDebtFixture();
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('5000','Worker Expense','expense')");
+    const rootId = '11111111-aaaa-4aaa-8aaa-111111111111';
+    final base = <String,dynamic>{
+      'event_id': '22222222-aaaa-4aaa-8aaa-222222222222',
+      'entity_type': 'worker_transactions',
+      'entity_key': 'worker_transactions:$rootId',
+      'operation': 'create',
+      'base_version': 0,
+      'payload': {
+        '_global_id': rootId, 'worker_id': 1, 'type': 'accrual',
+        'reference_type': 'standalone_accrual', 'reference_id': null,
+        'amount': 701, 'date': '2026-11-10T10:00:00.000',
+        'hours': 1.0, 'rate_snapshot': 701, 'percentage_snapshot': 0,
+        'notes': 'P3a accrual', 'cashbox_id': null,
+        '_global_refs': {
+          'worker_id': {
+            'table':'workers',
+            'global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          },
+        },
+        '_derived_global_ids': {
+          'journal_entries': ['33333333-aaaa-4aaa-8aaa-333333333333'],
+          'journal_lines': [
+            '44444444-aaaa-4aaa-8aaa-444444444444',
+            '55555555-aaaa-4aaa-8aaa-555555555555',
+          ],
+          'cashboxes': <String>[],
+        },
+      },
+    };
+    final missingIdentity = jsonDecode(jsonEncode(base)) as Map<String,dynamic>;
+    (missingIdentity['payload']['_derived_global_ids']['journal_lines'] as List).removeLast();
+    final failure = await postEvents(stationOneToken,[missingIdentity]);
+    expect((failure['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+    expect(database.select('SELECT id FROM journal_entries'),isEmpty);
+    expect(database.select("SELECT current_balance FROM cashboxes WHERE id=1").single['current_balance'],777);
+
+    final accepted = await postEvents(stationOneToken,[base]);
+    expect((accepted['results'] as List).single['status'],'accepted');
+    final row = database.select("SELECT * FROM worker_transactions WHERE type='accrual'").single;
+    expect(row['amount'],701);
+    expect(row['worker_id'],1);
+    final entries = database.select("SELECT * FROM journal_entries WHERE reference_type='worker' AND reference_id=?", [row['id']]);
+    expect(entries,hasLength(1));
+    final lines = database.select('SELECT debit,credit FROM journal_lines WHERE journal_entry_id=?',[entries.single['id']]);
+    expect(lines,hasLength(2));
+    expect(lines.fold<int>(0,(sum,line)=>sum+(line['debit'] as num).toInt()),701);
+    expect(lines.fold<int>(0,(sum,line)=>sum+(line['credit'] as num).toInt()),701);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+
+    final origin = await getInbox(stationOneToken,device:'device-a');
+    final projections = (origin['events'] as List).cast<Map>();
+    expect(projections.map((e)=>e['entity_type']).toList(),
+      ['journal_entries','journal_lines','journal_lines']);
+    final peer = await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
+      ['worker_transactions','journal_entries','journal_lines','journal_lines']);
+
+    final repeat = await postEvents(stationOneToken,[base]);
+    expect((repeat['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(1));
+
+    final reuse = jsonDecode(jsonEncode(base)) as Map<String,dynamic>;
+    reuse['event_id'] = '66666666-aaaa-4aaa-8aaa-666666666666';
+    final stale = await postEvents(stationOneToken,[reuse]);
+    expect((stale['results'] as List).single['status'],'conflict');
+    expect(database.select('SELECT id FROM worker_transactions'),hasLength(1));
+
+    final foreign = jsonDecode(jsonEncode(base)) as Map<String,dynamic>;
+    foreign['event_id'] = '77777777-aaaa-4aaa-8aaa-777777777777';
+    foreign['entity_key'] = 'worker_transactions:88888888-aaaa-4aaa-8aaa-888888888888';
+    foreign['payload']['_global_id'] = '88888888-aaaa-4aaa-8aaa-888888888888';
+    final otherStation = await postEvents(stationTwoToken,[foreign]);
+    expect((otherStation['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(1));
+
+    final wrongType = jsonDecode(jsonEncode(base)) as Map<String,dynamic>;
+    wrongType['event_id'] = '99999999-aaaa-4aaa-8aaa-999999999999';
+    wrongType['entity_key'] = 'worker_transactions:aaaaaaaa-bbbb-4bbb-8bbb-aaaaaaaaaaaa';
+    wrongType['payload']['_global_id'] = 'aaaaaaaa-bbbb-4bbb-8bbb-aaaaaaaaaaaa';
+    wrongType['payload']['reference_type'] = null; // payroll must not enter P3a
+    final unsupported = await postEvents(stationOneToken,[wrongType]);
+    expect((unsupported['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),hasLength(1));
+  });
+
+
+  test('P3b standalone partner share creates balanced equity journal and preserves station privacy', () async {
+    preparePartyDebtFixture();
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('3200','Partner Equity','equity')");
+    const id = '12121212-1212-4212-8212-121212121212';
+    final evt = <String,dynamic>{
+      'event_id':'13131313-1313-4313-8313-131313131313',
+      'entity_type':'partner_transactions',
+      'entity_key':'partner_transactions:$id',
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':id,
+        'partner_id':1,
+        'type':'share_accrual',
+        'reference_type':'standalone_share',
+        'reference_id':null,
+        'amount':1200,
+        'ownership_snapshot':40,
+        'date':'2026-11-10T10:00:00.000',
+        '_global_refs':{
+          'partner_id':{'table':'partners','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+        '_derived_global_ids':{
+          'journal_entries':['14141414-1414-4414-8414-141414141414'],
+          'journal_lines':['15151515-1515-4515-8515-151515151515','16161616-1616-4616-8616-161616161616'],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+    final broken = jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    (broken['payload']['_derived_global_ids']['journal_lines'] as List).removeLast();
+    final rejected = await postEvents(stationOneToken,[broken]);
+    expect((rejected['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT * FROM partner_transactions'),isEmpty);
+    expect(database.select('SELECT * FROM journal_entries'),isEmpty);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+
+    final result=await postEvents(stationOneToken,[evt]);
+    expect((result['results'] as List).single['status'],'accepted');
+    final rows=database.select("SELECT * FROM partner_transactions WHERE reference_type='standalone_share'");
+    expect(rows,hasLength(1));
+    expect(rows.single['amount'],1200);
+    final journals=database.select("SELECT * FROM journal_entries WHERE reference_type='partner' AND reference_id=?",[rows.single['id']]);
+    expect(journals,hasLength(1));
+    final lines=database.select('SELECT debit,credit FROM journal_lines WHERE journal_entry_id=?',[journals.single['id']]);
+    expect(lines,hasLength(2));
+    expect(lines.fold<int>(0,(n,r)=>n+(r['debit'] as num).toInt()),1200);
+    expect(lines.fold<int>(0,(n,r)=>n+(r['credit'] as num).toInt()),1200);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+    final origin=await getInbox(stationOneToken,device:'device-a');
+    expect((origin['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),['journal_entries','journal_lines','journal_lines']);
+    final peer=await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),['partner_transactions','journal_entries','journal_lines','journal_lines']);
+
+    final replay=await postEvents(stationOneToken,[evt]);
+    expect((replay['results'] as List).single['status'],'duplicate');
+    expect(database.select('SELECT * FROM journal_entries'),hasLength(1));
+    final stale=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    stale['event_id']='17171717-1717-4717-8717-171717171717';
+    final conflict=await postEvents(stationOneToken,[stale]);
+    expect((conflict['results'] as List).single['status'],'conflict');
+
+    final foreign=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    foreign['event_id']='18181818-1818-4818-8818-181818181818';
+    foreign['entity_key']='partner_transactions:19191919-1919-4919-8919-191919191919';
+    foreign['payload']['_global_id']='19191919-1919-4919-8919-191919191919';
+    final foreignResult=await postEvents(stationTwoToken,[foreign]);
+    expect((foreignResult['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT * FROM journal_entries'),hasLength(1));
+
+    final periodic=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    periodic['event_id']='20202020-2020-4020-8020-202020202020';
+    periodic['entity_key']='partner_transactions:21212121-2121-4121-8121-212121212121';
+    periodic['payload']['_global_id']='21212121-2121-4121-8121-212121212121';
+    periodic['payload']['reference_type']='profit_distribution';
+    final noPeriodic=await postEvents(stationOneToken,[periodic]);
+    expect((noPeriodic['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT * FROM partner_transactions'),hasLength(1));
+  });
+
+
+  test('P3c monthly salary command uses the server fixed salary and one month key', () async {
+    preparePartyDebtFixture();
+    database.execute("ALTER TABLE workers ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'fixed'");
+    database.execute("ALTER TABLE workers ADD COLUMN fixed_salary INTEGER NOT NULL DEFAULT 0");
+    database.execute("UPDATE workers SET fixed_salary=1900 WHERE id=1");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('5000','Worker expense','expense')");
+    const gid='22222222-3333-4333-8333-222222222222';
+    final event=<String,dynamic>{
+      'event_id':'22222222-4444-4444-8444-222222222222',
+      'entity_type':'worker_transactions',
+      'entity_key':'worker_transactions:$gid',
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':gid,'worker_id':1,'type':'worker_entitlement',
+        'reference_type':'monthly_salary','reference_id':202611,
+        'date':'2026-11-10T10:00:00.000','amount':1900,
+        'rate_snapshot':1900,
+        '_global_refs':{
+          'worker_id':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+        },
+        '_derived_global_ids':{
+          'journal_entries':['22222222-5555-4555-8555-222222222222'],
+          'journal_lines':[
+            '22222222-6666-4666-8666-222222222222',
+            '22222222-7777-4777-8777-222222222222',
+          ],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+    final altered=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    altered['payload']['amount']=2000;
+    expect((await postEvents(stationOneToken,[altered]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT * FROM worker_transactions'),isEmpty);
+    final received=await postEvents(stationOneToken,[event]);
+    expect((received['results'] as List).single['status'],'accepted');
+    final rows=database.select("SELECT * FROM worker_transactions WHERE reference_type='monthly_salary'");
+    expect(rows,hasLength(1));
+    expect(rows.single['reference_id'],202611);
+    final journal=database.select("SELECT id FROM journal_entries WHERE reference_type='worker' AND reference_id=?",[rows.single['id']]);
+    expect(journal,hasLength(1));
+    final lines=database.select("SELECT debit,credit FROM journal_lines WHERE journal_entry_id=?",[journal.single['id']]);
+    expect(lines.length,2);
+    expect(lines.fold<int>(0,(v,r)=>v+(r['debit'] as num).toInt()),1900);
+    expect(lines.fold<int>(0,(v,r)=>v+(r['credit'] as num).toInt()),1900);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'duplicate');
+    final otherMonthEvent=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    otherMonthEvent['event_id']='22222222-8888-4888-8888-222222222222';
+    otherMonthEvent['entity_key']='worker_transactions:22222222-9999-4999-8999-222222222222';
+    otherMonthEvent['payload']['_global_id']='22222222-9999-4999-8999-222222222222';
+    expect((await postEvents(stationOneToken,[otherMonthEvent]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT * FROM worker_transactions'),hasLength(1));
+    final foreign=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    foreign['event_id']='22222222-aaaa-4aaa-8aaa-222222222222';
+    foreign['entity_key']='worker_transactions:22222222-bbbb-4bbb-8bbb-222222222222';
+    foreign['payload']['_global_id']='22222222-bbbb-4bbb-8bbb-222222222222';
+    expect((await postEvents(stationTwoToken,[foreign]))['results'].single['status'],'rejected');
+    final origin=await getInbox(stationOneToken,device:'device-a');
+    expect((origin['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),
+      ['journal_entries','journal_lines','journal_lines']);
+    final peer=await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),
+      ['worker_transactions','journal_entries','journal_lines','journal_lines']);
+  });
+
+
+  test('P3c fixed salary batch is all-or-nothing across two workers and publishes every effect', () async {
+    preparePartyDebtFixture();
+    database.execute("ALTER TABLE workers ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'fixed'");
+    database.execute("ALTER TABLE workers ADD COLUMN fixed_salary INTEGER NOT NULL DEFAULT 0");
+    database.execute("UPDATE workers SET fixed_salary=1100 WHERE id=1");
+
+    database.execute("INSERT INTO workers(id,station_id,name,active,pay_type) VALUES(3,1,'Worker C',1,'fixed')");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'workers','33333333-aaaa-4aaa-8aaa-333333333333',3,'2026-11-08T00:00:00Z')");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('5000','Worker Expense','expense')");
+    const firstId = '33333333-bbbb-4bbb-8bbb-333333333333';
+    const secondId = '33333333-cccc-4ccc-8ccc-333333333333';
+    final evt = <String,dynamic>{
+      'event_id':'33333333-dddd-4ddd-8ddd-333333333333',
+      'entity_type':'worker_transactions',
+      'entity_key':'worker_transactions:$firstId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':firstId,'type':'accrual','reference_type':'fixed_salary_batch',
+        'reference_id':null,'worker_id':1,'amount':1100,
+        'date':'2026-12-05T23:59:59.000',
+        '_global_refs':{
+          'worker_id':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+        },
+        '_p3c_batch':{
+          'period_key':'P3C-NOV-2026','period_label':'November 2026',
+          'period_from':'2026-11-01','period_end_exclusive':'2026-12-01',
+          'members':[
+            {
+              'global_id':firstId,
+              'worker_ref':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+              'amount':1100,
+            },
+            {
+              'global_id':secondId,
+              'worker_ref':{'table':'workers','global_id':'33333333-aaaa-4aaa-8aaa-333333333333'},
+              'amount':2200,
+            },
+          ],
+        },
+        '_derived_global_ids':{
+          'journal_entries':[
+            '33333333-1111-4111-8111-333333333333',
+            '33333333-2222-4222-8222-333333333333',
+          ],
+          'journal_lines':[
+            '33333333-4444-4444-8444-333333333333',
+            '33333333-5555-4555-8555-333333333333',
+            '33333333-6666-4666-8666-333333333333',
+            '33333333-7777-4777-8777-333333333333',
+          ],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+
+    final invalid=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    invalid['payload']['_p3c_batch']['members'][1]['amount']=-10;
+    final failed=await postEvents(stationOneToken,[invalid]);
+    expect((failed['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+    expect(database.select('SELECT id FROM journal_entries'),isEmpty);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+
+    final brokenManifest=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    (brokenManifest['payload']['_derived_global_ids']['journal_lines'] as List).removeLast();
+    final broken=await postEvents(stationOneToken,[brokenManifest]);
+    expect((broken['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+
+    // Fail only after worker A has posted, during worker B's journal lines.
+    // The event SAVEPOINT must remove A and B and their journals together.
+    database.execute("""CREATE TRIGGER p3c_fail_second_worker_line
+      BEFORE INSERT ON journal_lines WHEN NEW.worker_id=3
+      BEGIN SELECT RAISE(ABORT,'forced second worker GL failure'); END""");
+    final failedJournal = await postEvents(stationOneToken,[evt]);
+    expect((failedJournal['results'] as List).single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+    expect(database.select('SELECT id FROM journal_entries'),isEmpty);
+    expect(database.select('SELECT id FROM journal_lines'),isEmpty);
+    database.execute('DROP TRIGGER p3c_fail_second_worker_line');
+
+    final good=await postEvents(stationOneToken,[evt]);
+    expect((good['results'] as List).single['status'],'accepted');
+    expect(database.select("SELECT id FROM worker_transactions WHERE reference_type='fixed_salary_batch'"),hasLength(2));
+    expect(database.select("SELECT id FROM journal_entries WHERE reference_type='worker'"),hasLength(2));
+    final totals=database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
+    expect(totals['debit'],3300);
+    expect(totals['credit'],3300);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+
+    final origin=await getInbox(stationOneToken,device:'device-a');
+    expect((origin['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),
+      ['worker_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    final peer=await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((x)=>(x as Map)['entity_type']).toList(),
+      ['worker_transactions','worker_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    // The second party row is new to the receiving device even though its
+    // UUID was already linked to the server-side transaction.
+    expect((peer['events'] as List)[1]['operation'],'create');
+    expect((await postEvents(stationOneToken,[evt]))['results'].single['status'],'duplicate');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
+    final replayNewId=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    replayNewId['event_id']='33333333-8888-4888-8888-333333333333';
+    expect((await postEvents(stationOneToken,[replayNewId]))['results'].single['status'],'conflict');
+
+    // The standalone monthly UI must not accrue another salary for worker A.
+    final monthly=<String,dynamic>{
+      'event_id':'35353535-aaaa-4aaa-8aaa-353535353535',
+      'entity_type':'worker_transactions',
+      'entity_key':'worker_transactions:35353535-bbbb-4bbb-8bbb-353535353535',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':'35353535-bbbb-4bbb-8bbb-353535353535',
+        'type':'worker_entitlement','reference_type':'monthly_salary',
+        'reference_id':202611,'amount':1100,'rate_snapshot':1100,
+        'date':'2026-11-20T12:00:00.000',
+        '_global_refs':{
+          'worker_id':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+        },
+        '_derived_global_ids':{
+          'journal_entries':['35353535-1111-4111-8111-353535353535'],
+          'journal_lines':[
+            '35353535-2222-4222-8222-353535353535',
+            '35353535-3333-4333-8333-353535353535',
+          ],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+    expect((await postEvents(stationOneToken,[monthly]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
+
+    // A new UUID and a renamed batch key must not post the same salary month.
+    final renamed=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    renamed['event_id']='34343434-aaaa-4aaa-8aaa-343434343434';
+    renamed['entity_key']='worker_transactions:34343434-bbbb-4bbb-8bbb-343434343434';
+    renamed['payload']['_global_id']='34343434-bbbb-4bbb-8bbb-343434343434';
+    renamed['payload']['_p3c_batch']['period_key']='ANOTHER-NOVEMBER-2026';
+    renamed['payload']['_p3c_batch']['members'][0]['global_id']='34343434-bbbb-4bbb-8bbb-343434343434';
+    renamed['payload']['_p3c_batch']['members'][1]['global_id']='34343434-cccc-4ccc-8ccc-343434343434';
+    renamed['payload']['_derived_global_ids']={
+      'journal_entries':[
+        '34343434-1111-4111-8111-343434343434',
+        '34343434-2222-4222-8222-343434343434',
+      ],
+      'journal_lines':[
+        '34343434-3333-4333-8333-343434343434',
+        '34343434-4444-4444-8444-343434343434',
+        '34343434-5555-4555-8555-343434343434',
+        '34343434-6666-4666-8666-343434343434',
+      ],
+      'cashboxes':[],
+    };
+    expect((await postEvents(stationOneToken,[renamed]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
+
+    final foreign=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    foreign['event_id']='33333333-9999-4999-8999-333333333333';
+    foreign['entity_key']='worker_transactions:33333333-abab-4bab-8bab-333333333333';
+    foreign['payload']['_global_id']='33333333-abab-4bab-8bab-333333333333';
+    foreign['payload']['_p3c_batch']['members'][0]['global_id']='33333333-abab-4bab-8bab-333333333333';
+    expect((await postEvents(stationTwoToken,[foreign]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),hasLength(2));
+  });
+
+
+  test('P3c multi-worker monthly payroll is one transaction with GL rollback and peer effects', () async {
+    preparePartyDebtFixture();
+    database.execute("ALTER TABLE workers ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'fixed'");
+    database.execute("ALTER TABLE workers ADD COLUMN fixed_salary INTEGER NOT NULL DEFAULT 0");
+    database.execute("UPDATE workers SET fixed_salary=1100 WHERE id=1");
+    database.execute("INSERT INTO workers(id,station_id,name,active,pay_type,fixed_salary) VALUES(3,1,'Monthly Worker B',1,'fixed',2200)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'workers','41414141-aaaa-4aaa-8aaa-414141414141',3,'2026-11-08T00:00:00Z')");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('5000','Worker Expense','expense')");
+    const firstId='41414141-bbbb-4bbb-8bbb-414141414141';
+    const secondId='41414141-cccc-4ccc-8ccc-414141414141';
+    final event=<String,dynamic>{
+      'event_id':'41414141-dddd-4ddd-8ddd-414141414141',
+      'entity_type':'worker_transactions',
+      'entity_key':'worker_transactions:$firstId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':firstId,'type':'worker_entitlement',
+        'reference_type':'monthly_salary','reference_id':202611,
+        'date':'2026-11-10T10:00:00.000','amount':1100,'rate_snapshot':1100,
+        '_global_refs':{'worker_id':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'}},
+        '_p3c_monthly_batch':{
+          'month_key':202611,
+          'members':[
+            {'global_id':firstId,
+             'worker_ref':{'table':'workers','global_id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'},
+             'amount':1100,'rate_snapshot':1100},
+            {'global_id':secondId,
+             'worker_ref':{'table':'workers','global_id':'41414141-aaaa-4aaa-8aaa-414141414141'},
+             'amount':2200,'rate_snapshot':2200},
+          ],
+        },
+        '_derived_global_ids':{
+          'journal_entries':[
+            '41414141-1111-4111-8111-414141414141',
+            '41414141-2222-4222-8222-414141414141',
+          ],
+          'journal_lines':[
+            '41414141-3333-4333-8333-414141414141',
+            '41414141-4444-4444-8444-414141414141',
+            '41414141-5555-4555-8555-414141414141',
+            '41414141-6666-4666-8666-414141414141',
+          ],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+    final forged=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    forged['payload']['_p3c_monthly_batch']['members'][1]['amount']=2300;
+    expect((await postEvents(stationOneToken,[forged]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+
+    final invalid=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    invalid['payload']['_p3c_monthly_batch']=[];
+    expect((await postEvents(stationOneToken,[invalid]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+
+    database.execute("""CREATE TRIGGER p3c_monthly_fail_second
+      BEFORE INSERT ON journal_lines WHEN NEW.worker_id=3
+      BEGIN SELECT RAISE(ABORT,'forced second monthly journal failure'); END""");
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),isEmpty);
+    expect(database.select('SELECT id FROM journal_entries'),isEmpty);
+    expect(database.select('SELECT id FROM journal_lines'),isEmpty);
+    database.execute('DROP TRIGGER p3c_monthly_fail_second');
+
+    final posted=await postEvents(stationOneToken,[event]);
+    expect((posted['results'] as List).single['status'],'accepted');
+    expect(database.select("SELECT id FROM worker_transactions WHERE reference_type='monthly_salary'"),hasLength(2));
+    final journals=database.select("SELECT id FROM journal_entries WHERE reference_type='worker'");
+    expect(journals,hasLength(2));
+    final totals=database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
+    expect(totals['debit'],3300);
+    expect(totals['credit'],3300);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+    final source=await getInbox(stationOneToken,device:'device-a');
+    expect((source['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
+      ['worker_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    final peer=await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
+      ['worker_transactions','worker_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    // The second party row is new to the receiving device even though its
+    // UUID was already linked to the server-side transaction.
+    expect((peer['events'] as List)[1]['operation'],'create');
+
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'duplicate');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
+    final newRoot=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    newRoot['event_id']='42424242-aaaa-4aaa-8aaa-424242424242';
+    newRoot['entity_key']='worker_transactions:42424242-bbbb-4bbb-8bbb-424242424242';
+    newRoot['payload']['_global_id']='42424242-bbbb-4bbb-8bbb-424242424242';
+    newRoot['payload']['_p3c_monthly_batch']['members'][0]['global_id']='42424242-bbbb-4bbb-8bbb-424242424242';
+    expect((await postEvents(stationOneToken,[newRoot]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM journal_entries'),hasLength(2));
+    final foreign=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    foreign['event_id']='42424242-cccc-4ccc-8ccc-424242424242';
+    foreign['entity_key']='worker_transactions:42424242-dddd-4ddd-8ddd-424242424242';
+    foreign['payload']['_global_id']='42424242-dddd-4ddd-8ddd-424242424242';
+    foreign['payload']['_p3c_monthly_batch']['members'][0]['global_id']='42424242-dddd-4ddd-8ddd-424242424242';
+    expect((await postEvents(stationTwoToken,[foreign]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM worker_transactions'),hasLength(2));
+  });
+
+
+  test('P3d distributes server-computed period profit atomically across two partners', () async {
+    preparePartyDebtFixture();
+    database.execute("ALTER TABLE partners ADD COLUMN ownership_mode TEXT NOT NULL DEFAULT 'shares'");
+    database.execute("ALTER TABLE partners ADD COLUMN ownership_percentage REAL NOT NULL DEFAULT 0");
+    database.execute("ALTER TABLE partners ADD COLUMN shares_count REAL NOT NULL DEFAULT 1");
+    database.execute("INSERT INTO partners(id,station_id,name,active,shares_count) VALUES(3,1,'Partner C',1,2)");
+    database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,'partners','51515151-aaaa-4aaa-8aaa-515151515151',3,'2026-11-08T00:00:00Z')");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('3200','Partner equity','equity')");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('4000','Revenue','revenue')");
+    database.execute("CREATE TABLE irrigations(id INTEGER PRIMARY KEY,station_id INTEGER,status TEXT)");
+    database.execute("""INSERT INTO journal_entries
+      (station_id,date,reference_type,reference_id,description,status,created_by,created_at)
+      VALUES(1,'2026-11-15T10:00:00.000','manual',NULL,'Revenue','posted',11,'2026-11-15T10:00:00.000')""");
+    final revenueJournal=database.lastInsertRowId;
+    database.execute("INSERT INTO journal_lines(journal_entry_id,account_id,debit,credit) VALUES(?,?,0,1200)",[revenueJournal,database.select("SELECT id FROM accounts WHERE code='4000'").single['id']]);
+    const rootId='51515151-bbbb-4bbb-8bbb-515151515151';
+    const secondId='51515151-cccc-4ccc-8ccc-515151515151';
+    final periodRef=DateTime(2026,11,1).millisecondsSinceEpoch;
+    final event=<String,dynamic>{
+      'event_id':'51515151-dddd-4ddd-8ddd-515151515151',
+      'entity_type':'partner_transactions',
+      'entity_key':'partner_transactions:$rootId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':rootId,'partner_id':1,
+        'date':'2026-11-30T23:59:59.999999',
+        'type':'share_accrual','amount':400,
+        'ownership_snapshot':1,
+        'reference_type':'profit_distribution','reference_id':periodRef,
+        '_global_refs':{
+          'partner_id':{'table':'partners','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        },
+        '_p3d_distribution':{
+          'period_from':'2026-11-01',
+          'period_end_exclusive':'2026-12-01',
+          'members':[
+            {'global_id':rootId,
+             'partner_ref':{'table':'partners','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+             'type':'share_accrual','reference_type':'profit_distribution',
+             'original_global_id':null,'reference_id':periodRef,
+             'amount':400,'ownership_snapshot':1},
+            {'global_id':secondId,
+             'partner_ref':{'table':'partners','global_id':'51515151-aaaa-4aaa-8aaa-515151515151'},
+             'type':'share_accrual','reference_type':'profit_distribution',
+             'original_global_id':null,'reference_id':periodRef,
+             'amount':800,'ownership_snapshot':2},
+          ],
+        },
+        '_derived_global_ids':{
+          'journal_entries':[
+            '51515151-1111-4111-8111-515151515151',
+            '51515151-2222-4222-8222-515151515151',
+          ],
+          'journal_lines':[
+            '51515151-3333-4333-8333-515151515151',
+            '51515151-4444-4444-8444-515151515151',
+            '51515151-5555-4555-8555-515151515151',
+            '51515151-6666-4666-8666-515151515151',
+          ],
+          'cashboxes':<String>[],
+        },
+      },
+    };
+    final forged=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    forged['payload']['_p3d_distribution']['members'][1]['amount']=801;
+    expect((await postEvents(stationOneToken,[forged]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM partner_transactions'),isEmpty);
+
+    database.execute("""CREATE TRIGGER p3d_fail_second_partner
+      BEFORE INSERT ON journal_lines WHEN NEW.partner_id=3
+      BEGIN SELECT RAISE(ABORT,'second partner failure'); END""");
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM partner_transactions'),isEmpty);
+    expect(database.select("SELECT id FROM journal_entries WHERE reference_type='partner'"),isEmpty);
+    database.execute('DROP TRIGGER p3d_fail_second_partner');
+
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'accepted');
+    final movements=database.select("SELECT amount,reference_id FROM partner_transactions WHERE reference_type='profit_distribution' ORDER BY amount");
+    expect(movements,hasLength(2));
+    expect(movements.map((r)=>r['amount']).toList(),[400,800]);
+    expect(movements.every((r)=>r['reference_id']==periodRef),isTrue);
+    final total=database.select("""SELECT SUM(jl.debit) debit,SUM(jl.credit) credit
+      FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id
+      WHERE je.reference_type='partner'""").single;
+    expect(total['debit'],1200);
+    expect(total['credit'],1200);
+    expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'duplicate');
+    expect(database.select("SELECT id FROM journal_entries WHERE reference_type='partner'"),hasLength(2));
+    final source=await getInbox(stationOneToken,device:'device-a');
+    expect((source['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
+      ['partner_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    final peer=await getInbox(stationOneToken,device:'device-b');
+    expect((peer['events'] as List).map((e)=>(e as Map)['entity_type']).toList(),
+      ['partner_transactions','partner_transactions','journal_entries','journal_entries','journal_lines','journal_lines','journal_lines','journal_lines']);
+    // The second party row is new to the receiving device even though its
+    // UUID was already linked to the server-side transaction.
+    expect((peer['events'] as List)[1]['operation'],'create');
+    final duplicatePeriod=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    duplicatePeriod['event_id']='52525252-aaaa-4aaa-8aaa-525252525252';
+    duplicatePeriod['entity_key']='partner_transactions:52525252-bbbb-4bbb-8bbb-525252525252';
+    duplicatePeriod['payload']['_global_id']='52525252-bbbb-4bbb-8bbb-525252525252';
+    duplicatePeriod['payload']['_p3d_distribution']['members'][0]['global_id']='52525252-bbbb-4bbb-8bbb-525252525252';
+    expect((await postEvents(stationOneToken,[duplicatePeriod]))['results'].single['status'],'rejected');
+    expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='profit_distribution'"),hasLength(2));
+    final overlapping=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    overlapping['event_id']='53535353-aaaa-4aaa-8aaa-535353535353';
+    overlapping['entity_key']='partner_transactions:53535353-bbbb-4bbb-8bbb-535353535353';
+    overlapping['payload']['_global_id']='53535353-bbbb-4bbb-8bbb-535353535353';
+    overlapping['payload']['date']='2026-12-01T23:59:59.999999';
+    overlapping['payload']['_p3d_distribution']['period_end_exclusive']='2026-12-02';
+    overlapping['payload']['_p3d_distribution']['members'][0]['global_id']='53535353-bbbb-4bbb-8bbb-535353535353';
+    expect((await postEvents(stationOneToken,[overlapping]))['results'].single['status'],'rejected');
+    expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='profit_distribution'"),hasLength(2));
+
+    final foreign=jsonDecode(jsonEncode(event)) as Map<String,dynamic>;
+    foreign['event_id']='52525252-cccc-4ccc-8ccc-525252525252';
+    foreign['entity_key']='partner_transactions:52525252-dddd-4ddd-8ddd-525252525252';
+    foreign['payload']['_global_id']='52525252-dddd-4ddd-8ddd-525252525252';
+    foreign['payload']['_p3d_distribution']['members'][0]['global_id']='52525252-dddd-4ddd-8ddd-525252525252';
+    expect((await postEvents(stationTwoToken,[foreign]))['results'].single['status'],'rejected');
+  });
+
+
+  test('P3d preserves historic irrigation share while reversing only the excess', () async {
+    preparePartyDebtFixture();
+    database.execute("ALTER TABLE partners ADD COLUMN ownership_mode TEXT NOT NULL DEFAULT 'shares'");
+    database.execute("ALTER TABLE partners ADD COLUMN ownership_percentage REAL NOT NULL DEFAULT 0");
+    database.execute("ALTER TABLE partners ADD COLUMN shares_count REAL NOT NULL DEFAULT 1");
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('3200','Partner equity','equity')");
+    database.execute("CREATE TABLE irrigations(id INTEGER PRIMARY KEY,station_id INTEGER,status TEXT)");
+    database.execute("INSERT INTO irrigations(id,station_id,status) VALUES(10,1,'completed')");
+    database.execute("""INSERT INTO partner_transactions
+      (id,partner_id,station_id,date,type,amount,reference_type,reference_id,created_by)
+      VALUES(10,1,1,'2026-11-15T10:00:00.000','share_accrual',500,'irrigation_profit',10,11)""");
+    const originalId='61616161-aaaa-4aaa-8aaa-616161616161';
+    database.execute("""INSERT INTO sync_entity_links
+      (station_id,entity_type,global_id,local_id,created_at)
+      VALUES(1,'partner_transactions',?,10,'2026-11-08T00:00:00Z')""",[originalId]);
+    const rootId='61616161-bbbb-4bbb-8bbb-616161616161';
+    final evt=<String,dynamic>{
+      'event_id':'61616161-cccc-4ccc-8ccc-616161616161',
+      'entity_type':'partner_transactions',
+      'entity_key':'partner_transactions:$rootId',
+      'operation':'create','base_version':0,
+      'payload':{
+        '_global_id':rootId,'type':'share_adjustment','amount':500,
+        'reference_type':'partner_profit_adjustment','reference_id':10,
+        'date':'2026-11-30T23:59:59.999999',
+        '_global_refs':{
+          'partner_id':{'table':'partners','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+          'reference_id':{'table':'partner_transactions','global_id':originalId},
+        },
+        '_p3d_distribution':{
+          'period_from':'2026-11-01','period_end_exclusive':'2026-12-01',
+          'members':[{
+            'global_id':rootId,
+            'partner_ref':{'table':'partners','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+            'type':'share_adjustment',
+            'reference_type':'partner_profit_adjustment',
+            'original_global_id':originalId,
+            'reference_id':null,'amount':500,'ownership_snapshot':null,
+          }],
+        },
+        '_derived_global_ids':{
+          'journal_entries':['61616161-1111-4111-8111-616161616161'],
+          'journal_lines':[
+            '61616161-2222-4222-8222-616161616161',
+            '61616161-3333-4333-8333-616161616161',
+          ],
+          'cashboxes':[],
+        },
+      },
+    };
+    final forgedRef=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    forgedRef['payload']['_global_refs']['reference_id']['global_id']='71717171-aaaa-4aaa-8aaa-717171717171';
+    expect((await postEvents(stationOneToken,[forgedRef]))['results'].single['status'],'rejected');
+    expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='partner_profit_adjustment'"),isEmpty);
+    final truncated=jsonDecode(jsonEncode(evt)) as Map<String,dynamic>;
+    (truncated['payload']['_derived_global_ids']['journal_lines'] as List).removeLast();
+    expect((await postEvents(stationOneToken,[truncated]))['results'].single['status'],'rejected');
+    expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='partner_profit_adjustment'"),isEmpty);
+
+    expect((await postEvents(stationOneToken,[evt]))['results'].single['status'],'accepted');
+    expect(database.select("SELECT id,amount FROM partner_transactions WHERE reference_type='irrigation_profit'"),hasLength(1));
+    final adjustments=database.select("SELECT amount,reference_id FROM partner_transactions WHERE reference_type='partner_profit_adjustment'");
+    expect(adjustments,hasLength(1));
+    expect(adjustments.single['amount'],500);
+    expect(adjustments.single['reference_id'],10);
+    final journal=database.select("SELECT id FROM journal_entries WHERE reference_type='partner_profit_adjustment'");
+    expect(journal,hasLength(1));
+    final sums=database.select("SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines WHERE journal_entry_id=?",[journal.single['id']]).single;
+    expect(sums['debit'],500);
+    expect(sums['credit'],500);
+    expect(database.select("SELECT id FROM partner_transactions WHERE reference_type='profit_distribution'"),isEmpty);
+    expect((await postEvents(stationOneToken,[evt]))['results'].single['status'],'duplicate');
+    expect(database.select("SELECT id FROM journal_entries WHERE reference_type='partner_profit_adjustment'"),hasLength(1));
+  });
+
+}

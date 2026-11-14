@@ -1,6 +1,21 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+class ApiConnectionException implements Exception {
+  final String message;
+  const ApiConnectionException(this.message);
+  @override
+  String toString() => 'تعذر الوصول إلى الخادم: $message';
+}
+
+class ApiResponseException implements Exception {
+  final int statusCode;
+  final String body;
+  const ApiResponseException(this.statusCode, this.body);
+  @override
+  String toString() => 'فشل طلب الخادم ($statusCode): $body';
+}
+
 class ApiClient {
   final String baseUrl;
   String? token;
@@ -21,25 +36,29 @@ class ApiClient {
     final headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'X-Station-Id': '1',
       if (token != null) 'Authorization': 'Bearer $token',
     };
     final uri = Uri.parse('$baseUrl/api/v1$path');
-    final r = switch (method) {
-      'GET' => await client.get(uri, headers: headers),
-      'PUT' => await client.put(
-        uri,
-        headers: headers,
-        body: jsonEncode(body ?? {}),
-      ),
-      _ => await client.post(
-        uri,
-        headers: headers,
-        body: jsonEncode(body ?? {}),
-      ),
-    };
+    late final http.Response r;
+    try {
+      r = switch (method) {
+        'GET' => await client.get(uri, headers: headers),
+        'PUT' => await client.put(
+          uri,
+          headers: headers,
+          body: jsonEncode(body ?? {}),
+        ),
+        _ => await client.post(
+          uri,
+          headers: headers,
+          body: jsonEncode(body ?? {}),
+        ),
+      };
+    } catch (error) {
+      throw ApiConnectionException(error.toString());
+    }
     if (r.statusCode < 200 || r.statusCode >= 300) {
-      throw StateError('فشل الاتصال بالخادم: ${r.body}');
+      throw ApiResponseException(r.statusCode, r.body);
     }
     return r.body.isEmpty ? null : jsonDecode(r.body);
   }

@@ -18,14 +18,24 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Linux SQLite development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Install Flutter dependencies
         run: flutter pub get
+
+      - name: Install Shelf dependencies for two-client integration test
+        working-directory: server
+        run: dart pub get
 
       - name: Run Flutter tests and collect coverage
         run: flutter test --coverage

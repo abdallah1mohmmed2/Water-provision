@@ -2,7 +2,7 @@ name: Flutter Analyze
 
 on:
   push:
-    branches: [ "main", "master", "test/all-open-prs" ]
+    branches: [ "main", "master", "test/all-open-prs", "feature/firebase-station-foundation" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
@@ -12,9 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Install Linux SQLite development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+
       - uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
+          flutter-version: '3.47.9'
           
       - name: Install App dependencies (تجهيز التطبيق)
         run: flutter pub get

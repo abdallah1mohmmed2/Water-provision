@@ -1,3 +1,4 @@
+import '../domain/accounting/report_minute_pricing.dart';
 import '../core/app_clock.dart';
 import 'package:intl/intl.dart';
 import 'dart:typed_data';
@@ -30,7 +31,8 @@ class ReportService {
     'diesel_inventory': 'مخزون الديزل',
     'activity_overview': 'نظرة عامة على النشاط',
     'oil_status': 'حالة الزيت',
-    'debts': 'المديونيات',
+    'debts': 'مديونيات المستفيدين',
+    'all_party_debts': 'المديونيات — المستفيدون والعمال والشركاء',
     'beneficiary_list': 'قائمة المستفيدين',
     'revenue_comparison': 'مقارنة الإيرادات',
     'system_comparison': 'مقارنة منظومات الري',
@@ -64,6 +66,7 @@ class ReportService {
   'activity_overview': ['system_type', 'operations', 'minutes', 'total'],
   'oil_status': ['category', 'total'],
   'debts': ['id', 'name', 'balance'],
+  'all_party_debts': ['party_type', 'name', 'balance'],
   'beneficiary_list': ['name', 'phone', 'status'],
   'revenue_comparison': ['month', 'system_type', 'total'],
   'system_comparison': ['system_type', 'operations', 'minutes', 'total', 'diesel_cost'],
@@ -273,7 +276,7 @@ class ReportService {
           value: '${money(sumOf('net_amount'))} ريال',
           isBlueTint: true,
         ),
-      if (key == 'debts') ...[
+      if (key == 'debts' || key == 'all_party_debts') ...[
         StatBoxData(
           number: '10',
           title: 'إجمالي المديونية (عليه)',
@@ -388,7 +391,7 @@ class ReportService {
   }
 
   String _fieldName(String key) => {
-    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
+    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','party_type':'نوع الطرف','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
   }[key] ?? 'بيان';
 
   String _categoryName(String v) => {
@@ -435,6 +438,14 @@ class ReportService {
           dateOnly ? 'yyyy/MM/dd' : 'yyyy/MM/dd HH:mm',
         ).format(d);
       }
+    }
+    if (key == 'party_type') {
+      return switch ('$value') {
+        'beneficiary' => 'مستفيد',
+        'worker' => 'عامل',
+        'partner' => 'شريك',
+        _ => 'غير محدد',
+      };
     }
     if (key == 'cloud_status') {
       return '$value' == 'discounted' ? 'تم خصم الغيم' : 'لا يوجد خصم';
@@ -718,23 +729,59 @@ class ReportService {
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
     final totalCloudMinutes = data.fold<int>(0, (sum, row) =>
         sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
-    final totalAmount =
-        data.fold<int>(0, (sum, row) => sum + n(row['total_amount']));
+    final useSpecialMinuteRate =
+        settings['work_price_report_display_special_rate'] == 'true';
     final partialHour = settings['partial_hour'] != 'false';
-    int amountBeforeCloud(Map<String, Object?> row) {
-      if ('${row['system_type'] ?? ''}' != 'solar' || n(row['cloud_minutes']) <= 0) {
-        return n(row['total_amount']);
+    int hourlyRate(Map<String, Object?> row) => switch ('${row['system_type'] ?? ''}') {
+      'solar' => n(row['solar_hourly_rate_snapshot']),
+      'equivalent_hybrid' => n(row['third_type_hourly_rate_snapshot']),
+      _ => n(row['water_hourly_rate_snapshot']),
+    };
+    int reportAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+      final minutes = n(beforeCloud
+          ? row['minutes']
+          : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))))
+          .clamp(0, 100000000)
+          .toInt();
+      if (useSpecialMinuteRate && row['beneficiary_id'] != null) {
+        final savedMinuteRate = n(row['work_minute_rate_snapshot']);
+        final minuteRate = savedMinuteRate;
+        if (minuteRate > 0) {
+          return ReportMinutePricing.amountAtMinuteRate(minutes, minuteRate) +
+              n(row['diesel_amount']);
+        }
       }
-      final rate = n(row['solar_hourly_rate_snapshot']);
+      final rate = hourlyRate(row);
       if (rate <= 0) return n(row['total_amount']);
-      return AccountingCalculations.amountForMinutes(
-        n(row['minutes']), rate, 'up', partialHour,
+      final waterAmount = AccountingCalculations.amountForMinutes(
+        minutes, rate, 'up', partialHour,
       );
+      return waterAmount + n(row['diesel_amount']);
+    }
+    int amountAtHourlyRate(Map<String, Object?> row, {required bool beforeCloud}) {
+      final rate = hourlyRate(row);
+      if (rate <= 0) return n(row['total_amount']);
+      final minutes = n(beforeCloud
+          ? row['minutes']
+          : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))));
+      return AccountingCalculations.amountForMinutes(
+            minutes.clamp(0, 100000000).toInt(), rate, 'up', partialHour,
+          ) +
+          n(row['diesel_amount']);
     }
     final totalAmountBeforeCloud = data.fold<int>(
-      0, (sum, row) => sum + amountBeforeCloud(row),
+      0, (sum, row) => sum + reportAmount(row, beforeCloud: true),
     );
-    final cloudDeductionAmount = (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
+    final totalAmount = data.fold<int>(
+      0, (sum, row) => sum + reportAmount(row, beforeCloud: false),
+    );
+    final totalWorkBasis = data.fold<int>(
+      0, (sum, row) => sum + amountAtHourlyRate(row, beforeCloud: false),
+    );
+    final totalWorkDifference =
+        useSpecialMinuteRate ? totalAmount - totalWorkBasis : 0;
+    final cloudDeductionAmount =
+        (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
     final totalPaid =
         data.fold<int>(0, (sum, row) => sum + n(row['paid_amount']));
     final remaining = totalAmount - totalPaid;
@@ -751,7 +798,7 @@ class ReportService {
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
           '${invoiceNetMinutes(data[i])}',
-          money(data[i]['total_amount']),
+          money(reportAmount(data[i], beforeCloud: false)),
           money(data[i]['paid_amount']),
           display(data[i]['notes']),
         ],
@@ -802,17 +849,28 @@ class ReportService {
         ),
         StatBoxData(
           number: '7',
+          title: 'أساس العمل بسعر الساعة',
+          value: '${money(totalWorkBasis)} ريال',
+        ),
+        StatBoxData(
+          number: '8',
+          title: 'فائض فارق العمل (عرض)',
+          value: '${money(totalWorkDifference)} ريال',
+          isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '9',
           title: 'إجمالي المدفوع',
           value: '${money(totalPaid)} ريال',
         ),
         StatBoxData(
-          number: '8',
+          number: '10',
           title: 'المتبقي',
           value: '${money(remaining)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '9',
+          number: '11',
           title: 'الفترة',
           value: period,
         ),

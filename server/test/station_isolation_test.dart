@@ -1,0 +1,563 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:saqia_server/server.dart';
+import 'package:shelf/shelf.dart';
+import 'package:sqlite3/sqlite3.dart';
+import 'package:test/test.dart';
+
+void main() {
+  const secret = 'test-secret-with-more-than-thirty-two-bytes';
+  late Database database;
+  late Handler handler;
+
+  setUp(() {
+    database = sqlite3.openInMemory();
+    database.execute('''
+      CREATE TABLE app_users (
+        id INTEGER PRIMARY KEY,
+        station_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        username TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1
+      )
+    ''');
+    database.execute(
+      'CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)',
+    );
+    database.execute('CREATE TABLE station_settings (station_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
+    database.execute("INSERT INTO station_settings(station_id,key,value,updated_at) VALUES(7,'station_name','محطة أ','now'),(8,'station_name','محطة ب','now'),(7,'diesel_price_per_liter','100','now'),(8,'diesel_price_per_liter','900','now')");
+    database.execute("INSERT INTO settings(key,value,updated_at) VALUES('station_name','إعداد عام قديم','now')");
+    database.execute('''
+      CREATE TABLE beneficiaries (
+        id INTEGER PRIMARY KEY,
+        station_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        phone TEXT,
+        status TEXT NOT NULL DEFAULT 'active'
+      )
+    ''');
+    database.execute('''
+      CREATE TABLE pumps (
+        id INTEGER PRIMARY KEY,
+        station_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        system_type TEXT NOT NULL DEFAULT 'diesel'
+      )
+    ''');
+    database.execute('''
+      CREATE TABLE irrigations (
+        id INTEGER PRIMARY KEY,
+        station_id INTEGER NOT NULL,
+        pump_id INTEGER NOT NULL,
+        beneficiary_id INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        start_datetime TEXT NOT NULL,
+        override_reason TEXT
+      )
+    ''');
+    database.execute('''
+      CREATE TABLE queue_entries (
+        id INTEGER PRIMARY KEY,
+        beneficiary_id INTEGER NOT NULL,
+        position INTEGER NOT NULL DEFAULT 1,
+        cycle_number INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        postponed_count INTEGER NOT NULL DEFAULT 0,
+        skip_reason TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    database.execute('''
+      CREATE TABLE booking_requests (
+        id INTEGER PRIMARY KEY,
+        beneficiary_id INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        scheduled_date TEXT,
+        scheduled_start TEXT,
+        scheduled_end TEXT,
+        reviewed_by INTEGER,
+        reviewed_at TEXT,
+        cancel_reason TEXT
+      )
+    ''');
+    database.execute('''
+      CREATE TABLE irrigation_sessions (
+        id INTEGER PRIMARY KEY,
+        beneficiary_id INTEGER NOT NULL,
+        queue_entry_id INTEGER,
+        booking_id INTEGER,
+        pump_id INTEGER NOT NULL,
+        planned_start TEXT NOT NULL,
+        actual_start TEXT,
+        timer_started_at TEXT,
+        status TEXT NOT NULL,
+        postponement_reason TEXT
+      )
+    ''');
+    database.execute(
+      'INSERT INTO app_users(id,station_id,name,role,username,password_hash,active) VALUES(1,7,?,?,?,?,1)',
+      [
+        'مدير الاختبار',
+        'manager',
+        'manager-test',
+        sha256.convert(utf8.encode('correct-password')).toString(),
+      ],
+    );
+    database.execute(
+      "INSERT INTO beneficiaries(id,station_id,name) VALUES(10,7,'مستفيد أ'),(20,8,'مستفيد ب')",
+    );
+    database.execute("INSERT INTO beneficiaries(id,station_id,name,phone) VALUES(11,7,'مستفيد هاتف','777'),(21,8,'مستفيد هاتف آخر','888')");
+    database.execute('''CREATE TABLE beneficiary_auth_codes (
+      id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL, code_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL, used_at TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL)''');
+    database.execute('''CREATE TABLE beneficiary_sessions (
+      id INTEGER PRIMARY KEY, beneficiary_id INTEGER NOT NULL, token_hash TEXT UNIQUE NOT NULL,
+      expires_at TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT)''');
+    database.execute(
+      "INSERT INTO pumps(id,station_id,name) VALUES(100,7,'مضخة أ'),(200,8,'مضخة ب')",
+    );
+    database.execute("""
+      INSERT INTO irrigations(id,station_id,pump_id,beneficiary_id,status,start_datetime)
+      VALUES(1000,7,100,10,'posted','2026-11-01T08:00:00'),
+            (2000,8,200,20,'posted','2026-11-01T09:00:00')
+    """);
+    database.execute("""
+      INSERT INTO queue_entries(id,beneficiary_id,position,status,created_at,updated_at)
+      VALUES(3000,10,1,'waiting','2026-11-01','2026-11-01'),
+            (4000,20,1,'waiting','2026-11-01','2026-11-01')
+    """);
+    database.execute("""
+      INSERT INTO booking_requests(id,beneficiary_id,status,created_at)
+      VALUES(5000,10,'new','2026-11-01'),
+            (6000,20,'new','2026-11-01')
+    """);
+    database.execute("""
+      INSERT INTO irrigation_sessions(id,beneficiary_id,pump_id,planned_start,status)
+      VALUES(7000,10,100,'2026-11-01T08:00:00','running'),
+            (8000,20,200,'2026-11-01T09:00:00','running')
+    """);
+    handler = SaqiaServer(database, jwtSecret: secret).router().call;
+  });
+
+  tearDown(() => database.dispose());
+
+  Future<String> login() async {
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/auth/login'),
+        body: jsonEncode({
+          'username': 'manager-test',
+          'password': 'correct-password',
+        }),
+      ),
+    );
+    expect(response.statusCode, 200);
+    final body = jsonDecode(await response.readAsString()) as Map;
+    return body['token'] as String;
+  }
+
+  Future<Response> request(
+    String method,
+    String path,
+    String token, {
+    Object? body,
+  }) async =>
+      await handler(
+        Request(
+          method,
+          Uri.parse('http://localhost$path'),
+          headers: {
+            'authorization': 'Bearer $token',
+            if (body != null) 'content-type': 'application/json',
+          },
+          body: body == null ? null : jsonEncode(body),
+        ),
+      );
+
+  test('settings are isolated by station and never expose legacy global values', () async {
+    final token = await login();
+    final response = await request('GET', '/api/v1/settings', token);
+    final values = jsonDecode(await response.readAsString()) as Map;
+    expect(response.statusCode, 200);
+    expect(values['station_name'], 'محطة أ');
+    expect(values['diesel_price_per_liter'], '100');
+    expect(values.containsValue('محطة ب'), isFalse);
+    expect(values.containsValue('إعداد عام قديم'), isFalse);
+  });
+
+  test('updating settings changes only the authenticated station', () async {
+    final token = await login();
+    final response = await request('PUT', '/api/v1/settings', token,
+        body: {'station_name': 'محطة أ المعدلة'});
+    expect(response.statusCode, 200);
+    expect(database.select("SELECT value FROM station_settings WHERE station_id=7 AND key='station_name'").first['value'], 'محطة أ المعدلة');
+    expect(database.select("SELECT value FROM station_settings WHERE station_id=8 AND key='station_name'").first['value'], 'محطة ب');
+    expect(database.select("SELECT value FROM settings WHERE key='station_name'").first['value'], 'إعداد عام قديم');
+  });
+
+  test('new journal entries persist the authenticated station explicitly', () async {
+    database.execute('CREATE TABLE partners (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, name TEXT NOT NULL)');
+    database.execute('CREATE TABLE partner_transactions (id INTEGER PRIMARY KEY, station_id INTEGER, partner_id INTEGER NOT NULL, date TEXT NOT NULL, type TEXT NOT NULL, amount INTEGER NOT NULL, ownership_snapshot REAL, reference_type TEXT, reference_id INTEGER, notes TEXT, created_by INTEGER)');
+    database.execute('CREATE TABLE accounts (id INTEGER PRIMARY KEY, code TEXT NOT NULL, name TEXT NOT NULL)');
+    database.execute('CREATE TABLE journal_entries (id INTEGER PRIMARY KEY, station_id INTEGER, date TEXT NOT NULL, reference_type TEXT, reference_id INTEGER, description TEXT NOT NULL, status TEXT NOT NULL, created_by INTEGER, created_at TEXT NOT NULL)');
+    database.execute('CREATE TABLE journal_lines (id INTEGER PRIMARY KEY, journal_entry_id INTEGER NOT NULL, account_id INTEGER NOT NULL, beneficiary_id INTEGER, worker_id INTEGER, partner_id INTEGER, debit INTEGER NOT NULL DEFAULT 0, credit INTEGER NOT NULL DEFAULT 0, memo TEXT)');
+    database.execute("INSERT INTO partners(id,station_id,name) VALUES(10,7,'شريك أ')");
+    database.execute("INSERT INTO accounts(id,code,name) VALUES(1,'5000','مصروف'),(2,'2200','مستحقات')");
+    final token = await login();
+    final response = await request('POST', '/api/v1/partners/10/transactions', token,
+        body: {'type': 'share_accrual', 'amount': 1250});
+    expect(response.statusCode, 200);
+    final entry = database.select('SELECT station_id,created_by FROM journal_entries').first;
+    expect(entry['station_id'], 7);
+    expect(entry['created_by'], 1);
+    expect(database.select('SELECT station_id FROM partner_transactions').first['station_id'], 7);
+  });
+
+  test('irrigation list only returns records belonging to the manager station',
+      () async {
+    final token = await login();
+    final response = await request('GET', '/api/v1/irrigations', token);
+    final rows = jsonDecode(await response.readAsString()) as List;
+
+    expect(response.statusCode, 200);
+    expect(rows.map((row) => row['id']), [1000]);
+  });
+
+  test('legacy cancellation cannot bypass the audited P1 command', () async {
+    final token=await login();
+    final response=await request('POST','/api/v1/irrigations/1000/cancel',token,body:{'reason':'legacy'});
+    expect(response.statusCode,409);
+    expect(database.select('SELECT status FROM irrigations WHERE id=1000').single['status'],'posted');
+  });
+
+  test('cannot cancel an irrigation belonging to another station', () async {
+    final token = await login();
+    final response = await request(
+      'POST',
+      '/api/v1/irrigations/2000/cancel',
+      token,
+      body: {'reason': 'اختبار عزل'},
+    );
+
+    expect(response.statusCode, 404);
+    expect(
+      database.select('SELECT status FROM irrigations WHERE id=2000').first['status'],
+      'posted',
+    );
+  });
+
+  test('beneficiary statement rejects a beneficiary from another station',
+      () async {
+    final token = await login();
+    final response =
+        await request('GET', '/api/v1/beneficiaries/20/statement', token);
+
+    expect(response.statusCode, 404);
+  });
+
+  test('queue list only returns beneficiaries from the manager station',
+      () async {
+    final token = await login();
+    final response = await request('GET', '/api/v1/queue', token);
+    final rows = jsonDecode(await response.readAsString()) as List;
+
+    expect(response.statusCode, 200);
+    expect(rows.map((row) => row['id']), [3000]);
+  });
+
+  test('cannot postpone a queue entry belonging to another station',
+      () async {
+    final token = await login();
+    final response = await request(
+      'POST',
+      '/api/v1/queue/4000/postpone',
+      token,
+      body: {'reason': 'اختبار عزل'},
+    );
+
+    expect(response.statusCode, 404);
+    expect(
+      database.select('SELECT status FROM queue_entries WHERE id=4000').first['status'],
+      'waiting',
+    );
+  });
+
+  test('booking list only returns requests from the manager station',
+      () async {
+    final token = await login();
+    final response = await request('GET', '/api/v1/bookings', token);
+    final rows = jsonDecode(await response.readAsString()) as List;
+
+    expect(response.statusCode, 200);
+    expect(rows.map((row) => row['id']), [5000]);
+  });
+
+  test('cannot schedule a booking belonging to another station', () async {
+    final token = await login();
+    final response = await request(
+      'POST',
+      '/api/v1/bookings/6000/schedule',
+      token,
+      body: {'date': '2026-11-08', 'start': '09:00', 'end': '10:00'},
+    );
+
+    expect(response.statusCode, 404);
+    expect(
+      database.select('SELECT status FROM booking_requests WHERE id=6000').first['status'],
+      'new',
+    );
+  });
+
+  test('session list only returns sessions from the manager station',
+      () async {
+    final token = await login();
+    final response = await request('GET', '/api/v1/sessions', token);
+    final rows = jsonDecode(await response.readAsString()) as List;
+
+    expect(response.statusCode, 200);
+    expect(rows.map((row) => row['id']), [7000]);
+  });
+
+  test('cannot postpone a session belonging to another station', () async {
+    final token = await login();
+    final response = await request(
+      'POST',
+      '/api/v1/sessions/8000/postpone',
+      token,
+      body: {'reason': 'اختبار عزل'},
+    );
+
+    expect(response.statusCode, 404);
+    expect(
+      database.select('SELECT status FROM irrigation_sessions WHERE id=8000').first['status'],
+      'running',
+    );
+  });
+  test('full database backup is blocked until station-scoped export exists', () async {
+    final token = await login();
+    final before = database.select('SELECT COUNT(*) AS total FROM beneficiaries').first['total'];
+    final response = await request('POST', '/api/v1/backup', token,
+        body: {'path': 'must_not_be_created.db'});
+    final body = jsonDecode(await response.readAsString()) as Map;
+
+    expect(response.statusCode, 409);
+    expect(body['ok'], isNull);
+    expect(database.select('SELECT COUNT(*) AS total FROM beneficiaries').first['total'], before);
+  });
+
+  test('full database restore is blocked without changing live database', () async {
+    final token = await login();
+    final before = database.select('SELECT COUNT(*) AS total FROM beneficiaries').first['total'];
+    final response = await request('POST', '/api/v1/restore', token,
+        body: {'base64': 'U1FMaXRlIGZvcm1hdCAz'});
+    final body = jsonDecode(await response.readAsString()) as Map;
+
+    expect(response.statusCode, 409);
+    expect(body['ok'], isNull);
+    expect(database.select('SELECT COUNT(*) AS total FROM beneficiaries').first['total'], before);
+  });
+
+  test('admin login is rate limited after five failed attempts', () async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final response = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/v1/auth/login'),
+          body: jsonEncode({
+            'username': 'manager-test',
+            'password': 'incorrect-password',
+          }),
+        ),
+      );
+      expect(response.statusCode, 401);
+    }
+
+    final blocked = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/auth/login'),
+        body: jsonEncode({
+          'username': 'manager-test',
+          'password': 'correct-password',
+        }),
+      ),
+    );
+    expect(blocked.statusCode, 429);
+    expect(blocked.headers['retry-after'], '900');
+  });
+
+  test('successful admin login clears prior failed attempts', () async {
+    final failed = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/auth/login'),
+        body: jsonEncode({
+          'username': 'manager-test',
+          'password': 'incorrect-password',
+        }),
+      ),
+    );
+    expect(failed.statusCode, 401);
+    await login();
+    expect(
+      database.select('SELECT COUNT(*) AS total FROM auth_rate_limits').first['total'],
+      0,
+    );
+  });
+
+
+  test('beneficiary OTP requests are rate limited by IP and phone', () async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final response = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/v1/beneficiary/request-code'),
+          body: jsonEncode({'phone': '777'}),
+        ),
+      );
+      expect(response.statusCode, 200);
+    }
+    final blocked = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/beneficiary/request-code'),
+        body: jsonEncode({'phone': '777'}),
+      ),
+    );
+    expect(blocked.statusCode, 429);
+    expect(blocked.headers['retry-after'], '900');
+    expect(
+      database.select('SELECT COUNT(*) AS total FROM beneficiary_auth_codes').first['total'],
+      5,
+    );
+  });
+
+  test('beneficiary OTP rejects a phone shared across stations', () async {
+    database.execute("UPDATE beneficiaries SET phone='999' WHERE id IN (10,20)");
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/beneficiary/request-code'),
+        body: jsonEncode({'phone': '999'}),
+      ),
+    );
+    expect(response.statusCode, 409);
+    expect(
+      database.select('SELECT COUNT(*) AS total FROM beneficiary_auth_codes').first['total'],
+      0,
+    );
+  });
+
+
+  test('inactive beneficiary sessions cannot access the API', () async {
+    final now = DateTime.now().toIso8601String();
+    database.execute(
+      'INSERT INTO beneficiary_auth_codes(beneficiary_id,code_hash,expires_at,created_at) VALUES(?,?,?,?)',
+      [
+        11,
+        sha256.convert(utf8.encode('123456')).toString(),
+        DateTime.now().add(const Duration(minutes: 5)).toIso8601String(),
+        now,
+      ],
+    );
+    final loginResponse = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/beneficiary/session'),
+        body: jsonEncode({'phone': '777', 'code': '123456'}),
+      ),
+    );
+    expect(loginResponse.statusCode, 200);
+    final loginBody = jsonDecode(await loginResponse.readAsString()) as Map;
+    final token = loginBody['token'] as String;
+    database.execute("UPDATE beneficiaries SET status='inactive' WHERE id=11");
+
+    final response = await handler(
+      Request(
+        'GET',
+        Uri.parse('http://localhost/api/v1/beneficiary/me'),
+        headers: {'authorization': 'Bearer $token'},
+      ),
+    );
+    expect(response.statusCode, 401);
+  });
+
+
+  test('known but unimplemented reports fail closed instead of returning irrigation rows', () async {
+    final token = await login();
+    final response = await request('GET', '/api/v1/reports/expenses', token);
+    final body = jsonDecode(await response.readAsString()) as Map;
+    expect(response.statusCode, 501);
+    expect(body['code'], 'REPORT_NOT_IMPLEMENTED');
+    expect(body['report'], 'expenses');
+    expect(body['rows'], isNull);
+  });
+
+  test('income and system comparison reports isolate irrigation rows by JWT station', () async {
+    database.execute('ALTER TABLE irrigations ADD COLUMN system_type TEXT');
+    database.execute('ALTER TABLE irrigations ADD COLUMN minutes INTEGER');
+    database.execute('ALTER TABLE irrigations ADD COLUMN water_amount INTEGER');
+    database.execute('ALTER TABLE irrigations ADD COLUMN diesel_amount INTEGER');
+    database.execute('ALTER TABLE irrigations ADD COLUMN total_amount INTEGER');
+    database.execute("UPDATE irrigations SET system_type='diesel',minutes=60,water_amount=100,total_amount=100,diesel_amount=0 WHERE id=1000");
+    database.execute("UPDATE irrigations SET system_type='solar',minutes=120,water_amount=900,total_amount=900,diesel_amount=0 WHERE id=2000");
+    final token = await login();
+    for (final report in ['income', 'system_comparison']) {
+      final response = await request('GET', '/api/v1/reports/$report', token);
+      final body = jsonDecode(await response.readAsString()) as Map;
+      expect(response.statusCode, 200);
+      final rows = body['rows'] as List;
+      expect(rows, hasLength(1));
+      expect(rows.single['system_type'], 'diesel');
+      expect(rows.single['total'], 100);
+    }
+  });
+
+  test('journal and ledger reports isolate entries and their lines by station', () async {
+    database.execute('''CREATE TABLE journal_entries(
+      id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, date TEXT NOT NULL
+    )''');
+    database.execute('''CREATE TABLE journal_lines(
+      id INTEGER PRIMARY KEY, journal_entry_id INTEGER NOT NULL, memo TEXT
+    )''');
+    database.execute("INSERT INTO journal_entries(id,station_id,date) VALUES(1,7,'2026-11-01'),(2,8,'2026-11-02')");
+    database.execute("INSERT INTO journal_lines(id,journal_entry_id,memo) VALUES(11,1,'سطر أ'),(22,2,'سطر ب')");
+    final token = await login();
+    final journal = await request('GET', '/api/v1/reports/journal', token);
+    final journalBody = jsonDecode(await journal.readAsString()) as Map;
+    expect(journal.statusCode, 200);
+    expect((journalBody['rows'] as List).map((row) => row['id']), [1]);
+
+    final ledger = await request('GET', '/api/v1/reports/ledger', token);
+    final ledgerBody = jsonDecode(await ledger.readAsString()) as Map;
+    expect(ledger.statusCode, 200);
+    expect((ledgerBody['rows'] as List).map((row) => row['id']), [11]);
+  });
+
+  test('cash flow report includes only the authenticated station financial rows', () async {
+    database.execute('''CREATE TABLE payments (
+      id INTEGER PRIMARY KEY, station_id INTEGER, date TEXT NOT NULL,
+      amount INTEGER NOT NULL, status TEXT NOT NULL)''');
+    database.execute('''CREATE TABLE expenses (
+      id INTEGER PRIMARY KEY, station_id INTEGER, date TEXT NOT NULL,
+      amount INTEGER NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL)''');
+    database.execute("INSERT INTO payments VALUES(1,7,'2026-11-01',100,'posted'),(2,8,'2026-11-01',900,'posted')");
+    database.execute("INSERT INTO expenses VALUES(1,7,'2026-11-02',20,'مصروف أ','posted'),(2,8,'2026-11-02',80,'مصروف ب','posted')");
+    final token = await login();
+    final response = await request('GET', '/api/v1/reports/cash_flow', token);
+    final body = jsonDecode(await response.readAsString()) as Map;
+    final rows = body['rows'] as List;
+    expect(response.statusCode, 200);
+    expect(rows, hasLength(2));
+    expect(rows.map((row) => row['amount']).toSet(), {100, -20});
+    expect(rows.map((row) => row['title']).toSet(), {'قبض', 'مصروف أ'});
+  });
+
+}

@@ -1,0 +1,266 @@
+# بروتوكول المزامنة الآمن — Outbox / Inbox
+
+- المستودع: `abdallah1mohmmed2/Water-provision`
+- الفرع: `feature/firebase-station-foundation`
+- القرار: SQLite محلية Offline-first + Shelf API + JWT؛ الخادم وسيط سجل أحداث لكل محطة.
+- لا دمج إلى `main` دون موافقة صريحة.
+
+## 1. الهوية العالمية
+
+يحتفظ كل جهاز بمفتاح SQLite رقمي محلي، ويُربط به UUID v4 ثابت في `sync_global_identities` بواسطة المفتاح المركب `(table_name, local_id)`. العلاقات الخارجية تُصدر كـUUID عبر `sync_global_relations` وحقول `_global_refs`؛ لا يجوز استخدام رقم SQLite من جهاز آخر كمرجع محلي.
+
+الحمولة المصدرة تحمل:
+
+- `_global_id`: هوية السجل العالمية.
+- `_global_refs`: مراجع UUID للعلاقات الخارجية المعروفة.
+- `_unresolved_refs`: مراجع تعذر حلها؛ يمنع العميل إرسالها.
+- `event_id`: UUID مستقل لكل تغيير، لا يتغير عند إعادة محاولة HTTP.
+- `base_version`: إصدار الخادم الذي بُني عليه التغيير.
+- `device_id`: معرف ثابت للجهاز.
+
+## 2. Outbox المحلي
+
+تُلتقط التغييرات عبر `AppDatabase.transaction` في نفس معاملة تعديل البيانات. تُنشأ الهويات أولاً لكل الصفوف المتغيرة حتى يمكن ربط السجلات المنشأة معاً، ثم تُزين الحمولة بمراجعها العالمية، ثم يُنشأ صف Outbox.
+
+حالات الصف:
+
+- `pending`: جاهز للإرسال.
+- `sending`: ضمن دفعة HTTP حالية؛ يبقى `event_id` ثابتاً.
+- `acknowledged`: قبله الخادم أو أكد أنه سبق قبوله.
+- `conflict`: إصدار أساس قديم؛ لا يعاد إرساله قبل حل صريح.
+- `failed`: بيانات/علاقات غير صالحة أو رفض؛ يحتاج إصلاحاً أو إعادة محاولة مقصودة.
+- `resolved`: حدث تعارض قديم احتُفظ به للتدقيق بعد إنشاء حدث دمج جديد.
+
+عند فشل الشبكة، تعاد فقط الصفوف التي ما زالت `sending` إلى `pending`. لا يعاد تفعيل الصفوف التي رفضها التحقق المحلي بسبب علاقات غير محلولة.
+
+## 3. عقد الخادم
+
+المسارات:
+
+- `POST /api/v1/sync/events`: يقبل حتى 100 حدث في الدفعة، بحمولة لا تتجاوز 256 KiB لكل حدث.
+- `GET /api/v1/sync/inbox?after=<sequence>&device_id=<id>`: يعيد الأحداث المقبولة من أجهزة أخرى للمحطة الموثقة في JWT، بحد أقصى 100 حدث لكل صفحة.
+
+الخادم:
+
+1. يستخرج `station_id` من JWT بعد إعادة التحقق من المستخدم النشط ودوره ومحطته.
+2. يقبل فقط أنواع السجلات المدرجة في قائمة المجالات المدعومة من معالج Inbox.
+3. يفرض UUID v4 لمعرف الحدث، ويقبل فقط create/update/delete، ويتحقق من حجم الحمولة ومفتاح الكيان.
+4. يجعل `(station_id,event_id)` فريداً.
+5. إذا تكرر نفس الحدث بنفس المصدر والعملية والمفتاح والإصدار والحمولة، يعيد `duplicate` دون إضافة صف جديد.
+6. إذا أعيد استخدام event_id مع مصدر أو محتوى مختلف، يعيد `rejected` ولا يغير الحدث الأصلي.
+7. يقارن `base_version` بالإصدار الحالي؛ يقبل التتابع الصحيح، ويسجل التعارض دون زيادة الإصدار.
+8. لا ينفذ SQL مشتقاً من الحمولة ولا يطبق تغييرات العميل مباشرة على قاعدة أعمال الخادم.
+
+تُخزن الحمولة في JSON canonical form بترتيب مفاتيح ثابت حتى تكون مقارنة إعادة الإرسال مستقرة.
+
+## 4. Inbox المحلي ومنع الحلقة
+
+يخزن `SyncService.pull` الأحداث الواردة في `sync_inbox` بمعاملة واحدة، ثم يحفظ المؤشر بعد التخزين الدائم. لا يُرفع المؤشر قبل حفظ الأحداث.
+
+يقوم `applyInbox` بتسليم الحدث إلى معالج المجال داخل معاملة SQLite. يجب إنشاء الخدمة باستخدام `SyncService.withInboxHandler` وتمرير معالج موثوق مثل `SyncInboxApplier.apply`؛ البناء الافتراضي دون معالج يرفض التطبيق برسالة واضحة.
+
+الأهم: يطبق الحدث داخل `db.transaction(..., captureSync: false)`. هذا يمنع التقاط التغيير الوارد في `sync_change_log` وبالتالي لا يتحول الحدث الوارد إلى Outbox جديد ولا يعود إلى الخادم كحلقة مزامنة.
+
+كل حدث Inbox ينتقل إلى إحدى الحالات:
+
+- `applied`: تم التطبيق أو كان الإصدار مطبقاً مسبقاً.
+- `conflict`: يوجد تغيير محلي غير مرسل أو سياسة المجال تمنع الحذف؛ يتطلب قراراً صريحاً.
+- `failed`: حمولة/علاقة/تسلسل إصدار غير صالح؛ يمكن إعادة المحاولة بعد إصلاح السبب.
+
+## 5. قائمة المجالات المسموحة
+
+`pumps`, `beneficiaries`, `partners`, `workers`, `accounts`, `payment_methods`, `cashboxes`, `cashbox_transfers`, `payments`, `expenses`, `worker_transactions`, `partner_transactions`, `journal_entries`, `journal_lines`, `irrigations`, `cloud_periods`, `diesel_movements`, `queue_entries`, `booking_requests`, `irrigation_sessions`, `beneficiary_manual_debts`, `general_accounts`, `general_account_transactions`, `accountant_reconciliation_months`, `period_closures`, `cash_reconciliations`.
+
+لا تقبل جداول المصادقة أو المستخدمين أو الإعدادات الخاصة أو سجلات المزامنة نفسها كأحداث مجال. بعض الجداول المالية/المحاسبية لا يسمح بحذفها الصلب؛ تُستخدم قيود/عكس محاسبي بدلاً من محو التاريخ.
+
+## 6. اختبارات القبول المطلوبة قبل الإنتاج
+
+- تكرار الحدث نفسه بعد timeout: صف خادم واحد ونتيجة duplicate.
+- إعادة استخدام event_id مع payload أو device مختلف: rejected مع بقاء الأصل.
+- نوع جدول خارج allowlist: rejected دون تغيير سجل الأحداث أو الإصدارات.
+- جهاز لا يستقبل الحدث الذي أرسله بنفسه.
+- عزل Inbox حسب محطة JWT.
+- إنشاء أب ثم طفل في جهاز آخر مع حل المراجع العالمية.
+- انقطاع بعد قبول الخادم وقبل وصول الرد ثم إعادة المحاولة.
+- انقطاع بعد pull وقبل apply ثم إعادة تشغيل التطبيق؛ لا فقد ولا تطبيق مزدوج.
+- تطبيق Inbox لا يولد Outbox جديداً.
+- تعديل متزامن على جهازين: conflict مع الاحتفاظ بالنسختين للمراجعة.
+- اختبار ترتيب الصفحات عند تجاوز 100 حدث.
+- اختبار جميع المجالات على قواعد SQLite فعلية مع المفاتيح الأجنبية.
+
+## 7. قيود معروفة
+
+- وجود المعالج لا يعني أن كل مسارات الواجهة موصولة تلقائياً بالمزامنة؛ يجب تدقيق جميع الكتابات لتستخدم `AppDatabase.transaction` ومراجعة مواضع الكتابة المباشرة.
+- لا توجد بعد نتيجة موثقة لاختبار جهازين فعليين أو قاعدة محطة إنتاج.
+- سجلات مالية قديمة بقيت `station_id IS NULL` لا تُرسل إلى محطة بالتخمين.
+- لا يُسمح بنشر الخادم أو تفعيل المزامنة المالية قبل اختبار الترحيل على نسخة قابلة للاستعادة، وإغلاق ثغرات العزل، ونجاح CI على HEAD النهائي.
+
+## 8. سجل التغييرات — 8 نوفمبر 2026
+
+- حصر أنواع الأحداث المقبولة في الخادم.
+- التحقق من التطابق الكامل عند إعادة استخدام event_id، مع canonical JSON.
+- إصلاح إعادة حالة Outbox إلى pending فقط للصفوف التي كانت sending بالفعل عند فشل الشبكة.
+- إضافة اختبارات للخادم على إعادة استخدام event_id بحمولة مختلفة ورفض نوع جدول غير مسموح.
+
+
+## معالجات الخادم للبيانات الأساسية
+
+يدعم Shelf الآن أحداث البيانات الأساسية للمضخات والشركاء والعاملين وطرق الدفع والصناديق بمعالجات ذات حقول مسموحة لكل جدول. `station_id` يفرضه JWT، و`created_by` والمعرفات المحلية لا تُوثق من الحمولة، وتُنشأ روابط UUID مع صف الأعمال داخل SAVEPOINT الحدث. الحذف يتحول إلى تعطيل منطقي. يمنع هذا المعالج نقل الأرصدة الافتتاحية/الحالية؛ فهذه تحتاج أوامر مالية متخصصة. ويثبت مسار duplicate وجود سجل الأعمال المرتبط قبل إرجاع `duplicate`. أي نوع آخر لا يملك معالجاً مجالياً يظل مرفوضاً ولا يحصل على إقرار `accepted`.
+## 8.1 معالج السقايات وفترات الغيم — تنفيذ أولي
+
+أضيف معالج Shelf صريح لإنشاء سقاية مستفيد جديدة. يتحقق من UUID العالمي ومراجع المضخة والمستفيد ضمن المحطة، ويحسب المدة والتكلفة من إعدادات المحطة على الخادم، ويرفض المبالغ النهائية المرسلة من العميل. كما يمنع تداخل أوقات المضخة.
+
+تُرسل فترات الغيم الزمنية ضمن حمولة السقاية كي يتحقق الخادم من وقوعها داخل السقاية وعدم تداخلها ومطابقة مجموع دقائقها. تُسجل صفوف الفترات بهويات مستقلة لاحقاً من أحداث `cloud_periods`؛ ويجب أن تطابق هذه الأحداث الصفوف التي أنشأها الخادم، وإلا تُرفض. يتجاهل Inbox الحقل المتداخل عند إدخال السقاية لأن صفوف فترات الغيم تصل كأحداث مستقلة.
+
+ينشئ المعالج قيد استحقاق متوازناً، واستهلاك الديزل، والسلفة التلقائية عند وجود عجز مخزون، داخل SAVEPOINT الحدث. ويمنع تضمين قبض داخل السقاية (`paid_amount` يجب أن يساوي صفراً) حتى يبقى القبض حدثاً مستقلاً.
+
+**النطاق غير المكتمل:** هذه الشريحة تقبل إنشاء سقاية مستفيد فقط. جلسات التشغيل وربط الحجز والطابور، سقايات العامل/الشريك، تعديل/إلغاء السقاية مع العكس، ومعالجات بقية المجالات لا تزال غير منفذة. لا تعتمد هذه الشريحة حتى تنجح اختبارات الخادم وCI على commit نهائي.
+
+## 8.2 بوابة تنفيذ المجالات التشغيلية والمالية التالية — 8 نوفمبر 2026
+
+### تدقيق التوصيل الحالي
+
+وجود endpoints في Shelf لا يعني أن أحداث Outbox تُطبق عليها. في الرأس الذي تمت مراجعته، _applySyncBusinessEvent لا يمرر الأنواع التالية إلى معالجات مجال؛ لذلك تبقى مرفوضة حتى تنفيذ معالجها واختباره:
+
+| المجال | API في Shelf | حدث المزامنة | شرط القبول |
+|---|---|---|---|
+| جلسات التشغيل | start/finish/postpone/list | irrigation_sessions | بدء/إنهاء ذري؛ الإنهاء ينشئ السقاية والقيد مرة واحدة |
+| الطابور | add/postpone/skip/list | queue_entries | انتقالات حالة مسموحة وترتيب لا يتكرر |
+| الحجوزات | schedule/cancel/list | booking_requests | لا يبدأ تشغيل بحجز ملغى أو غير تابع للمستفيد |
+| الديزل | movement/list | diesel_movements | أنواع محددة، تحقق المخزون، الصندوق، السلفة، وقيد متوازن |
+| المصروفات | create/list | expenses | تحقق الفئة والصندوق وطريقة الدفع والطرف، وقيد متوازن |
+| التحويلات | create/list | cashbox_transfers | صندوقان من المحطة نفسها، أثر رصيد وقيد متوازن |
+| الإلغاءات | irrigation cancel | عملية عكس متخصصة | لا حذف/تغيير قيد قديم؛ عكس مرتبط بالأصل ومرة واحدة |
+| التسويات والإقفال | reconciliation/period close | cash_reconciliations, period_closures, accountant_reconciliation_months | صلاحية، حدود فترة، منع تكرار، وقفل يمنع الكتابة اللاحقة |
+| الحسابات العامة | account/transaction | general_accounts, general_account_transactions | ملكية محطة، حساب نشط، حركة قبض/صرف وقيدها |
+
+### نقطة ملكية مهمة
+
+جداول queue_entries وbooking_requests وirrigation_sessions لا تحتوي station_id في المخطط المحلي الأساسي. لا يجوز استخدام _owns(table,id,station) عليها كما لو كانت جداول ذات ملكية مباشرة. يجب إثبات ملكيتها عبر المستفيد المرتبط، والمضخة المرتبطة بالجلسة، والتحقق من أن كل العلاقات تنتمي إلى المحطة نفسها قبل إدخال الحدث أو تحديثه.
+
+### الترتيب التنفيذي
+
+1. جلسات التشغيل والطابور والحجوزات كدورة واحدة؛ حدث إنهاء الجلسة يجب أن ينتج السقاية والآثار المالية مرة واحدة، لا أن يزامن جلسة مكتملة فقط.
+2. حركات الديزل المستقلة: تسليم/شراء، سلفة، تصحيح، واستهلاك. لا تُقبل قيمة مخزون نهائية من الجهاز.
+3. المصروفات والتحويلات، مع حسابات الصندوق والدفتر العام في SAVEPOINT واحد.
+4. الإلغاء والعكس: كل عكس يحمل مرجع العملية الأصلية وسبباً ومستخدم اعتماد، مع unique guard يمنع العكس الثاني.
+5. التسويات والإقفالات والحسابات العامة، مع منع الكتابة في فترة مقفلة.
+6. اختبارات جهازين مستقلين: جهاز A يرسل، وجهاز B يسحب ويطبق؛ ثم العكس، مع إعادة إرسال، وانقطاع، وتعارض، وفشل منتصف المعاملة، وعزل محطة ثانية.
+
+### بوابة إتمام كل مجال
+
+- إنشاء/تعديل/انتقال/إلغاء بحسب سياسة المجال، مع منع حذف التاريخ المالي.
+- اختبار duplicate event وevent_id بحمولة مختلفة.
+- اختبار المرجع المفقود والمرجع التابع لمحطة أخرى.
+- إثبات rollback كامل عند فشل منتصف العملية، بما في ذلك الصندوق والدفتر والروابط والإصدار.
+- إثبات أن Inbox لا يعيد توليد Outbox.
+- لا تقبل علامة accepted إلا بعد تطبيق الأثر على جداول الأعمال داخل المعاملة نفسها.
+- تشغيل اختبارات الخادم وFlutter Analyze وFlutter Tests وAPK على HEAD النهائي؛ لا تستخدم نتائج commit سابق.
+- اختبار جهازين فعليين/بيئتين منفصلتين موثق بنتائج، وليس مجرد اختبار وحدتين في قاعدة واحدة.
+
+**الحالة في هذا التدقيق:** واجهات Shelf لبعض هذه العمليات موجودة، لكن معالجات أحداثها المركزية غير مكتملة. لا تعتبر أي صف في الجدول أعلاه منجزاً بمجرد وجود API أو اسم المجال في allow-list.
+
+## 8.3 جلسات التشغيل وربط السقاية — تنفيذ شريحة الخادم وInbox
+
+تمت إضافة معالج صريح لأحداث \`irrigation_sessions\` على Shelf، مع التحقق من UUID العالمي، وصلاحية المدير/المحاسب، وملكية المستفيد والمضخة، وحل روابط الحجز والطابور عبر UUID دون افتراض وجود \`station_id\` في تلك الجداول. يبدأ إنشاء الجلسة بحالة \`running\` فقط، وتُفرض انتقالات الحالة، ولا يسمح بتعديل الجلسة بعد اكتمالها.
+
+عند وصول حدث السقاية المرتبط بجلسة، يحل الخادم \`session_id\` العالمي ويتحقق من تطابق المستفيد والمضخة ووقت البدء، ثم ينشئ السقاية والقيد واستهلاك الديزل والسلفة التلقائية (إن لزمت) داخل SAVEPOINT الحدث نفسه، ويربط السقاية بالجلسة ويقفل الجلسة مرة واحدة. إذا وصل تحديث الجلسة المكتملة بعد حدث السقاية، يقبل فقط إعادة الحالة والحقول نفسها؛ ولا يعيد إنشاء الأثر المالي. كما سُمح بانتقال الطابور إلى \`served\` من حالتي الانتظار والتأجيل، مع إبقاء الحالات النهائية غير قابلة لإعادة الفتح.
+
+أضيفت اختبارات بروتوكول تغطي إنشاء الجلسة، وربط السقاية بها، وإقفالها، وإعادة حدث الإنهاء دون مضاعفة القيود أو حركات الديزل، كما أضيف اختبار Inbox محلي لدورة الجلسة ورفض إعادة فتح المكتملة.
+
+**حدود ما أُنجز:** هذه الشريحة تغلق فجوة جلسة التشغيل مع السقاية، لكنها لا تعني اكتمال كل المجالات التشغيلية والمالية، ولا تثبت بعد اختبار جهازين فعليين أو نجاح CI على HEAD النهائي. تبقى حركات الديزل المستقلة، المصروفات والتحويلات، الإلغاءات والعكس المحاسبي، التسويات والإقفالات والحسابات العامة، ثم اختبار جهازين مستقلين.
+
+## P1: versioned irrigation edits and cancellation
+
+`irrigations/update` keeps the existing root UUID and uses `base_version`. The
+transaction snapshots `_p1_effect_ids`: UUIDs of newly created dependent rows,
+ordered by local insertion ID per table. These are identity claims, not trusted
+financial values. Shelf recalculates from its irrigation and price snapshots,
+checks the resulting amounts against the command, and publishes changed/new
+rows as server projections inside the same savepoint. A count/identity mismatch
+rolls back the root, accounting, versions, and change log. Children are never
+independent Outbox commands for these two operations.
+
+Cancellation requires `cancel_reason` and `cancelled_at` (equal to `updated_at`).
+Both original and cancellation dates respect period closure. Previously
+cancelled roots and stale versions are rejected. Diesel history is retained:
+new signed inverse movements point to originals with `reversal_of`; a unique
+partial index prevents a second reversal of the same movement. Existing sums
+therefore include each movement and its inverse without changing inventory
+formulas. Worker/partner cancellation excludes accruals already reversed during
+editing. Linked receipts reverse within the irrigation transaction.
+
+Schema 30 adds durable `payments.irrigation_id`, irrigation cancellation metadata,
+and diesel reversal links. Inbox resolves these through global identities and
+normalizes legacy display references to `IRR-<receiver-local-id>`. An old receipt
+with only an ambiguous numeric `IRR-...` link is rejected for server-side P1
+rather than guessed; it requires explicit review/link repair. This does not
+implement standalone receipt cancellation (P2).
+
+Time edits retain cloud rows outside the shortened interval as zero-duration
+rows, recording their before/after values in the audit. Billing correction or
+cancellation does not reopen an already completed physical session, booking or
+queue entry. The old REST cancel endpoint now returns 409 for owned irrigations
+and directs callers to the versioned Outbox command, since its previous
+status-only mutation did not reverse accounting. Foreign roots still return 404.
+
+`server/lib/irrigation_calculations.dart` mirrors the existing local calculation
+module; a parity test requires byte equality. The P1 server adapter mirrors the
+existing local edit/cancel rules and uses the outer sync savepoint. Real two-client
+tests exercise both implementations, including repeated edits, rollback,
+replay, stale versions, cloud clipping, price snapshots and final reversal.
+
+When a linked receipt reaches a peer, Inbox recomputes the irrigation's
+`paid_amount` from its posted, durably linked receipts in the same transaction.
+This is a derived total: it does not enqueue another command or bump the root
+version. The initial creation payload deliberately has zero paid amount because
+receipt posting is separate. The P1 test verifies peer equality immediately
+after creation/receipt, before any edit, as well as after edit/cancellation.
+
+## P2: receipts, payouts, metadata, and atomic replacement
+
+The payment table represents beneficiary receipts and worker/partner payouts.
+General-account movements remain P5; standalone worker/partner accruals remain
+P3. `receivePayment` retains the P0 receipt posting. `payWorker`/`payPartner`
+now send one payment command; their subledger rows are server-owned effects.
+
+Schema 31 adds payment currency snapshots, cancellation reason/time, metadata
+update time and a unique `replaces_payment_id` backlink. No financial rows are
+deleted. Notes/reference-only edits use `updatePaymentDetails` from the payment
+screen without reposting money. Amount, date, party, method, cashbox and currency
+cannot be edited in place. Financial edits retain the existing local replacement
+semantics: cancel the old receipt/payout and create a linked replacement.
+
+A replacement is ONE update command for the old payment, with a globally
+referenced `_p2_replacement` and `_p2_effect_ids` for created children. The
+replacement payment is excluded from independent Outbox capture. Shelf validates
+and posts both halves inside the same sync savepoint, then emits the replacement
+as a child create. Count/identity failure rolls back all effects. Replays check
+that the payment exists even when cancelled; a new stale command conflicts.
+
+P2 reuses the P0 beneficiary-receipt handler and P1 reversal routine. P2 validates
+party/method/cashbox station ownership, active sources for creation, method to
+cashbox linkage, currency, original date and mutation-date closures. Cancellation
+uses the original amount and original journal lines. Previously reversed or
+foreign original journals fail closed. A payout still permits a negative cashbox
+balance under the existing cashier-account policy.
+
+Receipt cancellation updates a durably linked irrigation's paid total and
+publishes its new authoritative version. This preserves later P1 edits and
+prevents a stale concurrent irrigation command from overwriting the receipt
+change. Mutable projections wait while a local P1/P2 command remains unsettled.
+Inbox resolves payment/replacement/subledger references through UUIDs and emits
+no new Outbox command.
+
+Historical `IRR-...` receipts without a durable irrigation link require review;
+historical payments without a currency snapshot require review before financial
+replacement. These links/currencies are not guessed. Replacement of an irrigation
+receipt remains disallowed, as in the existing payment screen; cancellation is
+supported. The original financial date and currency are retained on replacement.
+
+`test/p2_two_clients_test.dart` uses two AppDatabase instances and a real Shelf
+HTTP process. It covers all three party types, metadata without new journals,
+cross-party replacement, rollback after deliberately damaged child identities,
+replay/conflict, cancellation with all account nets restored, closed periods,
+wrong currency, direct deletion, foreign references, permissions, and a linked
+receipt cancellation followed by a P1 irrigation cancellation.

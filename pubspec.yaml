@@ -3,7 +3,7 @@ publish_to: 'none'
 description: نظام ساقية لإدارة محطة ضخ مياه الري
 version: 2.0.0+1
 environment:
-  sdk: '>=3.9.0 <4.0.0'
+  sdk: '>=3.10.0 <4.0.0'
 dependencies:
   flutter:
     sdk: flutter
@@ -13,6 +13,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   sqflite: ^2.3.3+1
   sqflite_common_ffi: ^2.3.3
+  # Keep the native asset release on a previously published, stable version.
+  sqlite3: 3.6.0
   sqflite_common_ffi_web: ^0.4.5+3
   path: ^1.9.0
   intl: ^0.20.3
@@ -24,6 +26,7 @@ dependencies:
   share_plus: ^10.1.2
   http: ^1.2.2
   crypto: ^3.0.6
+  serverpod_argon2: ^0.1.0
   local_auth: ^2.3.0
   flutter_secure_storage: ^9.2.4
   uuid: ^4.5.1
@@ -40,3 +43,13 @@ flutter:
     - assets/fonts/NotoNaskhArabic-Regular.ttf
     - assets/fonts/NotoNaskhArabic-Bold.ttf
     - assets/images/report_logo.png.b64
+hooks:
+  user_defines:
+    sqlite3:
+      # Build Android SQLite from the official, SHA3-verified amalgamation.
+      # Linux CI uses the runner's SQLite package; other platforms keep
+      # the package's signed/pre-hash-verified prebuilt assets.
+      source:
+        android: source
+        linux: system
+      path: .ci/sqlite3/sqlite3.c

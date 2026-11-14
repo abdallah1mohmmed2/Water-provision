@@ -2,7 +2,7 @@ name: Build Flutter APK
 
 on:
   push:
-    branches: [ "test/all-open-prs", "experiment/main-based-2026-11-02" ]
+    branches: [ "test/all-open-prs", "experiment/main-based-2026-11-02", "feature/firebase-station-foundation" ]
   workflow_dispatch:
 
 jobs:
@@ -11,6 +11,11 @@ jobs:
     steps:
       - name: جلب الكود المصدري
         uses: actions/checkout@v4
+      - name: Install Linux SQLite development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+
 
       - name: إعداد بيئة Java مع التخزين المؤقت
         uses: actions/setup-java@v3
@@ -19,14 +24,31 @@ jobs:
           java-version: '17'
           cache: 'gradle' # يحفظ أدوات بناء الأندرويد لتسريعها في المرات القادمة
 
+      - name: Cache Gradle wrapper and dependencies
+        uses: gradle/actions/setup-gradle@v4
+
       - name: إعداد بيئة Flutter مع التخزين المؤقت
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
+          flutter-version: '3.47.9'
           cache: true # يحفظ بيئة فلاتر بالكامل لتجنب إعادة تحميلها
 
       - name: جلب الحزم والمكتبات
         run: flutter pub get
+
+      - name: تجهيز واختبار خادم المزامنة
+        working-directory: ./server
+        run: |
+          dart pub get
+          dart analyze
+          dart test
+
+      - name: Test station Firebase build configuration
+        run: python3 -m unittest discover -s tooling -p 'test_*.py'
+
+      - name: Load station Firebase Android configuration
+        run: python3 tooling/prepare_firebase_dart_defines.py
 
       - name: تحليل Flutter
         run: flutter analyze
@@ -53,8 +75,17 @@ jobs:
           echo "ERROR: NDK $NDK_VERSION could not be installed after 3 attempts."
           exit 1
 
+      - name: Prepare SHA3-verified Android SQLite source
+        run: python3 tooling/prepare_android_sqlite.py
+
       - name: بناء تطبيق الأندرويد (النسخة النهائية)
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release \
+            --dart-define=SAQIA_FIREBASE_API_KEY="$SAQIA_FIREBASE_API_KEY" \
+            --dart-define=SAQIA_FIREBASE_APP_ID="$SAQIA_FIREBASE_APP_ID" \
+            --dart-define=SAQIA_FIREBASE_MESSAGING_SENDER_ID="$SAQIA_FIREBASE_MESSAGING_SENDER_ID" \
+            --dart-define=SAQIA_FIREBASE_PROJECT_ID="$SAQIA_FIREBASE_PROJECT_ID" \
+            --dart-define=SAQIA_FIREBASE_STORAGE_BUCKET="$SAQIA_FIREBASE_STORAGE_BUCKET"
 
       - name: حفظ ملف الـ APK لتمكين تحميله
         uses: actions/upload-artifact@v4

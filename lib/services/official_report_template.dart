@@ -358,6 +358,33 @@ class OfficialReportTemplate {
     );
   }
 
+  // RTL documents need LTR isolation for numeric dates and clocks.
+  static final RegExp _dateTimeCellPattern = RegExp(
+    r'^(?:[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}|[0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{4})(?:[ T][0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)?$',
+  );
+
+  static bool isDateTimeCell(String value) =>
+      _dateTimeCellPattern.hasMatch(value.trim());
+
+  static pw.Widget _tableValueText(
+    String cell, {
+    required pw.Font font,
+    required double fontSize,
+  }) {
+    final text = pw.Text(
+      cell,
+      textAlign: pw.TextAlign.center,
+      style: pw.TextStyle(
+        fontFallback: [pw.Font.helvetica()],
+        font: font,
+        fontSize: fontSize,
+      ),
+    );
+    return isDateTimeCell(cell)
+        ? pw.Directionality(textDirection: pw.TextDirection.ltr, child: text)
+        : text;
+  }
+
   static pw.Widget _buildOfficialTable({
     required List<String> columns,
     required List<List<String>> rows,
@@ -415,11 +442,7 @@ class OfficialReportTemplate {
                       vertical: cellVerticalPadding,
                     ),
                     alignment: pw.Alignment.center,
-                    child: pw.Text(
-                      cell,
-                      textAlign: pw.TextAlign.center,
-                      style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: font, fontSize: cellFontSize),
-                    ),
+                    child: _tableValueText(cell, font: font, fontSize: cellFontSize),
                   ),
                 )
                 .toList(),
@@ -437,16 +460,12 @@ class OfficialReportTemplate {
                   vertical: cellVerticalPadding,
                 ),
                 alignment: pw.Alignment.center,
-                child: pw.Text(
+                child: _tableValueText(
                   index < footerRow.length
                       ? footerRow[footerRow.length - 1 - index]
                       : '',
-                  textAlign: pw.TextAlign.center,
-                  style: pw.TextStyle(
-                    fontFallback: [pw.Font.helvetica()],
-                    font: boldFont,
-                    fontSize: cellFontSize,
-                  ),
+                  font: boldFont,
+                  fontSize: cellFontSize,
                 ),
               ),
             ),

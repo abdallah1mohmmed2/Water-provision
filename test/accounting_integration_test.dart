@@ -21,16 +21,26 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late AppDatabase db;
   late AccountingService svc;
+  late Directory testDatabaseDirectory;
 
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    testDatabaseDirectory = await Directory.systemTemp.createTemp(
+      'saqia_accounting_integration_test_',
+    );
+    await databaseFactory.setDatabasesPath(testDatabaseDirectory.path);
     await databaseFactory.deleteDatabase(
       '${await databaseFactory.getDatabasesPath()}/saqia_station_v2.db',
     );
     db = AppDatabase.instance;
     svc = AccountingService(db);
     await db.db;
+  });
+
+  tearDownAll(() async {
+    await db.close();
+    await testDatabaseDirectory.delete(recursive: true);
   });
 
   Future<int> cashboxBalance(int id) async =>
@@ -932,8 +942,9 @@ void main() {
     final revenueBefore = await accountNet('4000');
     final receivableBefore = await accountNet('1200');
     final carriedBefore = await accountNet('3100');
-    final debtId = await svc.addBeneficiaryDebt(
-      beneficiaryId: b,
+    final debtId = await svc.addPreviousPartyDebt(
+      partyType: 'beneficiary',
+      partyId: b,
       amount: 25000,
       date: DateTime.now(),
       notes: 'رصيد مديونية سابق للمحطة',
@@ -1651,7 +1662,87 @@ void main() {
     );
   });
 
-  test('ترقية v17 تنشئ جداول مطابقة النقد والبنك والحسابات العامة حتى الإصدار 22', () async {
+
+  test('تقرير المديونيات الموحد يضم الأطراف الثلاثة باتجاه عليه الصحيح دون تغيير الصندوق', () async {
+    final repo = StationRepository(db);
+    final unique = DateTime.now().microsecondsSinceEpoch.toString();
+    final beneficiary = await repo.createBeneficiary(name: 'ALL-DEBTS-B-$unique');
+    final worker = await repo.createWorker(
+      name: 'ALL-DEBTS-W-$unique', payType: 'fixed',
+    );
+    final partner = await repo.createPartner(
+      name: 'ALL-DEBTS-P-$unique', mode: 'shares', shares: 1,
+    );
+    final cashBefore = await cashboxBalance(1);
+    final date = DateTime(2026, 11, 7, 10);
+    final end = DateTime(2026, 11, 30);
+    final before = await repo.report('all_party_debts', to: end);
+    Map<String, Object?> forParty(
+        List<Map<String, Object?>> rows, String kind, int partyId) =>
+      rows.singleWhere((r) =>
+        r['party_type'] == kind && r['party_id'] == partyId);
+    final b0 = (forParty(before, 'beneficiary', beneficiary)['balance'] as num).round();
+    final w0 = (forParty(before, 'worker', worker)['balance'] as num).round();
+    final p0 = (forParty(before, 'partner', partner)['balance'] as num).round();
+
+    await svc.addPreviousPartyDebt(
+      partyType: 'beneficiary', partyId: beneficiary,
+      amount: 1300, date: date, notes: 'اختبار مديونية مستفيد',
+    );
+    await svc.addPreviousPartyDebt(
+      partyType: 'worker', partyId: worker,
+      amount: 2400, date: date, notes: 'اختبار مديونية عامل',
+    );
+    await svc.addPreviousPartyDebt(
+      partyType: 'partner', partyId: partner,
+      amount: 3500, date: date, notes: 'اختبار مديونية شريك',
+    );
+    final after = await repo.report('all_party_debts', to: end);
+    expect(forParty(after, 'beneficiary', beneficiary)['balance'], b0 + 1300);
+    expect(forParty(after, 'worker', worker)['balance'], w0 + 2400);
+    expect(forParty(after, 'partner', partner)['balance'], p0 + 3500);
+    expect((await svc.workerBalance(worker))['balance'], -2400);
+    expect((await svc.partnerBalance(partner))['balance'], -3500);
+    // The debt voucher must remain visible independently of the net balance:
+    // a party can owe a prior debt even when it has a larger earned credit.
+    final workerCard = (await repo.workers()).singleWhere(
+      (row) => row['id'] == worker,
+    );
+    final partnerCard = (await repo.partners()).singleWhere(
+      (row) => row['id'] == partner,
+    );
+    expect(workerCard['previous_debt_total'], 2400);
+    expect(partnerCard['previous_debt_total'], 3500);
+    expect((await repo.partyFinancialSummary('worker', worker))['previous_debt_total'], 2400);
+    expect((await repo.partyFinancialSummary('partner', partner))['previous_debt_total'], 3500);
+    expect(
+      (await repo.report('debts', to: end))
+          .any((row) => row['id'] == worker && row['name'] == 'ALL-DEBTS-W-$unique'),
+      isFalse,
+    );
+    expect(
+      (await repo.report('partner_accounts', partnerId: partner))
+          .any((row) => row['type'] == 'previous_receivable'
+              && row['alayh'] == 3500),
+      isTrue,
+    );
+    expect(
+      (await repo.report('worker_transactions', workerId: worker))
+          .any((row) => row['type'] == 'previous_receivable'
+              && row['alayh'] == 2400),
+      isTrue,
+    );
+    expect(await cashboxBalance(1), cashBefore);
+    // The same date cutoff must not include later debt postings.
+    final beforeDebtDate = await repo.report(
+      'all_party_debts', to: DateTime(2026, 11, 6),
+    );
+    expect(forParty(beforeDebtDate, 'worker', worker)['balance'], w0);
+    expect(forParty(beforeDebtDate, 'partner', partner)['balance'], p0);
+    expect(forParty(beforeDebtDate, 'beneficiary', beneficiary)['balance'], b0);
+  });
+
+  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 32', () async {
     final opened = await db.db;
     await opened.execute('PRAGMA user_version=17');
     await db.close();
@@ -1673,7 +1764,7 @@ void main() {
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 22);
+    expect((version.single.values.single as num).toInt(), 32);
   });
 
   test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {

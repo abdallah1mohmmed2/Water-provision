@@ -1,3 +1,4 @@
+import '../domain/accounting/report_minute_pricing.dart';
 import 'dart:async';
 import '../core/app_clock.dart';
 import '../core/app_prefs.dart';
@@ -20,6 +21,8 @@ import '../services/report_service.dart';
 import '../services/official_report_template.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
+import '../services/sync_coordinator.dart';
+import 'sync_connection_panel.dart';
 import '../services/message_template_service.dart';
 import 'general_accounts_page.dart';
 import 'reconciliation_page.dart';
@@ -477,6 +480,11 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
   }
 
   Future<void> _unlocked() async {
+    try {
+      await SyncCoordinator.instance.resume();
+    } catch (_) {
+      // A sync outage must never block local station access.
+    }
     if (user == null) {
       setState(() => error = 'تعذر تحديد مستخدم نشط لفتح المحطة.');
       return;
@@ -1911,6 +1919,7 @@ class _DashboardState extends State<DashboardPage> {
   double diesel = 0;
   Map<String, Object?>? warning;
   String systemType = 'diesel';
+  String stationName = '';
   bool loading = true;
   late final PageController _statsController = PageController(viewportFraction: .78);
   late final PageController _menuReportsController = PageController();
@@ -1919,7 +1928,8 @@ class _DashboardState extends State<DashboardPage> {
     try {
       final a = await widget.r.dashboard(),
           c = await widget.r.currentSession(),
-          cfg = await SystemConfig.load(widget.r);
+          cfg = await SystemConfig.load(widget.r),
+          settings = await widget.r.settings();
       final b = cfg.isDiesel ? await widget.r.dieselStock() : 0.0;
       final w = cfg.isDiesel
           ? await widget.r.dieselWarning()
@@ -1931,6 +1941,7 @@ class _DashboardState extends State<DashboardPage> {
           session = c;
           warning = w;
           systemType = cfg.type;
+          stationName = (settings['station_name'] ?? '').trim();
           loading = false;
         });
       }
@@ -2264,6 +2275,13 @@ class _DashboardState extends State<DashboardPage> {
                       const Text('لوحة التحكم', style: TextStyle(color: neon, fontSize: 12, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 7),
                       const Text('مرحباً بك في منظومة', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 7),
+                      Text(
+                        stationName.isNotEmpty ? stationName : SystemConfig.displayNameFor(systemType),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: neon, fontSize: 16, fontWeight: FontWeight.w800),
+                      ),
                       const SizedBox(height: 7),
                       Text('ملخص التشغيل والعمليات اليومية في مكان واحد',
                         style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 11, height: 1.5)),
@@ -3158,6 +3176,78 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     }
   }
 
+
+  /// Editing posts an audited reversal plus a new balanced journal entry.
+  /// The party and original date stay immutable; use cancellation and a new
+  /// voucher to correct a mistaken party selection.
+  Future<void> editPriorDebt(Map<String,Object?> row) async {
+    final beneficiary = widget.kind == 'beneficiary';
+    final voucherId = (beneficiary
+        ? row['id'] : row['previous_debt_transaction_id']) as num?;
+    if (voucherId == null) return;
+    final oldAmount = (beneficiary
+        ? row['debit'] : row['previous_debt_amount']) as num?;
+    final oldNotes = beneficiary ? row['notes'] : row['previous_debt_notes'];
+    final amount = TextEditingController(text: (oldAmount ?? 0).toInt().toString());
+    final notes = TextEditingController(text: '${oldNotes ?? ''}');
+    final ok = await showDialog<bool>(
+      context:context,
+      builder:(dialogContext)=>FormDialog(
+        title:'تعديل المديونية السابقة',
+        children:[
+          const Text('سيُعكس القيد السابق ويُنشأ قيد مصحح. لا يمكن تغيير الطرف أو التاريخ؛ لإصلاح طرف خاطئ ألغِ السند ثم أضف سنداً جديداً للطرف الصحيح.'),
+          TextField(
+            controller:amount,keyboardType:TextInputType.number,
+            decoration:const InputDecoration(labelText:'مبلغ المديونية الجديد *'),
+          ),
+          TextField(
+            controller:notes,minLines:2,maxLines:3,
+            decoration:const InputDecoration(labelText:'البيان الجديد *'),
+          ),
+        ],
+        onSave:()=>Navigator.pop(dialogContext,
+          (int.tryParse(amount.text) ?? 0)>0 && notes.text.trim().isNotEmpty),
+      ),
+    );
+    if(ok!=true || !mounted) return;
+    final success = await runGuarded(context,()=>beneficiary
+      ? widget.r.accounting.reviseBeneficiaryDebt(
+          debtId:voucherId.toInt(),amount:int.parse(amount.text),
+          notes:notes.text.trim())
+      : widget.r.accounting.revisePreviousPartyDebt(
+          partyType:widget.kind,transactionId:voucherId.toInt(),
+          amount:int.parse(amount.text),notes:notes.text.trim()));
+    if(!success || !mounted) return;
+    await load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تصحيح المديونية بقيد عكسي وقيد جديد')),
+      );
+    }
+  }
+
+  Future<void> cancelPriorDebt(Map<String,Object?> row) async {
+    if(widget.kind=='beneficiary') {
+      await cancelManualDebt(row);
+      return;
+    }
+    final voucherId=(row['previous_debt_transaction_id'] as num?)?.toInt();
+    if(voucherId==null) return;
+    final reason=await askReason(context,'إلغاء مديونية سابقة',
+      message:'سيُعكس القيد المالي، ويبقى السند في سجل التدقيق. لا تُمس حركة الصندوق.');
+    if(reason==null || !mounted) return;
+    final success=await runGuarded(context,()=>widget.r.accounting.revisePreviousPartyDebt(
+      partyType:widget.kind,transactionId:voucherId,
+      cancellationReason:reason));
+    if(!success || !mounted) return;
+    await load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم إلغاء المديونية بقيد عكسي موثق')),
+      );
+    }
+  }
+
   Widget historyView(BuildContext c) {
     if (history.isEmpty) {
       return Container(
@@ -3192,12 +3282,22 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                   amount: _historyAmount(history[i]),
                 ),
               ),
-              if (widget.kind == 'beneficiary' && history[i]['type'] == 'manual_debt' && history[i]['status'] == 'posted')
+              if ((widget.kind == 'beneficiary' &&
+                  history[i]['type'] == 'manual_debt' &&
+                  history[i]['status'] == 'posted') ||
+                  ((widget.kind == 'worker' || widget.kind == 'partner') &&
+                   history[i]['previous_debt_transaction_id'] != null)) ...[
+                IconButton(
+                  tooltip: 'تعديل المديونية بقيد تصحيحي',
+                  onPressed: () => editPriorDebt(history[i]),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
                 IconButton(
                   tooltip: 'إلغاء المديونية بعكس القيد',
-                  onPressed: () => cancelManualDebt(history[i]),
+                  onPressed: () => cancelPriorDebt(history[i]),
                   icon: const Icon(Icons.undo_rounded, color: Colors.red),
                 ),
+              ],
             ],
           ),
         if (history.length > maxItems)
@@ -3385,6 +3485,15 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                   Icons.payments_outlined,
                   _green,
                 ),
+                if (widget.kind != 'beneficiary' &&
+                    ((financial['previous_debt_total'] as num?)?.round() ?? 0) > 0)
+                  metric(
+                    c,
+                    'مديونيات سابقة عليه',
+                    money(financial['previous_debt_total']),
+                    Icons.receipt_long_outlined,
+                    Colors.redAccent,
+                  ),
                 metric(
                   c,
                   'حالة الرصيد',
@@ -3949,15 +4058,29 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   final q = TextEditingController();
   List<Map<String, Object?>> rows = [];
   bool loading = true;
+  bool sourceFromServer = false;
+  String? loadError;
   Timer? _debounce;
   int _seq = 0;
   Future<void> load() async {
     // رقم تسلسلي: نتيجة استعلام أقدم لا تكتب فوق نتيجة أحدث.
     final seq = ++_seq;
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      loadError = null;
+    });
     try {
       final x = await widget.r.beneficiaries(q.text.trim());
-      if (mounted && seq == _seq) setState(() => rows = x);
+      if (mounted && seq == _seq) {
+        setState(() {
+          rows = x;
+          sourceFromServer = widget.r.beneficiariesFromServer;
+        });
+      }
+    } catch (error) {
+      if (mounted && seq == _seq) {
+        setState(() => loadError = friendlyError(error));
+      }
     } finally {
       if (mounted && seq == _seq) setState(() => loading = false);
     }
@@ -4259,6 +4382,28 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             hintText: 'اكتب جزءًا من الاسم أو الرقم',
           ),
         ),
+        const SizedBox(height: 8),
+        if (sourceFromServer)
+          const Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'القائمة والرصيد من خادم Shelf؛ التفاصيل وكشوف الحركات ما زالت تعتمد على بيانات الجهاز حتى ترحيلها.',
+              style: TextStyle(fontSize: 12, color: Colors.green),
+            ),
+          )
+        else if (widget.r.serverSessionActive)
+          const Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'الخادم غير متاح حالياً؛ تُعرض آخر بيانات محلية محفوظة. قد لا تشمل تغييرات الأجهزة الأخرى.',
+              style: TextStyle(fontSize: 12, color: Colors.orange),
+            ),
+          ),
+        if (loadError != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(loadError!, style: const TextStyle(color: Colors.red)),
+          ),
         const SizedBox(height: 10),
         if (loading) const LinearProgressIndicator(),
         Expanded(
@@ -8103,6 +8248,7 @@ class PaymentsPage extends StatefulWidget {
 
 class _PaymentsState extends State<PaymentsPage> {
   List<Map<String, Object?>> rows = [],
+      debtRows = [],
       bs = [],
       ws = [],
       ps = [],
@@ -8117,9 +8263,35 @@ class _PaymentsState extends State<PaymentsPage> {
         p = await widget.r.partners(),
         m = await widget.r.paymentMethods(),
         c = await widget.r.cashboxes();
+    final stationId = await widget.r.accounting.currentStationId();
+    // Prior debts are not cash payments. Read them separately, without altering
+    // their source transactions or the posted general-ledger entries.
+    final priorDebts = await widget.r.db.rawQuery('''
+      SELECT t.id, t.worker_id party_id, 'worker' party_type, w.name party_name,
+             t.amount, t.date, t.notes
+      FROM worker_transactions t
+      JOIN workers w ON w.id=t.worker_id AND w.station_id=t.station_id
+      WHERE t.station_id=? AND t.type='previous_receivable'
+        AND t.reference_type='previous_debt'
+      UNION ALL
+      SELECT t.id, t.partner_id, 'partner', p.name,
+             t.amount, t.date, t.notes
+      FROM partner_transactions t
+      JOIN partners p ON p.id=t.partner_id AND p.station_id=t.station_id
+      WHERE t.station_id=? AND t.type='previous_receivable'
+        AND t.reference_type='previous_debt'
+      UNION ALL
+      SELECT t.id, t.beneficiary_id, 'beneficiary', b.name,
+             t.amount, t.date, t.notes
+      FROM beneficiary_manual_debts t
+      JOIN beneficiaries b ON b.id=t.beneficiary_id AND b.station_id=?
+      WHERE t.status='posted'
+      ORDER BY date DESC, id DESC
+    ''', [stationId, stationId, stationId]);
     if (mounted) {
       setState(() {
         rows = a;
+        debtRows = priorDebts;
         bs = b;
         ws = w;
         ps = p;
@@ -8285,8 +8457,12 @@ class _PaymentsState extends State<PaymentsPage> {
     if (ok == true) {
       if (!mounted) return;
       try {
+        final descriptionOnly = existing != null &&
+            (existing['amount'] as num?)?.toInt() == int.tryParse(amount.text) &&
+            existing['${target}_id'] == party &&
+            existing['payment_method_id'] == method && existing['cashbox_id'] == cb;
         String? editReason;
-        if (existing != null) {
+        if (existing != null && !descriptionOnly) {
           // Recheck immediately before using State.context after the dialog await.
           if (!mounted) return;
           editReason = await askReason(
@@ -8316,7 +8492,11 @@ class _PaymentsState extends State<PaymentsPage> {
           }
         }
         int paymentId;
-        if (existing != null) {
+        if (existing != null && descriptionOnly) {
+          paymentId = existing['id'] as int;
+          await widget.r.accounting.updatePaymentDetails(id: paymentId,
+            userId: widget.userId, referenceNumber: reference.text, notes: note.text);
+        } else if (existing != null) {
           paymentId = await widget.r.accounting.replacePayment(
             id: existing['id'] as int,
             userId: widget.userId,
@@ -8430,7 +8610,8 @@ class _PaymentsState extends State<PaymentsPage> {
       msg('لا يوجد ${targetName(target)} متاحون لإضافة مديونية سابقة');
       return;
     }
-    int? partyId = parties.first['id'] as int;
+    // Require deliberate selection: never post a debt to the first party by default.
+    int? partyId;
     final amount = TextEditingController();
     final notes = TextEditingController();
     final partyLabel = target == 'beneficiary'
@@ -8438,9 +8619,7 @@ class _PaymentsState extends State<PaymentsPage> {
         : target == 'worker'
             ? 'العامل'
             : 'الشريك';
-    final balanceMeaning = target == 'beneficiary'
-        ? 'سيُضاف المبلغ على المستفيد لصالح المحطة.'
-        : 'سيُضاف المبلغ كمستحق سابق للطرف على المحطة.';
+    final balanceMeaning = 'سيُسجّل المبلغ على $partyLabel لصالح المحطة، دون قبض أو صرف.';
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -8457,7 +8636,7 @@ class _PaymentsState extends State<PaymentsPage> {
                   ),
               ],
               onChanged: (v) => setDialogState(() => partyId = v),
-              decoration: InputDecoration(labelText: partyLabel),
+              decoration: InputDecoration(labelText: 'اختر $partyLabel *'),
             ),
             TextField(
               controller: amount,
@@ -8473,7 +8652,7 @@ class _PaymentsState extends State<PaymentsPage> {
               maxLines: 3,
               decoration: const InputDecoration(
                 labelText: 'البيان / سبب المديونية *',
-                hintText: 'مثال: رصيد مستحق من فترة سابقة',
+                hintText: 'مثال: دين سابق على الطرف لصالح المحطة',
               ),
             ),
             Text(balanceMeaning),
@@ -8504,6 +8683,18 @@ class _PaymentsState extends State<PaymentsPage> {
     }
     msg('تمت إضافة المديونية السابقة إلى حساب $partyLabel دون حركة نقدية');
     await load();
+  }
+
+  List<Map<String, Object?>> get visiblePriorDebts {
+    final search = q.trim().toLowerCase();
+    return debtRows.where((debt) {
+      if (debt['party_type'] != target) return false;
+      final content = [
+        debt['party_name'], debt['amount'], money(debt['amount']),
+        debt['date'], debt['notes'],
+      ].map((v) => '${v ?? ''}').join(' ').toLowerCase();
+      return content.contains(search);
+    }).toList();
   }
 
   Future<void> cancelPay(Map<String, Object?> x) async {
@@ -8583,6 +8774,33 @@ class _PaymentsState extends State<PaymentsPage> {
         Expanded(
           child: ListView(
             children: [
+              if (visiblePriorDebts.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Text('المديونيات السابقة على الأطراف',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                ),
+                for (final debt in visiblePriorDebts)
+                  Card(
+                    child: ListTile(
+                      title: Text('${debt['party_name']} — مديونية سابقة'),
+                      subtitle: Text('${debt['date']} • ${debt['notes'] ?? ''}'),
+                      trailing: Text(money(debt['amount']),
+                        style: const TextStyle(fontWeight: FontWeight.bold,
+                          color: Colors.red)),
+                      onTap: () async {
+                        final partyId = (debt['party_id'] as num).toInt();
+                        final kind = '${debt['party_type']}';
+                        await Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => RecordDetailsPage(widget.r,
+                            kind: kind, id: partyId, title: 'تفاصيل الحساب'),
+                        ));
+                        if (mounted) await load();
+                      },
+                    ),
+                  ),
+                const Divider(height: 24),
+              ],
               for (final x in rows.where((x) {
                 final partyId = x[switch (target) {
                   'worker' => 'worker_id',
@@ -10253,6 +10471,12 @@ style: TextStyle(
       : _green,
 ),
                                           ),
+                                          if (((x['previous_debt_total'] as num?)?.round() ?? 0) > 0) ...[
+                                            const SizedBox(height: 5),
+                                            Text('مديونيات سابقة عليه: ${money(x['previous_debt_total'])}',
+                                              style: const TextStyle(color: Colors.red,
+                                                fontWeight: FontWeight.bold)),
+                                          ],
                                           const SizedBox(height: 12),
                                           Align(
                                             alignment: Alignment.centerLeft,
@@ -10893,6 +11117,12 @@ style: TextStyle(
       : _green,
 ),
                                           ),
+                                          if (((x['previous_debt_total'] as num?)?.round() ?? 0) > 0) ...[
+                                            const SizedBox(height: 5),
+                                            Text('مديونيات سابقة عليه: ${money(x['previous_debt_total'])}',
+                                              style: const TextStyle(color: Colors.red,
+                                                fontWeight: FontWeight.bold)),
+                                          ],
                                           const SizedBox(height: 12),
                                           Row(
                                             children: [
@@ -12014,7 +12244,27 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
   }
   String _title()=>ReportService.titles[widget.keyName]??'تقرير';
   Color _valueColor(String k,Object? v){if(k=='lah'||k=='credit')return _reportGreen;if(k=='alayh'||k=='debit')return _reportOrange;return _reportInk;}
-  String _value(String k,Object? v){if(v==null)return '-';if(k=='date'||k.endsWith('_datetime')){final d=DateTime.tryParse('$v');if(d!=null)return '${d.day}/${d.month}/${d.year}';}if(k=='system_type')return systemName('$v');if(k=='status')return statusName(v);if(k=='kind')return movementName('$v');if(k=='ownership_mode')return v=='percentage'?'نسبة ملكية':'عدد حصص';return '$v';}
+  String _value(String k, Object? v) {
+    if (v == null) return '-';
+    if (k == 'date' || k.endsWith('_datetime')) {
+      final raw = '$v';
+      final d = DateTime.tryParse(raw);
+      if (d != null) {
+        // Only the private partner statement changes its previous presentation:
+        // preserve the actual clock when the saved row contains a timestamp.
+        final partnerTimestamp = widget.keyName == 'partner_accounts' &&
+            (raw.contains('T') || raw.contains(':'));
+        return DateFormat(
+          partnerTimestamp ? 'yyyy/MM/dd HH:mm' : 'yyyy/MM/dd',
+        ).format(d);
+      }
+    }
+    if (k == 'system_type') return systemName('$v');
+    if (k == 'status') return statusName(v);
+    if (k == 'kind') return movementName('$v');
+    if (k == 'ownership_mode') return v == 'percentage' ? 'نسبة ملكية' : 'عدد حصص';
+    return '$v';
+  }
   List<MapEntry<String,Object?>> _visible(Map<String,Object?> row)=>row.entries.where((e)=>reportFieldArabic(e.key)!=null&&e.key!='id'&&e.key!='created_at'&&e.key!='updated_at'&&e.key!='journal_entry_id').toList();
   Widget _metric(String label, String value, IconData icon, Color color) =>
       Expanded(
@@ -12069,7 +12319,16 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
             Row(children:[
               Container(width:30,height:30,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${index+1}',style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900)))),
               const SizedBox(width:10),
-              Expanded(child:Text(_value(entries.isNotEmpty?entries.first.key:'description',entries.isNotEmpty?entries.first.value:null),softWrap:true,style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk))),
+              Expanded(child:Text(
+                _value(entries.isNotEmpty?entries.first.key:'description', entries.isNotEmpty?entries.first.value:null),
+                textDirection: widget.keyName == 'partner_accounts' &&
+                        entries.isNotEmpty &&
+                        (entries.first.key == 'date' || entries.first.key.endsWith('_datetime'))
+                    ? TextDirection.ltr
+                    : null,
+                softWrap:true,
+                style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk),
+              )),
               if(row['lah']!=null&&((row['lah'] as num?)?.abs()??0)>0)_badge('له','${row['lah']}',_reportGreen),
               if(row['alayh']!=null&&((row['alayh'] as num?)?.abs()??0)>0)_badge('عليه','${row['alayh']}',_reportOrange),
             ]),
@@ -12087,7 +12346,15 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
                       children:[
                         Text(reportFieldArabic(e.key)??e.key,softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:10)),
                         const SizedBox(height:3),
-                        Text(_value(e.key,e.value),softWrap:true,style:TextStyle(color:_valueColor(e.key,e.value),fontWeight:FontWeight.w700,fontSize:12,height:1.35)),
+                        Text(
+                          _value(e.key,e.value),
+                          textDirection: widget.keyName == 'partner_accounts' &&
+                                  (e.key == 'date' || e.key.endsWith('_datetime'))
+                              ? TextDirection.ltr
+                              : null,
+                          softWrap:true,
+                          style:TextStyle(color:_valueColor(e.key,e.value),fontWeight:FontWeight.w700,fontSize:12,height:1.35),
+                        ),
                       ],
                     ),
                   ),
@@ -12384,12 +12651,91 @@ class _DebtsReportState extends State<DebtsReportPage>{
   @override void initState(){super.initState();final now=AppClock.now();month=DateTime(now.year,now.month,1);_load();}
   Future<void> _setDebtMonth(DateTime value)async{setState(()=>month=DateTime(value.year,value.month,1));await _load();}
   Future<void> _pickDebtMonth()async{final picked=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:month,locale:const Locale('ar'),helpText:'اختر يوماً من الشهر المطلوب');if(picked!=null)await _setDebtMonth(picked);}
-  Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('debts',from:month,to:DateTime(month.year,month.month+1,0));if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
-  Future<void> _print()async{try{await ReportService(widget.r).printPdf('debts',from:month,to:DateTime(month.year,month.month+1,0),sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('all_party_debts',from:month,to:DateTime(month.year,month.month+1,0));if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
+  Future<void> _print()async{try{await ReportService(widget.r).printPdf('all_party_debts',from:month,to:DateTime(month.year,month.month+1,0),sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   int _n(Object? v)=>(v as num?)?.round()??0;
-  List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final b=_n(x['balance']);final okView=view=='all'||(view=='alayh'&&b>0)||(view=='lah'&&b<0)||(view=='balanced'&&b==0);final okSearch=q.isEmpty||'${x['name']??''} ${x['phone']??''}'.toLowerCase().contains(q);return okView&&okSearch;}).toList();}
+  List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final b=_n(x['balance']);final okView=view=='all'||(view=='alayh'&&b>0)||(view=='lah'&&b<0)||(view=='balanced'&&b==0);final okSearch=q.isEmpty||'${x['name']??''} ${x['phone']??''} ${x['party_type']??''}'.toLowerCase().contains(q);return okView&&okSearch;}).toList();}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
-  Widget _card(Map<String,Object?> x){final balance=_n(x['balance']);final positive=balance>0;final color=positive?_reportOrange:balance<0?_reportGreen:_reportOliveDark;final label=positive?'عليه':balance<0?'له':'متوازن';return InkWell(onTap:x['id'] is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'beneficiary',id:x['id'] as int,title:'تفاصيل الحساب'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(15)),child:Icon(positive?Icons.arrow_upward_rounded:balance<0?Icons.arrow_downward_rounded:Icons.check_circle_rounded,color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??'غير محدد'}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${x['phone']??'بدون هاتف'}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:8),const Text('فتح تفاصيل الحساب',style:TextStyle(color:_reportOliveDark,fontSize:10,fontWeight:FontWeight.w800))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(label,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:12)),const SizedBox(height:4),Text(money(balance.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:18))])])));}
+  Widget _card(Map<String,Object?> x) {
+    final balance = _n(x['balance']);
+    final positive = balance > 0;
+    final color = positive ? _reportOrange : balance < 0 ? _reportGreen : _reportOliveDark;
+    final label = positive ? 'عليه' : balance < 0 ? 'له' : 'متوازن';
+    final partyType = '${x['party_type'] ?? 'beneficiary'}';
+    final partyLabel = switch (partyType) {
+      'worker' => 'عامل',
+      'partner' => 'شريك',
+      _ => 'مستفيد',
+    };
+    final personId = (x['party_id'] as num?)?.toInt() ??
+        (x['id'] as num?)?.toInt();
+    return InkWell(
+      onTap: personId == null ? null : () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => RecordDetailsPage(
+            widget.r,
+            kind: partyType,
+            id: personId,
+            title: 'تفاصيل حساب $partyLabel',
+          ),
+        ),
+      ),
+      borderRadius: BorderRadius.circular(21),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 11),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(21),
+          border: Border.all(color: _reportLine),
+        ),
+        child: Row(children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .12),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Icon(
+              positive ? Icons.arrow_upward_rounded
+                  : balance < 0 ? Icons.arrow_downward_rounded
+                  : Icons.check_circle_rounded,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${x['name'] ?? 'غير محدد'}',
+                  style: const TextStyle(
+                    color: _reportInk, fontWeight: FontWeight.w900, fontSize: 16)),
+              const SizedBox(height: 4),
+              Text('$partyLabel — ${x['phone'] ?? 'بدون هاتف'}',
+                  style: TextStyle(
+                    color: _reportInk.withValues(alpha: .55), fontSize: 11)),
+              const SizedBox(height: 8),
+              const Text('فتح تفاصيل الحساب',
+                  style: TextStyle(
+                    color: _reportOliveDark, fontSize: 10, fontWeight: FontWeight.w800)),
+            ],
+          )),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(label, style: TextStyle(
+                  color: color, fontWeight: FontWeight.w900, fontSize: 12)),
+              const SizedBox(height: 4),
+              Text(money(balance.abs()), style: TextStyle(
+                  color: color, fontWeight: FontWeight.w900, fontSize: 18)),
+            ],
+          ),
+        ]),
+      ),
+    );
+  }
   @override Widget build(BuildContext context){final totalAlayh=visible.where((x)=>_n(x['balance'])>0).fold<int>(0,(s,x)=>s+_n(x['balance']));final totalLah=visible.where((x)=>_n(x['balance'])<0).fold<int>(0,(s,x)=>s+_n(x['balance']).abs());final onCount=visible.where((x)=>_n(x['balance'])>0).length;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير المديونيات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة أرصدة الأطراف',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المديونيات والحسابات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('ترتيب واضح للحسابات التي عليها أو لها مبالغ',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.account_balance_wallet_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[
         Row(children:[
           IconButton(onPressed:()=>_setDebtMonth(DateTime(month.year,month.month-1,1)),tooltip:'الشهر السابق',icon:const Icon(Icons.chevron_right_rounded)),
@@ -12519,6 +12865,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   String sortKey = 'start_datetime';
   bool ascending = false, loading = true;
   bool partialHour = true;
+  bool useSpecialMinuteRateReports = false;
   String? error;
 
   @override
@@ -12560,7 +12907,15 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     try {
       final settings = await widget.r.settings();
       final result = await widget.r.report('invoices', from: from, to: to, systemType: 'all');
-      if (mounted) setState(() { rows = result; partialHour = settings['partial_hour'] != 'false'; loading = false; });
+      if (mounted) {
+        setState(() {
+          rows = result;
+          partialHour = settings['partial_hour'] != 'false';
+          useSpecialMinuteRateReports =
+              settings['work_price_report_display_special_rate'] == 'true';
+          loading = false;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() { error = friendlyError(e); loading = false; });
     }
@@ -12634,18 +12989,60 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   int get totalMinutes => visible.fold<int>(0, (sum, row) => sum + _n(row['minutes']));
   int get totalCloudMinutes => visible.fold<int>(0, (sum, row) =>
       sum + ('${row['system_type'] ?? ''}' == 'solar' ? _n(row['cloud_minutes']) : 0));
-  int _amountBeforeCloud(Map<String, Object?> row) {
-    if ('${row['system_type'] ?? ''}' != 'solar' || _n(row['cloud_minutes']) <= 0) {
-      return _n(row['total_amount']);
+  int _hourlyAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+    final rate = switch ('${row['system_type'] ?? ''}') {
+      'solar' => _n(row['solar_hourly_rate_snapshot']),
+      'equivalent_hybrid' => _n(row['third_type_hourly_rate_snapshot']),
+      _ => _n(row['water_hourly_rate_snapshot']),
+    };
+    final minutes = beforeCloud
+        ? _n(row['minutes'])
+        : _n(row['chargeable_minutes'] ?? (_n(row['minutes']) - _n(row['cloud_minutes'])));
+    if (rate <= 0) {
+      final savedBase = _n(row['work_base_water_amount_snapshot']);
+      return (savedBase > 0 ? savedBase : _n(row['total_amount']) - _n(row['diesel_amount'])) +
+          _n(row['diesel_amount']);
     }
-    final rate = _n(row['solar_hourly_rate_snapshot']);
-    if (rate <= 0) return _n(row['total_amount']);
-    return AccountingCalculations.amountForMinutes(_n(row['minutes']), rate, 'up', partialHour);
+    return AccountingCalculations.amountForMinutes(
+          minutes.clamp(0, 100000000).toInt(), rate, 'up', partialHour,
+        ) +
+        _n(row['diesel_amount']);
   }
-  int get totalAmountBeforeCloud => visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
-  int get totalCloudDeduction => (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62).toInt();
-  int get totalAmount => visible.fold<int>(0, (sum, row) => sum + _n(row['total_amount']));
-  int get totalPaid => visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
+
+  int _reportAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+    final minutes = beforeCloud
+        ? _n(row['minutes'])
+        : _n(row['chargeable_minutes'] ?? (_n(row['minutes']) - _n(row['cloud_minutes'])));
+    final isBeneficiary = row['beneficiary_id'] != null;
+    if (useSpecialMinuteRateReports && isBeneficiary) {
+      final savedRate = _n(row['work_minute_rate_snapshot']);
+      final rate = savedRate;
+      if (rate > 0) {
+        return ReportMinutePricing.amountAtMinuteRate(
+              minutes.clamp(0, 100000000).toInt(), rate,
+            ) +
+            _n(row['diesel_amount']);
+      }
+    }
+    return _hourlyAmount(row, beforeCloud: beforeCloud);
+  }
+
+  int _amountBeforeCloud(Map<String, Object?> row) =>
+      _reportAmount(row, beforeCloud: true);
+  int _amountAfterCloud(Map<String, Object?> row) =>
+      _reportAmount(row, beforeCloud: false);
+  int get totalAmountBeforeCloud =>
+      visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
+  int get totalCloudDeduction =>
+      (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62).toInt();
+  int get totalAmount =>
+      visible.fold<int>(0, (sum, row) => sum + _amountAfterCloud(row));
+  int get totalPaid =>
+      visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
+  int get totalWorkBasis =>
+      visible.fold<int>(0, (sum, row) => sum + _hourlyAmount(row, beforeCloud: false));
+  int get totalWorkDifference =>
+      useSpecialMinuteRateReports ? totalAmount - totalWorkBasis : 0;
 
   Future<List<Map<String, Object?>>> _pdfRows() async => visible;
 
@@ -12848,7 +13245,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           _summaryCard('الإيرادات قبل خصم الغيم', '${_money(totalAmountBeforeCloud)} ريال', Icons.price_check_rounded, _reportGreen, 2),
                           _summaryCard('قيمة خصم الغيم', '${_money(totalCloudDeduction)} ريال', Icons.remove_circle_outline_rounded, _reportOrange, 3),
                           _summaryCard('الإيرادات بعد خصم الغيم', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 4),
-                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 5),
+                          _summaryCard('أساس العمل بسعر الساعة', '${_money(totalWorkBasis)} ريال', Icons.calculate_outlined, _reportOliveDark, 5),
+                          _summaryCard('فائض فارق العمل', '${_money(totalWorkDifference)} ريال', Icons.trending_up_rounded, _reportOrange, 6),
+                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 7),
                         ];
                         return Wrap(
                           spacing: 8,
@@ -12930,7 +13329,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text(_time(data[i]['start_datetime']))),
                                       DataCell(Text(_time(data[i]['end_datetime']))),
                                       DataCell(Text('${_invoiceNetMinutes(data[i])}')),
-                                      DataCell(Text(_money(data[i]['total_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
+                                      DataCell(Text(_money(_amountAfterCloud(data[i])), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),
                                       DataCell(IconButton(tooltip: 'تعديل السقاية', icon: const Icon(Icons.edit_calendar_rounded, color: _reportOliveDark), onPressed: () => _editInvoice(data[i]))),
@@ -15324,6 +15723,15 @@ class _SettingsState extends State<SettingsPage> {
                   'سعر النوع الثالث بالساعة',
                   true,
                 ),
+              if (widget.manager) ...[
+                const Divider(height: 8),
+                setTile('work_minute_rate', 'سعر الدقيقة الخاص للمستفيدين', true),
+                boolTile('work_price_report_display_special_rate', 'استخدام سعر الدقيقة الخاصة في تقريري الفواتير والمديونيات'),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: Text('يؤثر هذا الاختيار في عرض تقريري الفواتير والمديونيات وملفي PDF فقط؛ لا يغير المبالغ أو القيود المالية المحفوظة. سجلات المستفيد القديمة التي لا تتضمن سعراً تاريخياً تثبت لها قيمة الإعداد عند الترقية فقط.', style: TextStyle(fontSize: 12, height: 1.5)),
+                ),
+              ],
               boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
               dropdownTile('rounding', 'سياسة التقريب', const [
                 MapEntry('nearest', 'التقريب إلى أقرب عدد صحيح'),
@@ -15345,6 +15753,7 @@ class _SettingsState extends State<SettingsPage> {
               ]),
               if ((s['time_source'] ?? 'device') == 'server')
                 setTile('server_url', 'عنوان الخادم (لمزامنة الوقت)'),
+              SyncConnectionPanel(initialServerUrl: s['server_url'] ?? ''),
               dropdownTile('week_start', 'بداية الأسبوع', const [
                 MapEntry('saturday', 'السبت'),
                 MapEntry('sunday', 'الأحد'),

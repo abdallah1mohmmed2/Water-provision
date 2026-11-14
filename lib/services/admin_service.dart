@@ -1,26 +1,58 @@
 import '../core/app_clock.dart';
-import 'package:crypto/crypto.dart';
-import 'dart:convert';
+import '../core/security/password_hasher.dart';
 import '../data/local/database.dart';
 import '../domain/accounting/accounting_service.dart';
 
 class AdminService {
   final AppDatabase db;
   AdminService([AppDatabase? d]) : db = d ?? AppDatabase.instance;
-  String hashPassword(String password) =>
-      sha256.convert(utf8.encode(password)).toString();
+  Future<String> hashPassword(String password) =>
+      PasswordHasher.hash(password);
 
   Future<Map<String, Object?>?> authenticate(
     String username,
     String password,
   ) async {
-    final hash = hashPassword(password);
     final rows = await db.query(
-      'SELECT id, station_id,name,username,role FROM app_users WHERE username=? AND password_hash=? AND active=1 LIMIT 1',
-      args: [username.trim(), hash],
+      'SELECT id, station_id, name, username, role, password_hash FROM app_users WHERE username=? AND active=1 LIMIT 1',
+      args: [username.trim()],
     );
     if (rows.isEmpty) return null;
-    return rows.first;
+
+    final user = rows.first;
+    final storedHash = '${user['password_hash'] ?? ''}';
+    if (!await PasswordHasher.verify(password, storedHash)) return null;
+
+    if (!PasswordHasher.isArgon2id(storedHash)) {
+      final upgradedHash = await PasswordHasher.hash(password);
+      final changed = await db.update(
+        'app_users',
+        {'password_hash': upgradedHash},
+        'id=? AND password_hash=? AND active=1',
+        [user['id'], storedHash],
+      );
+      if (changed == 0) {
+        // Another login may have upgraded the same account concurrently.
+        final latest = await db.query(
+          'SELECT password_hash FROM app_users WHERE id=? AND active=1 LIMIT 1',
+          args: [user['id']],
+        );
+        if (latest.isEmpty ||
+            !await PasswordHasher.verify(
+              password,
+              '${latest.first['password_hash'] ?? ''}',
+            )) {
+          return null;
+        }
+      }
+    }
+
+    final activeUser = await db.query(
+      'SELECT id, station_id, name, username, role FROM app_users WHERE id=? AND active=1 LIMIT 1',
+      args: [user['id']],
+    );
+    if (activeUser.isEmpty) return null;
+    return activeUser.first;
   }
 
   Future<List<Map<String, Object?>>> users() => db.query(
@@ -42,7 +74,7 @@ class AdminService {
       'name': name,
       'phone': phone,
       'username': username,
-      'password_hash': hashPassword(password),
+      'password_hash': await hashPassword(password),
       'role': role,
       'active': 1,
       'created_at': AppClock.now().toIso8601String(),

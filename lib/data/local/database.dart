@@ -1,5 +1,8 @@
 import '../../core/app_clock.dart';
 import 'dart:convert';
+import 'global_identity.dart';
+import 'business_sync_payload.dart';
+import 'package:uuid/uuid.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -25,13 +28,16 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 22,
+      version: 32,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
       onCreate: (d, v) async => _create(d),
       onUpgrade: (d, oldV, newV) async => _upgrade(d, oldV, newV),
-      onOpen: (d) async => d.execute('PRAGMA foreign_keys=ON'),
+      onOpen: (d) async {
+        await d.execute('PRAGMA foreign_keys=ON');
+        await GlobalIdentity.ensure(d);
+      },
     );
     return _db!;
   }
@@ -43,13 +49,17 @@ class AppDatabase {
       if (s.isNotEmpty) await d.execute(s);
     }
     await _createHelpers(d);
+    await d.execute('CREATE TABLE IF NOT EXISTS station_settings (station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_station_settings_station ON station_settings(station_id)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_journal_station_date ON journal_entries(station_id,date)');
     await d.execute('CREATE INDEX IF NOT EXISTS idx_period_station_range ON period_closures(station_id,period_start,period_end)');
     await _seed(d);
+    await _ensureSyncSchema(d);
   }
 
   Future<void> _upgrade(Database d, int oldV, int newV) async {
     await _createHelpers(d);
+    await _ensureSyncSchema(d);
     if (oldV < 2) {
       await d.execute(
         'CREATE INDEX IF NOT EXISTS idx_sessions_status ON irrigation_sessions(status)',
@@ -217,6 +227,18 @@ class AppDatabase {
         'CREATE INDEX IF NOT EXISTS idx_cash_rec_period ON cash_reconciliations(station_id,period_start,period_end_exclusive,account_code,id)',
       );
     }
+    if (oldV < 23) {
+      await d.execute('CREATE TABLE IF NOT EXISTS station_settings (station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE, key TEXT NOT NULL, value TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(station_id,key))');
+      await d.execute('CREATE INDEX IF NOT EXISTS idx_station_settings_station ON station_settings(station_id)');
+      // Preserve the global legacy table and copy values only to the historical default station.
+      await d.execute('INSERT OR IGNORE INTO station_settings(station_id,key,value,updated_at) SELECT 1,key,value,updated_at FROM settings WHERE EXISTS (SELECT 1 FROM stations WHERE id=1)');
+    }
+    if (oldV < 24) {
+      await _migrateV24(d);
+    }
+    if (oldV < 32) {
+      await _migrateSpecialReportRateV32(d);
+    }
     if (oldV < 19) {
       await d.execute(
         "CREATE TABLE IF NOT EXISTS general_accounts (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL DEFAULT 1 REFERENCES stations(id), name TEXT NOT NULL, phone TEXT, address TEXT, opening_balance INTEGER NOT NULL DEFAULT 0, notes TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
@@ -227,8 +249,68 @@ class AppDatabase {
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_accounts_station_name ON general_accounts(station_id,name)');
       await d.execute('CREATE INDEX IF NOT EXISTS idx_general_account_transactions_account_date ON general_account_transactions(account_id,date,id)');
     }
+    // Re-run after all historical migrations so newly-created tables receive capture triggers.
+    await _ensureSyncSchema(d);
   }
 
+  /// V32: Add a report-only immutable price snapshot; no ledger mutation.
+  /// For old irrigations the historical price is unknown. Use the configured
+  /// price once, and never silently recalculate it on later setting changes.
+  Future<void> _migrateSpecialReportRateV32(Database d) async {
+    final cols = await d.rawQuery('PRAGMA table_info(irrigations)');
+    if (!cols.any((row) => row['name'] == 'work_minute_rate_snapshot')) {
+      await d.execute('ALTER TABLE irrigations ADD COLUMN work_minute_rate_snapshot INTEGER NOT NULL DEFAULT 0');
+    }
+    final rateRows = await d.query('settings',
+        columns: ['value'], where: 'key=?', whereArgs: ['work_minute_rate'], limit: 1);
+    final rate = rateRows.isEmpty
+        ? 0 : int.tryParse('${rateRows.first['value'] ?? ''}') ?? 0;
+    if (rate > 0 && rate <= 1000000) {
+      await d.rawUpdate("""
+        UPDATE irrigations SET work_minute_rate_snapshot=?
+        WHERE beneficiary_id IS NOT NULL AND COALESCE(work_minute_rate_snapshot,0)<=0
+      """, [rate]);
+    }
+  }
+
+  /// V24: أضف ملكية محطة صريحة للمعاملات المالية، مع إسناد تاريخي محافظ.
+  Future<void> _migrateV24(Database d) async {
+    const tables = ['payments','expenses','diesel_movements','cashbox_transfers','worker_transactions','partner_transactions'];
+    for (final table in tables) {
+      final cols = await d.rawQuery('PRAGMA table_info($table)');
+      if (cols.isNotEmpty && !cols.any((x) => x['name'] == 'station_id')) {
+        await d.execute('ALTER TABLE $table ADD COLUMN station_id INTEGER REFERENCES stations(id)');
+      }
+    }
+    await d.execute("""UPDATE payments SET station_id=(SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id)
+      WHERE station_id IS NULL AND (SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id) IS NOT NULL
+      AND (SELECT station_id FROM payment_methods WHERE id=payments.payment_method_id)=(SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id)
+      AND ((beneficiary_id IS NOT NULL AND (SELECT station_id FROM beneficiaries WHERE id=payments.beneficiary_id)=(SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id))
+        OR (worker_id IS NOT NULL AND (SELECT station_id FROM workers WHERE id=payments.worker_id)=(SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id))
+        OR (partner_id IS NOT NULL AND (SELECT station_id FROM partners WHERE id=payments.partner_id)=(SELECT station_id FROM cashboxes WHERE id=payments.cashbox_id)))""");
+    await d.execute("""UPDATE expenses SET station_id=(SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id)
+      WHERE station_id IS NULL AND cashbox_id IS NOT NULL AND payment_method_id IS NOT NULL
+      AND (SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id) IS NOT NULL
+      AND (SELECT station_id FROM payment_methods WHERE id=expenses.payment_method_id)=(SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id)
+      AND (beneficiary_id IS NULL OR (SELECT station_id FROM beneficiaries WHERE id=expenses.beneficiary_id)=(SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id))
+      AND (worker_id IS NULL OR (SELECT station_id FROM workers WHERE id=expenses.worker_id)=(SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id))
+      AND (partner_id IS NULL OR (SELECT station_id FROM partners WHERE id=expenses.partner_id)=(SELECT station_id FROM cashboxes WHERE id=expenses.cashbox_id))""");
+    await d.execute("""UPDATE diesel_movements SET station_id=COALESCE((SELECT station_id FROM irrigations WHERE id=diesel_movements.irrigation_id),(SELECT station_id FROM beneficiaries WHERE id=diesel_movements.beneficiary_id),(SELECT station_id FROM cashboxes WHERE id=diesel_movements.cashbox_id))
+      WHERE station_id IS NULL AND (irrigation_id IS NOT NULL OR beneficiary_id IS NOT NULL OR cashbox_id IS NOT NULL)
+      AND (irrigation_id IS NULL OR (SELECT station_id FROM irrigations WHERE id=diesel_movements.irrigation_id) IS NOT NULL)
+      AND (beneficiary_id IS NULL OR (SELECT station_id FROM beneficiaries WHERE id=diesel_movements.beneficiary_id) IS NOT NULL)
+      AND (cashbox_id IS NULL OR (SELECT station_id FROM cashboxes WHERE id=diesel_movements.cashbox_id) IS NOT NULL)
+      AND (SELECT COUNT(DISTINCT station_id) FROM (SELECT station_id FROM irrigations WHERE id=diesel_movements.irrigation_id AND diesel_movements.irrigation_id IS NOT NULL UNION ALL SELECT station_id FROM beneficiaries WHERE id=diesel_movements.beneficiary_id AND diesel_movements.beneficiary_id IS NOT NULL UNION ALL SELECT station_id FROM cashboxes WHERE id=diesel_movements.cashbox_id AND diesel_movements.cashbox_id IS NOT NULL))=1""");
+    await d.execute("""UPDATE cashbox_transfers SET station_id=(SELECT station_id FROM cashboxes WHERE id=cashbox_transfers.to_cashbox_id)
+      WHERE station_id IS NULL AND to_cashbox_id IS NOT NULL AND (SELECT station_id FROM cashboxes WHERE id=cashbox_transfers.to_cashbox_id) IS NOT NULL
+      AND (from_cashbox_id IS NULL OR (SELECT station_id FROM cashboxes WHERE id=cashbox_transfers.from_cashbox_id)=(SELECT station_id FROM cashboxes WHERE id=cashbox_transfers.to_cashbox_id))""");
+    await d.execute("""UPDATE worker_transactions SET station_id=(SELECT station_id FROM workers WHERE id=worker_transactions.worker_id)
+      WHERE station_id IS NULL AND (SELECT station_id FROM workers WHERE id=worker_transactions.worker_id) IS NOT NULL
+      AND (cashbox_id IS NULL OR (SELECT station_id FROM cashboxes WHERE id=worker_transactions.cashbox_id)=(SELECT station_id FROM workers WHERE id=worker_transactions.worker_id))""");
+    await d.execute("""UPDATE partner_transactions SET station_id=(SELECT station_id FROM partners WHERE id=partner_transactions.partner_id)
+      WHERE station_id IS NULL AND (SELECT station_id FROM partners WHERE id=partner_transactions.partner_id) IS NOT NULL""");
+    for (final table in tables) { await d.execute('CREATE INDEX IF NOT EXISTS idx_${table}_station_date ON $table(station_id,date)'); }
+  }
   Future<void> _migrateV15(Database d) async {
     final cols = await d.rawQuery('PRAGMA table_info(irrigations)');
     if (!cols.any((x) => x['name'] == 'operator_worker_id')) {
@@ -454,6 +536,132 @@ class AppDatabase {
     );
   }
 
+  /// Durable local Outbox/Inbox protocol metadata. Existing queue rows are preserved.
+  Future<void> _ensureSyncSchema(Database d) async {
+    final columns = await d.rawQuery('PRAGMA table_info(sync_queue)');
+    if (!columns.any((x) => x['name'] == 'event_id')) {
+      await d.execute('ALTER TABLE sync_queue ADD COLUMN event_id TEXT');
+    }
+    if (!columns.any((x) => x['name'] == 'base_version')) {
+      await d.execute('ALTER TABLE sync_queue ADD COLUMN base_version INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!columns.any((x) => x['name'] == 'device_id')) {
+      await d.execute('ALTER TABLE sync_queue ADD COLUMN device_id TEXT');
+    }
+    if (!columns.any((x) => x['name'] == 'conflict_version')) {
+      await d.execute('ALTER TABLE sync_queue ADD COLUMN conflict_version INTEGER');
+    }
+    await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_event_id ON sync_queue(event_id) WHERE event_id IS NOT NULL');
+    await d.execute('''CREATE TABLE IF NOT EXISTS sync_inbox (
+      event_id TEXT PRIMARY KEY,
+      server_sequence INTEGER NOT NULL UNIQUE,
+      entity_type TEXT NOT NULL,
+      entity_key TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      base_version INTEGER NOT NULL,
+      server_version INTEGER NOT NULL,
+      source_device TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','applied','conflict','failed')),
+      last_error TEXT,
+      received_at TEXT NOT NULL,
+      applied_at TEXT
+    )''');
+    await d.execute('CREATE INDEX IF NOT EXISTS idx_sync_inbox_status_sequence ON sync_inbox(status,server_sequence)');
+    await d.execute('''CREATE TABLE IF NOT EXISTS sync_metadata (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )''');
+    await d.execute('''CREATE TABLE IF NOT EXISTS sync_entity_versions (
+      entity_type TEXT NOT NULL,
+      entity_key TEXT NOT NULL,
+      server_version INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(entity_type, entity_key)
+    )''');
+    await d.execute('''CREATE TABLE IF NOT EXISTS sync_change_log (
+      table_name TEXT NOT NULL,
+      record_id INTEGER NOT NULL,
+      operation TEXT NOT NULL,
+      PRIMARY KEY(table_name, record_id)
+    )''');
+
+    for (final item in const [
+      ['payments', 'updated_at', 'TEXT'],
+      ['payments', 'cancel_reason', 'TEXT'],
+      ['payments', 'cancelled_at', 'TEXT'],
+      ['payments', 'currency', 'TEXT'],
+      ['payments', 'replaces_payment_id', 'INTEGER REFERENCES payments(id)'],
+      ['irrigations', 'cancel_reason', 'TEXT'],
+      ['irrigations', 'cancelled_at', 'TEXT'],
+      ['diesel_movements', 'reversal_of', 'INTEGER REFERENCES diesel_movements(id)'],
+      ['payments', 'irrigation_id', 'INTEGER REFERENCES irrigations(id)'],
+    ]) {
+      final columns = await d.rawQuery('PRAGMA table_info(${item[0]})');
+      if (!columns.any((row) => row['name'] == item[1])) {
+        await d.execute('ALTER TABLE ${item[0]} ADD COLUMN ${item[1]} ${item[2]}');
+      }
+    }
+    await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_replacement ON payments(replaces_payment_id) WHERE replaces_payment_id IS NOT NULL');
+    await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_diesel_reversal ON diesel_movements(reversal_of) WHERE reversal_of IS NOT NULL');
+
+    // Compatible storage for authoritative cancellation metadata (no row rewrite).
+    for (final table in ['expenses', 'cashbox_transfers']) {
+      final cols = (await d.rawQuery('PRAGMA table_info($table)')).map((r) => r['name']).toSet();
+      for (final column in {'status': "TEXT NOT NULL DEFAULT 'posted'", 'notes': 'TEXT',
+          'cancelled_at': 'TEXT', 'cancel_reason': 'TEXT'}.entries) {
+        if (!cols.contains(column.key)) {
+          await d.execute('ALTER TABLE $table ADD COLUMN ${column.key} ${column.value}');
+        }
+      }
+    }
+
+    // Capture business writes at the SQLite transaction boundary.
+    const syncTables = [
+      'pumps', 'beneficiaries', 'partners', 'workers', 'irrigations',
+      'cloud_periods', 'diesel_movements', 'payment_methods', 'cashboxes',
+      'cashbox_transfers', 'payments', 'expenses', 'worker_transactions',
+      'partner_transactions', 'journal_entries', 'journal_lines', 'accounts',
+      'queue_entries', 'booking_requests', 'irrigation_sessions',
+      'beneficiary_manual_debts', 'general_accounts',
+      'general_account_transactions', 'accountant_reconciliation_months',
+      'period_closures', 'cash_reconciliations',
+    ];
+    for (final table in syncTables) {
+      final tableInfo = await d.rawQuery('PRAGMA table_info($table)');
+      if (tableInfo.isEmpty || !tableInfo.any((row) => row['name'] == 'id')) {
+        continue;
+      }
+      await d.execute('DROP TRIGGER IF EXISTS sync_${table}_insert');
+      await d.execute('DROP TRIGGER IF EXISTS sync_${table}_update');
+      await d.execute('DROP TRIGGER IF EXISTS sync_${table}_delete');
+      await d.execute('''CREATE TRIGGER IF NOT EXISTS sync_${table}_insert
+        AFTER INSERT ON $table BEGIN
+          INSERT OR REPLACE INTO sync_change_log(table_name,record_id,operation)
+          VALUES('$table',NEW.id,CASE
+            WHEN EXISTS (SELECT 1 FROM sync_change_log WHERE table_name='$table' AND record_id=NEW.id AND operation='create') THEN 'create'
+            WHEN EXISTS (SELECT 1 FROM sync_change_log WHERE table_name='$table' AND record_id=NEW.id AND operation='noop') THEN 'create'
+            WHEN EXISTS (SELECT 1 FROM sync_change_log WHERE table_name='$table' AND record_id=NEW.id) THEN 'update'
+            ELSE 'create' END);
+        END''');
+      await d.execute('''CREATE TRIGGER IF NOT EXISTS sync_${table}_update
+        AFTER UPDATE ON $table BEGIN
+          INSERT OR REPLACE INTO sync_change_log(table_name,record_id,operation)
+          VALUES('$table',NEW.id,CASE
+            WHEN EXISTS (SELECT 1 FROM sync_change_log WHERE table_name='$table' AND record_id=NEW.id AND operation='create') THEN 'create'
+            ELSE 'update' END);
+        END''');
+      await d.execute('''CREATE TRIGGER IF NOT EXISTS sync_${table}_delete
+        AFTER DELETE ON $table BEGIN
+          INSERT OR REPLACE INTO sync_change_log(table_name,record_id,operation)
+          VALUES('$table',OLD.id,CASE
+            WHEN EXISTS (SELECT 1 FROM sync_change_log WHERE table_name='$table' AND record_id=OLD.id AND operation='create') THEN 'noop'
+            ELSE 'delete' END);
+        END''');
+    }
+  }
+
   Future<void> _seed(Database d) async {
     final now = AppClock.now().toIso8601String();
     if ((await d.query('stations')).isEmpty) {
@@ -581,6 +789,12 @@ class AppDatabase {
         'value': e.value,
         'updated_at': now,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await d.insert('station_settings', {
+        'station_id': 1,
+        'key': e.key,
+        'value': e.value,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     if ((await d.query('app_users')).isEmpty) {
       await d.insert('app_users', {
@@ -635,18 +849,131 @@ class AppDatabase {
     String table,
     Map<String, Object?> values, {
     ConflictAlgorithm? conflictAlgorithm,
-  }) async =>
-      (await db).insert(table, values, conflictAlgorithm: conflictAlgorithm);
+  }) async => transaction(
+    (tx) => tx.insert(table, values, conflictAlgorithm: conflictAlgorithm),
+  );
+
   Future<int> update(
     String table,
     Map<String, Object?> values,
     String where,
     List<Object?> args,
-  ) async => (await db).update(table, values, where: where, whereArgs: args);
+  ) async => transaction(
+    (tx) => tx.update(table, values, where: where, whereArgs: args),
+  );
+
   Future<int> delete(String table, String where, List<Object?> args) async =>
-      (await db).delete(table, where: where, whereArgs: args);
-  Future<T> transaction<T>(Future<T> Function(Transaction tx) action) async =>
-      (await db).transaction(action);
+      transaction((tx) => tx.delete(table, where: where, whereArgs: args));
+
+  /// Saves domain mutations and their Outbox events in one SQLite transaction.
+  Future<T> transaction<T>(
+    Future<T> Function(Transaction tx) action, {
+    bool captureSync = true,
+    Set<String>? captureSyncTables,
+    Map<String, Set<int>>? captureSyncRecordIds,
+  }) async {
+    final database = await db;
+    return database.transaction((tx) async {
+      await tx.delete('sync_change_log');
+      final result = await action(tx);
+      if (!captureSync) {
+        await tx.delete('sync_change_log');
+        return result;
+      }
+      final allChanges = await tx.query('sync_change_log', orderBy: 'rowid');
+      final changes = captureSyncTables == null
+          ? allChanges
+          : allChanges
+                .where((change) => captureSyncTables.contains('${change['table_name']}'))
+                .toList();
+      // Keep stable identities for derived rows too, even when their mutations
+      // are intentionally excluded from Outbox. The server can then publish
+      // those rows back as projections and the originating device updates its
+      // existing local rows instead of creating duplicates.
+      for (final change in allChanges) {
+        if ('${change['operation']}' == 'noop') continue;
+        await GlobalIdentity.ensureRecord(
+          tx,
+          '${change['table_name']}',
+          (change['record_id'] as num).toInt(),
+        );
+      }
+      final now = DateTime.now().toUtc().toIso8601String();
+      for (final change in changes) {
+        final table = '${change['table_name']}';
+        final recordId = (change['record_id'] as num).toInt();
+        final operation = '${change['operation']}';
+        if (operation == 'noop') continue;
+        if (captureSyncRecordIds?.containsKey(table) == true &&
+            !captureSyncRecordIds![table]!.contains(recordId)) { continue; }
+
+        await GlobalIdentity.ensureRecord(tx, table, recordId);
+        Map<String, Object?> rawPayload = {'id': recordId};
+        if (operation != 'delete') {
+          final rows = await tx.query(
+            table,
+            where: 'id=?',
+            whereArgs: [recordId],
+            limit: 1,
+          );
+          if (rows.isEmpty) continue;
+          rawPayload = Map<String, Object?>.from(rows.first);
+        }
+        var payload = await GlobalIdentity.decoratePayload(
+          tx,
+          table,
+          rawPayload,
+          recordId,
+        );
+        if (((operation == 'create' && (table == 'irrigations' || table == 'payments')) ||
+             ((table == 'irrigations' || table == 'payments') && captureSyncTables?.contains(table) == true)) ||
+            (captureSyncTables?.contains(table) == true &&
+             BusinessSyncPayload.additionalCommands.contains(table))) {
+          payload = await BusinessSyncPayload(tx).prepare(table, recordId, payload,
+            changes: allChanges);
+        }
+        if (operation == 'delete') {
+          await tx.update(
+            'sync_global_identities',
+            {'retired_at': now},
+            where: 'table_name=? AND local_id=?',
+            whereArgs: [table, recordId],
+          );
+        }
+
+        final key = '$table:${payload['_global_id']}';
+        final versionRows = await tx.query(
+          'sync_entity_versions',
+          columns: ['server_version'],
+          where: 'entity_type=? AND entity_key=?',
+          whereArgs: [table, key],
+          limit: 1,
+        );
+        final serverVersion = versionRows.isEmpty
+            ? 0
+            : (versionRows.first['server_version'] as num).toInt();
+        final pendingRows = await tx.rawQuery(
+          "SELECT COUNT(*) AS n FROM sync_queue WHERE table_name=? AND record_id=? AND status IN ('pending','sending')",
+          [table, recordId],
+        );
+        final pendingCount = (pendingRows.first['n'] as num?)?.toInt() ?? 0;
+        await tx.insert('sync_queue', {
+          'operation': operation,
+          'table_name': table,
+          'record_id': recordId,
+          'payload': jsonEncode(payload),
+          'event_id': const Uuid().v4(),
+          'base_version': serverVersion + pendingCount,
+          'status': 'pending',
+          'attempts': 0,
+          'created_at': now,
+          'updated_at': now,
+        });
+      }
+      await tx.delete('sync_change_log');
+      return result;
+    });
+  }
   Future<void> close() async {
     final d = _db;
     _db = null;
