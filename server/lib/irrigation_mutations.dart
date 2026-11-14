@@ -1321,6 +1321,9 @@ extension _P1Sync on SaqiaServer {
       ['irrigations', 'cancel_reason', 'TEXT'],
       ['irrigations', 'cancelled_at', 'TEXT'],
       ['irrigations', 'work_minute_rate_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+      ['irrigations', 'work_price_enabled_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+      ['irrigations', 'work_base_water_amount_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+      ['irrigations', 'work_difference_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
       ['payments', 'irrigation_id', 'INTEGER REFERENCES irrigations(id)'],
       [
         'diesel_movements',
