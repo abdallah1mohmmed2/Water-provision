@@ -12694,8 +12694,15 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     try {
       final settings = await widget.r.settings();
       final result = await widget.r.report('invoices', from: from, to: to, systemType: 'all');
-      if (mounted) setState(() { rows = result; partialHour = settings['partial_hour'] != 'false';
-        useSpecialMinuteRateReports = settings['work_price_report_display_special_rate'] == 'true'; loading = false; });
+      if (mounted) {
+        setState(() {
+          rows = result;
+          partialHour = settings['partial_hour'] != 'false';
+          useSpecialMinuteRateReports =
+              settings['work_price_report_display_special_rate'] == 'true';
+          loading = false;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() { error = friendlyError(e); loading = false; });
     }
