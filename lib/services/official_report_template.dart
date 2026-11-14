@@ -358,121 +358,9 @@ class OfficialReportTemplate {
     );
   }
 
-  // The surrounding Arabic PDF is RTL, but an entirely numeric date/time
-  // must be treated as a single LTR run. Otherwise yyyy/MM/dd HH:mm may be
-  // visually scrambled around the slashes and the clock.
+  // RTL documents need LTR isolation for numeric dates and clocks.
   static final RegExp _dateTimeCellPattern = RegExp(
-    r'^(?:[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}|[0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{4})(?:[ T][0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)?
-    required List<String> columns,
-    required List<List<String>> rows,
-    List<String>? footerRow,
-    required pw.Font font,
-    required pw.Font boldFont,
-    required double cellFontSize,
-    required double cellVerticalPadding,
-  }) {
-    return pw.Table(
-      border: pw.TableBorder.all(color: PdfColors.black, width: 0.8),
-      defaultVerticalAlignment: pw.TableCellVerticalAlignment.middle,
-      children: [
-        pw.TableRow(
-          repeat: true,
-          decoration: const pw.BoxDecoration(color: tableHeaderBg),
-          // PDF Table lays out its children from left to right even when
-          // the surrounding document text direction is RTL. Reverse the
-          // display order here so the first logical column appears at the
-          // right edge of the printed table.
-          children: columns
-              .reversed
-              .map(
-                (col) => pw.Container(
-                  constraints: const pw.BoxConstraints(minHeight: 32),
-                  padding: pw.EdgeInsets.symmetric(
-                    horizontal: 3,
-                    vertical: cellVerticalPadding,
-                  ),
-                  alignment: pw.Alignment.center,
-                  child: pw.Text(
-                    col,
-                    textAlign: pw.TextAlign.center,
-                    style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], 
-                      font: boldFont,
-                      fontSize: cellFontSize,
-                      height: 1.15,
-                    ),
-                  ),
-                ),
-              )
-              .toList(),
-        ),
-        ...rows.map(
-          (row) => pw.TableRow(
-            // Keep each cell attached to its original heading while rendering
-            // the table visually from right to left.
-            children: row
-                .reversed
-                .map(
-                  (cell) => pw.Container(
-                    constraints: const pw.BoxConstraints(minHeight: 24),
-                    padding: pw.EdgeInsets.symmetric(
-                      horizontal: 3,
-                      vertical: cellVerticalPadding,
-                    ),
-                    alignment: pw.Alignment.center,
-                    child: _tableValueText(cell, font: font, fontSize: cellFontSize),
-                  ),
-                )
-                .toList(),
-          ),
-        ),
-        if (footerRow != null)
-          pw.TableRow(
-            decoration: const pw.BoxDecoration(color: tableHeaderBg),
-            children: List.generate(
-              columns.length,
-              (index) => pw.Container(
-                constraints: const pw.BoxConstraints(minHeight: 24),
-                padding: pw.EdgeInsets.symmetric(
-                  horizontal: 3,
-                  vertical: cellVerticalPadding,
-                ),
-                alignment: pw.Alignment.center,
-                child: _tableValueText(
-                  index < footerRow.length
-                      ? footerRow[footerRow.length - 1 - index]
-                      : '',
-                  font: boldFont,
-                  fontSize: cellFontSize,
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  static pw.Widget _buildOfficialSignatures(
-    pw.Font boldFont, {
-    required String thirdLabel,
-  }) {
-    final style = pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: boldFont, fontSize: 10.5);
-    return pw.Row(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Expanded(
-          child: pw.Text('إعداد: ....................', style: style),
-        ),
-        pw.Expanded(
-          child: pw.Text('المراجعة: ....................', style: style),
-        ),
-        pw.Expanded(
-          child: pw.Text(thirdLabel, style: style),
-        ),
-      ],
-    );
-  }
-}
-,
+    r'^(?:[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}|[0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{4})(?:[ T][0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)?$',
   );
 
   static bool isDateTimeCell(String value) =>
@@ -554,11 +442,7 @@ class OfficialReportTemplate {
                       vertical: cellVerticalPadding,
                     ),
                     alignment: pw.Alignment.center,
-                    child: pw.Text(
-                      cell,
-                      textAlign: pw.TextAlign.center,
-                      style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: font, fontSize: cellFontSize),
-                    ),
+                    child: _tableValueText(cell, font: font, fontSize: cellFontSize),
                   ),
                 )
                 .toList(),
@@ -576,16 +460,12 @@ class OfficialReportTemplate {
                   vertical: cellVerticalPadding,
                 ),
                 alignment: pw.Alignment.center,
-                child: pw.Text(
+                child: _tableValueText(
                   index < footerRow.length
                       ? footerRow[footerRow.length - 1 - index]
                       : '',
-                  textAlign: pw.TextAlign.center,
-                  style: pw.TextStyle(
-                    fontFallback: [pw.Font.helvetica()],
-                    font: boldFont,
-                    fontSize: cellFontSize,
-                  ),
+                  font: boldFont,
+                  fontSize: cellFontSize,
                 ),
               ),
             ),
