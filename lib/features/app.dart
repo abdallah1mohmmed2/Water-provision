@@ -5019,20 +5019,12 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             partialHour: settings['partial_hour'] != 'false',
           );
     final isBeneficiary = partyType == 'beneficiary';
-    // نفس سياسة recordIrrigation: يُحمَّل ثمن العجز فقط ما لم يكن تسليم الديزل رصيدًا ماليًا.
-    var diesel = c.dieselAmount;
-    if (isBeneficiary &&
-        type == 'diesel' &&
-        c.dieselLiters > 0 &&
-        (settings['diesel_delivery_financial_credit'] ?? '').toLowerCase() !=
-            'true') {
-      final shortage =
-          (c.dieselLiters - beneficiaryDiesel).clamp(0.0, c.dieselLiters).toDouble();
-      diesel = AccountingCalculations.roundAmount(
-        shortage * dieselPrice,
-        settings['rounding'] ?? 'nearest',
-      );
-    }
+    final usedFuel = type == 'diesel' ? c.dieselLiters : 0.0;
+    final coveredFuel = isBeneficiary && type == 'diesel'
+        ? beneficiaryDiesel.clamp(0.0, usedFuel).toDouble()
+        : 0.0;
+    final borrowedFuel = isBeneficiary && type == 'diesel'
+        ? usedFuel - coveredFuel : 0.0;
     // Match recordIrrigation's active work-minute tariff in the preview.
     // Only the beneficiary sees the special price; worker and partner
     // accruals continue using the ordinary hourly basis.
@@ -5042,7 +5034,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     final billedWater = specialPricing && workMinuteRate > 0
         ? c.chargeableMinutes * workMinuteRate
         : c.waterAmount;
-    final total = billedWater + diesel;
+    final total = billedWater;
     // الدفعة المرافقة للمستفيد فقط (الخدمة ترفضها لغيره).
     final paidValue = isBeneficiary ? (int.tryParse(paid.text) ?? 0) : 0;
     // المستفيد: رصيده + المستحق − المدفوع (الموجب عليه).
@@ -5053,7 +5045,10 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     return {
       'الإجمالي': total,
       'المياه': billedWater,
-      'الديزل': diesel,
+      'الديزل': 0,
+      'ديزل مستهلك': usedFuel,
+      'ديزل من الرصيد': coveredFuel,
+      'ديزل سلفة': borrowedFuel,
       'القابل للمحاسبة': c.chargeableMinutes,
       'المدفوع': paidValue,
       'الرصيد الحالي': partyBalance,
@@ -6023,7 +6018,12 @@ int? parseClock(String raw) {
           };
           final total = (row['total_amount'] as num?)?.round() ?? 0;
           final water = (row['water_amount'] as num?)?.round() ?? 0;
-          final diesel = (row['diesel_amount'] as num?)?.round() ?? 0;
+          final dieselMovements = await widget.r.db.rawQuery(
+            "SELECT kind,COALESCE(SUM(liters),0) liters FROM diesel_movements WHERE irrigation_id=? AND kind IN ('consumption','advance') GROUP BY kind", [irrigationId],
+          );
+          double dieselLiters(String kind) => dieselMovements
+              .where((movement) => movement['kind'] == kind)
+              .fold<double>(0, (sum, movement) => sum + ((movement['liters'] as num?)?.toDouble() ?? 0));
           final paidAmount = (row['paid_amount'] as num?)?.round() ?? 0;
           final cloud = (row['cloud_minutes'] as num?)?.round() ?? 0;
           await widget.r.notify(
@@ -6035,9 +6035,15 @@ int? parseClock(String raw) {
               'المضخة: ${row['pump_name'] ?? 'غير محددة'}',
               'نوع المنظومة: $systemName',
               'وقت السقاية: ${DateFormat('yyyy/MM/dd HH:mm').format(start)} إلى ${DateFormat('yyyy/MM/dd HH:mm').format(end)}',
-              'مدة السقاية: $minutes دقيقة (خصم الغيم: $cloud دقيقة)',
+              if (systemName == 'شمسي')
+                'مدة السقاية: $minutes دقيقة (خصم الغيم: $cloud دقيقة)'
+              else
+                'مدة السقاية: $minutes دقيقة',
               'قيمة المياه: $water ريال',
-              if (systemName == 'ديزل') 'قيمة الديزل المحتسبة: $diesel ريال',
+              if (systemName == 'ديزل') ...[
+                'الديزل المستهلك: ${dieselLiters('consumption').toStringAsFixed(3)} لتر',
+                'سلفة ديزل عينية: ${dieselLiters('advance').toStringAsFixed(3)} لتر',
+              ],
               'الرصيد السابق: ${balanceText(previousBalance)}',
               'قيمة السقاية الحالية: $total ريال',
               'المدفوع: $paidAmount ريال',
@@ -6317,7 +6323,7 @@ int? parseClock(String raw) {
                     );
                   }),
                 const SizedBox(height: 18),
-                const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت السقاية وفترات الغيم', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                Align(alignment: AlignmentDirectional.centerStart, child: Text(type == 'solar' ? 'وقت السقاية وفترات الغيم' : 'وقت السقاية', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
                 const SizedBox(height: 10),
 
                 OutlinedButton.icon(
@@ -6449,7 +6455,13 @@ int? parseClock(String raw) {
                   _cyan,
                 ),
                 Metric(type == 'diesel' ? 'قيمة المياه' : 'قيمة السقي', money(p['المياه']), _blue),
-                if (type == 'diesel') Metric('قيمة الديزل', money(p['الديزل']), _purple),
+                if (type == 'diesel') ...[
+                  Metric('الديزل المستهلك', "${p['ديزل مستهلك']!.toStringAsFixed(3)} لتر", _purple),
+                  if (partyType == 'beneficiary') ...[
+                    Metric('من رصيد المستفيد', "${p['ديزل من الرصيد']!.toStringAsFixed(3)} لتر", _cyan),
+                    Metric('سلفة ديزل عينية', "${p['ديزل سلفة']!.toStringAsFixed(3)} لتر", Colors.orange),
+                  ],
+                ],
                 if (type == 'solar' && cloudMin > 0) Metric('خصم الغيم', '$cloudMin دقيقة', _cyan),
                 Metric('الإجمالي المستحق', money(p['الإجمالي']), _green),
                 if (partyType == 'beneficiary')
