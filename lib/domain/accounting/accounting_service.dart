@@ -1216,7 +1216,8 @@ class AccountingService {
     // الأسعار أيضًا تؤخذ من الإعدادات لحظة التسجيل حتى يكون السعر Snapshot موحدًا.
     final effectiveWaterRate = int.tryParse(set['diesel_hourly_water_rate'] ?? '0') ?? 0;
     final effectiveLiters = double.tryParse(set['diesel_liters_per_hour'] ?? '0') ?? 0;
-    final effectiveDieselPrice = int.tryParse(set['diesel_price_per_liter'] ?? '0') ?? 0;
+    // Irrigation diesel is an in-kind quantity, not a billed fuel product.
+    const effectiveDieselPrice = 0;
     final effectiveSolarRate = int.tryParse(set['solar_hourly_rate'] ?? '0') ?? 0;
     final effectiveThirdRate = int.tryParse(set['third_type_hourly_rate'] ?? '0') ?? 0;
     final allowMidnight = set['allow_midnight_crossing'] == 'true';
@@ -1362,32 +1363,17 @@ class AccountingService {
               userId: userId,
             )
           : (overrideWaitingPeriod ? 1 : 0);
-      // ---- ديزل المستفيد: حساب العجز مرة واحدة قبل إنشاء الفاتورة ----
-      // سياسة منع الازدواج:
-      //  * إن كان تسليم الديزل رصيدًا ماليًا (له) يُحمَّل كامل ثمن الوقود ويُخصم الرصيد عند التسليم.
-      //  * وإلا يُحمَّل ثمن العجز فقط (الكمية التي لم يغطها ديزله العيني).
-      var chargedDiesel = calc.dieselAmount;
+      // In-kind diesel balance is measured only in liters.
+      // Shortages become a quantity-only advance without financial debt.
       var shortageLiters = 0.0;
       if (partyType == 'beneficiary' &&
-          effectiveType == 'diesel' &&
-          calc.dieselLiters > 0) {
+          effectiveType == 'diesel' && calc.dieselLiters > 0) {
         final br = await tx.rawQuery(_beneficiaryDieselStockSql, [
-          beneficiaryId,
-          beneficiaryId,
-          beneficiaryId,
+          beneficiaryId, beneficiaryId, beneficiaryId,
         ]);
         final available = (br.first['stock'] as num?)?.toDouble() ?? 0;
-        shortageLiters =
-            (calc.dieselLiters - available).clamp(0.0, calc.dieselLiters).toDouble();
-        final financialCredit =
-            (set['diesel_delivery_financial_credit'] ?? '').toLowerCase() ==
-            'true';
-        if (!financialCredit) {
-          chargedDiesel = AccountingCalculations.roundAmount(
-            shortageLiters * effectiveDieselPrice,
-            rounding,
-          );
-        }
+        shortageLiters = (calc.dieselLiters - available)
+            .clamp(0.0, calc.dieselLiters).toDouble();
       }
       final workPriceEnabled = partyType == 'beneficiary' &&
           set['work_price_difference_enabled'] == 'true';
@@ -1399,8 +1385,8 @@ class AccountingService {
           ? ReportMinutePricing.amountAtMinuteRate(
               calc.chargeableMinutes, workMinuteRate)
           : calc.waterAmount;
-      final workBaseTotal = calc.waterAmount + chargedDiesel;
-      final totalCharged = billedWater + chargedDiesel;
+      final workBaseTotal = calc.waterAmount;
+      final totalCharged = billedWater;
       final workDifference = billedWater - calc.waterAmount;
       final now = AppClock.now().toIso8601String();
       final id = await tx.insert('irrigations', {
@@ -1432,7 +1418,7 @@ class AccountingService {
         'cloud_minutes': calc.cloudMinutes,
         'chargeable_minutes': calc.chargeableMinutes,
         'water_amount': billedWater,
-        'diesel_amount': chargedDiesel,
+        'diesel_amount': 0,
         'total_amount': totalCharged,
         'paid_amount': paidAmount,
         'status': 'posted',
@@ -1461,7 +1447,6 @@ class AccountingService {
           ? await _partnerAccountIdTx(tx, partnerId!)
           : await _accountIdTx(tx, '1200');
       final waterRevenue = await _accountIdTx(tx, '4000');
-      final fuelRevenue = await _accountIdTx(tx, '4010');
       final lines = <Map<String, Object?>>[
         {
           'account_id': receivable,
@@ -1481,13 +1466,7 @@ class AccountingService {
           'memo': 'إيراد السقي',
         });
       }
-      if (chargedDiesel > 0) {
-        lines.add({
-          'account_id': fuelRevenue,
-          'debit': 0,
-          'credit': chargedDiesel,
-          'memo': 'قيمة ديزل السقي',
-        });
+;
       }
       await _entry(
         tx,
@@ -1563,51 +1542,24 @@ class AccountingService {
       }
       if (effectiveType == 'diesel' && calc.dieselLiters > 0) {
         if (partyType == 'beneficiary' && shortageLiters > 0) {
-          // سلفة تلقائية: تُسجَّل كحركة كمية فقط. قيمتها محتسبة أصلًا ضمن إجمالي
-          // السقاية، فلا قيد ولا إضافة للرصيد (منعًا للازدواج وللخصم الوهمي من الصندوق).
           await tx.insert('diesel_movements', {
             'station_id': stationId,
-            'beneficiary_id': beneficiaryId,
-            'irrigation_id': id,
-            'kind': 'advance',
-            'liters': shortageLiters,
-            'unit_price': effectiveDieselPrice,
-            'amount': AccountingCalculations.roundAmount(
-              shortageLiters * effectiveDieselPrice,
-              rounding,
-            ),
-            'date': start.toIso8601String(),
-            'created_by': userId,
-            'notes': 'سلفة ديزل تلقائية (قيمتها ضمن إجمالي السقاية)',
+            'beneficiary_id': beneficiaryId, 'irrigation_id': id,
+            'kind': 'advance', 'liters': shortageLiters,
+            'unit_price': 0, 'amount': 0,
+            'date': start.toIso8601String(), 'created_by': userId,
+            'notes': 'سلفة ديزل عينية تلقائية للسقاية (لترات فقط)',
           });
         }
-        final consumptionId = await tx.insert('diesel_movements', {
+        await tx.insert('diesel_movements', {
           'station_id': stationId,
-          'beneficiary_id': beneficiaryId,
-          'irrigation_id': id,
-          'kind': 'consumption',
-          'liters': calc.dieselLiters,
-          'unit_price': effectiveDieselPrice,
-          'amount': calc.dieselAmount,
-          'date': start.toIso8601String(),
-          'created_by': userId,
-          'notes': 'استهلاك جلسة السقي',
+          'beneficiary_id': beneficiaryId, 'irrigation_id': id,
+          'kind': 'consumption', 'liters': calc.dieselLiters,
+          'unit_price': 0, 'amount': 0,
+          'date': start.toIso8601String(), 'created_by': userId,
+          'notes': 'استهلاك ديزل عيني بالسقاية (لترات فقط)',
         });
-        // Fuel consumption removes an asset even when it was not billed
-        // (the beneficiary's own in-kind diesel covered the fuel charge).
-        if (calc.dieselAmount > 0) {
-          await _entry(tx,
-            description: 'تكلفة ديزل السقاية $id',
-            referenceType: 'diesel_consumption', referenceId: consumptionId,
-            date: start, stationId: stationId, userId: userId,
-            lines: [
-              {'account_id': await _accountIdTx(tx, '5010'),
-                'debit': calc.dieselAmount, 'credit': 0},
-              {'account_id': await _accountIdTx(tx, '1300'),
-                'debit': 0, 'credit': calc.dieselAmount},
-            ],
-          );
-        }
+        // No fuel income, expense or receivable entry for irrigation diesel.
       }
       if (paidAmount > 0) {
         final src = await resolvePaymentSource(
