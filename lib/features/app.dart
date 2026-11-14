@@ -4,6 +4,7 @@ import '../domain/accounting/beneficiary_statement_totals.dart';
 import '../domain/accounting/debt_report_totals.dart';
 import '../domain/accounting/report_minute_pricing.dart';
 import 'dart:async';
+import 'auth/firebase_access_gate.dart';
 import '../core/app_clock.dart';
 import '../core/app_prefs.dart';
 import '../core/period_ranges.dart';
@@ -417,7 +418,7 @@ class _SaqiaAppState extends State<SaqiaApp> {
       },
       builder: (ctx, child) => MediaQuery(
         data: MediaQuery.of(ctx).copyWith(disableAnimations: p.reducedMotion),
-        child: child ?? const SizedBox.shrink(),
+        child: FirebaseAccessGate(child: child ?? const SizedBox.shrink()),
       ),
       home: const AdminLoginPage(),
     ),
