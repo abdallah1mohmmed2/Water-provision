@@ -1219,7 +1219,7 @@ class StationRepository {
     if (searchClause.isNotEmpty) clauses.add(searchClause);
     final where = clauses.isEmpty ? '' : 'WHERE ${clauses.join(' AND ')}';
     return db.rawQuery(
-      "SELECT w.*, ${BalanceSql.workerPersonal('w')} balance FROM workers w $where ORDER BY w.name",
+      "SELECT w.*, ${BalanceSql.workerPersonal('w')} balance, COALESCE((SELECT SUM(t.amount) FROM worker_transactions t WHERE t.worker_id=w.id AND t.reference_type='previous_debt' AND t.type='previous_receivable'),0) previous_debt_total FROM workers w $where ORDER BY w.name",
       args,
     );
   }
@@ -1340,6 +1340,14 @@ class StationRepository {
       'earnings': earnings,
       'paid': paid,
       'balance': currentBalance,
+      // An active previous debt is distinct from the amount currently owed
+      // to the party; expose it without changing any posted journal entry.
+      'previous_debt_total': ((await db.rawQuery(
+        isWorker
+          ? "SELECT COALESCE(SUM(amount),0) total FROM worker_transactions WHERE worker_id=? AND reference_type='previous_debt' AND type='previous_receivable'"
+          : "SELECT COALESCE(SUM(amount),0) total FROM partner_transactions WHERE partner_id=? AND reference_type='previous_debt' AND type='previous_receivable'",
+        [id],
+      )).first['total'] as num?)?.round() ?? 0,
     };
   }
 
@@ -1770,7 +1778,7 @@ class StationRepository {
     final searchClause = _partialSearchClause(search, ['p.name', 'p.phone'], args);
     if (searchClause.isNotEmpty) clauses.add(searchClause);
     return db.rawQuery(
-      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE ${clauses.join(' AND ')} ORDER BY p.name",
+      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance, COALESCE((SELECT SUM(t.amount) FROM partner_transactions t WHERE t.partner_id=p.id AND t.reference_type='previous_debt' AND t.type='previous_receivable'),0) previous_debt_total FROM partners p WHERE ${clauses.join(' AND ')} ORDER BY p.name",
       args,
     );
   }
