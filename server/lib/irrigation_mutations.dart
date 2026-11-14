@@ -1320,6 +1320,7 @@ extension _P1Sync on SaqiaServer {
     for (final item in const [
       ['irrigations', 'cancel_reason', 'TEXT'],
       ['irrigations', 'cancelled_at', 'TEXT'],
+      ['irrigations', 'work_minute_rate_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
       ['payments', 'irrigation_id', 'INTEGER REFERENCES irrigations(id)'],
       [
         'diesel_movements',

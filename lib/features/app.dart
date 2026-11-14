@@ -12651,6 +12651,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   String sortKey = 'start_datetime';
   bool ascending = false, loading = true;
   bool partialHour = true;
+  bool useSpecialMinuteRateReports = false;
   String? error;
 
   @override
@@ -12692,7 +12693,8 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     try {
       final settings = await widget.r.settings();
       final result = await widget.r.report('invoices', from: from, to: to, systemType: 'all');
-      if (mounted) setState(() { rows = result; partialHour = settings['partial_hour'] != 'false'; loading = false; });
+      if (mounted) setState(() { rows = result; partialHour = settings['partial_hour'] != 'false';
+        useSpecialMinuteRateReports = settings['work_price_report_display_special_rate'] == 'true'; loading = false; });
     } catch (e) {
       if (mounted) setState(() { error = friendlyError(e); loading = false; });
     }
@@ -12766,18 +12768,60 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   int get totalMinutes => visible.fold<int>(0, (sum, row) => sum + _n(row['minutes']));
   int get totalCloudMinutes => visible.fold<int>(0, (sum, row) =>
       sum + ('${row['system_type'] ?? ''}' == 'solar' ? _n(row['cloud_minutes']) : 0));
-  int _amountBeforeCloud(Map<String, Object?> row) {
-    if ('${row['system_type'] ?? ''}' != 'solar' || _n(row['cloud_minutes']) <= 0) {
-      return _n(row['total_amount']);
+  int _hourlyAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+    final rate = switch ('${row['system_type'] ?? ''}') {
+      'solar' => _n(row['solar_hourly_rate_snapshot']),
+      'equivalent_hybrid' => _n(row['third_type_hourly_rate_snapshot']),
+      _ => _n(row['water_hourly_rate_snapshot']),
+    };
+    final minutes = beforeCloud
+        ? _n(row['minutes'])
+        : _n(row['chargeable_minutes'] ?? (_n(row['minutes']) - _n(row['cloud_minutes'])));
+    if (rate <= 0) {
+      final savedBase = _n(row['work_base_water_amount_snapshot']);
+      return (savedBase > 0 ? savedBase : _n(row['total_amount']) - _n(row['diesel_amount'])) +
+          _n(row['diesel_amount']);
     }
-    final rate = _n(row['solar_hourly_rate_snapshot']);
-    if (rate <= 0) return _n(row['total_amount']);
-    return AccountingCalculations.amountForMinutes(_n(row['minutes']), rate, 'up', partialHour);
+    return AccountingCalculations.amountForMinutes(
+          minutes.clamp(0, 100000000).toInt(), rate, 'up', partialHour,
+        ) +
+        _n(row['diesel_amount']);
   }
-  int get totalAmountBeforeCloud => visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
-  int get totalCloudDeduction => (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62).toInt();
-  int get totalAmount => visible.fold<int>(0, (sum, row) => sum + _n(row['total_amount']));
-  int get totalPaid => visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
+
+  int _reportAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+    final minutes = beforeCloud
+        ? _n(row['minutes'])
+        : _n(row['chargeable_minutes'] ?? (_n(row['minutes']) - _n(row['cloud_minutes'])));
+    final isBeneficiary = row['beneficiary_id'] != null;
+    if (useSpecialMinuteRateReports && isBeneficiary) {
+      final savedRate = _n(row['work_minute_rate_snapshot']);
+      final rate = savedRate;
+      if (rate > 0) {
+        return AccountingCalculations.amountAtMinuteRate(
+              minutes.clamp(0, 100000000).toInt(), rate,
+            ) +
+            _n(row['diesel_amount']);
+      }
+    }
+    return _hourlyAmount(row, beforeCloud: beforeCloud);
+  }
+
+  int _amountBeforeCloud(Map<String, Object?> row) =>
+      _reportAmount(row, beforeCloud: true);
+  int _amountAfterCloud(Map<String, Object?> row) =>
+      _reportAmount(row, beforeCloud: false);
+  int get totalAmountBeforeCloud =>
+      visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
+  int get totalCloudDeduction =>
+      (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62).toInt();
+  int get totalAmount =>
+      visible.fold<int>(0, (sum, row) => sum + _amountAfterCloud(row));
+  int get totalPaid =>
+      visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
+  int get totalWorkBasis =>
+      visible.fold<int>(0, (sum, row) => sum + _hourlyAmount(row, beforeCloud: false));
+  int get totalWorkDifference =>
+      useSpecialMinuteRateReports ? totalAmount - totalWorkBasis : 0;
 
   Future<List<Map<String, Object?>>> _pdfRows() async => visible;
 
@@ -12980,7 +13024,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           _summaryCard('الإيرادات قبل خصم الغيم', '${_money(totalAmountBeforeCloud)} ريال', Icons.price_check_rounded, _reportGreen, 2),
                           _summaryCard('قيمة خصم الغيم', '${_money(totalCloudDeduction)} ريال', Icons.remove_circle_outline_rounded, _reportOrange, 3),
                           _summaryCard('الإيرادات بعد خصم الغيم', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 4),
-                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 5),
+                          _summaryCard('أساس العمل بسعر الساعة', '${_money(totalWorkBasis)} ريال', Icons.calculate_outlined, _reportOliveDark, 5),
+                          _summaryCard('فائض فارق العمل', '${_money(totalWorkDifference)} ريال', Icons.trending_up_rounded, _reportOrange, 6),
+                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 7),
                         ];
                         return Wrap(
                           spacing: 8,
@@ -13062,7 +13108,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text(_time(data[i]['start_datetime']))),
                                       DataCell(Text(_time(data[i]['end_datetime']))),
                                       DataCell(Text('${_invoiceNetMinutes(data[i])}')),
-                                      DataCell(Text(_money(data[i]['total_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
+                                      DataCell(Text(_money(_amountAfterCloud(data[i])), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),
                                       DataCell(IconButton(tooltip: 'تعديل السقاية', icon: const Icon(Icons.edit_calendar_rounded, color: _reportOliveDark), onPressed: () => _editInvoice(data[i]))),
@@ -15456,6 +15502,15 @@ class _SettingsState extends State<SettingsPage> {
                   'سعر النوع الثالث بالساعة',
                   true,
                 ),
+              if (widget.manager) ...[
+                const Divider(height: 8),
+                setTile('work_minute_rate', 'سعر الدقيقة الخاص للمستفيدين', true),
+                boolTile('work_price_report_display_special_rate', 'استخدام سعر الدقيقة الخاصة في تقريري الفواتير والمديونيات'),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: Text('يؤثر هذا الاختيار في عرض تقريري الفواتير والمديونيات وملفي PDF فقط؛ لا يغير المبالغ أو القيود المالية المحفوظة. سجلات المستفيد القديمة التي لا تتضمن سعراً تاريخياً تثبت لها قيمة الإعداد عند الترقية فقط.', style: TextStyle(fontSize: 12, height: 1.5)),
+                ),
+              ],
               boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
               dropdownTile('rounding', 'سياسة التقريب', const [
                 MapEntry('nearest', 'التقريب إلى أقرب عدد صحيح'),

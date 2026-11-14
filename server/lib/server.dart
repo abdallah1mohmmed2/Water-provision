@@ -3104,11 +3104,20 @@ class SaqiaServer {
     final columns = db.select('PRAGMA table_info(irrigations)').map((r)=>r['name'].toString()).toSet();
     final required = {'station_id','pump_id','beneficiary_id','worker_id','partner_id','party_type','date','start_datetime','end_datetime','minutes','system_type','water_hourly_rate_snapshot','diesel_liters_per_hour_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot','cloud_minutes','chargeable_minutes','water_amount','diesel_amount','total_amount','paid_amount','status','created_by','created_at','updated_at'};
     if (!required.every(columns.contains)) throw StateError('مخطط السقايات لا يدعم الترحيل الآمن');
+    final rawMinuteRate = payload['work_minute_rate_snapshot'];
+    if (rawMinuteRate != null && (rawMinuteRate is! int || rawMinuteRate < 0 || rawMinuteRate > 1000000)) {
+      throw StateError('سعر الدقيقة الخاصة غير صالح');
+    }
+    if (partyType != 'beneficiary' && rawMinuteRate != null && rawMinuteRate != 0) {
+      throw StateError('السعر الخاص للمستفيد فقط');
+    }
+    final reportMinuteRate = partyType == 'beneficiary' && rawMinuteRate is int ? rawMinuteRate : 0;
     final irrigationValues=<String,Object?>{
       'station_id':station,'pump_id':pumpId,'beneficiary_id':beneficiaryId,
       'worker_id':workerId,'partner_id':partnerId,'party_type':partyType,
       'date':startText.substring(0,10),'start_datetime':startText,'end_datetime':endText,'minutes':minutes,
       'system_type':system,'water_hourly_rate_snapshot':system=='diesel'?waterRate:0,
+      'work_minute_rate_snapshot':reportMinuteRate,
       'diesel_liters_per_hour_snapshot':litersPerHour,'diesel_price_snapshot':dieselPrice,
       'solar_hourly_rate_snapshot':system=='solar'?waterRate:0,'third_type_hourly_rate_snapshot':system=='equivalent_hybrid'?waterRate:0,
       'cloud_minutes':cloudMinutes,'chargeable_minutes':chargeable,'water_amount':waterAmount,

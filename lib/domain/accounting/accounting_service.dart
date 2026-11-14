@@ -1408,6 +1408,10 @@ class AccountingService {
         'minutes': calc.minutes,
         'system_type': effectiveType,
         'water_hourly_rate_snapshot': effectiveWaterRate,
+        // Report-only snapshot, distinct from the financially posted invoice.
+        'work_minute_rate_snapshot': partyType == 'beneficiary'
+            ? (int.tryParse(set['work_minute_rate'] ?? '0') ?? 0).clamp(0, 1000000).toInt()
+            : 0,
         'diesel_liters_per_hour_snapshot': effectiveLiters,
         'diesel_price_snapshot': effectiveDieselPrice,
         'solar_hourly_rate_snapshot': effectiveSolarRate,

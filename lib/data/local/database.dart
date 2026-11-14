@@ -28,7 +28,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 31,
+      version: 32,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -236,6 +236,9 @@ class AppDatabase {
     if (oldV < 24) {
       await _migrateV24(d);
     }
+    if (oldV < 32) {
+      await _migrateSpecialReportRateV32(d);
+    }
     if (oldV < 19) {
       await d.execute(
         "CREATE TABLE IF NOT EXISTS general_accounts (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL DEFAULT 1 REFERENCES stations(id), name TEXT NOT NULL, phone TEXT, address TEXT, opening_balance INTEGER NOT NULL DEFAULT 0, notes TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
@@ -248,6 +251,26 @@ class AppDatabase {
     }
     // Re-run after all historical migrations so newly-created tables receive capture triggers.
     await _ensureSyncSchema(d);
+  }
+
+  /// V32: Add a report-only immutable price snapshot; no ledger mutation.
+  /// For old irrigations the historical price is unknown. Use the configured
+  /// price once, and never silently recalculate it on later setting changes.
+  Future<void> _migrateSpecialReportRateV32(Database d) async {
+    final cols = await d.rawQuery('PRAGMA table_info(irrigations)');
+    if (!cols.any((row) => row['name'] == 'work_minute_rate_snapshot')) {
+      await d.execute('ALTER TABLE irrigations ADD COLUMN work_minute_rate_snapshot INTEGER NOT NULL DEFAULT 0');
+    }
+    final rateRows = await d.query('settings',
+        columns: ['value'], where: 'key=?', whereArgs: ['work_minute_rate'], limit: 1);
+    final rate = rateRows.isEmpty
+        ? 0 : int.tryParse('${rateRows.first['value'] ?? ''}') ?? 0;
+    if (rate > 0 && rate <= 1000000) {
+      await d.rawUpdate("""
+        UPDATE irrigations SET work_minute_rate_snapshot=?
+        WHERE beneficiary_id IS NOT NULL AND COALESCE(work_minute_rate_snapshot,0)<=0
+      """, [rate]);
+    }
   }
 
   /// V24: أضف ملكية محطة صريحة للمعاملات المالية، مع إسناد تاريخي محافظ.

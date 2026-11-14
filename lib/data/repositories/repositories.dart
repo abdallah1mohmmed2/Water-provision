@@ -2749,6 +2749,10 @@ class StationRepository {
                       COALESCE(i.chargeable_minutes,i.minutes,0) chargeable_minutes,
                       i.system_type,
                       COALESCE(i.solar_hourly_rate_snapshot,0) solar_hourly_rate_snapshot,
+                      COALESCE(i.water_hourly_rate_snapshot,0) water_hourly_rate_snapshot,
+                      COALESCE(i.third_type_hourly_rate_snapshot,0) third_type_hourly_rate_snapshot,
+                      COALESCE(i.work_minute_rate_snapshot,0) work_minute_rate_snapshot,
+                      COALESCE(i.diesel_amount,0) diesel_amount,
                       COALESCE(i.total_amount,0) total_amount,
                       COALESCE(i.paid_amount,0) paid_amount,
                       COALESCE(i.notes,'') notes
@@ -2993,7 +2997,12 @@ class StationRepository {
         );
       case 'debts':
         {
-          // Snapshot of the outstanding beneficiary balance at the selected month end.
+          // Keep the saved ledger untouched. Revalue only irrigation contributions
+          // for this report according to the shared report-display setting.
+          final reportSettings = await settings();
+          final useSpecialMinuteRate =
+              reportSettings['work_price_report_display_special_rate'] == 'true';
+          final partialHour = reportSettings['partial_hour'] != 'false';
           final cutoff = to?.add(const Duration(days: 1)).toIso8601String();
           final balanceExpression = cutoff == null
               ? await _balanceSql()
@@ -3017,10 +3026,70 @@ class StationRepository {
           final debtArgs = cutoff == null
               ? <Object?>[]
               : <Object?>[cutoff, cutoff, cutoff, cutoff, cutoff];
-          return db.rawQuery(
+          final debtRows = await db.rawQuery(
             "SELECT b.id,b.name,b.phone,$balanceExpression balance FROM beneficiaries b WHERE b.status='active' ORDER BY balance DESC,b.name",
             debtArgs,
           );
+          if (debtRows.isEmpty) return debtRows;
+
+          final beneficiaryIds = debtRows
+              .map((row) => (row['id'] as num).toInt())
+              .toList();
+          final placeholders = List.filled(beneficiaryIds.length, '?').join(',');
+          final irrigationArgs = <Object?>[...beneficiaryIds];
+          final dateFilter = cutoff == null ? '' : ' AND i.date<?';
+          if (cutoff != null) irrigationArgs.add(cutoff);
+          final irrigationRows = await db.rawQuery(
+            """SELECT i.beneficiary_id,i.minutes,i.chargeable_minutes,i.system_type,
+                      i.work_minute_rate_snapshot,i.water_hourly_rate_snapshot,
+                      i.solar_hourly_rate_snapshot,i.third_type_hourly_rate_snapshot,
+                      i.diesel_amount,i.total_amount
+               FROM irrigations i
+               WHERE i.beneficiary_id IN ($placeholders)
+                 AND i.status!='cancelled'$dateFilter""",
+            irrigationArgs,
+          );
+          final adjustments = <int, int>{};
+          for (final irrigation in irrigationRows) {
+            final id = (irrigation['beneficiary_id'] as num?)?.toInt();
+            if (id == null) continue;
+            final minutes = (irrigation['chargeable_minutes'] as num?)?.round()
+                ?? (irrigation['minutes'] as num?)?.round() ?? 0;
+            final diesel = (irrigation['diesel_amount'] as num?)?.round() ?? 0;
+            final savedAmount = (irrigation['total_amount'] as num?)?.round() ?? 0;
+            final minuteSnapshot =
+                (irrigation['work_minute_rate_snapshot'] as num?)?.round() ?? 0;
+            final minuteRate = minuteSnapshot;
+            final hourlyRate = switch ('${irrigation['system_type'] ?? ''}') {
+              'solar' => (irrigation['solar_hourly_rate_snapshot'] as num?)?.round() ?? 0,
+              'equivalent_hybrid' => (irrigation['third_type_hourly_rate_snapshot'] as num?)?.round() ?? 0,
+              _ => (irrigation['water_hourly_rate_snapshot'] as num?)?.round() ?? 0,
+            };
+            final displayedWater = useSpecialMinuteRate && minuteRate > 0
+                ? AccountingCalculations.amountAtMinuteRate(minutes, minuteRate)
+                : hourlyRate > 0
+                    ? AccountingCalculations.amountForMinutes(
+                        minutes, hourlyRate, 'up', partialHour,
+                      )
+                    : savedAmount - diesel;
+            final displayedAmount = displayedWater + diesel;
+            adjustments[id] = (adjustments[id] ?? 0) + displayedAmount - savedAmount;
+          }
+          final adjustedRows = debtRows.map((row) {
+            final id = (row['id'] as num).toInt();
+            return <String, Object?>{
+              ...row,
+              'balance': ((row['balance'] as num?)?.round() ?? 0) +
+                  (adjustments[id] ?? 0),
+            };
+          }).toList();
+          adjustedRows.sort((a, b) {
+            final byBalance = ((b['balance'] as num?) ?? 0)
+                .compareTo((a['balance'] as num?) ?? 0);
+            if (byBalance != 0) return byBalance;
+            return '${a['name'] ?? ''}'.compareTo('${b['name'] ?? ''}');
+          });
+          return adjustedRows;
         }
       case 'beneficiary_list':
         return beneficiaries();

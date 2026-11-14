@@ -718,23 +718,65 @@ class ReportService {
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
     final totalCloudMinutes = data.fold<int>(0, (sum, row) =>
         sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
-    final totalAmount =
-        data.fold<int>(0, (sum, row) => sum + n(row['total_amount']));
+    for (final row in data) {
+      final rawId = row['invoice_id'] ?? row['irrigation_id'] ?? row['id'];
+      final id = rawId is num ? rawId.toInt() : int.tryParse('$rawId');
+      final snapshot = id == null ? null : snapshotById[id];
+      if (snapshot != null) row.addAll(snapshot);
+    }
+    final useSpecialMinuteRate =
+        settings['work_price_report_display_special_rate'] == 'true';
     final partialHour = settings['partial_hour'] != 'false';
-    int amountBeforeCloud(Map<String, Object?> row) {
-      if ('${row['system_type'] ?? ''}' != 'solar' || n(row['cloud_minutes']) <= 0) {
-        return n(row['total_amount']);
+    int hourlyRate(Map<String, Object?> row) => switch ('${row['system_type'] ?? ''}') {
+      'solar' => n(row['solar_hourly_rate_snapshot']),
+      'equivalent_hybrid' => n(row['third_type_hourly_rate_snapshot']),
+      _ => n(row['water_hourly_rate_snapshot']),
+    };
+    int reportAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+      final minutes = n(beforeCloud
+          ? row['minutes']
+          : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))))
+          .clamp(0, 100000000)
+          .toInt();
+      if (useSpecialMinuteRate && row['beneficiary_id'] != null) {
+        final savedMinuteRate = n(row['work_minute_rate_snapshot']);
+        final minuteRate = savedMinuteRate;
+        if (minuteRate > 0) {
+          return AccountingCalculations.amountAtMinuteRate(minutes, minuteRate) +
+              n(row['diesel_amount']);
+        }
       }
-      final rate = n(row['solar_hourly_rate_snapshot']);
+      final rate = hourlyRate(row);
       if (rate <= 0) return n(row['total_amount']);
-      return AccountingCalculations.amountForMinutes(
-        n(row['minutes']), rate, 'up', partialHour,
+      final waterAmount = AccountingCalculations.amountForMinutes(
+        minutes, rate, 'up', partialHour,
       );
+      return waterAmount + n(row['diesel_amount']);
+    }
+    int amountAtHourlyRate(Map<String, Object?> row, {required bool beforeCloud}) {
+      final rate = hourlyRate(row);
+      if (rate <= 0) return n(row['total_amount']);
+      final minutes = n(beforeCloud
+          ? row['minutes']
+          : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))));
+      return AccountingCalculations.amountForMinutes(
+            minutes.clamp(0, 100000000).toInt(), rate, 'up', partialHour,
+          ) +
+          n(row['diesel_amount']);
     }
     final totalAmountBeforeCloud = data.fold<int>(
-      0, (sum, row) => sum + amountBeforeCloud(row),
+      0, (sum, row) => sum + reportAmount(row, beforeCloud: true),
     );
-    final cloudDeductionAmount = (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
+    final totalAmount = data.fold<int>(
+      0, (sum, row) => sum + reportAmount(row, beforeCloud: false),
+    );
+    final totalWorkBasis = data.fold<int>(
+      0, (sum, row) => sum + amountAtHourlyRate(row, beforeCloud: false),
+    );
+    final totalWorkDifference =
+        useSpecialMinuteRate ? totalAmount - totalWorkBasis : 0;
+    final cloudDeductionAmount =
+        (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
     final totalPaid =
         data.fold<int>(0, (sum, row) => sum + n(row['paid_amount']));
     final remaining = totalAmount - totalPaid;
@@ -751,7 +793,7 @@ class ReportService {
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
           '${invoiceNetMinutes(data[i])}',
-          money(data[i]['total_amount']),
+          money(reportAmount(data[i], beforeCloud: false)),
           money(data[i]['paid_amount']),
           display(data[i]['notes']),
         ],
