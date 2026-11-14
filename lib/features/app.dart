@@ -12173,17 +12173,17 @@ class _ReportsState extends State<ReportsPage> {
     if (currentType == 'solar' && k == 'diesel_inventory') return;
     if (k == 'time_comparison') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueComparisonsPage(widget.r, initialFrom: from, initialTo: to)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueComparisonsPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
     if (k == 'monthly_financial') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => MonthlyFinancialReportPage(widget.r, initialFrom: from, initialTo: to)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => MonthlyFinancialReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
     if (k == 'cashboxes') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => CashboxesTransfersReportPage(widget.r, initialFrom: from, initialTo: to)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => CashboxesTransfersReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
     if (k == 'debts') {
@@ -12193,33 +12193,33 @@ class _ReportsState extends State<ReportsPage> {
     }
     if (k == 'income') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueCollectionsReportPage(widget.r, initialFrom: from, initialTo: to, initialSystemType: type)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueCollectionsReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to, initialSystemType: type)));
       return;
     }
     if (k == 'diesel_inventory') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => InventoryMovementReportPage(widget.r, initialFrom: from, initialTo: to)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => InventoryMovementReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
     if (k == 'expenses') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => ExpensesDetailedReportPage(widget.r, initialFrom: from, initialTo: to, initialCategory: category, initialStatus: status)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => ExpensesDetailedReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to, initialCategory: category, initialStatus: status)));
       return;
     }
     if (k == 'invoices') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => InvoicesReportPage(widget.r, initialFrom: from, initialTo: to)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => InvoicesReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
     if (k == 'irrigations') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => IrrigationDetailedReportPage(widget.r, initialBeneficiaryId: bid, initialFrom: from, initialTo: to, initialSystemType: type)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => IrrigationDetailedReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialBeneficiaryId: bid, initialFrom: from, initialTo: to, initialSystemType: type)));
       return;
     }
     if (k == 'partner_accounts') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => PartnerAccountsReportPage(
-        widget.r,
+        widget.r, autoSelectPeriod: !_dateFilterEdited,
         initialPartnerId: pid,
         initialFrom: from,
         initialTo: to,
@@ -12230,7 +12230,7 @@ class _ReportsState extends State<ReportsPage> {
     if (k == 'worker_transactions') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => WorkerTransactionsOverviewPage(
-        widget.r,
+        widget.r, autoSelectPeriod: !_dateFilterEdited,
         initialWorkerId: null,
         initialFrom: from,
         initialTo: to,
@@ -12245,7 +12245,7 @@ class _ReportsState extends State<ReportsPage> {
     if (k == 'ledger') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => LedgerStatementsPage(
-        widget.r,
+        widget.r, autoSelectPeriod: !_dateFilterEdited,
         initialFrom: from,
         initialTo: to,
       )));
@@ -12748,8 +12748,9 @@ Future<void> _initializeAutomaticReportRange({
   required void Function(IrrigationPeriodSelection) apply,
   required Future<void> Function() load,
   String? systemType,
+  bool enableAutomatic = true,
 }) async {
-  if (initialFrom == null && initialTo == null) {
+  if (enableAutomatic && initialFrom == null && initialTo == null) {
     try {
       final period = await AutomaticIrrigationPeriod.forRepository(
         repository,
@@ -12765,8 +12766,9 @@ Future<void> _initializeAutomaticReportRange({
 }
 
 class RevenueComparisonsPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;
-  const RevenueComparisonsPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;
+  const RevenueComparisonsPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<RevenueComparisonsPage> createState()=>_RevenueComparisonsState();
 }
 class _RevenueComparisonsState extends State<RevenueComparisonsPage>{
@@ -12780,6 +12782,7 @@ class _RevenueComparisonsState extends State<RevenueComparisonsPage>{
     
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -12814,8 +12817,9 @@ class _RevenueComparisonsState extends State<RevenueComparisonsPage>{
 }
 
 class MonthlyFinancialReportPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;
-  const MonthlyFinancialReportPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;
+  const MonthlyFinancialReportPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<MonthlyFinancialReportPage> createState()=>_MonthlyFinancialReportState();
 }
 class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
@@ -12829,6 +12833,7 @@ class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
     
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -12865,8 +12870,9 @@ class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
 }
 
 class CashboxesTransfersReportPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;
-  const CashboxesTransfersReportPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;
+  const CashboxesTransfersReportPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<CashboxesTransfersReportPage> createState()=>_CashboxesTransfersReportState();
 }
 class _CashboxesTransfersReportState extends State<CashboxesTransfersReportPage>{
@@ -12880,6 +12886,7 @@ class _CashboxesTransfersReportState extends State<CashboxesTransfersReportPage>
     
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -13050,8 +13057,9 @@ const SizedBox(height:10),Container(padding:const EdgeInsets.all(15),decoration:
 }
 
 class RevenueCollectionsReportPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;final String? initialSystemType;
-  const RevenueCollectionsReportPage(this.r,{this.initialFrom,this.initialTo,this.initialSystemType,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;final String? initialSystemType;
+  const RevenueCollectionsReportPage(this.r,{this.initialFrom,this.initialTo,this.initialSystemType,this.autoSelectPeriod = true, super.key});
   @override State<RevenueCollectionsReportPage> createState()=>_RevenueCollectionsReportState();
 }
 class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>{
@@ -13065,6 +13073,7 @@ class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>
     
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -13104,8 +13113,9 @@ class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>
 }
 
 class InventoryMovementReportPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;
-  const InventoryMovementReportPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;
+  const InventoryMovementReportPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<InventoryMovementReportPage> createState()=>_InventoryMovementReportState();
 }
 class _InventoryMovementReportState extends State<InventoryMovementReportPage>{
@@ -13119,6 +13129,7 @@ class _InventoryMovementReportState extends State<InventoryMovementReportPage>{
     
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -13160,8 +13171,9 @@ class _InventoryMovementReportState extends State<InventoryMovementReportPage>{
 }
 
 class ExpensesDetailedReportPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;final String? initialCategory,initialStatus;
-  const ExpensesDetailedReportPage(this.r,{this.initialFrom,this.initialTo,this.initialCategory,this.initialStatus,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;final String? initialCategory,initialStatus;
+  const ExpensesDetailedReportPage(this.r,{this.initialFrom,this.initialTo,this.initialCategory,this.initialStatus,this.autoSelectPeriod = true, super.key});
   @override State<ExpensesDetailedReportPage> createState()=>_ExpensesDetailedReportState();
 }
 class _ExpensesDetailedReportState extends State<ExpensesDetailedReportPage>{
@@ -13175,6 +13187,7 @@ class _ExpensesDetailedReportState extends State<ExpensesDetailedReportPage>{
     
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -13216,8 +13229,9 @@ class _ExpensesDetailedReportState extends State<ExpensesDetailedReportPage>{
 
 class InvoicesReportPage extends StatefulWidget {
   final StationRepository r;
+  final bool autoSelectPeriod;
   final DateTime? initialFrom, initialTo;
-  const InvoicesReportPage(this.r, {this.initialFrom, this.initialTo, super.key});
+  const InvoicesReportPage(this.r, {this.initialFrom, this.initialTo, this.autoSelectPeriod = true, super.key});
   @override
   State<InvoicesReportPage> createState() => _InvoicesReportPageState();
 }
@@ -13239,6 +13253,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     to = widget.initialTo;
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -13753,8 +13768,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
 }
 
 class IrrigationDetailedReportPage extends StatefulWidget {
-  final StationRepository r;final int? initialBeneficiaryId;final DateTime? initialFrom,initialTo;final String? initialSystemType;
-  const IrrigationDetailedReportPage(this.r,{this.initialBeneficiaryId,this.initialFrom,this.initialTo,this.initialSystemType,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final int? initialBeneficiaryId;final DateTime? initialFrom,initialTo;final String? initialSystemType;
+  const IrrigationDetailedReportPage(this.r,{this.initialBeneficiaryId,this.initialFrom,this.initialTo,this.initialSystemType,this.autoSelectPeriod = true, super.key});
   @override State<IrrigationDetailedReportPage> createState()=>_IrrigationDetailedReportState();
 }
 class _IrrigationDetailedReportState extends State<IrrigationDetailedReportPage>{
@@ -13768,6 +13784,7 @@ class _IrrigationDetailedReportState extends State<IrrigationDetailedReportPage>
     beneficiaryId=widget.initialBeneficiaryId;systemType=widget.initialSystemType??'all';
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -14267,8 +14284,9 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
 
 class CentralLedgerReportPage extends StatefulWidget {
   final StationRepository r;
+  final bool autoSelectPeriod;
   final DateTime? initialFrom, initialTo;
-  const CentralLedgerReportPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  const CentralLedgerReportPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<CentralLedgerReportPage> createState()=>_CentralLedgerReportState();
 }
 class _CentralLedgerReportState extends State<CentralLedgerReportPage>{
@@ -14281,6 +14299,7 @@ class _CentralLedgerReportState extends State<CentralLedgerReportPage>{
     to=widget.initialTo;
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -14319,8 +14338,9 @@ class _CentralLedgerReportState extends State<CentralLedgerReportPage>{
 
 class LedgerStatementsPage extends StatefulWidget {
   final StationRepository r;
+  final bool autoSelectPeriod;
   final DateTime? initialFrom, initialTo;
-  const LedgerStatementsPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  const LedgerStatementsPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<LedgerStatementsPage> createState()=>_LedgerStatementsState();
 }
 
@@ -14337,6 +14357,7 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
     to=widget.initialTo;
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -14470,8 +14491,9 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
 }
 
 class WorkerTransactionsOverviewPage extends StatefulWidget {
-  final StationRepository r; final int? initialWorkerId; final DateTime? initialFrom, initialTo;
-  const WorkerTransactionsOverviewPage(this.r,{this.initialWorkerId,this.initialFrom,this.initialTo,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod; final int? initialWorkerId; final DateTime? initialFrom, initialTo;
+  const WorkerTransactionsOverviewPage(this.r,{this.initialWorkerId,this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<WorkerTransactionsOverviewPage> createState()=>_WorkerTransactionsOverviewState();
 }
 class _WorkerTransactionsOverviewState extends State<WorkerTransactionsOverviewPage>{
@@ -14484,6 +14506,7 @@ class _WorkerTransactionsOverviewState extends State<WorkerTransactionsOverviewP
     to=widget.initialTo;
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -14520,9 +14543,10 @@ class _WorkerTransactionsOverviewState extends State<WorkerTransactionsOverviewP
 
 class WorkerAccountsReportPage extends StatefulWidget {
   final StationRepository r;
+  final bool autoSelectPeriod;
   final int? initialWorkerId;
   final DateTime? initialFrom, initialTo;
-  const WorkerAccountsReportPage(this.r, {this.initialWorkerId, this.initialFrom, this.initialTo, super.key});
+  const WorkerAccountsReportPage(this.r, {this.initialWorkerId, this.initialFrom, this.initialTo, this.autoSelectPeriod = true, super.key});
   @override State<WorkerAccountsReportPage> createState() => _WorkerAccountsReportState();
 }
 
@@ -14544,6 +14568,7 @@ class _WorkerAccountsReportState extends State<WorkerAccountsReportPage> {
     to=widget.initialTo;
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
@@ -14585,10 +14610,11 @@ class _WorkerAccountsReportState extends State<WorkerAccountsReportPage> {
 
 class PartnerAccountsReportPage extends StatefulWidget {
   final StationRepository r;
+  final bool autoSelectPeriod;
   final int? initialPartnerId;
   final DateTime? initialFrom, initialTo;
   final int? userId;
-  const PartnerAccountsReportPage(this.r, {this.initialPartnerId, this.initialFrom, this.initialTo, this.userId, super.key});
+  const PartnerAccountsReportPage(this.r, {this.initialPartnerId, this.initialFrom, this.initialTo, this.userId, this.autoSelectPeriod = true, super.key});
   @override State<PartnerAccountsReportPage> createState() => _PartnerAccountsReportState();
 }
 
@@ -14610,6 +14636,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
     to=widget.initialTo;
     _initializeAutomaticReportRange(
       repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
       initialFrom: widget.initialFrom,
       initialTo: widget.initialTo,
       stillMounted: () => mounted,
