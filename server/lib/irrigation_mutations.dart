@@ -303,7 +303,8 @@ class _P1Mutations {
     for (final move in moves) {
       _reverseEntriesTx(
         tx,
-        referenceType: 'diesel_advance',
+        referenceType: move['kind'] == 'consumption'
+            ? 'diesel_consumption' : 'diesel_advance',
         referenceId: (move['id'] as num).toInt(),
         reason: reason,
         userId: userId,
@@ -767,6 +768,7 @@ class _P1Mutations {
         final price = (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0;
         if (partyType == 'beneficiary' && shortageLiters > 0) {
           tx.insert('diesel_movements', {
+            'station_id': old['station_id'],
             'beneficiary_id': beneficiaryId,
             'irrigation_id': id,
             'kind': 'advance',
@@ -782,6 +784,7 @@ class _P1Mutations {
           });
         }
         tx.insert('diesel_movements', {
+          'station_id': old['station_id'],
           'beneficiary_id': beneficiaryId,
           'irrigation_id': id,
           'kind': 'consumption',
@@ -792,6 +795,20 @@ class _P1Mutations {
           'created_by': userId,
           'notes': 'استهلاك السقاية (بعد التعديل)',
         });
+        final consumptionId = tx.lastInsertRowId;
+        if (result.dieselAmount > 0) {
+          _entry(tx,
+            description: 'تكلفة ديزل السقاية $id بعد التعديل',
+            referenceType: 'diesel_consumption',
+            referenceId: consumptionId, date: start, userId: userId,
+            lines: [
+              {'account_id': _accountId('5010'),
+                'debit': result.dieselAmount, 'credit': 0},
+              {'account_id': _accountId('1300'),
+                'debit': 0, 'credit': result.dieselAmount},
+            ],
+          );
+        }
       }
       // Capture the persisted post-recalculation state, not the planning list:
       // this makes deleted/updated/inserted records reviewable from the audit log.
