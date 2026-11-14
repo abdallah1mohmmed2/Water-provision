@@ -267,6 +267,9 @@ void main() {
     // exist in the operational schema for the statement route.
     database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_balance INTEGER NOT NULL DEFAULT 0');
     database.execute('ALTER TABLE beneficiaries ADD COLUMN carried_balance INTEGER NOT NULL DEFAULT 0');
+    final existingIrrigationColumns = database.select(
+      'PRAGMA table_info(irrigations)',
+    ).map((row) => '${row['name']}').toSet();
     for (final column in [
       'date TEXT', 'end_datetime TEXT', 'system_type TEXT',
       'minutes INTEGER', 'cloud_minutes INTEGER',
@@ -274,7 +277,9 @@ void main() {
       'paid_amount INTEGER', 'notes TEXT', 'diesel_amount INTEGER',
       'work_minute_rate_snapshot INTEGER',
     ]) {
-      database.execute('ALTER TABLE irrigations ADD COLUMN $column');
+      if (!existingIrrigationColumns.contains(column.split(' ').first)) {
+        database.execute('ALTER TABLE irrigations ADD COLUMN $column');
+      }
     }
     database.execute('''
       CREATE TABLE payments (
