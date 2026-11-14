@@ -3947,6 +3947,30 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                       },
                     ),
                   ],
+                  if (widget.kind == 'partner') ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.picture_as_pdf_rounded),
+                      label: const Text('PDF التسقيات المرتبطة بالشريك'),
+                      onPressed: () async {
+                        try {
+                          await ReportService(widget.r).printPdf(
+                            'irrigations',
+                            partnerId: widget.id,
+                            from: filterFrom,
+                            to: filterTo,
+                            systemType: 'all',
+                          );
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(friendlyError(e))),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   historyView(c),
                 ],
