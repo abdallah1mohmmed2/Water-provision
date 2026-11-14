@@ -36,68 +36,90 @@ class ReportFileNameService {
     if (_dialogOpen) return null;
 
     _dialogOpen = true;
-    final controller = TextEditingController(text: suggestion);
     try {
       return await showDialog<String>(
         context: context,
-        builder: (dialogContext) => StatefulBuilder(
-          builder: (dialogContext, refresh) {
-            final valid = controller.text.trim().isNotEmpty;
-            return AlertDialog(
-              title: const Text('اسم ملف PDF'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('يمكنك تغيير اسم الملف قبل الطباعة أو المشاركة.'),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    textInputAction: TextInputAction.done,
-                    onChanged: (_) => refresh(() {}),
-                    onSubmitted: (_) {
-                      if (controller.text.trim().isNotEmpty) {
-                        Navigator.pop(dialogContext,
-                            normalizeBaseName(controller.text));
-                      }
-                    },
-                    decoration: const InputDecoration(
-                      labelText: 'اسم الملف',
-                      helperText: 'يُضاف الامتداد PDF تلقائيًا',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'عنوان التقرير داخل المستند لن يتغير.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(dialogContext).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('إلغاء'),
-                ),
-                FilledButton(
-                  onPressed: valid
-                      ? () => Navigator.pop(dialogContext,
-                          normalizeBaseName(controller.text))
-                      : null,
-                  child: const Text('متابعة'),
-                ),
-              ],
-            );
-          },
-        ),
+        builder: (_) => _ReportFileNameDialog(suggestion: suggestion),
       );
     } finally {
-      controller.dispose();
       _dialogOpen = false;
     }
   }
+}
+
+/// Own the controller within the dialog State: showDialog's returned Future
+/// resolves when the route pops, before its reverse animation is finished.
+class _ReportFileNameDialog extends StatefulWidget {
+  const _ReportFileNameDialog({required this.suggestion});
+
+  final String suggestion;
+
+  @override
+  State<_ReportFileNameDialog> createState() => _ReportFileNameDialogState();
+}
+
+class _ReportFileNameDialogState extends State<_ReportFileNameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.suggestion);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_controller.text.trim().isEmpty) return;
+    Navigator.of(context).pop(
+      ReportFileNameService.normalizeBaseName(_controller.text),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('اسم ملف PDF'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('يمكنك تغيير اسم الملف قبل الطباعة أو المشاركة.'),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _controller,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          onChanged: (_) => setState(() {}),
+          onSubmitted: (_) => _submit(),
+          decoration: const InputDecoration(
+            labelText: 'اسم الملف',
+            helperText: 'يُضاف الامتداد PDF تلقائيًا',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'عنوان التقرير داخل المستند لن يتغير.',
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('إلغاء'),
+      ),
+      FilledButton(
+        onPressed: _controller.text.trim().isNotEmpty ? _submit : null,
+        child: const Text('متابعة'),
+      ),
+    ],
+  );
 }
