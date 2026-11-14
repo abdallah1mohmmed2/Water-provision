@@ -3086,12 +3086,47 @@ class SaqiaServer {
     final waterAmount = _round(chargeable/60*waterRate,rounding);
     final liters = chargeable/60*litersPerHour;
     final dieselAmount = _round(liters*dieselPrice,rounding);
-    final total = waterAmount+dieselAmount;
+    final rawEnabled = payload['work_price_enabled_snapshot'] ?? 0;
+    if (rawEnabled is! int || (rawEnabled != 0 && rawEnabled != 1)) {
+      throw StateError('لقطة حالة فارق العمل غير صالحة');
+    }
+    if (partyType != 'beneficiary' && rawEnabled == 1) {
+      throw StateError('فارق العمل التشغيلي للمستفيد فقط');
+    }
+    final rawMinuteRate = payload['work_minute_rate_snapshot'];
+    if (rawMinuteRate != null &&
+        (rawMinuteRate is! int || rawMinuteRate < 0 || rawMinuteRate > 1000000)) {
+      throw StateError('لقطة سعر الدقيقة الخاصة غير صالحة');
+    }
+    if (partyType != 'beneficiary' && rawMinuteRate != null && rawMinuteRate != 0) {
+      throw StateError('السعر الخاص للمستفيد فقط');
+    }
+    final workPriceEnabled = rawEnabled == 1;
+    final reportMinuteRate = partyType == 'beneficiary' && rawMinuteRate is int
+        ? rawMinuteRate : 0;
+    if (workPriceEnabled) {
+      // Server tariff policy is authoritative. Financial price cannot be
+      // supplied by an arbitrary client unless station settings match.
+      final serverRate = int.tryParse(settings['work_minute_rate'] ?? '') ?? 0;
+      if (settings['work_price_difference_enabled'] != 'true' ||
+          serverRate <= 0 || serverRate != reportMinuteRate) {
+        throw StateError('إعداد فارق العمل أو سعر الدقيقة لا يطابق إعداد المحطة على الخادم');
+      }
+    }
+    final billedWater = workPriceEnabled
+        ? chargeable * reportMinuteRate : waterAmount;
+    final workDifference = workPriceEnabled ? billedWater - waterAmount : 0;
+    final workBaseTotal = waterAmount + dieselAmount;
+    final total = billedWater + dieselAmount;
     if (total <= 0) throw StateError('إجمالي السقاية المحسوب غير صالح');
     // Peers receive this immutable root event, so reject stale local amounts.
-    for (final expected in <String, num>{'minutes': minutes,
-      'chargeable_minutes': chargeable, 'water_amount': waterAmount,
-      'diesel_amount': dieselAmount, 'total_amount': total}.entries) {
+    for (final expected in <String, num>{
+      'minutes': minutes, 'chargeable_minutes': chargeable,
+      'water_amount': billedWater, 'diesel_amount': dieselAmount,
+      'total_amount': total, 'work_price_enabled_snapshot': rawEnabled,
+      'work_base_water_amount_snapshot': waterAmount,
+      'work_difference_snapshot': workDifference,
+    }.entries) {
       if (payload.containsKey(expected.key) && payload[expected.key] != expected.value) {
         throw StateError('لقطة السقاية المحلية لا تطابق حساب الخادم: ${expected.key}');
       }
@@ -3104,14 +3139,6 @@ class SaqiaServer {
     final columns = db.select('PRAGMA table_info(irrigations)').map((r)=>r['name'].toString()).toSet();
     final required = {'station_id','pump_id','beneficiary_id','worker_id','partner_id','party_type','date','start_datetime','end_datetime','minutes','system_type','water_hourly_rate_snapshot','diesel_liters_per_hour_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot','cloud_minutes','chargeable_minutes','water_amount','diesel_amount','total_amount','paid_amount','status','created_by','created_at','updated_at'};
     if (!required.every(columns.contains)) throw StateError('مخطط السقايات لا يدعم الترحيل الآمن');
-    final rawMinuteRate = payload['work_minute_rate_snapshot'];
-    if (rawMinuteRate != null && (rawMinuteRate is! int || rawMinuteRate < 0 || rawMinuteRate > 1000000)) {
-      throw StateError('سعر الدقيقة الخاصة غير صالح');
-    }
-    if (partyType != 'beneficiary' && rawMinuteRate != null && rawMinuteRate != 0) {
-      throw StateError('السعر الخاص للمستفيد فقط');
-    }
-    final reportMinuteRate = partyType == 'beneficiary' && rawMinuteRate is int ? rawMinuteRate : 0;
     final irrigationValues=<String,Object?>{
       'station_id':station,'pump_id':pumpId,'beneficiary_id':beneficiaryId,
       'worker_id':workerId,'partner_id':partnerId,'party_type':partyType,
@@ -3119,13 +3146,16 @@ class SaqiaServer {
       'system_type':system,'water_hourly_rate_snapshot':system=='diesel'?waterRate:0,
       'diesel_liters_per_hour_snapshot':litersPerHour,'diesel_price_snapshot':dieselPrice,
       'solar_hourly_rate_snapshot':system=='solar'?waterRate:0,'third_type_hourly_rate_snapshot':system=='equivalent_hybrid'?waterRate:0,
-      'cloud_minutes':cloudMinutes,'chargeable_minutes':chargeable,'water_amount':waterAmount,
+      'cloud_minutes':cloudMinutes,'chargeable_minutes':chargeable,'water_amount':billedWater,
       'diesel_amount':dieselAmount,'total_amount':total,'paid_amount':0,'status':'posted',
       'created_by':userId,'created_at':now,'updated_at':now,
     };
     // Older server databases may not yet carry the display-only column.
     // Financial posting must remain compatible; new schemas persist the snapshot.
     if (columns.contains('work_minute_rate_snapshot')) irrigationValues['work_minute_rate_snapshot']=reportMinuteRate;
+    if (columns.contains('work_price_enabled_snapshot')) irrigationValues['work_price_enabled_snapshot']=rawEnabled;
+    if (columns.contains('work_base_water_amount_snapshot')) irrigationValues['work_base_water_amount_snapshot']=waterAmount;
+    if (columns.contains('work_difference_snapshot')) irrigationValues['work_difference_snapshot']=workDifference;
     if (columns.contains('session_id')) irrigationValues['session_id']=sessionId;
     if (columns.contains('queue_entry_id')) irrigationValues['queue_entry_id']=queueId;
     if (columns.contains('booking_id')) irrigationValues['booking_id']=bookingId;
@@ -3158,7 +3188,7 @@ class SaqiaServer {
             : 'خصم قيمة سقاية من حساب صاحبها',
       },
     ];
-    if (waterAmount>0) lines.add({'account_id':_accountId('4000'),'debit':0,'credit':waterAmount,'memo':'إيراد الماء'});
+    if (billedWater>0) lines.add({'account_id':_accountId('4000'),'debit':0,'credit':billedWater,'memo':'إيراد الماء'});
     if (dieselAmount>0) lines.add({'account_id':_accountId('4010'),'debit':0,'credit':dieselAmount,'memo':'قيمة الديزل'});
     _journal(description:'سقاية رقم ' + irrigationId.toString(),referenceType:'irrigation',referenceId:irrigationId,lines:lines,userId:userId);
 
@@ -3184,8 +3214,8 @@ class SaqiaServer {
         final percentageRate = (worker['percentage_rate'] as num?)?.toDouble() ?? 0;
         final entitlement = payType == 'hourly'
             ? (chargeable / 60.0 * hourlyRate).round()
-            : (total * percentageRate / 100).round();
-        final amount = entitlement.clamp(0, total).toInt();
+            : (workBaseTotal * percentageRate / 100).round();
+        final amount = entitlement.clamp(0, workBaseTotal).toInt();
         if (amount <= 0) continue;
         db.execute('''INSERT INTO worker_transactions
           (station_id,worker_id,date,type,hours,rate_snapshot,percentage_snapshot,amount,reference_type,reference_id,notes,created_by)
@@ -3212,7 +3242,8 @@ class SaqiaServer {
       }
     }
 
-    final partnerPool = (total - totalWorkerEntitlement).clamp(0, total).toInt();
+    final partnerPool = (workBaseTotal - totalWorkerEntitlement)
+        .clamp(0, workBaseTotal).toInt();
     if (partnerPool > 0 && _hasTable('partners')) {
       final partners = db.select(
         'SELECT id,ownership_mode,shares_count,ownership_percentage FROM partners WHERE station_id=? AND active=1 ORDER BY id',
