@@ -4249,8 +4249,42 @@ class SaqiaServer {
   };
   Future<Response> _settings(Request r,Map<String,dynamic> c) async => _json(_settingsForStation(_stationId(c)));
   Future<Response> _settingsPut(Request r,Map<String,dynamic> c) async {
-    final b=await _body(r); final station=_stationId(c); final now=DateTime.now().toIso8601String();
-    for(final e in b.entries){db.execute('INSERT INTO station_settings(station_id,key,value,updated_at) VALUES(?,?,?,?) ON CONFLICT(station_id,key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at',[station,e.key,'${e.value}',now]);}
+    final changes=await _body(r);
+    final station=_stationId(c);
+    final old=_settingsForStation(station);
+    final merged=<String,String>{
+      ...old,
+      for(final e in changes.entries) e.key:'${e.value}',
+    };
+    final newMinuteRate=int.tryParse(merged['work_minute_rate'] ?? '0');
+    if (newMinuteRate == null || newMinuteRate < 0 || newMinuteRate > 1000000) {
+      return _json({'error':'سعر الدقيقة الخاص غير صالح'},status:422);
+    }
+    for (final key in const [
+      'work_price_difference_enabled',
+      'work_price_report_display_special_rate',
+    ]) {
+      final value=merged[key];
+      if (value!=null && value!='true' && value!='false') {
+        return _json({'error':'حالة فارق العمل أو عرضه غير صالحة'},status:422);
+      }
+    }
+    if (merged['work_price_difference_enabled']=='true' &&
+        newMinuteRate<=0) {
+      return _json({'error':'يلزم تحديد سعر دقيقة خاص قبل تفعيل فارق العمل'},status:422);
+    }
+    final now=DateTime.now().toIso8601String();
+    db.execute('BEGIN IMMEDIATE');
+    try {
+      for(final e in changes.entries) {
+        db.execute('INSERT INTO station_settings(station_id,key,value,updated_at) VALUES(?,?,?,?) ON CONFLICT(station_id,key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at',
+          [station,e.key,'${e.value}',now]);
+      }
+      db.execute('COMMIT');
+    } catch (_) {
+      db.execute('ROLLBACK');
+      rethrow;
+    }
     return _settings(r,c);
   }
   String _beneficiaryBalanceExpression() {
