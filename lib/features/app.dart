@@ -12147,7 +12147,27 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
   }
   String _title()=>ReportService.titles[widget.keyName]??'تقرير';
   Color _valueColor(String k,Object? v){if(k=='lah'||k=='credit')return _reportGreen;if(k=='alayh'||k=='debit')return _reportOrange;return _reportInk;}
-  String _value(String k,Object? v){if(v==null)return '-';if(k=='date'||k.endsWith('_datetime')){final d=DateTime.tryParse('$v');if(d!=null)return '${d.day}/${d.month}/${d.year}';}if(k=='system_type')return systemName('$v');if(k=='status')return statusName(v);if(k=='kind')return movementName('$v');if(k=='ownership_mode')return v=='percentage'?'نسبة ملكية':'عدد حصص';return '$v';}
+  String _value(String k, Object? v) {
+    if (v == null) return '-';
+    if (k == 'date' || k.endsWith('_datetime')) {
+      final raw = '$v';
+      final d = DateTime.tryParse(raw);
+      if (d != null) {
+        // Only the private partner statement changes its previous presentation:
+        // preserve the actual clock when the saved row contains a timestamp.
+        final partnerTimestamp = widget.keyName == 'partner_accounts' &&
+            (raw.contains('T') || raw.contains(':'));
+        return DateFormat(
+          partnerTimestamp ? 'yyyy/MM/dd HH:mm' : 'yyyy/MM/dd',
+        ).format(d);
+      }
+    }
+    if (k == 'system_type') return systemName('$v');
+    if (k == 'status') return statusName(v);
+    if (k == 'kind') return movementName('$v');
+    if (k == 'ownership_mode') return v == 'percentage' ? 'نسبة ملكية' : 'عدد حصص';
+    return '$v';
+  }
   List<MapEntry<String,Object?>> _visible(Map<String,Object?> row)=>row.entries.where((e)=>reportFieldArabic(e.key)!=null&&e.key!='id'&&e.key!='created_at'&&e.key!='updated_at'&&e.key!='journal_entry_id').toList();
   Widget _metric(String label, String value, IconData icon, Color color) =>
       Expanded(
@@ -12202,7 +12222,16 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
             Row(children:[
               Container(width:30,height:30,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${index+1}',style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900)))),
               const SizedBox(width:10),
-              Expanded(child:Text(_value(entries.isNotEmpty?entries.first.key:'description',entries.isNotEmpty?entries.first.value:null),softWrap:true,style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk))),
+              Expanded(child:Text(
+                _value(entries.isNotEmpty?entries.first.key:'description', entries.isNotEmpty?entries.first.value:null),
+                textDirection: widget.keyName == 'partner_accounts' &&
+                        entries.isNotEmpty &&
+                        (entries.first.key == 'date' || entries.first.key.endsWith('_datetime'))
+                    ? TextDirection.ltr
+                    : null,
+                softWrap:true,
+                style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk),
+              )),
               if(row['lah']!=null&&((row['lah'] as num?)?.abs()??0)>0)_badge('له','${row['lah']}',_reportGreen),
               if(row['alayh']!=null&&((row['alayh'] as num?)?.abs()??0)>0)_badge('عليه','${row['alayh']}',_reportOrange),
             ]),
@@ -12220,7 +12249,15 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
                       children:[
                         Text(reportFieldArabic(e.key)??e.key,softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:10)),
                         const SizedBox(height:3),
-                        Text(_value(e.key,e.value),softWrap:true,style:TextStyle(color:_valueColor(e.key,e.value),fontWeight:FontWeight.w700,fontSize:12,height:1.35)),
+                        Text(
+                          _value(e.key,e.value),
+                          textDirection: widget.keyName == 'partner_accounts' &&
+                                  (e.key == 'date' || e.key.endsWith('_datetime'))
+                              ? TextDirection.ltr
+                              : null,
+                          softWrap:true,
+                          style:TextStyle(color:_valueColor(e.key,e.value),fontWeight:FontWeight.w700,fontSize:12,height:1.35),
+                        ),
                       ],
                     ),
                   ),
