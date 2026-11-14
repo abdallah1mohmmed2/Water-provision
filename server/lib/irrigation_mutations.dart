@@ -529,6 +529,24 @@ class _P1Mutations {
         );
       }
 
+      // Never reprice historic mode/rate using today's manager settings.
+      // A correction reverses the original GL and reposts the same tariff mode.
+      final oldWorkPriceEnabled =
+          (old['work_price_enabled_snapshot'] as num?)?.toInt() == 1;
+      final oldWorkMinuteRate =
+          (old['work_minute_rate_snapshot'] as num?)?.toInt() ?? 0;
+      if (oldWorkPriceEnabled &&
+          (partyType != 'beneficiary' ||
+           oldWorkMinuteRate <= 0 || oldWorkMinuteRate > 1000000)) {
+        throw StateError('لقطة فارق العمل التاريخية غير صالحة');
+      }
+      final editedWorkBase = result.waterAmount + result.dieselAmount;
+      final editedBilledWater = oldWorkPriceEnabled
+          ? result.chargeableMinutes * oldWorkMinuteRate
+          : result.waterAmount;
+      final editedTotal = editedBilledWater + result.dieselAmount;
+      final editedDifference = editedBilledWater - result.waterAmount;
+
       // Reverse linked wage and partner accrual rows without deleting history.
       final workerRows = tx.query(
         'worker_transactions',
@@ -655,18 +673,18 @@ class _P1Mutations {
           'beneficiary_id': beneficiaryId,
           'worker_id': workerId,
           'partner_id': partnerId,
-          'debit': result.totalAmount,
+          'debit': editedTotal,
           'credit': 0,
           'memo': partyType == 'beneficiary'
               ? 'استحقاق سقاية بعد التعديل'
               : 'خصم سقاية من مستحقات الطرف بعد التعديل',
         },
       ];
-      if (result.waterAmount > 0) {
+      if (editedBilledWater > 0) {
         lines.add({
           'account_id': waterRevenue,
           'debit': 0,
-          'credit': result.waterAmount,
+          'credit': editedBilledWater,
           'memo': 'إيراد السقي بعد التعديل',
         });
       }
@@ -678,7 +696,7 @@ class _P1Mutations {
           'memo': 'قيمة ديزل السقي بعد التعديل',
         });
       }
-      if (result.totalAmount > 0) {
+      if (editedTotal > 0) {
         _entry(
           tx,
           description: 'تعديل سقاية رقم $id',
@@ -698,9 +716,13 @@ class _P1Mutations {
         'minutes': result.minutes,
         'cloud_minutes': result.cloudMinutes,
         'chargeable_minutes': result.chargeableMinutes,
-        'water_amount': result.waterAmount,
+        'water_amount': editedBilledWater,
+        'work_price_enabled_snapshot': oldWorkPriceEnabled ? 1 : 0,
+        'work_minute_rate_snapshot': oldWorkMinuteRate,
+        'work_base_water_amount_snapshot': result.waterAmount,
+        'work_difference_snapshot': oldWorkPriceEnabled ? editedDifference : 0,
         'diesel_amount': result.dieselAmount,
-        'total_amount': result.totalAmount,
+        'total_amount': editedTotal,
         'updated_at': now,
       };
       tx.update('irrigations', values, where: 'id=?', whereArgs: [id]);
@@ -876,7 +898,7 @@ class _P1Mutations {
           tx,
           workerId: (wageWorker['id'] as num).toInt(),
           irrigationId: id,
-          amount: result.totalAmount,
+          amount: editedWorkBase,
           hours: result.chargeableMinutes / 60.0,
           date: start,
           userId: userId,
@@ -906,8 +928,8 @@ class _P1Mutations {
           'created_by': userId,
         });
       }
-      final partnerPool = (result.totalAmount - totalWorkerEntitlement)
-          .clamp(0, result.totalAmount)
+      final partnerPool = (editedWorkBase - totalWorkerEntitlement)
+          .clamp(0, editedWorkBase)
           .toInt();
       if (partnerPool > 0) {
         _accruePartnersFromIrrigationTx(
@@ -929,7 +951,7 @@ class _P1Mutations {
         newValues: values,
         reason: 'تعديل وقت السقاية وإعادة ترحيل قيدها',
       );
-      return result.totalAmount;
+      return editedTotal;
     }, captureSyncTables: const {'irrigations'});
   }
 
@@ -1439,7 +1461,10 @@ extension _P1Sync on SaqiaServer {
     }
     // P0 stores zero for inactive tariff fields on the server. Only the
     // effective system's immutable prices participate in P1 calculations.
-    final immutable = <String>['system_type', 'party_type'];
+    final immutable = <String>[
+      'system_type', 'party_type',
+      'work_price_enabled_snapshot', 'work_minute_rate_snapshot',
+    ];
     switch (old['system_type']) {
       case 'diesel':
         immutable.addAll([
@@ -1488,6 +1513,10 @@ extension _P1Sync on SaqiaServer {
       'water_amount',
       'diesel_amount',
       'total_amount',
+      'work_price_enabled_snapshot',
+      'work_minute_rate_snapshot',
+      'work_base_water_amount_snapshot',
+      'work_difference_snapshot',
       'paid_amount',
       'start_datetime',
       'end_datetime',
