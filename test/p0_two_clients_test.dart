@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:saqia_station/api/api_client.dart';
 import 'package:saqia_station/data/local/database.dart';
+import 'package:saqia_station/data/repositories/repositories.dart';
 import 'package:saqia_station/domain/accounting/accounting_service.dart';
 import 'package:saqia_station/services/sync_service.dart';
 import 'package:saqia_station/services/sync_inbox_applier.dart';
@@ -308,6 +309,18 @@ void main() {
       );
       expect((await accounting.workerBalance(workerId))['balance'], -75);
       expect((await accounting.partnerBalance(partnerId))['balance'], 0);
+      final statementRepository = StationRepository(db);
+      // A correction is still a previous debt (not an opening balance).
+      expect((await statementRepository.workerTransactions(workerId)).any(
+        (row) => row['type'] == 'previous_receivable' &&
+          row['previous_debt_transaction_id'] == workerDebt['id'],
+      ), isTrue);
+      expect((await statementRepository.workers()).singleWhere(
+        (row) => row['id'] == workerId,
+      )['previous_debt_total'], 75);
+      expect((await statementRepository.partners()).singleWhere(
+        (row) => row['id'] == partnerId,
+      )['previous_debt_total'], 0);
       await expectLater(
         accounting.revisePreviousPartyDebt(
           partyType: 'partner',
