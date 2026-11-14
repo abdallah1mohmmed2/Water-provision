@@ -4,6 +4,7 @@ import '../../core/period_ranges.dart';
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'calculations.dart';
+import 'report_minute_pricing.dart';
 import '../../data/local/database.dart';
 import '../../data/local/queue_rotation.dart';
 import 'balance_sql.dart';
@@ -1389,7 +1390,19 @@ class AccountingService {
           );
         }
       }
-      final totalCharged = calc.waterAmount + chargedDiesel;
+      final workPriceEnabled = partyType == 'beneficiary' &&
+          set['work_price_difference_enabled'] == 'true';
+      final workMinuteRate = int.tryParse(set['work_minute_rate'] ?? '0') ?? 0;
+      if (workPriceEnabled && (workMinuteRate <= 0 || workMinuteRate > 1000000)) {
+        throw StateError('اضبط سعر الدقيقة الخاص قبل تفعيل فارق العمل');
+      }
+      final billedWater = workPriceEnabled
+          ? ReportMinutePricing.amountAtMinuteRate(
+              calc.chargeableMinutes, workMinuteRate)
+          : calc.waterAmount;
+      final workBaseTotal = calc.waterAmount + chargedDiesel;
+      final totalCharged = billedWater + chargedDiesel;
+      final workDifference = billedWater - calc.waterAmount;
       final now = AppClock.now().toIso8601String();
       final id = await tx.insert('irrigations', {
         'station_id': stationId,
@@ -1408,17 +1421,18 @@ class AccountingService {
         'minutes': calc.minutes,
         'system_type': effectiveType,
         'water_hourly_rate_snapshot': effectiveWaterRate,
-        // Report-only snapshot, distinct from the financially posted invoice.
         'work_minute_rate_snapshot': partyType == 'beneficiary'
-            ? (int.tryParse(set['work_minute_rate'] ?? '0') ?? 0).clamp(0, 1000000).toInt()
-            : 0,
+            ? workMinuteRate.clamp(0, 1000000).toInt() : 0,
+        'work_price_enabled_snapshot': workPriceEnabled ? 1 : 0,
+        'work_base_water_amount_snapshot': calc.waterAmount,
+        'work_difference_snapshot': workPriceEnabled ? workDifference : 0,
         'diesel_liters_per_hour_snapshot': effectiveLiters,
         'diesel_price_snapshot': effectiveDieselPrice,
         'solar_hourly_rate_snapshot': effectiveSolarRate,
         'third_type_hourly_rate_snapshot': effectiveThirdRate,
         'cloud_minutes': calc.cloudMinutes,
         'chargeable_minutes': calc.chargeableMinutes,
-        'water_amount': calc.waterAmount,
+        'water_amount': billedWater,
         'diesel_amount': chargedDiesel,
         'total_amount': totalCharged,
         'paid_amount': paidAmount,
@@ -1460,11 +1474,11 @@ class AccountingService {
           'memo': partyType == 'beneficiary' ? 'استحقاق سقاية' : 'خصم سقاية من مستحقات الطرف',
         },
       ];
-      if (calc.waterAmount > 0) {
+      if (billedWater > 0) {
         lines.add({
           'account_id': waterRevenue,
           'debit': 0,
-          'credit': calc.waterAmount,
+          'credit': billedWater,
           'memo': 'إيراد السقي',
         });
       }
@@ -1503,7 +1517,7 @@ class AccountingService {
           tx,
           workerId: wageWorkerId,
           irrigationId: id,
-          amount: totalCharged,
+          amount: workBaseTotal,
           hours: calc.chargeableMinutes / 60.0,
           date: start,
           userId: userId,
@@ -1513,7 +1527,7 @@ class AccountingService {
       // الاستحقاقات المباشرة عند السقاية تكون بعد أجور العمال دائمًا،
       // بما فيها سقاية الشريك؛ ولا يجوز توزيع الإيراد الإجمالي قبل الأجور.
       final partnerPool =
-          (totalCharged - totalWorkerEntitlement).clamp(0, totalCharged).toInt();
+          (workBaseTotal - totalWorkerEntitlement).clamp(0, workBaseTotal).toInt();
       if (partnerPool > 0) {
         await _accruePartnersFromIrrigationTx(
           tx,
@@ -3204,6 +3218,25 @@ class AccountingService {
         throw StateError('نوع صاحب حساب السقاية غير مدعوم؛ لم تُغيّر أي بيانات');
       }
 
+      // Edits preserve the original price mode and minute rate, not the
+      // current switch setting. Financial journals are reversed below.
+      final oldWorkPriceEnabled =
+          (old['work_price_enabled_snapshot'] as num?)?.toInt() == 1;
+      final oldWorkMinuteRate =
+          (old['work_minute_rate_snapshot'] as num?)?.toInt() ?? 0;
+      if (oldWorkPriceEnabled &&
+          (partyType != 'beneficiary' ||
+           oldWorkMinuteRate <= 0 || oldWorkMinuteRate > 1000000)) {
+        throw StateError('لقطة فارق العمل غير صالحة؛ يلزم مراجعة السجل');
+      }
+      final editedWorkBase = result.waterAmount + result.dieselAmount;
+      final editedBilledWater = oldWorkPriceEnabled
+          ? ReportMinutePricing.amountAtMinuteRate(
+              result.chargeableMinutes, oldWorkMinuteRate)
+          : result.waterAmount;
+      final editedTotal = editedBilledWater + result.dieselAmount;
+      final editedDifference = editedBilledWater - result.waterAmount;
+
       // Reverse linked wage and partner accrual rows without deleting history.
       final workerRows = await tx.query(
         'worker_transactions',
@@ -3284,18 +3317,18 @@ class AccountingService {
       final lines = <Map<String, Object?>>[
         {'account_id': receivable, 'beneficiary_id': beneficiaryId,
          'worker_id': workerId, 'partner_id': partnerId,
-         'debit': result.totalAmount, 'credit': 0,
+         'debit': editedTotal, 'credit': 0,
          'memo': partyType == 'beneficiary' ? 'استحقاق سقاية بعد التعديل' : 'خصم سقاية من مستحقات الطرف بعد التعديل'},
       ];
-      if (result.waterAmount > 0) {
+      if (editedBilledWater > 0) {
         lines.add({'account_id': waterRevenue, 'debit': 0,
-          'credit': result.waterAmount, 'memo': 'إيراد السقي بعد التعديل'});
+          'credit': editedBilledWater, 'memo': 'إيراد السقي بعد التعديل'});
       }
       if (result.dieselAmount > 0) {
         lines.add({'account_id': fuelRevenue, 'debit': 0,
           'credit': result.dieselAmount, 'memo': 'قيمة ديزل السقي بعد التعديل'});
       }
-      if (result.totalAmount > 0) {
+      if (editedTotal > 0) {
         await _entry(tx,
           description: 'تعديل سقاية رقم $id',
           referenceType: 'irrigation', referenceId: id,
@@ -3310,9 +3343,13 @@ class AccountingService {
         'minutes': result.minutes,
         'cloud_minutes': result.cloudMinutes,
         'chargeable_minutes': result.chargeableMinutes,
-        'water_amount': result.waterAmount,
+        'water_amount': editedBilledWater,
+        'work_price_enabled_snapshot': oldWorkPriceEnabled ? 1 : 0,
+        'work_minute_rate_snapshot': oldWorkMinuteRate,
+        'work_base_water_amount_snapshot': result.waterAmount,
+        'work_difference_snapshot': oldWorkPriceEnabled ? editedDifference : 0,
         'diesel_amount': result.dieselAmount,
-        'total_amount': result.totalAmount,
+        'total_amount': editedTotal,
         'updated_at': now,
       };
       await tx.update('irrigations', values, where: 'id=?', whereArgs: [id]);
@@ -3429,7 +3466,7 @@ class AccountingService {
       for (final wageWorker in wageWorkers) {
         totalWorkerEntitlement += await _accrueWorkerIrrigationTx(
           tx, workerId: (wageWorker['id'] as num).toInt(), irrigationId: id,
-          amount: result.totalAmount, hours: result.chargeableMinutes / 60.0,
+          amount: editedWorkBase, hours: result.chargeableMinutes / 60.0,
           date: start, userId: userId);
       }
       if (partyType == 'worker') {
@@ -3446,7 +3483,7 @@ class AccountingService {
           'notes': 'خصم قيمة سقاية من حساب الشريك', 'created_by': userId,
         });
       }
-      final partnerPool = (result.totalAmount - totalWorkerEntitlement).clamp(0, result.totalAmount).toInt();
+      final partnerPool = (editedWorkBase - totalWorkerEntitlement).clamp(0, editedWorkBase).toInt();
       if (partnerPool > 0) {
         await _accruePartnersFromIrrigationTx(tx,
           irrigationId: id, stationId: (old['station_id'] as num).toInt(),
@@ -3455,7 +3492,7 @@ class AccountingService {
       await database.auditTx(tx, userId: userId, operation: 'update',
         table: 'irrigations', recordId: id, oldValues: old,
         newValues: values, reason: 'تعديل وقت السقاية وإعادة ترحيل قيدها');
-      return result.totalAmount;
+      return editedTotal;
     }, captureSyncTables: const {'irrigations'});
   }
 
