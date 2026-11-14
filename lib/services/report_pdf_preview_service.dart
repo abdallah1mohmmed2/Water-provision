@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -10,12 +11,46 @@ import 'report_file_name_service.dart';
 class ReportPdfPreviewService {
   ReportPdfPreviewService._();
 
+  // A zone-scoped mode keeps long presses isolated even when different
+  // report generations are running concurrently; no global export flag.
+  static const Symbol _directShareZoneKey = #reportPdfLongPressShare;
+
+  /// Reuse the button's original generation/filter path and send the very
+  /// same generated PDF without first pushing the preview route.
+  static Future<void> shareOnLongPress(
+    Future<void> Function() generateReport,
+  ) => runZoned<Future<void>>(
+    generateReport,
+    zoneValues: {_directShareZoneKey: true},
+  );
+
+  @visibleForTesting
+  static bool get sharingFromLongPress =>
+      Zone.current[_directShareZoneKey] == true;
+
+  static Future<void> shareBytes({
+    required Uint8List bytes,
+    required String suggestedName,
+  }) async {
+    if (bytes.isEmpty) throw StateError('تعذر مشاركة التقرير: ملف PDF فارغ');
+    final name = await ReportFileNameService.choose(suggestedName);
+    if (name == null) return;
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: ReportFileNameService.withExtension(name),
+    );
+  }
+
   static Future<void> open({
     required Uint8List bytes,
     required String suggestedName,
   }) async {
     if (bytes.isEmpty) {
       throw StateError('تعذر عرض التقرير: ملف PDF فارغ');
+    }
+    if (sharingFromLongPress) {
+      await shareBytes(bytes: bytes, suggestedName: suggestedName);
+      return;
     }
     final navigator = ReportFileNameService.navigatorKey.currentState;
     if (navigator == null || !navigator.mounted) {
@@ -125,6 +160,33 @@ class _UnifiedReportPdfPreviewPageState
         canChangePageFormat: false,
         useActions: false,
       ),
+    ),
+  );
+}
+
+/// Attach to an existing PDF button without changing its normal tap action.
+/// On Android the long press is distinct from the button's regular tap.
+/// Keep IconButton.tooltip null on wrapped icon buttons so Flutter's native
+/// Tooltip long-press recognizer cannot compete for the same gesture.
+class ReportPdfLongPress extends StatelessWidget {
+  const ReportPdfLongPress({
+    required this.child,
+    required this.onLongPress,
+    this.enabled = true,
+    super.key,
+  });
+
+  final Widget child;
+  final Future<void> Function() onLongPress;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    hint: 'اضغط مطولًا لمشاركة ملف PDF',
+    child: GestureDetector(
+      behavior: HitTestBehavior.deferToChild,
+      onLongPress: enabled ? () { onLongPress(); } : null,
+      child: child,
     ),
   );
 }
