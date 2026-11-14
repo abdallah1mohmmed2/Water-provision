@@ -13166,8 +13166,8 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
                         child: Text(
                           useSpecialMinuteRateReports
-                              ? 'فارق العمل: مفعّل — الفواتير بسعر الدقيقة الخاص'
-                              : 'فارق العمل: متوقف — الفواتير بسعر الساعة العام',
+                              ? 'عرض التقرير: سعر الدقيقة الخاص'
+                              : 'عرض التقرير: سعر الساعة العام',
                           style: const TextStyle(
                             color: _reportOliveDark, fontWeight: FontWeight.w800),
                         ),
@@ -15471,17 +15471,17 @@ class _SettingsState extends State<SettingsPage> {
     onTap: () => edit(k, label, numeric: n),
   );
   Widget workDifferenceTile() {
-    const key = 'work_price_report_display_special_rate';
+    const key = 'work_price_difference_enabled';
     final enabled = (s[key] ?? 'false') == 'true';
     return SwitchListTile.adaptive(
       title: const Text('تفعيل فارق العمل'),
       subtitle: Text(enabled
-          ? 'مفعّل — الفواتير بالسعر الخاص للدقيقة'
-          : 'متوقف — الفواتير بسعر الساعة العام'),
+          ? 'مفعّل — تحفظ فاتورة المستفيد بسعر الدقيقة الخاص، والشركاء والعاملون على السعر العام'
+          : 'متوقف — تحفظ السقايات الجديدة بسعر الساعة العام'),
       value: enabled,
       onChanged: (value) async {
         if (!await runGuarded(context,
-            () => widget.r.setSetting(key, value ? 'true' : 'false'))) {
+            () => widget.r.setWorkDifferenceEnabled(value))) {
           return;
         }
         await load();
@@ -15683,9 +15683,10 @@ class _SettingsState extends State<SettingsPage> {
                 const Divider(height: 8),
                 setTile('work_minute_rate', 'سعر الدقيقة الخاص للمستفيدين', true),
                 workDifferenceTile(),
+                boolTile('work_price_report_display_special_rate', 'عرض سعر الدقيقة الخاص في تقرير الفواتير وPDF'),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  child: Text('فارق العمل يغيّر عرض فواتير المستفيدين وPDF فقط بين سعر الدقيقة الخاص وسعر الساعة العام. كشف حساب المستفيد ومديونياته يعرضان دائمًا سعر الدقيقة الخاص المحفوظ لكل سقاية. أرباح الشركاء والقيود والمبالغ المسجلة لا تتغير عند التبديل، ولا تُحذف الأسعار المدخلة.', style: TextStyle(fontSize: 12, height: 1.5)),
+                  child: Text('زر فارق العمل يحدّد سعر السقايات الجديدة فقط: عند التفعيل تُحفظ فاتورة المستفيد بسعر الدقيقة الخاص، بينما يبقى أساس أرباح الشركاء والعمال بسعر الساعة العام. عند الإيقاف تُحفظ الفاتورة بالسعر العام. خيار العرض الثاني مستقل للتقارير، وكشف المستفيد يعرض سعر الدقيقة الخاص دائمًا. السقايات السابقة لا يعاد تسعيرها أو تعديل قيودها.', style: TextStyle(fontSize: 12, height: 1.5)),
                 ),
               ],
               boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
