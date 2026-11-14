@@ -726,3 +726,13 @@ Files repaired: `server/lib/server.dart` (child projection operation), `server/t
 - لا توجد قاعدة بيانات هاتف المستخدم في هذا الفحص، ولا إثبات بصري للتقرير على جهازه؛ الحكم مأخوذ من المصدر والاختبارات الآلية، ولا ينسب تشغيل هاتف حقيقي إلى CI.
 
 **تنبيه:** هذا التزام توثيقي لاحق لـ`854983fc`، وتُحتسب نتائج الاختبارات لكود ذلك الالتزام فقط؛ لا يتم اعتبار أية تشغيلات للالتزام التوثيقي ناجحة تلقائياً.
+
+### قبول CI النهائي لتصحيح تقرير المديونيات — التزام الكود `854983fc`
+
+انتهت جميع التشغيلات المرتبطة بكود الإصلاح على SHA نفسه بنتيجة **SUCCESS**:
+- Flutter Analyze: [43587871040](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43587871040).
+- SonarCloud: [43587871025](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43587871025).
+- Build / SonarQube: [43587871005](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43587871005)، مع اختبارات Shelf وFlutter وبناء APK تجريبي ورفع [Saqia-App-Debug 14111232372](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43587871005/artifacts/14111232372).
+- Android Release APK: [43587868059](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43587868059) **SUCCESS**، ملف [Saqia-App-Release 14112010278](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43587868059/artifacts/14112010278)، ZIP بحجم 36,529,391 بايت، غير منتهي الصلاحية وقت الفحص.
+
+هذا اعتماد اختبار وبناء، لا يثبت سلامة الأرصدة الخاصة بقاعدة بيانات الهاتف الفعلية أو نشر خادم HTTPS. نسخة Release في هذا الفرع ما زالت تستخدم توقيع Android Debug من إعداد Gradle، ولذلك لا تُعتبر حزمة توزيع إنتاجية موقعة بمفتاح خاص. لا تغيير لفرع `main`.
