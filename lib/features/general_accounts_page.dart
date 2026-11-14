@@ -5,6 +5,7 @@ import '../data/repositories/repositories.dart';
 import '../services/manual_message_service.dart';
 import '../services/official_report_template.dart';
 import '../services/report_pdf_preview_service.dart';
+import 'contact_phone_field.dart';
 
 /// Signed balance: positive means "لنا عليه"; negative means "له علينا".
 /// A receipt reduces the amount owed to us; a payment increases it.
@@ -108,7 +109,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
             child: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 TextFormField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: 'اسم الحساب *'), validator: (v) => v == null || v.trim().isEmpty ? 'اسم الحساب مطلوب' : null),
-                TextFormField(controller: phone, decoration: const InputDecoration(labelText: 'رقم الهاتف (اختياري)'), keyboardType: TextInputType.phone),
+                ContactPhoneField(controller: phone, labelText: 'رقم الهاتف (اختياري)'),
                 TextFormField(controller: address, decoration: const InputDecoration(labelText: 'العنوان (اختياري)')),
                 TextFormField(controller: opening, decoration: const InputDecoration(labelText: 'الرصيد الافتتاحي'), keyboardType: TextInputType.number, validator: (v) => int.tryParse((v ?? '').trim()) == null || int.parse(v!.trim()) < 0 ? 'أدخل مبلغًا صحيحًا موجبًا أو صفرًا' : null),
                 const SizedBox(height: 8),
@@ -253,7 +254,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
                   decoration: const InputDecoration(labelText: 'اسم الحساب *'),
                   validator: (v) => v == null || v.trim().isEmpty ? 'اسم الحساب مطلوب' : null,
                 ),
-                TextFormField(controller: phone, decoration: const InputDecoration(labelText: 'رقم الهاتف (اختياري)'), keyboardType: TextInputType.phone),
+                ContactPhoneField(controller: phone, labelText: 'رقم الهاتف (اختياري)'),
                 TextFormField(controller: address, decoration: const InputDecoration(labelText: 'العنوان (اختياري)')),
                 TextFormField(
                   controller: opening,
