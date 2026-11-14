@@ -1332,7 +1332,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     database.execute("CREATE TABLE station_settings(station_id INTEGER NOT NULL,key TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(station_id,key))");
     database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'diesel_hourly_water_rate','6000'),(1,'diesel_liters_per_hour','2'),(1,'diesel_price_per_liter','500')");
     database.execute("CREATE TABLE accounts(id INTEGER PRIMARY KEY,parent_id INTEGER,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,type TEXT NOT NULL)");
-    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1200','Receivables','asset'),(2,'4000','Water Revenue','income'),(3,'4010','Diesel Revenue','income'),(4,'1000','Cash','asset'),(5,'5000','Worker Expense','expense'),(6,'2100','Worker Payables','liability'),(7,'2200','Partner Payables','liability'),(8,'3200','Partner Equity','equity')");
+    database.execute("INSERT INTO accounts(id,code,name,type) VALUES(1,'1200','Receivables','asset'),(2,'4000','Water Revenue','income'),(3,'4010','Diesel Revenue','income'),(4,'1000','Cash','asset'),(5,'5000','Worker Expense','expense'),(6,'2100','Worker Payables','liability'),(7,'2200','Partner Payables','liability'),(8,'3200','Partner Equity','equity'),(9,'1300','Diesel inventory','asset'),(10,'5010','Fuel expense','expense')");
     database.execute("CREATE TABLE journal_entries(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,date TEXT NOT NULL,reference_type TEXT,reference_id INTEGER,description TEXT NOT NULL,status TEXT NOT NULL,created_by INTEGER,created_at TEXT NOT NULL)");
     database.execute("CREATE TABLE journal_lines(id INTEGER PRIMARY KEY AUTOINCREMENT,journal_entry_id INTEGER NOT NULL,account_id INTEGER NOT NULL,beneficiary_id INTEGER,worker_id INTEGER,partner_id INTEGER,debit INTEGER NOT NULL DEFAULT 0,credit INTEGER NOT NULL DEFAULT 0,memo TEXT)");
     database.execute("CREATE TABLE cloud_periods(id INTEGER PRIMARY KEY AUTOINCREMENT,irrigation_id INTEGER NOT NULL,start_datetime TEXT NOT NULL,end_datetime TEXT NOT NULL,minutes INTEGER NOT NULL,created_at TEXT NOT NULL)");
@@ -1364,6 +1364,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
           'babababa-baba-4bba-8bba-babababababa',
           'bcbcbcbc-bcbc-4cbc-8cbc-bcbcbcbcbcbc',
           'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd',
+          'dededede-dede-4ded-8ded-dededededede',
         ],
         'journal_lines': [
           '11111111-aaaa-4aaa-8aaa-111111111111',
@@ -1373,6 +1374,8 @@ test('legacy beneficiary rows receive a stable global identity on first API read
           '55555555-aaaa-4aaa-8aaa-555555555555',
           '66666666-aaaa-4aaa-8aaa-666666666666',
           '77777777-aaaa-4aaa-8aaa-777777777777',
+          '88888888-aaaa-4aaa-8aaa-888888888888',
+          '99999999-aaaa-4aaa-8aaa-999999999999',
         ],
         'irrigation_sessions': [sessionGlobalId],
         'queue_entries': [],
@@ -1471,7 +1474,12 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect((sessionFinish['results'] as List).single['status'],'superseded');
     expect(database.select('SELECT * FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]),hasLength(1));
     expect(database.select('SELECT kind FROM diesel_movements WHERE station_id=1 ORDER BY id').map((r)=>r['kind']).toList(),['advance','consumption']);
-    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],4);
+    expect(database.select("SELECT COUNT(*) n FROM journal_entries WHERE reference_type='diesel_consumption'").single['n'],1);
+    final fuelExpense = database.select("SELECT SUM(jl.debit-jl.credit) n FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE a.code='5010'").single['n'];
+    final inventoryDecrease = database.select("SELECT SUM(jl.credit-jl.debit) n FROM journal_lines jl JOIN accounts a ON a.id=jl.account_id WHERE a.code='1300'").single['n'];
+    expect(fuelExpense,1000);
+    expect(inventoryDecrease,1000);
     expect(database.select("SELECT amount FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=?",[irrigation['id']]).single['amount'],100);
     expect(database.select("SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?",[irrigation['id']]).single['amount'],6900);
     final ledgerTotals = database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
@@ -1484,9 +1492,10 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(originTypes, [
       'cloud_periods', 'worker_transactions', 'partner_transactions',
       'diesel_movements', 'diesel_movements',
-      'journal_entries', 'journal_entries', 'journal_entries',
+      'journal_entries', 'journal_entries', 'journal_entries', 'journal_entries',
       'journal_lines', 'journal_lines', 'journal_lines', 'journal_lines',
-      'journal_lines', 'journal_lines', 'journal_lines', 'irrigation_sessions',
+      'journal_lines', 'journal_lines', 'journal_lines', 'journal_lines',
+      'journal_lines', 'irrigation_sessions',
     ]);
     expect(
       (originInbox['events'] as List).every(
@@ -1508,8 +1517,8 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(peerTypes.indexOf('journal_lines'), greaterThan(peerTypes.indexOf('journal_entries')));
     expect(peerTypes.where((type) => type == 'worker_transactions'), hasLength(1));
     expect(peerTypes.where((type) => type == 'partner_transactions'), hasLength(1));
-    expect(peerTypes.where((type) => type == 'journal_entries'), hasLength(3));
-    expect(peerTypes.where((type) => type == 'journal_lines'), hasLength(7));
+    expect(peerTypes.where((type) => type == 'journal_entries'), hasLength(4));
+    expect(peerTypes.where((type) => type == 'journal_lines'), hasLength(9));
     expect(peerTypes.lastIndexOf('irrigation_sessions'), greaterThan(peerTypes.indexOf('irrigations')));
     final projectionLogCount = database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'];
 
