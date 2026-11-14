@@ -12564,12 +12564,91 @@ class _DebtsReportState extends State<DebtsReportPage>{
   @override void initState(){super.initState();final now=AppClock.now();month=DateTime(now.year,now.month,1);_load();}
   Future<void> _setDebtMonth(DateTime value)async{setState(()=>month=DateTime(value.year,value.month,1));await _load();}
   Future<void> _pickDebtMonth()async{final picked=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:month,locale:const Locale('ar'),helpText:'اختر يوماً من الشهر المطلوب');if(picked!=null)await _setDebtMonth(picked);}
-  Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('debts',from:month,to:DateTime(month.year,month.month+1,0));if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
-  Future<void> _print()async{try{await ReportService(widget.r).printPdf('debts',from:month,to:DateTime(month.year,month.month+1,0),sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('all_party_debts',from:month,to:DateTime(month.year,month.month+1,0));if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
+  Future<void> _print()async{try{await ReportService(widget.r).printPdf('all_party_debts',from:month,to:DateTime(month.year,month.month+1,0),sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   int _n(Object? v)=>(v as num?)?.round()??0;
-  List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final b=_n(x['balance']);final okView=view=='all'||(view=='alayh'&&b>0)||(view=='lah'&&b<0)||(view=='balanced'&&b==0);final okSearch=q.isEmpty||'${x['name']??''} ${x['phone']??''}'.toLowerCase().contains(q);return okView&&okSearch;}).toList();}
+  List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final b=_n(x['balance']);final okView=view=='all'||(view=='alayh'&&b>0)||(view=='lah'&&b<0)||(view=='balanced'&&b==0);final okSearch=q.isEmpty||'${x['name']??''} ${x['phone']??''} ${x['party_type']??''}'.toLowerCase().contains(q);return okView&&okSearch;}).toList();}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
-  Widget _card(Map<String,Object?> x){final balance=_n(x['balance']);final positive=balance>0;final color=positive?_reportOrange:balance<0?_reportGreen:_reportOliveDark;final label=positive?'عليه':balance<0?'له':'متوازن';return InkWell(onTap:x['id'] is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'beneficiary',id:x['id'] as int,title:'تفاصيل الحساب'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(15)),child:Icon(positive?Icons.arrow_upward_rounded:balance<0?Icons.arrow_downward_rounded:Icons.check_circle_rounded,color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??'غير محدد'}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${x['phone']??'بدون هاتف'}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:8),const Text('فتح تفاصيل الحساب',style:TextStyle(color:_reportOliveDark,fontSize:10,fontWeight:FontWeight.w800))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(label,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:12)),const SizedBox(height:4),Text(money(balance.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:18))])])));}
+  Widget _card(Map<String,Object?> x) {
+    final balance = _n(x['balance']);
+    final positive = balance > 0;
+    final color = positive ? _reportOrange : balance < 0 ? _reportGreen : _reportOliveDark;
+    final label = positive ? 'عليه' : balance < 0 ? 'له' : 'متوازن';
+    final partyType = '${x['party_type'] ?? 'beneficiary'}';
+    final partyLabel = switch (partyType) {
+      'worker' => 'عامل',
+      'partner' => 'شريك',
+      _ => 'مستفيد',
+    };
+    final personId = (x['party_id'] as num?)?.toInt() ??
+        (x['id'] as num?)?.toInt();
+    return InkWell(
+      onTap: personId == null ? null : () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => RecordDetailsPage(
+            widget.r,
+            kind: partyType,
+            id: personId,
+            title: 'تفاصيل حساب $partyLabel',
+          ),
+        ),
+      ),
+      borderRadius: BorderRadius.circular(21),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 11),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(21),
+          border: Border.all(color: _reportLine),
+        ),
+        child: Row(children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .12),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Icon(
+              positive ? Icons.arrow_upward_rounded
+                  : balance < 0 ? Icons.arrow_downward_rounded
+                  : Icons.check_circle_rounded,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${x['name'] ?? 'غير محدد'}',
+                  style: const TextStyle(
+                    color: _reportInk, fontWeight: FontWeight.w900, fontSize: 16)),
+              const SizedBox(height: 4),
+              Text('$partyLabel — ${x['phone'] ?? 'بدون هاتف'}',
+                  style: TextStyle(
+                    color: _reportInk.withValues(alpha: .55), fontSize: 11)),
+              const SizedBox(height: 8),
+              const Text('فتح تفاصيل الحساب',
+                  style: TextStyle(
+                    color: _reportOliveDark, fontSize: 10, fontWeight: FontWeight.w800)),
+            ],
+          )),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(label, style: TextStyle(
+                  color: color, fontWeight: FontWeight.w900, fontSize: 12)),
+              const SizedBox(height: 4),
+              Text(money(balance.abs()), style: TextStyle(
+                  color: color, fontWeight: FontWeight.w900, fontSize: 18)),
+            ],
+          ),
+        ]),
+      ),
+    );
+  }
   @override Widget build(BuildContext context){final totalAlayh=visible.where((x)=>_n(x['balance'])>0).fold<int>(0,(s,x)=>s+_n(x['balance']));final totalLah=visible.where((x)=>_n(x['balance'])<0).fold<int>(0,(s,x)=>s+_n(x['balance']).abs());final onCount=visible.where((x)=>_n(x['balance'])>0).length;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير المديونيات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة أرصدة الأطراف',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المديونيات والحسابات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('ترتيب واضح للحسابات التي عليها أو لها مبالغ',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.account_balance_wallet_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[
         Row(children:[
           IconButton(onPressed:()=>_setDebtMonth(DateTime(month.year,month.month-1,1)),tooltip:'الشهر السابق',icon:const Icon(Icons.chevron_right_rounded)),

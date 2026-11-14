@@ -3009,6 +3009,74 @@ class StationRepository {
         return db.rawQuery(
           "SELECT category,SUM(amount) total FROM expenses WHERE status='posted' AND category IN ('oil','grease') GROUP BY category",
         );
+      case 'all_party_debts':
+        {
+          // Beneficiary debt keeps its existing display-only minute-rate rule.
+          // This new combined view never feeds the profit/distribution summaries.
+          final beneficiaryRows = await report('debts', to: to);
+          final combined = <Map<String, Object?>>[
+            for (final row in beneficiaryRows)
+              {...row, 'party_type': 'beneficiary', 'party_id': row['id']},
+          ];
+          // Personal ledger convention: positive = owed TO worker/partner,
+          // negative = owed BY them. In this unified debts report, positive
+          // always means owed BY the person, just like beneficiary balances.
+          final cutoff = to == null
+              ? null
+              : DateTime(to.year, to.month, to.day + 1);
+          Future<int> asOfBalance(String kind, int id, int current) async {
+            if (cutoff == null) return current;
+            final history = kind == 'worker'
+                ? await workerTransactions(id)
+                : await partnerTransactions(id);
+            var balance = 0;
+            for (final movement in history) {
+              final when = DateTime.tryParse('${movement['date'] ?? ''}');
+              if (when == null || !when.isBefore(cutoff)) continue;
+              balance += (movement['signed_amount'] as num?)?.round() ?? 0;
+            }
+            return balance;
+          }
+
+          for (final person in await workers()) {
+            final id = (person['id'] as num).toInt();
+            final actual = await asOfBalance(
+              'worker', id, (person['balance'] as num?)?.round() ?? 0,
+            );
+            combined.add({
+              'id': id,
+              'party_id': id,
+              'party_type': 'worker',
+              'name': person['name'],
+              'phone': person['phone'],
+              'balance': -actual,
+            });
+          }
+          for (final person in await partners()) {
+            final id = (person['id'] as num).toInt();
+            final actual = await asOfBalance(
+              'partner', id, (person['balance'] as num?)?.round() ?? 0,
+            );
+            combined.add({
+              'id': id,
+              'party_id': id,
+              'party_type': 'partner',
+              'name': person['name'],
+              'phone': person['phone'],
+              'balance': -actual,
+            });
+          }
+          combined.sort((a, b) {
+            final first = ((a['balance'] as num?) ?? 0);
+            final second = ((b['balance'] as num?) ?? 0);
+            final byBalance = second.compareTo(first);
+            if (byBalance != 0) return byBalance;
+            final byKind = '${a['party_type']}'.compareTo('${b['party_type']}');
+            if (byKind != 0) return byKind;
+            return '${a['name'] ?? ''}'.compareTo('${b['name'] ?? ''}');
+          });
+          return combined;
+        }
       case 'debts':
         {
           // Keep the saved ledger untouched. Revalue only irrigation contributions
