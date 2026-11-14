@@ -3662,6 +3662,44 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     );
   }
 
+  /// Keep the existing worker/partner irrigation PDF action at the top
+  /// of the record details, rather than buried below the timeline.
+  Widget _irrigationPdfShortcut() {
+    final worker = widget.kind == 'worker';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.picture_as_pdf_rounded),
+          label: Text(
+            worker
+                ? 'PDF التسقيات المرتبطة بالعامل'
+                : 'PDF التسقيات المرتبطة بالشريك',
+          ),
+          onPressed: () async {
+            try {
+              await ReportService(widget.r).printPdf(
+                'irrigations',
+                workerId: worker ? widget.id : null,
+                partnerId: worker ? null : widget.id,
+                from: filterFrom,
+                to: filterTo,
+                systemType: 'all',
+              );
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(friendlyError(e))),
+                );
+              }
+            }
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext c) {
     if (loading) return const LoadingView();
@@ -3772,6 +3810,10 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
         body: ListView(
           padding: const EdgeInsets.fromLTRB(22, 12, 22, 32),
           children: [
+            // Primary irrigation export action stays visible without scrolling
+            // through the financial metrics and the timeline.
+            if (widget.kind == 'worker' || widget.kind == 'partner')
+              _irrigationPdfShortcut(),
             financialPanel(c),
             if (['beneficiary', 'worker', 'partner'].contains(widget.kind))
               irrigationTable(c),
@@ -3928,54 +3970,6 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                                               label: const Text('كشف الحساب'),
                                             ),
 
-                  ],
-                  if (widget.kind == 'worker') ...[
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.picture_as_pdf_rounded),
-                      label: const Text('PDF التسقيات المرتبطة بالعامل'),
-                      onPressed: () async {
-                        try {
-                          await ReportService(widget.r).printPdf(
-                            'irrigations',
-                            workerId: widget.id,
-                            from: filterFrom,
-                            to: filterTo,
-                            systemType: 'all',
-                          );
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(friendlyError(e))),
-                            );
-                          }
-                        }
-                      },
-                    ),
-                  ],
-                  if (widget.kind == 'partner') ...[
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.picture_as_pdf_rounded),
-                      label: const Text('PDF التسقيات المرتبطة بالشريك'),
-                      onPressed: () async {
-                        try {
-                          await ReportService(widget.r).printPdf(
-                            'irrigations',
-                            partnerId: widget.id,
-                            from: filterFrom,
-                            to: filterTo,
-                            systemType: 'all',
-                          );
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(friendlyError(e))),
-                            );
-                          }
-                        }
-                      },
-                    ),
                   ],
                   const SizedBox(height: 16),
                   historyView(c),
