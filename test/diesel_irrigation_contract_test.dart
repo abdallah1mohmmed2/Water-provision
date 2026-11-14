@@ -103,6 +103,29 @@ void main() {
     expect(await netAccount('1300'), inventoryBefore);
     expect(await netAccount('5010'), fuelExpenseBefore);
 
+    // Negative legacy fuel balances must never generate an automatic
+    // advance larger than the actual volume consumed in the new irrigation.
+    final negativeParty = await db.insert('beneficiaries', {
+      'station_id': 1, 'name': 'Negative legacy in-kind balance',
+      'opening_diesel_liters': -2, 'status': 'active',
+      'created_at': start.toIso8601String(),
+      'updated_at': start.toIso8601String(),
+    });
+    final cappedId = await record(
+      at: DateTime(2046, 2, 5, 8),
+      beneficiaryId: negativeParty, partyType: 'beneficiary',
+      lengthMinutes: 60,
+    );
+    final capped = (await db.query('irrigations',
+      where: 'id=?', whereArgs: [cappedId])).single;
+    expect(capped['diesel_amount'], 1000); // 2 liters, not 4
+    final advances = await db.query('diesel_movements',
+      where: "irrigation_id=? AND kind='advance'", whereArgs: [cappedId]);
+    expect(advances, hasLength(1));
+    expect(advances.single['liters'], closeTo(2, 1e-7));
+    await repo.accounting.cancelIrrigation(cappedId, 1, 'Capped shortage regression');
+    expect(await repo.accounting.dieselStock(), closeTo(10, 1e-7));
+
     final worker = await repo.createWorker(
       name: 'Diesel personal worker', payType: 'fixed',
     );
