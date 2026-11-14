@@ -478,7 +478,7 @@ class BusinessSyncPayload {
           SELECT pt.id FROM partner_transactions pt
           WHERE pt.reference_type IN ('irrigation_profit','irrigation') AND pt.reference_id=?
         )) OR
-        (je.reference_type='diesel_advance' AND je.reference_id IN (
+        (je.reference_type IN ('diesel_advance','diesel_consumption') AND je.reference_id IN (
           SELECT dm.id FROM diesel_movements dm WHERE dm.irrigation_id=?
         ))
       """;
