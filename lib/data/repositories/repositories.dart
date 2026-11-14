@@ -3022,9 +3022,24 @@ class StationRepository {
           // Beneficiary debt keeps its existing display-only minute-rate rule.
           // This new combined view never feeds the profit/distribution summaries.
           final beneficiaryRows = await report('debts', to: to);
+          // This is the CURRENT total of active prior-debt vouchers, distinct
+          // from the net period balance. Do not use it to re-post any journal.
+          final beneficiaryDebtRows = await db.rawQuery(
+            "SELECT beneficiary_id,COALESCE(SUM(amount),0) total FROM beneficiary_manual_debts WHERE status='posted' GROUP BY beneficiary_id",
+          );
+          final beneficiaryDebtTotals = <int, int>{
+            for (final debt in beneficiaryDebtRows)
+              (debt['beneficiary_id'] as num).toInt():
+                (debt['total'] as num).round(),
+          };
           final combined = <Map<String, Object?>>[
             for (final row in beneficiaryRows)
-              {...row, 'party_type': 'beneficiary', 'party_id': row['id']},
+              {
+                ...row,
+                'party_type': 'beneficiary',
+                'party_id': row['id'],
+                'previous_debt_total': beneficiaryDebtTotals[(row['id'] as num).toInt()] ?? 0,
+              },
           ];
           // Personal ledger convention: positive = owed TO worker/partner,
           // negative = owed BY them. In this unified debts report, positive
@@ -3055,6 +3070,7 @@ class StationRepository {
               'id': id,
               'party_id': id,
               'party_type': 'worker',
+              'previous_debt_total': person['previous_debt_total'] ?? 0,
               'name': person['name'],
               'phone': person['phone'],
               'balance': -actual,
@@ -3069,6 +3085,7 @@ class StationRepository {
               'id': id,
               'party_id': id,
               'party_type': 'partner',
+              'previous_debt_total': person['previous_debt_total'] ?? 0,
               'name': person['name'],
               'phone': person['phone'],
               'balance': -actual,
