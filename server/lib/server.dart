@@ -3431,6 +3431,18 @@ class SaqiaServer {
       }
       db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
           [station,beneficiaryId,irrigationId,'consumption',liters,dieselPrice,calculation.dieselAmount,startText,'استهلاك جلسة السقي',userId]);
+      final consumptionId = db.lastInsertRowId;
+      if (calculation.dieselAmount > 0) {
+        _journal(
+          description:'تكلفة ديزل السقاية $irrigationId',
+          referenceType:'diesel_consumption',
+          referenceId:consumptionId, date:start, userId:userId,
+          lines:[
+            {'account_id':_accountId('5010'), 'debit':calculation.dieselAmount, 'credit':0},
+            {'account_id':_accountId('1300'), 'debit':0, 'credit':calculation.dieselAmount},
+          ],
+        );
+      }
     }
     if (sessionId != null) {
       final session=db.select('SELECT status,actual_start,actual_end FROM irrigation_sessions WHERE id=?',[sessionId]);
