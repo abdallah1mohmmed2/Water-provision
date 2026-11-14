@@ -28,7 +28,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 32,
+      version: 33,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -239,6 +239,9 @@ class AppDatabase {
     if (oldV < 32) {
       await _migrateSpecialReportRateV32(d);
     }
+    if (oldV < 33) {
+      await _migrateWorkDifferenceV33(d);
+    }
     if (oldV < 19) {
       await d.execute(
         "CREATE TABLE IF NOT EXISTS general_accounts (id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL DEFAULT 1 REFERENCES stations(id), name TEXT NOT NULL, phone TEXT, address TEXT, opening_balance INTEGER NOT NULL DEFAULT 0, notes TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
@@ -271,6 +274,34 @@ class AppDatabase {
         WHERE beneficiary_id IS NOT NULL AND COALESCE(work_minute_rate_snapshot,0)<=0
       """, [rate]);
     }
+  }
+
+  /// V33: The original work-price branch stores the financial invoice and
+  /// hourly profit base separately. Add immutable snapshots without changing
+  /// any existing posted invoice, ledger entry, or partner entitlement.
+  Future<void> _migrateWorkDifferenceV33(Database d) async {
+    final columns = await d.rawQuery('PRAGMA table_info(irrigations)');
+    for (final column in const [
+      ['work_price_enabled_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+      ['work_base_water_amount_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+      ['work_difference_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+    ]) {
+      if (!columns.any((row) => row['name'] == column[0])) {
+        await d.execute('ALTER TABLE irrigations ADD COLUMN ${column[0]} ${column[1]}');
+      }
+    }
+    // Older invoices are not retrospectively declared special-rate.
+    // Their hourly base equals the original saved water amount.
+    await d.rawUpdate("""
+      UPDATE irrigations SET work_base_water_amount_snapshot=water_amount
+      WHERE COALESCE(work_price_enabled_snapshot,0)=0
+        AND COALESCE(work_base_water_amount_snapshot,0)=0
+    """);
+    await d.insert('settings', {
+      'key': 'work_price_difference_enabled',
+      'value': 'false',
+      'updated_at': AppClock.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   /// V24: أضف ملكية محطة صريحة للمعاملات المالية، مع إسناد تاريخي محافظ.
