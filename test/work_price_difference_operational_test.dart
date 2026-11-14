@@ -83,7 +83,7 @@ void main() {
     expect(special['total_amount'], 7200);
     expect((await repo.accounting.workerBalance(worker))['balance'], 700);
     expect((await repo.accounting.partnerBalance(partner))['balance'], 6300);
-    expect(await repo.accounting.beneficiaryBalance(beneficiary), 7200);
+    expect((await repo.accounting.beneficiaryBalance(beneficiary))['balance'], 7200);
 
     await repo.setWorkDifferenceEnabled(false);
     settings = await repo.settings();
@@ -116,7 +116,7 @@ void main() {
     expect(special['total_amount'], 3600);
     expect((await repo.accounting.workerBalance(worker))['balance'], 1050);
     expect((await repo.accounting.partnerBalance(partner))['balance'], 9450);
-    expect(await repo.accounting.beneficiaryBalance(beneficiary), 10600);
+    expect((await repo.accounting.beneficiaryBalance(beneficiary))['balance'], 10600);
 
     final statement = await repo.beneficiaryStatement(beneficiary);
     final invoiceRows = statement.where((row) => row['type'] == 's').toList();
