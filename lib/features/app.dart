@@ -1,3 +1,4 @@
+import 'beneficiary_statement_card.dart';
 import '../domain/accounting/report_minute_pricing.dart';
 import 'dart:async';
 import '../core/app_clock.dart';
@@ -12227,6 +12228,9 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         ),
       );
   Widget _rowCard(Map<String,Object?> row,int index){
+    if (widget.keyName == 'beneficiary_statement' && widget.beneficiaryId != null) {
+      return BeneficiaryStatementCard(row: row);
+    }
     final entries=_visible(row);
     return Container(
       margin:const EdgeInsetsDirectional.only(start:5,end:5,bottom:8),
