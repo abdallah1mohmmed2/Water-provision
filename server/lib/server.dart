@@ -3100,8 +3100,9 @@ class SaqiaServer {
     final chargeable = system == 'solar' ? minutes-cloudMinutes : minutes;
     final waterRate = system == 'diesel' ? (int.tryParse(settings['diesel_hourly_water_rate'] ?? '0') ?? 0) : system == 'solar' ? (int.tryParse(settings['solar_hourly_rate'] ?? '0') ?? 0) : (int.tryParse(settings['third_type_hourly_rate'] ?? '0') ?? 0);
     final litersPerHour = system == 'diesel' ? (double.tryParse(settings['diesel_liters_per_hour'] ?? '0') ?? 0) : 0.0;
-    final dieselPrice = int.tryParse(settings['diesel_price_per_liter'] ?? '0') ?? 0;
-    if (waterRate < 0 || litersPerHour < 0 || dieselPrice < 0) throw StateError('إعدادات أسعار السقاية غير صالحة');
+    // Diesel price never participates in irrigation invoices or accruals.
+    const dieselPrice = 0;
+    if (waterRate < 0 || litersPerHour < 0) throw StateError('إعدادات أسعار السقاية غير صالحة');
     final rounding = settings['rounding'] ?? 'nearest';
     // Use the integer-precise price and partial-hour policy shared with Flutter.
     final partialHour = settings['partial_hour'] != 'false';
@@ -3120,10 +3121,10 @@ class SaqiaServer {
             rounding: rounding, partialHour: partialHour);
     final waterAmount = calculation.waterAmount;
     final liters = calculation.dieselLiters;
-    var dieselAmount = calculation.dieselAmount;
+    const dieselAmount = 0;
     var shortageLiters = 0.0;
-    // The beneficiary's in-kind balance, rather than the station's tank,
-    // determines the fuel charge and the automatic advance quantity.
+    // Beneficiary's in-kind balance determines the number of liters to
+    // advance, never a fuel invoice or a monetary debt.
     if (system == 'diesel' && partyType == 'beneficiary' && liters > 0) {
       if (!_hasTable('diesel_movements')) {
         throw StateError('دفتر الديزل غير متاح لاحتساب رصيد المستفيد');
@@ -3148,10 +3149,6 @@ class SaqiaServer {
       }
       final available = (availableRows.single['stock'] as num).toDouble();
       shortageLiters = (liters - available).clamp(0.0, liters).toDouble();
-      if (settings['diesel_delivery_financial_credit'] != 'true') {
-        dieselAmount = AccountingCalculations.roundAmount(
-            shortageLiters * dieselPrice, rounding);
-      }
     }
     final rawEnabled = payload['work_price_enabled_snapshot'] ?? 0;
     if (rawEnabled is! int || (rawEnabled != 0 && rawEnabled != 1)) {
@@ -3188,8 +3185,8 @@ class SaqiaServer {
     final billedWater = workPriceEnabled
         ? chargeable * reportMinuteRate : waterAmount;
     final workDifference = workPriceEnabled ? billedWater - waterAmount : 0;
-    final workBaseTotal = waterAmount + dieselAmount;
-    final total = billedWater + dieselAmount;
+    final workBaseTotal = waterAmount;
+    final total = billedWater;
     if (total <= 0) throw StateError('إجمالي السقاية المحسوب غير صالح');
     // Peers receive this immutable root event, so reject stale local amounts.
     for (final expected in <String, num>{
@@ -3261,7 +3258,7 @@ class SaqiaServer {
       },
     ];
     if (billedWater>0) lines.add({'account_id':_accountId('4000'),'debit':0,'credit':billedWater,'memo':'إيراد الماء'});
-    if (dieselAmount>0) lines.add({'account_id':_accountId('4010'),'debit':0,'credit':dieselAmount,'memo':'قيمة الديزل'});
+    // No diesel sales or fuel-expense journal is created by an irrigation.
     _journal(description:'سقاية رقم ' + irrigationId.toString(),referenceType:'irrigation',referenceId:irrigationId,lines:lines,userId:userId);
 
     // The server is the sole owner of irrigation-linked worker and partner
@@ -3421,28 +3418,21 @@ class SaqiaServer {
       ]);
     }
 
-    if (system=='diesel' && liters>0) {
+    if (system == 'diesel' && liters > 0) {
       if (partyType == 'beneficiary' && shortageLiters > 0) {
-        final advanceAmount = AccountingCalculations.roundAmount(
-            shortageLiters * dieselPrice, rounding);
-        db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
-            [station,beneficiaryId,irrigationId,'advance',shortageLiters,dieselPrice,advanceAmount,startText,'سلفة ديزل تلقائية (قيمتها ضمن إجمالي السقاية)',userId]);
-        // In-kind shortage is billed through the irrigation; no second GL.
-      }
-      db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
-          [station,beneficiaryId,irrigationId,'consumption',liters,dieselPrice,calculation.dieselAmount,startText,'استهلاك جلسة السقي',userId]);
-      final consumptionId = db.lastInsertRowId;
-      if (calculation.dieselAmount > 0) {
-        _journal(
-          description:'تكلفة ديزل السقاية $irrigationId',
-          referenceType:'diesel_consumption',
-          referenceId:consumptionId, date:start, userId:userId,
-          lines:[
-            {'account_id':_accountId('5010'), 'debit':calculation.dieselAmount, 'credit':0},
-            {'account_id':_accountId('1300'), 'debit':0, 'credit':calculation.dieselAmount},
-          ],
+        db.execute(
+          'INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
+          [station,beneficiaryId,irrigationId,'advance',shortageLiters,0,0,
+           startText,'سلفة ديزل عينية تلقائية (لترات فقط)',userId],
         );
       }
+      db.execute(
+        'INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
+        [station,beneficiaryId,irrigationId,'consumption',liters,0,0,
+         startText,'استهلاك ديزل عيني للسقاية (لترات فقط)',userId],
+      );
+      // In-kind movements affect liters only; no 4010, 5010 or 1300
+      // monetary entry and no additional beneficiary receivable.
     }
     if (sessionId != null) {
       final session=db.select('SELECT status,actual_start,actual_end FROM irrigation_sessions WHERE id=?',[sessionId]);
