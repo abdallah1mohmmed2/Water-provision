@@ -4348,10 +4348,12 @@ class SaqiaServer {
         .map((r)=>(r['name']??'').toString()).toSet();
     final minuteSnapshot = columns.contains('work_minute_rate_snapshot')
         ? 'COALESCE(work_minute_rate_snapshot,0)' : '0';
+    final dieselAmount = columns.contains('diesel_amount')
+        ? 'COALESCE(diesel_amount,0)' : '0';
     final rows = db.select('''
       SELECT id,COALESCE(chargeable_minutes,minutes,0) net_minutes,
              $minuteSnapshot minute_rate,
-             COALESCE(diesel_amount,0) diesel_amount,
+             $dieselAmount diesel_amount,
              COALESCE(total_amount,0) saved_total
       FROM irrigations
       WHERE beneficiary_id=? AND station_id=? AND status!='cancelled'
