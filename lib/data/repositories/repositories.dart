@@ -2547,7 +2547,7 @@ class StationRepository {
       final values = await settings();
       final rate = int.tryParse(values['work_minute_rate'] ?? '0') ?? 0;
       if (rate <= 0) {
-        throw StateError('حدد سعر الدقيقة الخاص أولاً قبل تفعيل عرضه في التقارير');
+        throw StateError('حدد سعر الدقيقة الخاص أولاً قبل تفعيل فارق العمل في الفواتير');
       }
     }
     if (key == 'system_type') {
