@@ -786,7 +786,7 @@ class _P1Mutations {
             'notes': 'سلفة ديزل تلقائية (بعد تعديل السقاية)',
           });
         }
-        tx.insert('diesel_movements', {
+        final consumptionId = tx.insert('diesel_movements', {
           'station_id': old['station_id'],
           'beneficiary_id': beneficiaryId,
           'irrigation_id': id,
@@ -798,7 +798,6 @@ class _P1Mutations {
           'created_by': userId,
           'notes': 'استهلاك السقاية (بعد التعديل)',
         });
-        final consumptionId = tx.lastInsertRowId;
         if (physicalDieselAmount > 0) {
           _entry(tx,
             description: 'تكلفة ديزل السقاية $id بعد التعديل',
