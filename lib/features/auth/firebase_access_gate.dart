@@ -6,15 +6,22 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../firebase/station_firebase_config.dart';
+import '../../services/firebase_activation_store.dart';
 
 /// Wraps the entire Navigator so pushed pages and dialogs cannot bypass access.
 /// Firebase identity is an activation gate; existing local roles remain separate.
 class FirebaseAccessGate extends StatefulWidget {
-  const FirebaseAccessGate({super.key, required this.child, this.auth});
+  const FirebaseAccessGate({
+    super.key,
+    required this.child,
+    this.auth,
+    this.activationStore,
+  });
   final Widget child;
 
   /// Optional adapter for isolated access-gate tests.
   final FirebaseAuth? auth;
+  final FirebaseActivationStore? activationStore;
 
   @override
   State<FirebaseAccessGate> createState() => _FirebaseAccessGateState();
@@ -27,6 +34,9 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
   FirebaseAuth? _auth;
   StreamSubscription<User?>? _subscription;
   Timer? _timer;
+  late final FirebaseActivationStore _store;
+  Set<String> _disabledUids = {};
+  int _loginEpoch = 0;
   bool _allowed = false;
   bool _activated = false;
   bool _busy = false;
@@ -44,22 +54,30 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
     super.initState();
     if (!_android) return;
     WidgetsBinding.instance.addObserver(this);
-    _initialize();
+    _store = widget.activationStore ?? const FirebaseActivationStore();
+    unawaited(_initialize());
     _timer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (_foreground) unawaited(_verify());
     });
   }
 
-  void _initialize() {
+  Future<void> _initialize() async {
     try {
+      _disabledUids = await _store.readDisabled();
+      if (!mounted) return;
       if (widget.auth == null && Firebase.apps.isEmpty) {
-        _error = 'تعذر الاتصال بخدمة التفعيل. أغلق التطبيق وأعد فتحه.';
+        setState(
+          () => _error = 'تعذر تشغيل خدمة التفعيل. أغلق التطبيق وأعد فتحه.',
+        );
         return;
       }
       if (widget.auth == null &&
           Firebase.app().options.projectId !=
               StationFirebaseConfig.pilotProjectId) {
-        _error = 'إعدادات التفعيل لا تطابق مشروع المنظومة. تواصل مع المسؤول.';
+        setState(
+          () => _error =
+              'إعدادات التفعيل لا تطابق مشروع المنظومة. تواصل مع المسؤول.',
+        );
         return;
       }
       _auth = widget.auth ?? FirebaseAuth.instance;
@@ -68,22 +86,29 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
           _generation++;
           if (!mounted) return;
           setState(() {
-            _allowed = false;
-            _verifiedUid = null;
+            // Firebase persists only accounts that already signed in. An
+            // unavailable network does not invalidate that established login.
+            _allowed = user != null && !_disabledUids.contains(user.uid);
+            _verifiedUid = user?.uid;
+            if (_allowed) {
+              _activated = true;
+              _error = null;
+            } else if (user != null && _disabledUids.contains(user.uid)) {
+              _error = _message('user-disabled');
+            }
           });
           if (user != null) unawaited(_verify());
         },
-        onError: (Object _) {
-          if (mounted) {
-            setState(() {
-              _allowed = false;
-              _error = 'تعذر التحقق من الحساب. أعد المحاولة عبر الإنترنت.';
-            });
-          }
-        },
+        // A stream/transport failure is not an administrator's disable command.
+        onError: (Object _) {},
       );
     } catch (_) {
-      _error = 'تعذر تشغيل خدمة التفعيل. أغلق التطبيق وأعد فتحه.';
+      if (mounted) {
+        setState(
+          () => _error =
+              'تعذر قراءة إعدادات التفعيل على الجهاز. أغلق التطبيق وأعد فتحه.',
+        );
+      }
     }
   }
 
@@ -92,7 +117,7 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
     _foreground = state == AppLifecycleState.resumed;
     // Invalidate requests started before backgrounding the application.
     _generation++;
-    if (mounted) setState(() => _allowed = false);
+    // Keep established access during background/resume and network outages.
     if (_foreground) unawaited(_verify());
   }
 
@@ -102,13 +127,20 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
     if (_checking || user == null || !_foreground) return;
     _checking = true;
     final generation = _generation;
+    final loginEpoch = _loginEpoch;
     try {
       // Disabling a user in the console does not emit authStateChanges.
       await user.reload().timeout(const Duration(seconds: 12));
-      // Also reject revoked/expired credentials rather than trusting persistence.
+      // Refresh online when possible, without making connectivity a lease.
       await user.getIdToken(true).timeout(const Duration(seconds: 12));
       if (!mounted || generation != _generation || !_foreground) return;
       if (auth!.currentUser?.uid != user.uid) return;
+      if (_disabledUids.contains(user.uid)) {
+        final next = {..._disabledUids}..remove(user.uid);
+        await _store.writeDisabled(next);
+        if (!mounted || generation != _generation || !_foreground) return;
+        _disabledUids = next;
+      }
       setState(() {
         _activated = true;
         _verifiedUid = user.uid;
@@ -116,26 +148,31 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
         _error = null;
       });
     } on FirebaseAuthException catch (e) {
-      if (!mounted || generation != _generation) return;
-      setState(() {
-        _allowed = false;
-        _error = _message(e.code);
-      });
-      if (const {
-        'user-disabled',
-        'user-not-found',
-        'user-token-expired',
-        'invalid-user-token',
-      }.contains(e.code)) {
-        await auth!.signOut();
+      // Only an authoritative disabled/deleted-account response changes access.
+      // A result from before a newer successful login cannot revoke that login.
+      if (!const {'user-disabled', 'user-not-found'}.contains(e.code) ||
+          loginEpoch != _loginEpoch) {
+        return;
       }
-    } catch (_) {
-      if (mounted && generation == _generation) {
+      final currentUid = auth?.currentUser?.uid;
+      if (currentUid != null && currentUid != user.uid) return;
+      _disabledUids.add(user.uid);
+      if (mounted) {
         setState(() {
           _allowed = false;
-          _error = 'يلزم اتصال بالإنترنت للتحقق من تفعيل حسابك. أعد المحاولة.';
+          _error = _message('user-disabled');
         });
       }
+      try {
+        await _store.writeDisabled({..._disabledUids});
+      } catch (_) {
+        // If secure storage fails, clear Firebase persistence as a fallback so
+        // restarting offline cannot restore a known disabled login.
+        if (auth?.currentUser?.uid == user.uid) await auth!.signOut();
+      }
+    } catch (_) {
+      // Timeout, connectivity, service, and credential refresh errors do not
+      // close a previously activated application or show an internet warning.
     } finally {
       _checking = false;
       // A resume or account change may have invalidated the in-flight check.
@@ -173,14 +210,28 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
       _error = null;
     });
     try {
-      await _auth!
+      final credential = await _auth!
           .signInWithEmailAndPassword(
             email: _email.text.trim(),
             password: _password.text,
           )
           .timeout(const Duration(seconds: 24));
       _password.clear();
-      await _verify();
+      final user = credential.user;
+      if (user == null || _auth!.currentUser?.uid != user.uid) return;
+      _loginEpoch++;
+      _generation++;
+      final next = {..._disabledUids}..remove(user.uid);
+      await _store.writeDisabled(next);
+      if (!mounted || _auth!.currentUser?.uid != user.uid) return;
+      _disabledUids = next;
+      setState(() {
+        _activated = true;
+        _verifiedUid = user.uid;
+        _allowed = true;
+        _error = null;
+      });
+      unawaited(_verify());
     } on FirebaseAuthException catch (e) {
       if (mounted) setState(() => _error = _message(e.code));
     } catch (_) {
@@ -249,7 +300,7 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
                               ),
                               const SizedBox(height: 12),
                               const Text(
-                                'استخدم الحساب الذي منحك إياه مسؤول المنظومة. يلزم الاتصال بالإنترنت للتحقق من التفعيل.',
+                                'استخدم الحساب الذي منحك إياه مسؤول المنظومة. يلزم الإنترنت لتسجيل الدخول أول مرة فقط؛ بعدها يمكنك العمل دون اتصال.',
                                 textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 24),
