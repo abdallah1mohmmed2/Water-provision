@@ -82,9 +82,10 @@ void main() {
     expect(dieselRows.where((x) => x['kind'] == 'advance'), isEmpty);
     expect(dieselRows.where((x) => x['kind'] == 'consumption').length, 1);
     expect(dieselRows.single['station_id'], 1);
-    expect(dieselRows.single['amount'], 83); // full physical consumption cost
-    expect(await netAccount('1300'), inventoryBefore - 83);
-    expect(await netAccount('5010'), fuelExpenseBefore + 83);
+    expect(dieselRows.single['amount'], 0); // quantity only
+    expect(dieselRows.single['unit_price'], 0);
+    expect(await netAccount('1300'), inventoryBefore);
+    expect(await netAccount('5010'), fuelExpenseBefore);
     expect(await repo.accounting.dieselStock(), closeTo(10 - 1 / 6, 1e-7));
 
     await repo.accounting.updateIrrigationBasic(
@@ -94,8 +95,8 @@ void main() {
     row = (await db.query('irrigations', where: 'id=?', whereArgs: [id])).single;
     expect(row['water_amount'], 1001);
     expect(row['diesel_amount'], 0);
-    expect(await netAccount('1300'), inventoryBefore - 167);
-    expect(await netAccount('5010'), fuelExpenseBefore + 167);
+    expect(await netAccount('1300'), inventoryBefore);
+    expect(await netAccount('5010'), fuelExpenseBefore);
     expect(await repo.accounting.dieselStock(), closeTo(10 - 1 / 3, 1e-7));
 
     await repo.accounting.cancelIrrigation(id, 1, 'Diesel contract regression');
@@ -118,11 +119,13 @@ void main() {
     );
     final capped = (await db.query('irrigations',
       where: 'id=?', whereArgs: [cappedId])).single;
-    expect(capped['diesel_amount'], 1000); // 2 liters, not 4
+    expect(capped['diesel_amount'], 0); // 2 liters borrowed, no currency
     final advances = await db.query('diesel_movements',
       where: "irrigation_id=? AND kind='advance'", whereArgs: [cappedId]);
     expect(advances, hasLength(1));
     expect(advances.single['liters'], closeTo(2, 1e-7));
+    expect(advances.single['amount'], 0);
+    expect(advances.single['unit_price'], 0);
     await repo.accounting.cancelIrrigation(cappedId, 1, 'Capped shortage regression');
     expect(await repo.accounting.dieselStock(), closeTo(10, 1e-7));
 
@@ -148,10 +151,12 @@ void main() {
       expect(moves.single['station_id'], 1);
       expect(moves.single['beneficiary_id'], isNull);
       expect(moves.single['liters'], closeTo(2, 1e-7));
+      expect(moves.single['unit_price'], 0);
+      expect(moves.single['amount'], 0);
     }
     expect(await repo.accounting.dieselStock(), closeTo(6, 1e-7));
-    expect(await netAccount('1300'), inventoryBefore - 2000);
-    expect(await netAccount('5010'), fuelExpenseBefore + 2000);
+    expect(await netAccount('1300'), inventoryBefore);
+    expect(await netAccount('5010'), fuelExpenseBefore);
 
     // Unrelated station stock must never leak into this station's warning,
     // available stock or inventory list.
