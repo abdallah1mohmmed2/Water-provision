@@ -12966,8 +12966,10 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
   int get totalWorkBasis =>
       visible.fold<int>(0, (sum, row) => sum + _hourlyAmount(row, beforeCloud: false));
-  int get totalWorkDifference =>
-      useSpecialMinuteRateReports ? totalAmount - totalWorkBasis : 0;
+  // The operational surplus is an immutable historical invoice snapshot.
+  // A report display switch must never fabricate or erase that surplus.
+  int get totalWorkDifference => visible.fold<int>(
+      0, (sum, row) => sum + _n(row['work_difference_snapshot']));
 
   Future<List<Map<String, Object?>>> _pdfRows() async => visible;
 
@@ -13181,7 +13183,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           _summaryCard('قيمة خصم الغيم', '${_money(totalCloudDeduction)} ريال', Icons.remove_circle_outline_rounded, _reportOrange, 3),
                           _summaryCard('الإيرادات بعد خصم الغيم', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 4),
                           _summaryCard('أساس العمل بسعر الساعة', '${_money(totalWorkBasis)} ريال', Icons.calculate_outlined, _reportOliveDark, 5),
-                          _summaryCard('فائض فارق العمل', '${_money(totalWorkDifference)} ريال', Icons.trending_up_rounded, _reportOrange, 6),
+                          _summaryCard('صافي فارق العمل المسجل', '${_money(totalWorkDifference)} ريال', Icons.trending_up_rounded, _reportOrange, 6),
                           _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 7),
                         ];
                         return Wrap(
