@@ -2776,15 +2776,23 @@ class StationRepository {
       [stationId, code, code],
     )).first['n'] as num?)?.round() ?? 0;
     final revenue = await value("SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
+    final recordedDifference = await value(
+      "SELECT COALESCE(SUM(work_difference_snapshot),0) n "
+      "FROM irrigations WHERE station_id=? AND status!='cancelled' "
+      "AND start_datetime>=? AND start_datetime<?",
+    );
+    final hourlyBaseRevenue = revenue - recordedDifference;
     final expenses = await value("SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
     final workers = await value("SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
     return {
       'revenue': revenue,
+      'work_difference': recordedDifference,
+      'hourly_base_revenue': hourlyBaseRevenue,
       'expenses': expenses,
       'workers': workers,
       'worker_due': await currentLiability('2100'),
       'partner_due': await currentLiability('2200'),
-      'distributable': AccountingCalculations.distributableProfit(totalRevenue: revenue, generalExpenses: expenses, workerEntitlements: workers),
+      'distributable': AccountingCalculations.distributableProfit(totalRevenue: hourlyBaseRevenue, generalExpenses: expenses, workerEntitlements: workers),
     };
   }
 
