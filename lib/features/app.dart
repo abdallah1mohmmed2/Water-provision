@@ -3485,6 +3485,15 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                   Icons.payments_outlined,
                   _green,
                 ),
+                if (widget.kind != 'beneficiary' &&
+                    ((financial['previous_debt_total'] as num?)?.round() ?? 0) > 0)
+                  metric(
+                    c,
+                    'مديونيات سابقة عليه',
+                    money(financial['previous_debt_total']),
+                    Icons.receipt_long_outlined,
+                    Colors.redAccent,
+                  ),
                 metric(
                   c,
                   'حالة الرصيد',
@@ -8239,6 +8248,7 @@ class PaymentsPage extends StatefulWidget {
 
 class _PaymentsState extends State<PaymentsPage> {
   List<Map<String, Object?>> rows = [],
+      debtRows = [],
       bs = [],
       ws = [],
       ps = [],
@@ -8253,9 +8263,35 @@ class _PaymentsState extends State<PaymentsPage> {
         p = await widget.r.partners(),
         m = await widget.r.paymentMethods(),
         c = await widget.r.cashboxes();
+    final stationId = await widget.r.accounting.currentStationId();
+    // Prior debts are not cash payments. Read them separately, without altering
+    // their source transactions or the posted general-ledger entries.
+    final priorDebts = await widget.r.db.rawQuery('''
+      SELECT t.id, t.worker_id party_id, 'worker' party_type, w.name party_name,
+             t.amount, t.date, t.notes
+      FROM worker_transactions t
+      JOIN workers w ON w.id=t.worker_id AND w.station_id=t.station_id
+      WHERE t.station_id=? AND t.type='previous_receivable'
+        AND t.reference_type='previous_debt'
+      UNION ALL
+      SELECT t.id, t.partner_id, 'partner', p.name,
+             t.amount, t.date, t.notes
+      FROM partner_transactions t
+      JOIN partners p ON p.id=t.partner_id AND p.station_id=t.station_id
+      WHERE t.station_id=? AND t.type='previous_receivable'
+        AND t.reference_type='previous_debt'
+      UNION ALL
+      SELECT t.id, t.beneficiary_id, 'beneficiary', b.name,
+             t.amount, t.date, t.notes
+      FROM beneficiary_manual_debts t
+      JOIN beneficiaries b ON b.id=t.beneficiary_id AND b.station_id=?
+      WHERE t.status='posted'
+      ORDER BY date DESC, id DESC
+    ''', [stationId, stationId, stationId]);
     if (mounted) {
       setState(() {
         rows = a;
+        debtRows = priorDebts;
         bs = b;
         ws = w;
         ps = p;
@@ -8649,6 +8685,18 @@ class _PaymentsState extends State<PaymentsPage> {
     await load();
   }
 
+  List<Map<String, Object?>> get visiblePriorDebts {
+    final search = q.trim().toLowerCase();
+    return debtRows.where((debt) {
+      if (debt['party_type'] != target) return false;
+      final content = [
+        debt['party_name'], debt['amount'], money(debt['amount']),
+        debt['date'], debt['notes'],
+      ].map((v) => '${v ?? ''}').join(' ').toLowerCase();
+      return content.contains(search);
+    }).toList();
+  }
+
   Future<void> cancelPay(Map<String, Object?> x) async {
     final reason = await askReason(
       context,
@@ -8726,6 +8774,33 @@ class _PaymentsState extends State<PaymentsPage> {
         Expanded(
           child: ListView(
             children: [
+              if (visiblePriorDebts.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Text('المديونيات السابقة على الأطراف',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                ),
+                for (final debt in visiblePriorDebts)
+                  Card(
+                    child: ListTile(
+                      title: Text('${debt['party_name']} — مديونية سابقة'),
+                      subtitle: Text('${debt['date']} • ${debt['notes'] ?? ''}'),
+                      trailing: Text(money(debt['amount']),
+                        style: const TextStyle(fontWeight: FontWeight.bold,
+                          color: Colors.red)),
+                      onTap: () async {
+                        final partyId = (debt['party_id'] as num).toInt();
+                        final kind = '${debt['party_type']}';
+                        await Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => RecordDetailsPage(widget.r,
+                            kind: kind, id: partyId, title: 'تفاصيل الحساب'),
+                        ));
+                        if (mounted) await load();
+                      },
+                    ),
+                  ),
+                const Divider(height: 24),
+              ],
               for (final x in rows.where((x) {
                 final partyId = x[switch (target) {
                   'worker' => 'worker_id',
@@ -10396,6 +10471,12 @@ style: TextStyle(
       : _green,
 ),
                                           ),
+                                          if (((x['previous_debt_total'] as num?)?.round() ?? 0) > 0) ...[
+                                            const SizedBox(height: 5),
+                                            Text('مديونيات سابقة عليه: ${money(x['previous_debt_total'])}',
+                                              style: const TextStyle(color: Colors.red,
+                                                fontWeight: FontWeight.bold)),
+                                          ],
                                           const SizedBox(height: 12),
                                           Align(
                                             alignment: Alignment.centerLeft,
@@ -11036,6 +11117,12 @@ style: TextStyle(
       : _green,
 ),
                                           ),
+                                          if (((x['previous_debt_total'] as num?)?.round() ?? 0) > 0) ...[
+                                            const SizedBox(height: 5),
+                                            Text('مديونيات سابقة عليه: ${money(x['previous_debt_total'])}',
+                                              style: const TextStyle(color: Colors.red,
+                                                fontWeight: FontWeight.bold)),
+                                          ],
                                           const SizedBox(height: 12),
                                           Row(
                                             children: [
