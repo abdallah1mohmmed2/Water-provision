@@ -13,7 +13,7 @@ import 'balance_sql.dart';
 /// السلف داخلة في الرصيد حتى لا يبقى الرصيد سالبًا فتتضاعف السلفة التالية.
 /// مخزون المحطة (لترات).
 const String _stationDieselStockSql =
-    "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements";
+    "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements WHERE station_id=?";
 
 const String _beneficiaryDieselStockSql =
     "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)"
@@ -1562,13 +1562,12 @@ class AccountingService {
           'created_by': userId,
         });
       }
-      if (partyType == 'beneficiary' &&
-          effectiveType == 'diesel' &&
-          calc.dieselLiters > 0) {
-        if (shortageLiters > 0) {
+      if (effectiveType == 'diesel' && calc.dieselLiters > 0) {
+        if (partyType == 'beneficiary' && shortageLiters > 0) {
           // سلفة تلقائية: تُسجَّل كحركة كمية فقط. قيمتها محتسبة أصلًا ضمن إجمالي
           // السقاية، فلا قيد ولا إضافة للرصيد (منعًا للازدواج وللخصم الوهمي من الصندوق).
           await tx.insert('diesel_movements', {
+            'station_id': stationId,
             'beneficiary_id': beneficiaryId,
             'irrigation_id': id,
             'kind': 'advance',
@@ -1584,6 +1583,7 @@ class AccountingService {
           });
         }
         await tx.insert('diesel_movements', {
+          'station_id': stationId,
           'beneficiary_id': beneficiaryId,
           'irrigation_id': id,
           'kind': 'consumption',
@@ -1614,7 +1614,7 @@ class AccountingService {
       }
       if (sessionId != null) {
         // إنهاء الجلسة داخل نفس المعاملة: إن فشل أي جزء تبقى الجلسة «تعمل» ويمكن إعادة المحاولة.
-        final st = await tx.rawQuery(_stationDieselStockSql);
+        final st = await tx.rawQuery(_stationDieselStockSql, [stationId]);
         await tx.update(
           'irrigation_sessions',
           {
@@ -2107,15 +2107,26 @@ class AccountingService {
     final financialCredit = await _settingBool(
       'diesel_delivery_financial_credit',
     );
+    final stationId = await currentStationId();
     await database.transaction((tx) async {
-      await _assertPeriodOpen(tx, date);
+      await _assertPeriodOpen(tx, date, stationId: stationId);
+      if (beneficiaryId != null) {
+        final party = await tx.query('beneficiaries',
+            columns: ['id'], where: 'id=? AND station_id=?',
+            whereArgs: [beneficiaryId, stationId], limit: 1);
+        if (party.isEmpty) throw StateError('المستفيد لا يتبع المحطة الحالية');
+      }
+      if (cashboxId != null) {
+        final box = await tx.query('cashboxes', columns: ['id'],
+            where: 'id=? AND station_id=?',
+            whereArgs: [cashboxId, stationId], limit: 1);
+        if (box.isEmpty) throw StateError('الصندوق لا يتبع المحطة الحالية');
+      }
       final amount = (liters * unitPrice).round();
       if ((kind == 'correction' || kind == 'opening_balance') && amount <= 0) {
         throw ArgumentError('تصحيح المخزون والرصيد الافتتاحي يتطلبان قيمة مالية موجبة');
       }
-      final stock = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
-      );
+      final stock = await tx.rawQuery(_stationDieselStockSql, [stationId]);
       final current = (stock.first['stock'] as num?)?.toDouble() ?? 0;
       if ((kind == 'delivery' ||
               kind == 'consumption' ||
@@ -2130,6 +2141,7 @@ class AccountingService {
         await _assertCashboxCanSpend(tx, cashboxId, amount);
       }
       final id = await tx.insert('diesel_movements', {
+        'station_id': stationId,
         'beneficiary_id': beneficiaryId,
         'irrigation_id': irrigationId,
         'cashbox_id': cashboxId,
@@ -2261,9 +2273,8 @@ class AccountingService {
   }
 
   Future<double> dieselStock() async {
-    final r = await database.query(
-      "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
-    );
+    final stationId = await currentStationId();
+    final r = await database.query(_stationDieselStockSql, args: [stationId]);
     return (r.first['stock'] as num?)?.toDouble() ?? 0;
   }
 
@@ -3919,7 +3930,8 @@ class AccountingService {
       if (m['irrigation_id'] != null) {
         throw StateError('هذه الحركة مرتبطة بسقاية؛ تُلغى بإلغاء السقاية');
       }
-      await _assertPeriodOpen(tx, DateTime.parse('${m['date']}'));
+      await _assertPeriodOpen(tx, DateTime.parse('${m['date']}'),
+          stationId: (m['station_id'] as num?)?.toInt());
       final kind = '${m['kind']}';
       final liters = (m['liters'] as num).toDouble();
       // أثر الحركة على مخزون المحطة، وبعد إلغائها يجب ألا يصبح سالبًا.
@@ -3931,7 +3943,11 @@ class AccountingService {
         'advance' => m['irrigation_id'] == null ? -liters : 0.0,
         _ => 0.0,
       };
-      final st = await tx.rawQuery(_stationDieselStockSql);
+      final stationId = (m['station_id'] as num?)?.toInt();
+      if (stationId == null) {
+        throw StateError('ملكية محطة حركة الديزل غير محددة؛ يلزم تدقيق السجل قبل الإلغاء');
+      }
+      final st = await tx.rawQuery(_stationDieselStockSql, [stationId]);
       final stock = (st.first['stock'] as num?)?.toDouble() ?? 0;
       if (delta > 0 && stock - delta < -0.0005) {
         throw StateError('لا يمكن الإلغاء: سيصبح مخزون الديزل سالبًا');
