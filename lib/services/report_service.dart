@@ -718,12 +718,6 @@ class ReportService {
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
     final totalCloudMinutes = data.fold<int>(0, (sum, row) =>
         sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
-    for (final row in data) {
-      final rawId = row['invoice_id'] ?? row['irrigation_id'] ?? row['id'];
-      final id = rawId is num ? rawId.toInt() : int.tryParse('$rawId');
-      final snapshot = id == null ? null : snapshotById[id];
-      if (snapshot != null) row.addAll(snapshot);
-    }
     final useSpecialMinuteRate =
         settings['work_price_report_display_special_rate'] == 'true';
     final partialHour = settings['partial_hour'] != 'false';
@@ -844,17 +838,28 @@ class ReportService {
         ),
         StatBoxData(
           number: '7',
+          title: 'أساس العمل بسعر الساعة',
+          value: '${money(totalWorkBasis)} ريال',
+        ),
+        StatBoxData(
+          number: '8',
+          title: 'فائض فارق العمل (عرض)',
+          value: '${money(totalWorkDifference)} ريال',
+          isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '9',
           title: 'إجمالي المدفوع',
           value: '${money(totalPaid)} ريال',
         ),
         StatBoxData(
-          number: '8',
+          number: '10',
           title: 'المتبقي',
           value: '${money(remaining)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '9',
+          number: '11',
           title: 'الفترة',
           value: period,
         ),
