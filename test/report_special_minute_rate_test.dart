@@ -1,11 +1,10 @@
-import 'package:saqia_station/domain/accounting/report_minute_pricing.dart';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:saqia_station/data/local/database.dart';
 import 'package:saqia_station/data/repositories/repositories.dart';
-import 'package:saqia_station/domain/accounting/calculations.dart';
+import 'package:saqia_station/domain/accounting/report_minute_pricing.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
