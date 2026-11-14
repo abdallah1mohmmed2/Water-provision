@@ -117,6 +117,14 @@ void main() {
     expect((await repo.accounting.workerBalance(worker))['balance'], 1050);
     expect((await repo.accounting.partnerBalance(partner))['balance'], 9450);
     expect((await repo.accounting.beneficiaryBalance(beneficiary))['balance'], 10600);
+    final profitSummary = await repo.partnerProfitSummary(
+      from: DateTime(2046, 1, 1), to: DateTime(2046, 1, 31),
+    );
+    expect(profitSummary['revenue'], 10600);
+    expect(profitSummary['work_difference'], 100);
+    expect(profitSummary['hourly_base_revenue'], 10500);
+    expect(profitSummary['workers'], 1050);
+    expect(profitSummary['distributable'], 9450);
 
     final statement = await repo.beneficiaryStatement(beneficiary);
     final invoiceRows = statement.where((row) => row['type'] == 's').toList();
