@@ -1788,7 +1788,7 @@ void main() {
     for (final party in [('worker', worker), ('partner', partner)]) {
       final kind = party.$1;
       final id = party.$2;
-      final first = AppClock.now().add(const Duration(minutes: 5));
+      final first = DateTime.now().add(const Duration(minutes: 5));
       final second = first.add(const Duration(minutes: 1));
       final initialBalance = kind == 'worker'
           ? (await svc.workerBalance(id))['balance']
