@@ -13150,6 +13150,16 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                         ]),
                       ),
                       const SizedBox(height: 14),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                        child: Text(
+                          useSpecialMinuteRateReports
+                              ? 'فارق العمل: مفعّل — الفواتير بسعر الدقيقة الخاص'
+                              : 'فارق العمل: متوقف — الفواتير بسعر الساعة العام',
+                          style: const TextStyle(
+                            color: _reportOliveDark, fontWeight: FontWeight.w800),
+                        ),
+                      ),
                       LayoutBuilder(builder: (context, constraints) {
                         final compact = constraints.maxWidth < 650;
                         final cards = [
@@ -15448,6 +15458,27 @@ class _SettingsState extends State<SettingsPage> {
     trailing: const Icon(Icons.edit),
     onTap: () => edit(k, label, numeric: n),
   );
+  Widget workDifferenceTile() {
+    const key = 'work_price_report_display_special_rate';
+    final enabled = (s[key] ?? 'false') == 'true';
+    return SwitchListTile.adaptive(
+      title: const Text('تفعيل فارق العمل'),
+      subtitle: Text(enabled
+          ? 'مفعّل — الفواتير بالسعر الخاص للدقيقة'
+          : 'متوقف — الفواتير بسعر الساعة العام'),
+      value: enabled,
+      onChanged: (value) async {
+        if (!await runGuarded(context,
+            () => widget.r.setSetting(key, value ? 'true' : 'false'))) {
+          return;
+        }
+        await load();
+      },
+      secondary: Icon(enabled ? Icons.toggle_on_rounded : Icons.toggle_off_rounded),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+    );
+  }
+
   Widget boolTile(String k, String label) => SwitchListTile.adaptive(
     title: Text(label),
     value: (s[k] ?? 'false') == 'true',
@@ -15639,10 +15670,10 @@ class _SettingsState extends State<SettingsPage> {
               if (widget.manager) ...[
                 const Divider(height: 8),
                 setTile('work_minute_rate', 'سعر الدقيقة الخاص للمستفيدين', true),
-                boolTile('work_price_report_display_special_rate', 'استخدام سعر الدقيقة الخاصة في تقريري الفواتير والمديونيات'),
+                workDifferenceTile(),
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  child: Text('يؤثر هذا الاختيار في عرض تقريري الفواتير والمديونيات وملفي PDF فقط؛ لا يغير المبالغ أو القيود المالية المحفوظة. سجلات المستفيد القديمة التي لا تتضمن سعراً تاريخياً تثبت لها قيمة الإعداد عند الترقية فقط.', style: TextStyle(fontSize: 12, height: 1.5)),
+                  child: Text('فارق العمل يغيّر عرض فواتير المستفيدين وPDF فقط بين سعر الدقيقة الخاص وسعر الساعة العام. كشف حساب المستفيد ومديونياته يعرضان دائمًا سعر الدقيقة الخاص المحفوظ لكل سقاية. أرباح الشركاء والقيود والمبالغ المسجلة لا تتغير عند التبديل، ولا تُحذف الأسعار المدخلة.', style: TextStyle(fontSize: 12, height: 1.5)),
                 ),
               ],
               boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
