@@ -778,8 +778,9 @@ class ReportService {
     final totalWorkBasis = data.fold<int>(
       0, (sum, row) => sum + amountAtHourlyRate(row, beforeCloud: false),
     );
+    // The recorded operational difference does not depend on the display mode.
     final totalWorkDifference =
-        useSpecialMinuteRate ? totalAmount - totalWorkBasis : 0;
+        data.fold<int>(0, (sum, row) => sum + n(row['work_difference_snapshot']));
     final cloudDeductionAmount =
         (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
     final totalPaid =
@@ -854,7 +855,7 @@ class ReportService {
         ),
         StatBoxData(
           number: '8',
-          title: 'فائض فارق العمل (عرض)',
+          title: 'صافي فارق العمل المسجل',
           value: '${money(totalWorkDifference)} ريال',
           isBlueTint: true,
         ),
