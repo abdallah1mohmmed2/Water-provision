@@ -885,3 +885,11 @@ Files repaired: `server/lib/server.dart` (child projection operation), `server/t
 - المسار المالي القائم أعيد استخدامه: PaymentsPage.add → receivePayment/payWorker/payPartner → payments مع القيد والصندوق؛ addPreviousDebt → addPreviousPartyDebt → beneficiary_manual_debts أو worker_transactions/partner_transactions، دون صندوق. نفس SQLite transaction وOutbox/business_sync_payload وSyncService → Shelf payment handler أو party debt handler → Inbox projections القائمة. لا تغيير في خدمات المحاسبة أو الخادم أو العقود أو PDF، ولا إعادة ترحيل أرصدة أو إضافة أحداث مشتقة؛ الإلغاء والعكس الموجودان كما هما.
 - `test/party_payment_actions_test.dart`: ست حالات لاختيار الشخص السابع بدل الأول، وتحديد الفئة، وفتح النموذج الصحيح، والإلغاء وتحديث القائمة. لا حفظ تلقائي عند الضغط على الاختصار.
 - فحص محلي: git diff --check وpython3 tools/sql_logic_check.py ناجحان. Flutter/Dart غير متوفرين محليًا؛ اختبارات Flutter/الخادم والتحليل وCI وAPK غير متحققة حتى مراجعة التشغيل على SHA الكود. لا تجربة هاتف فعلي، ولا تغيير main. الحالة: تنفيذ بانتظار تحقق CI.
+
+### أدلة التحقق للدفعة 37
+
+- SHA الكود المرفوع: `b78b198daf7d52cd2710f3789880e4c64bd718d5`؛ الرفع تم عبر GitHub connector بعد تعذر مصادقة git push المحلية، وشجرة المصدر البعيدة مطابقة للتعديل المحلي.
+- Flutter Analyze: نجاح نهائي في [43603839082](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43603839082) و[43603843506](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43603843506).
+- SonarCloud: نجاح نهائي [43603843516](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43603843516)، ويتضمن نجاح اختبارات Flutter. روجع سجل job 132474113659 وتأكد نجاح الحالات الست الجديدة لاختيار المستفيد/العامل/الشريك في نموذج الدفع والمديونية ثم الإلغاء والتحديث.
+- Build Flutter APK: [43603839128](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43603839128): نجحت خطوات اختبارات Shelf وتحليل Flutter واختبارات Flutter؛ بناء Release كان قيد التنفيذ وقت التوثيق، لذلك APK artifact والنجاح النهائي غير متحققين بعد.
+- Build/SonarQube: [43603843507](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43603843507) كان قيد التنفيذ. لا اعتماد نهائي للبناء ولا تجربة هاتف فعلي؛ لا تعديل main.
