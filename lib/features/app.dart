@@ -6628,6 +6628,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
   DateTimeRange? customRange;
   DateTimeRange? _automaticRange;
   bool _dateFilterEdited = false;
+  String _weekStartSetting = 'saturday';
   int _loadGeneration = 0;
   final TextEditingController reportPeriodController =
       TextEditingController(text: 'كل الفترة');
@@ -6643,6 +6644,10 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final today = DateTime(now.year, now.month, now.day);
     if (const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}.contains(value)) return null;
     if (const {'يوم', 'اليوم', '1 يوم', 'يوم واحد'}.contains(value)) return today;
+    if (const {'هذا الأسبوع', 'هذا الاسبوع'}.contains(value)) {
+      return PeriodRanges.weekStart(today, _weekStartSetting);
+    }
+    if (value == 'هذا الشهر') return DateTime(today.year, today.month, 1);
     if (const {'يومان', 'يومين', 'آخر يومين', '2 يوم', '2 أيام'}.contains(value)) {
       return today.subtract(const Duration(days: 1));
     }
@@ -6838,17 +6843,19 @@ class _IrrigationsState extends State<IrrigationsPage> {
         widget.r,
         systemType: _activeSystemType,
       );
+      final config = await widget.r.settings();
       if (!mounted) return;
       if (!_dateFilterEdited) {
         setState(() {
+          _weekStartSetting = config['week_start'] ?? 'saturday';
           _automaticRange = DateTimeRange(
             start: selection.from,
             end: selection.to,
           );
           reportPeriodController.text = switch (selection.key) {
             'today' => 'يوم',
-            'week' => 'أسبوع',
-            _ => 'شهر',
+            'week' => 'هذا الأسبوع',
+            _ => 'هذا الشهر',
           };
         });
       }
@@ -6980,6 +6987,8 @@ class _IrrigationsState extends State<IrrigationsPage> {
                     DropdownMenuEntry(value: 'كل الفترة', label: 'كل الفترة'),
                     DropdownMenuEntry(value: 'يوم', label: 'اليوم'),
                     DropdownMenuEntry(value: 'يومان', label: 'آخر يومين'),
+                    DropdownMenuEntry(value: 'هذا الأسبوع', label: 'هذا الأسبوع'),
+                    DropdownMenuEntry(value: 'هذا الشهر', label: 'هذا الشهر'),
                     DropdownMenuEntry(value: 'أسبوع', label: 'آخر أسبوع'),
                     DropdownMenuEntry(value: 'شهر', label: 'آخر شهر'),
                   ],
