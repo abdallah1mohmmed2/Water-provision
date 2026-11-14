@@ -313,7 +313,8 @@ void main() {
       // as an amount ON the worker, not turn it into opening credit.
       final correctedRows = await StationRepository(db).workerTransactions(workerId);
       final correctedDebt = correctedRows.singleWhere(
-        (row) => row['type'] == 'previous_receivable',
+        (row) => row['type'] == 'previous_receivable' &&
+            row['previous_debt_transaction_id'] == workerDebt['id'],
       );
       expect(correctedDebt['alayh'], 75);
       expect(correctedDebt['lah'], 0);
