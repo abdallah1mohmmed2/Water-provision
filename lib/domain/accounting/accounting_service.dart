@@ -1466,8 +1466,6 @@ class AccountingService {
           'memo': 'إيراد السقي',
         });
       }
-;
-      }
       await _entry(
         tx,
         description: 'سقاية رقم $id',
