@@ -763,11 +763,9 @@ class _P1Mutations {
         orderBy: 'id',
       );
       _reverseIrrigationDieselTx(tx, id, userId, 'تعديل السقاية');
-      if (type == 'diesel' &&
-          partyType == 'beneficiary' &&
-          result.dieselLiters > 0) {
+      if (type == 'diesel' && result.dieselLiters > 0) {
         final price = (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0;
-        if (shortageLiters > 0) {
+        if (partyType == 'beneficiary' && shortageLiters > 0) {
           tx.insert('diesel_movements', {
             'beneficiary_id': beneficiaryId,
             'irrigation_id': id,
