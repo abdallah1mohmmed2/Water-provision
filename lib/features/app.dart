@@ -21,6 +21,7 @@ import '../services/admin_service.dart';
 import '../services/local_security_service.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
+import '../services/automatic_irrigation_period.dart';
 import '../services/report_file_name_service.dart';
 import '../services/report_pdf_preview_service.dart';
 import '../services/official_report_template.dart';
@@ -6600,6 +6601,8 @@ class _IrrigationsState extends State<IrrigationsPage> {
   bool loading = true;
   String systemTypeFilter = 'current';
   DateTimeRange? customRange;
+  DateTimeRange? _automaticRange;
+  bool _dateFilterEdited = false;
   int _loadGeneration = 0;
   final TextEditingController reportPeriodController =
       TextEditingController(text: 'كل الفترة');
@@ -6761,12 +6764,14 @@ class _IrrigationsState extends State<IrrigationsPage> {
 
   DateTime? get _activeFrom {
     if (customRange != null) return DateTime(customRange!.start.year, customRange!.start.month, customRange!.start.day);
+    if (_automaticRange != null) return _automaticRange!.start;
     final now = AppClock.now();
     final all = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}.contains(reportPeriodController.text.trim().toLowerCase());
     return all ? null : _reportStart(reportPeriodController.text, now);
   }
   DateTime? get _activeTo {
     if (customRange != null) return DateTime(customRange!.end.year, customRange!.end.month, customRange!.end.day);
+    if (_automaticRange != null) return _automaticRange!.end;
     final now = AppClock.now();
     return DateTime(now.year, now.month, now.day);
   }
@@ -6781,7 +6786,12 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final now = AppClock.now();
     final picked = await showDateRangePicker(context: context, firstDate: DateTime(2000), lastDate: DateTime(now.year, now.month, now.day), initialDateRange: customRange, helpText: 'اختر فترة السقايات', saveText: 'تطبيق');
     if (picked == null || !mounted) return;
-    setState(() { customRange = picked; reportPeriodController.text = 'فترة مخصصة'; });
+    setState(() {
+      _dateFilterEdited = true;
+      _automaticRange = null;
+      customRange = picked;
+      reportPeriodController.text = 'فترة مخصصة';
+    });
     await load();
   }
   Future<void> load() async {
@@ -6795,13 +6805,41 @@ class _IrrigationsState extends State<IrrigationsPage> {
       if (mounted && generation == _loadGeneration) setState(() => loading = false);
     }
   }
+  /// Set the initial period only once. Manual date choices must win if
+  /// the database lookup completes after a user edits the dropdown.
+  Future<void> _loadInitialAutomaticPeriod() async {
+    try {
+      final selection = await AutomaticIrrigationPeriod.forRepository(
+        widget.r,
+        systemType: _activeSystemType,
+      );
+      if (!mounted) return;
+      if (!_dateFilterEdited) {
+        setState(() {
+          _automaticRange = DateTimeRange(
+            start: selection.from,
+            end: selection.to,
+          );
+          reportPeriodController.text = switch (selection.key) {
+            'today' => 'يوم',
+            'week' => 'أسبوع',
+            _ => 'شهر',
+          };
+        });
+      }
+    } catch (_) {
+      // Preserve the old readable list if the new optional lookup fails.
+    }
+    if (mounted) await load();
+  }
+
   @override
   void initState() {
     super.initState();
     widget.r.beneficiaries().then((x) {
       if (mounted) setState(() => bs = x);
     });
-    load();
+    _loadInitialAutomaticPeriod();
   }
 
   String _timeOf(Object? value) {
@@ -6903,7 +6941,16 @@ class _IrrigationsState extends State<IrrigationsPage> {
                   enableFilter: true,
                   enableSearch: true,
                   expandedInsets: EdgeInsets.zero,
-                  onSelected: (value) { if (value != null) { setState(() => customRange = null); load(); } },
+                  onSelected: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _dateFilterEdited = true;
+                        customRange = null;
+                        _automaticRange = null;
+                      });
+                      load();
+                    }
+                  },
                   dropdownMenuEntries: const [
                     DropdownMenuEntry(value: 'كل الفترة', label: 'كل الفترة'),
                     DropdownMenuEntry(value: 'يوم', label: 'اليوم'),
@@ -12052,6 +12099,8 @@ class ReportsPage extends StatefulWidget {
 class _ReportsState extends State<ReportsPage> {
   List<Map<String,Object?>> bs=[],ws=[],ps=[],cs=[],ms=[];
   DateTime? from,to;
+  bool _dateFilterEdited = false;
+  bool _defaultPeriodLoaded = false;
   String? type,category,status;
   int? bid,wid,pid,cid,mid;
   String currentType='diesel'; Map<String,String> _cfg={};
@@ -12063,8 +12112,27 @@ class _ReportsState extends State<ReportsPage> {
   }
   Future<void> load() async {
     final b=await widget.r.workers(),p=await widget.r.partners(),c=await widget.r.cashboxes(),m=await widget.r.paymentMethods(),cfg=await widget.r.settings();
+    IrrigationPeriodSelection? defaultPeriod;
+    if (!_defaultPeriodLoaded && !_dateFilterEdited && from == null && to == null) {
+      try {
+        defaultPeriod = await AutomaticIrrigationPeriod.forRepository(
+          widget.r,
+          systemType: cfg['system_type'],
+        );
+      } catch (_) {
+        // Existing report filters remain usable if the optional lookup fails.
+      }
+    }
     if(!mounted)return;
-    setState((){_cfg=cfg;ws=b;ps=p;cs=c;ms=m;bid=null;wid=null;pid=null;cid=cid??(c.isEmpty?null:c.first['id'] as int?);mid=null;currentType=cfg['system_type']??'diesel';type = currentType;});
+    setState((){
+      if (!_defaultPeriodLoaded && !_dateFilterEdited &&
+          from == null && to == null && defaultPeriod != null) {
+        from = defaultPeriod.from;
+        to = defaultPeriod.to;
+      }
+      _defaultPeriodLoaded = true;
+      _cfg=cfg;ws=b;ps=p;cs=c;ms=m;bid=null;wid=null;pid=null;cid=cid??(c.isEmpty?null:c.first['id'] as int?);mid=null;currentType=cfg['system_type']??'diesel';type = currentType;
+    });
     final initialKey = widget.initialReportKey;
     if (!_initialReportOpened && initialKey != null && ReportService.titles.containsKey(initialKey)) {
       _initialReportOpened = true;
@@ -12211,7 +12279,7 @@ class _ReportsState extends State<ReportsPage> {
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => printR(k)),
   child: FilledButton.tonalIcon(onPressed:()=>printR(k),style:FilledButton.styleFrom(foregroundColor:_reportOliveDark,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.print_rounded,size:18),label:const Text('PDF')),
 )])]));}
-  @override Widget build(BuildContext c)=>Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مركز التقارير',style:TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded)))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,32),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(28)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('تقاريرك المالية والتشغيلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:13)),const SizedBox(height:7),const Text('كل الأرقام في نظرة واضحة',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:23)),const SizedBox(height:10),Text('اختر فترة ثم افتح التقرير أو اطبعه PDF',style:TextStyle(color:Colors.white.withValues(alpha: .78),fontSize:12))]),),Container(width:68,height:68,decoration:BoxDecoration(color:Colors.white.withValues(alpha: .15),shape:BoxShape.circle),child:const Icon(Icons.insights_rounded,color:Colors.white,size:35))])),const SizedBox(height:16),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[const Icon(Icons.tune_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('نطاق التقرير',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),const Spacer(),TextButton(onPressed:()=>setState((){from=null;to=null;bid=null;wid=pid=cid=mid=null;category=status=null;type = currentType;}),child:const Text('مسح الكل'))]),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[for(final qr in _quickRanges())ChoiceChip(label:Text(qr.$1),selected:from==qr.$2&&to==qr.$3,onSelected:(_)=>setState((){from=qr.$2;to=qr.$3;}),selectedColor:_reportOliveDark, labelStyle:TextStyle(color:from==qr.$2&&to==qr.$3?Colors.white:_reportInk)),OutlinedButton.icon(onPressed:()async{from=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:from??AppClock.now(),locale:const Locale('ar'));setState((){});},icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.year}/${from!.month}/${from!.day}')),OutlinedButton.icon(onPressed:()async{to=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:to??AppClock.now(),locale:const Locale('ar'));setState((){});},icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.year}/${to!.month}/${to!.day}'))]),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[sel<int>('الصندوق',cid,[const DropdownMenuItem(value:null,child:Text('كل الصناديق')),for(final x in cs)DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']}'))],(v)=>setState(()=>cid=v))])])),const SizedBox(height:22),for(final group in ['السقايات والإيرادات','المالية والحركة','كشوف الحساب','دفتر الأستاذ','التشغيل والمتابعة']) _reportGroup(group)])));
+  @override Widget build(BuildContext c)=>Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مركز التقارير',style:TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded)))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,32),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(28)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('تقاريرك المالية والتشغيلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:13)),const SizedBox(height:7),const Text('كل الأرقام في نظرة واضحة',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:23)),const SizedBox(height:10),Text('اختر فترة ثم افتح التقرير أو اطبعه PDF',style:TextStyle(color:Colors.white.withValues(alpha: .78),fontSize:12))]),),Container(width:68,height:68,decoration:BoxDecoration(color:Colors.white.withValues(alpha: .15),shape:BoxShape.circle),child:const Icon(Icons.insights_rounded,color:Colors.white,size:35))])),const SizedBox(height:16),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[const Icon(Icons.tune_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('نطاق التقرير',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),const Spacer(),TextButton(onPressed:()=>setState((){_dateFilterEdited=true;from=null;to=null;bid=null;wid=pid=cid=mid=null;category=status=null;type = currentType;}),child:const Text('مسح الكل'))]),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[for(final qr in _quickRanges())ChoiceChip(label:Text(qr.$1),selected:from==qr.$2&&to==qr.$3,onSelected:(_)=>setState((){_dateFilterEdited=true;from=qr.$2;to=qr.$3;}),selectedColor:_reportOliveDark, labelStyle:TextStyle(color:from==qr.$2&&to==qr.$3?Colors.white:_reportInk)),OutlinedButton.icon(onPressed:()async{final value=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:from??AppClock.now(),locale:const Locale('ar'));if(value!=null&&mounted)setState((){_dateFilterEdited=true;from=value;});},icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.year}/${from!.month}/${from!.day}')),OutlinedButton.icon(onPressed:()async{final value=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:to??AppClock.now(),locale:const Locale('ar'));if(value!=null&&mounted)setState((){_dateFilterEdited=true;to=value;});},icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.year}/${to!.month}/${to!.day}'))]),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[sel<int>('الصندوق',cid,[const DropdownMenuItem(value:null,child:Text('كل الصناديق')),for(final x in cs)DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']}'))],(v)=>setState(()=>cid=v))])])),const SizedBox(height:22),for(final group in ['السقايات والإيرادات','المالية والحركة','كشوف الحساب','دفتر الأستاذ','التشغيل والمتابعة']) _reportGroup(group)])));
   Widget _reportGroup(String group){final items=ReportsPage.keys.where((k)=>_group(k)==group&&_allowedReport(k)).toList();return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:6,height:24,decoration:BoxDecoration(color:_reportOliveDark,borderRadius:BorderRadius.circular(5))),const SizedBox(width:9),Expanded(child:Text(group,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,color:_reportInk))),Text('${items.length} تقارير',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:12))]),const SizedBox(height:11),if(items.isNotEmpty)SizedBox(height:228,child:PageView.builder(scrollDirection:Axis.horizontal,physics:const PageScrollPhysics(),padEnds:true,itemCount:items.length,controller:(_reportControllers[group]??=PageController(viewportFraction:.91)),itemBuilder:(context,index)=>Padding(padding:const EdgeInsetsDirectional.only(end:10,bottom:4),child:_reportCard(items[index])))),if(items.length>1)Padding(padding:const EdgeInsets.only(top:7),child:Center(child:Text('اسحب أفقيًا لاستعراض البطاقات • ${items.length} تقارير',style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:11)))),const SizedBox(height:25)]);}
 }
 
