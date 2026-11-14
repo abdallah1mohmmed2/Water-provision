@@ -10,10 +10,25 @@ import '../domain/accounting/debt_report_totals.dart';
 import 'official_report_template.dart';
 import 'party_statement_balance_display.dart';
 import 'report_file_name_service.dart';
+import 'report_pdf_preview_service.dart';
 
 class ReportService {
   final StationRepository repo;
   ReportService([StationRepository? r]) : repo = r ?? StationRepository();
+
+  // The generic report families migrate to the common reader in groups of
+  // nine or fewer. Specialized receipt/statement/partner paths follow later.
+  static const previewReportKeys = <String>{
+    'irrigations',
+    'time_comparison',
+    'monthly_financial',
+    'income',
+    'revenue_comparison',
+    'system_comparison',
+    'activity_overview',
+    'expenses',
+    'cash_flow',
+  };
 
   static const titles = {
     'irrigations': 'تقرير السقايات التفصيلي',
@@ -1395,15 +1410,19 @@ class ReportService {
       await _printWorkerTransactionsOfficial(workerId: workerId, from: from, to: to);
       return;
     }
-    final chosenName = await ReportFileNameService.choose(
-      await _reportFileName(
-        key,
-        beneficiaryId: beneficiaryId,
-        workerId: workerId,
-        partnerId: partnerId,
-      ),
+    final suggestion = await _reportFileName(
+      key,
+      beneficiaryId: beneficiaryId,
+      workerId: workerId,
+      partnerId: partnerId,
     );
-    if (chosenName == null) return;
+    // Until every family is migrated, legacy exports keep their former
+    // behavior, including the existing native print -> share fallback.
+    final usePreview = previewReportKeys.contains(key);
+    final chosenName = usePreview
+        ? null
+        : await ReportFileNameService.choose(suggestion);
+    if (!usePreview && chosenName == null) return;
     // Generate the document before opening Android's print UI so exceptions
     // from fonts, data formatting, or PDF layout surface in the calling screen.
     final bytes = await pdf(
@@ -1423,11 +1442,18 @@ class ReportService {
     if (bytes.isEmpty) {
       throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');
     }
+    if (usePreview) {
+      await ReportPdfPreviewService.open(
+        bytes: bytes,
+        suggestedName: suggestion,
+      );
+      return;
+    }
     try {
       await Printing.layoutPdf(
         // Give Android's print/save dialog the actual report name instead of
         // its generic default filename, "document".
-        name: chosenName,
+        name: chosenName!,
         onLayout: (_) async => bytes,
       );
     } catch (printError) {
