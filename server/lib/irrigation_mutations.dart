@@ -464,6 +464,9 @@ class _P1Mutations {
               rounding: rounding,
               partialHour: partialHour,
             );
+      // Preserve physical fuel cost separately: in-kind credit may reduce
+      // the invoice, but it cannot erase consumption from the fuel ledger.
+      final physicalDieselAmount = result.dieselAmount;
       var chargedDiesel = result.dieselAmount;
       var shortageLiters = 0.0;
       final partyTypeForDiesel = '${old['party_type'] ?? 'beneficiary'}';
@@ -790,22 +793,22 @@ class _P1Mutations {
           'kind': 'consumption',
           'liters': result.dieselLiters,
           'unit_price': price,
-          'amount': result.dieselAmount,
+          'amount': physicalDieselAmount,
           'date': start.toIso8601String(),
           'created_by': userId,
           'notes': 'استهلاك السقاية (بعد التعديل)',
         });
         final consumptionId = tx.lastInsertRowId;
-        if (result.dieselAmount > 0) {
+        if (physicalDieselAmount > 0) {
           _entry(tx,
             description: 'تكلفة ديزل السقاية $id بعد التعديل',
             referenceType: 'diesel_consumption',
             referenceId: consumptionId, date: start, userId: userId,
             lines: [
               {'account_id': _accountId('5010'),
-                'debit': result.dieselAmount, 'credit': 0},
+                'debit': physicalDieselAmount, 'credit': 0},
               {'account_id': _accountId('1300'),
-                'debit': 0, 'credit': result.dieselAmount},
+                'debit': 0, 'credit': physicalDieselAmount},
             ],
           );
         }
