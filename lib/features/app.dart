@@ -5026,9 +5026,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         c.dieselLiters > 0 &&
         (settings['diesel_delivery_financial_credit'] ?? '').toLowerCase() !=
             'true') {
-      final shortage = c.dieselLiters > beneficiaryDiesel
-          ? c.dieselLiters - beneficiaryDiesel
-          : 0.0;
+      final shortage =
+          (c.dieselLiters - beneficiaryDiesel).clamp(0.0, c.dieselLiters).toDouble();
       diesel = AccountingCalculations.roundAmount(
         shortage * dieselPrice,
         settings['rounding'] ?? 'nearest',
