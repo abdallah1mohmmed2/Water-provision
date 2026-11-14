@@ -1263,7 +1263,9 @@ class SaqiaServer {
     final notes = payload['notes']?.toString();
     final financialCredit = _settingsForStation(station)['diesel_delivery_financial_credit'] == 'true';
     final requiresJournal = kind == 'consumption' || kind == 'correction' || kind == 'opening_balance' || (kind == 'receipt' && cashboxId != null) || (kind == 'advance' && beneficiaryId != null) || (kind == 'delivery' && beneficiaryId != null && financialCredit);
-    if (requiresJournal && amount <= 0) throw StateError('الحركة التي تتطلب قيداً محاسبياً يجب أن تكون قيمتها موجبة');
+    // Irrigation-linked diesel is an in-kind, zero-value projection.
+    // Only independent fuel movements may require a monetary journal.
+    if (irrigationId == null && requiresJournal && amount <= 0) throw StateError('الحركة التي تتطلب قيداً محاسبياً يجب أن تكون قيمتها موجبة');
     if (operation == 'delete') throw UnsupportedError('إلغاء حركة الديزل يتطلب القيد العكسي؛ لم يُسمح بحذفها مباشرة');
     if (operation == 'update') {
       if (links.isEmpty) throw StateError('لا توجد حركة ديزل مرتبطة لتحديثها');
