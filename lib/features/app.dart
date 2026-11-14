@@ -25,6 +25,7 @@ import '../services/report_service.dart';
 import '../services/official_report_template.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
+import 'contact_phone_field.dart';
 import '../services/sync_coordinator.dart';
 import 'sync_connection_panel.dart';
 import '../services/message_template_service.dart';
@@ -4227,12 +4228,10 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
               hintText: 'الاسم الكامل',
             ),
           ),
-          TextField(
+          ContactPhoneField(
             controller: p,
-            decoration: const InputDecoration(
-              labelText: 'رقم الهاتف',
-              hintText: 'رقم التواصل',
-            ),
+            labelText: 'رقم الهاتف',
+            hintText: 'رقم التواصل',
           ),
           TextField(
             controller: j,
@@ -4307,10 +4306,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             controller: n,
             decoration: const InputDecoration(labelText: 'الاسم'),
           ),
-          TextField(
-            controller: p,
-            decoration: const InputDecoration(labelText: 'الهاتف'),
-          ),
+          ContactPhoneField(controller: p, labelText: 'الهاتف'),
           TextField(
             controller: j,
             decoration: const InputDecoration(labelText: 'رقم الجربة'),
@@ -9826,10 +9822,7 @@ class _WorkersState extends State<WorkersPage> {
                 controller: n,
                 decoration: const InputDecoration(labelText: 'اسم العامل'),
               ),
-              TextField(
-                controller: phone,
-                decoration: const InputDecoration(labelText: 'الهاتف'),
-              ),
+              ContactPhoneField(controller: phone, labelText: 'الهاتف'),
               TextField(
                 controller: open,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -10064,10 +10057,7 @@ class _WorkersState extends State<WorkersPage> {
                 controller: n,
                 decoration: const InputDecoration(labelText: 'الاسم'),
               ),
-              TextField(
-                controller: phone,
-                decoration: const InputDecoration(labelText: 'الهاتف'),
-              ),
+              ContactPhoneField(controller: phone, labelText: 'الهاتف'),
               DropdownButtonFormField<String>(
                 initialValue: type,
                 items: const [
@@ -10633,10 +10623,7 @@ class _PartnersState extends State<PartnersPage> {
                 controller: n,
                 decoration: const InputDecoration(labelText: 'اسم الشريك'),
               ),
-              TextField(
-                controller: phone,
-                decoration: const InputDecoration(labelText: 'الهاتف'),
-              ),
+              ContactPhoneField(controller: phone, labelText: 'الهاتف'),
               TextField(
                 controller: open,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -10907,10 +10894,7 @@ class _PartnersState extends State<PartnersPage> {
                 controller: n,
                 decoration: const InputDecoration(labelText: 'الاسم'),
               ),
-              TextField(
-                controller: phone,
-                decoration: const InputDecoration(labelText: 'الهاتف'),
-              ),
+              ContactPhoneField(controller: phone, labelText: 'الهاتف'),
               DropdownButtonFormField<String>(
                 initialValue: mode,
                 items: const [
