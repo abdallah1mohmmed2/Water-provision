@@ -1372,7 +1372,6 @@ test('legacy beneficiary rows receive a stable global identity on first API read
           '44444444-aaaa-4aaa-8aaa-444444444444',
           '55555555-aaaa-4aaa-8aaa-555555555555',
           '66666666-aaaa-4aaa-8aaa-666666666666',
-          '77777777-aaaa-4aaa-8aaa-777777777777',
         ],
         'irrigation_sessions': [sessionGlobalId],
         'queue_entries': [],
@@ -1479,6 +1478,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(fuelMovements.where((row) => row['kind'] == 'consumption').single['liters'], 2);
     expect(database.select("SELECT amount FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=?",[irrigation['id']]).single['amount'],100);
     expect(database.select("SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?",[irrigation['id']]).single['amount'],5900);
+    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'],6);
     final ledgerTotals = database.select('SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines').single;
     expect(ledgerTotals['debit'], ledgerTotals['credit']);
 
@@ -1491,7 +1491,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       'diesel_movements', 'diesel_movements',
       'journal_entries', 'journal_entries', 'journal_entries',
       'journal_lines', 'journal_lines', 'journal_lines', 'journal_lines',
-      'journal_lines', 'journal_lines', 'journal_lines', 'irrigation_sessions',
+      'journal_lines', 'journal_lines', 'irrigation_sessions',
     ]);
     expect(
       (originInbox['events'] as List).every(

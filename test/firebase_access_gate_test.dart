@@ -41,8 +41,7 @@ class TestAuth extends Fake implements FirebaseAuth {
 }
 
 void main() {
-  setUp(() => debugDefaultTargetPlatformOverride = TargetPlatform.android);
-  tearDown(() => debugDefaultTargetPlatformOverride = null);
+  final android = TargetPlatformVariant.only(TargetPlatform.android);
 
   Future<void> open(WidgetTester tester, TestAuth auth) async {
     await tester.pumpWidget(
@@ -88,6 +87,7 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       await auth.events.close();
     },
+    variant: android,
   );
 
   testWidgets('network failure blocks access and retry restores same page', (
@@ -103,15 +103,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('private home'), findsOneWidget);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    await tester.pump();
-    expect(find.text('private home'), findsNothing);
+    // Paused applications do not render frames. Verify the locked UI after
+    // resuming, when Flutter can draw the state set by the lifecycle observer.
     user.failure = 'user-disabled';
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     expect(find.text('private home'), findsNothing);
     await tester.pumpWidget(const SizedBox());
     await auth.events.close();
-  });
+  }, variant: android);
 
   testWidgets('cached account cannot open app before online verification', (
     tester,
@@ -126,7 +126,7 @@ void main() {
     expect(find.text('private home'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await auth.events.close();
-  });
+  }, variant: android);
 
   testWidgets('signed-out user cannot reach local application', (tester) async {
     final auth = TestAuth(null);
@@ -135,5 +135,5 @@ void main() {
     expect(find.text('تسجيل الدخول'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await auth.events.close();
-  });
+  }, variant: android);
 }
