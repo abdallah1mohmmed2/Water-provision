@@ -3887,6 +3887,42 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                       ),
                     ],
                   ),
+                  if (widget.kind == 'beneficiary') ...[
+                    const SizedBox(height: 12),
+                                            OutlinedButton.icon(
+                                              onPressed: () async {
+                                                try {
+                                                  final beneficiaryId = widget.id;
+                                                  final rows = await widget.r.report(
+                                                    'beneficiary_statement',
+                                                    beneficiaryId: beneficiaryId,
+                                                  );
+                                                  if (!mounted) return;
+                                                  await Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (_) => ReportPreviewPage(
+                                                        widget.r,
+                                                        keyName: 'beneficiary_statement',
+                                                        rows: rows,
+                                                        filters: 'المستفيد: ${primaryName()}',
+                                                        beneficiaryId: beneficiaryId,
+                                                      ),
+                                                    ),
+                                                  );
+                                                } catch (e) {
+                                                  if (mounted) {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      SnackBar(content: Text(friendlyError(e))),
+                                                    );
+                                                  }
+                                                }
+                                              },
+                                              icon: const Icon(Icons.picture_as_pdf_rounded),
+                                              label: const Text('كشف الحساب'),
+                                            ),
+
+                  ],
                   const SizedBox(height: 16),
                   historyView(c),
                 ],
@@ -4537,38 +4573,6 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                               onPressed: () => details(x),
                                               icon: const Icon(Icons.open_in_new),
                                               label: const Text('التفاصيل'),
-                                            ),
-                                            OutlinedButton.icon(
-                                              onPressed: () async {
-                                                try {
-                                                  final beneficiaryId = x['id'] as int;
-                                                  final rows = await widget.r.report(
-                                                    'beneficiary_statement',
-                                                    beneficiaryId: beneficiaryId,
-                                                  );
-                                                  if (!mounted) return;
-                                                  await Navigator.push(
-                                                    context,
-                                                    MaterialPageRoute(
-                                                      builder: (_) => ReportPreviewPage(
-                                                        widget.r,
-                                                        keyName: 'beneficiary_statement',
-                                                        rows: rows,
-                                                        filters: 'المستفيد: ${x['name'] ?? ''}',
-                                                        beneficiaryId: beneficiaryId,
-                                                      ),
-                                                    ),
-                                                  );
-                                                } catch (e) {
-                                                  if (mounted) {
-                                                    ScaffoldMessenger.of(context).showSnackBar(
-                                                      SnackBar(content: Text(friendlyError(e))),
-                                                    );
-                                                  }
-                                                }
-                                              },
-                                              icon: const Icon(Icons.picture_as_pdf_rounded),
-                                              label: const Text('كشف الحساب'),
                                             ),
                                             OutlinedButton.icon(
                                               onPressed: () => sendAccountSummary(x),
