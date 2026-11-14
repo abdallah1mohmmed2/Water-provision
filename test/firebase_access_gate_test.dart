@@ -75,6 +75,20 @@ class TestAuth extends Fake implements FirebaseAuth {
 void main() {
   final android = TargetPlatformVariant.only(TargetPlatform.android);
 
+  void pause(WidgetTester tester) {
+    tester.binding
+      ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
+      ..handleAppLifecycleStateChanged(AppLifecycleState.hidden)
+      ..handleAppLifecycleStateChanged(AppLifecycleState.paused);
+  }
+
+  void resume(WidgetTester tester) {
+    tester.binding
+      ..handleAppLifecycleStateChanged(AppLifecycleState.hidden)
+      ..handleAppLifecycleStateChanged(AppLifecycleState.inactive)
+      ..handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  }
+
   Future<void> open(WidgetTester tester, TestAuth auth, TestStore store) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -140,8 +154,8 @@ void main() {
     user.failure = 'network-request-failed';
     pending.complete();
     user.reloadPending = null;
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    pause(tester);
+    resume(tester);
     await tester.pumpAndSettle();
     expect(find.text('private home'), findsOneWidget);
     expect(find.text('إعادة التحقق'), findsNothing);
@@ -266,7 +280,7 @@ void main() {
       final auth = TestAuth(user);
       final store = TestStore();
       await open(tester, auth, store);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      pause(tester);
       user.failure = 'user-disabled';
       pending.complete();
       // Drain the request while no rendering frames are scheduled.
@@ -275,7 +289,7 @@ void main() {
       expect(store.disabled, contains(user.uid));
       user.reloadPending = null;
       user.failure = 'network-request-failed';
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      resume(tester);
       await tester.pumpAndSettle();
       expect(find.text('private home'), findsNothing);
       await close(tester, auth);

@@ -260,125 +260,131 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
     if (!_android) return widget.child;
     final signedIn = _auth?.currentUser != null;
     final allowed = _allowed && _verifiedUid == _auth?.currentUser?.uid;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // Keep local navigation and unsaved forms intact during network failures.
-        // Hidden routes receive neither input nor semantics while access is locked.
-        if (_activated)
-          Offstage(
-            offstage: !allowed,
-            child: TickerMode(enabled: allowed, child: widget.child),
-          ),
-        if (!allowed)
-          Positioned.fill(
-            child: PopScope(
-              canPop: false,
-              child: Scaffold(
-                body: SafeArea(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 420),
-                        child: AutofillGroup(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const Icon(
-                                Icons.verified_user_outlined,
-                                size: 64,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'تفعيل الدخول إلى المنظومة',
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineSmall,
-                              ),
-                              const SizedBox(height: 12),
-                              const Text(
-                                'استخدم الحساب الذي منحك إياه مسؤول المنظومة. يلزم الإنترنت لتسجيل الدخول أول مرة فقط؛ بعدها يمكنك العمل دون اتصال.',
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 24),
-                              if (!signedIn) ...[
-                                TextField(
-                                  controller: _email,
-                                  enabled: !_busy,
-                                  keyboardType: TextInputType.emailAddress,
-                                  textDirection: TextDirection.ltr,
-                                  autofillHints: const [AutofillHints.username],
-                                  decoration: const InputDecoration(
-                                    labelText: 'البريد الإلكتروني',
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                TextField(
-                                  controller: _password,
-                                  enabled: !_busy,
-                                  obscureText: true,
-                                  textDirection: TextDirection.ltr,
-                                  autofillHints: const [AutofillHints.password],
-                                  onSubmitted: (_) => _login(),
-                                  decoration: const InputDecoration(
-                                    labelText: 'كلمة المرور',
-                                  ),
+    return Overlay.wrap(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Keep local navigation and unsaved forms intact during network failures.
+          // Hidden routes receive neither input nor semantics while access is locked.
+          if (_activated)
+            Offstage(
+              offstage: !allowed,
+              child: TickerMode(enabled: allowed, child: widget.child),
+            ),
+          if (!allowed)
+            Positioned.fill(
+              child: PopScope(
+                canPop: false,
+                child: Scaffold(
+                  body: SafeArea(
+                    child: Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 420),
+                          child: AutofillGroup(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const Icon(
+                                  Icons.verified_user_outlined,
+                                  size: 64,
                                 ),
                                 const SizedBox(height: 16),
-                              ],
-                              if (_error != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 16),
-                                  child: Text(
-                                    _error!,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .error,
+                                Text(
+                                  'تفعيل الدخول إلى المنظومة',
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineSmall,
+                                ),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  'استخدم الحساب الذي منحك إياه مسؤول المنظومة. يلزم الإنترنت لتسجيل الدخول أول مرة فقط؛ بعدها يمكنك العمل دون اتصال.',
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 24),
+                                if (!signedIn) ...[
+                                  TextField(
+                                    controller: _email,
+                                    enabled: !_busy,
+                                    keyboardType: TextInputType.emailAddress,
+                                    textDirection: TextDirection.ltr,
+                                    autofillHints: const [
+                                      AutofillHints.username,
+                                    ],
+                                    decoration: const InputDecoration(
+                                      labelText: 'البريد الإلكتروني',
                                     ),
                                   ),
-                                ),
-                              FilledButton(
-                                onPressed: _busy || _auth == null
-                                    ? null
-                                    : () async {
-                                        if (signedIn) {
-                                          setState(() => _busy = true);
-                                          await _verify();
-                                          if (mounted) {
-                                            setState(() => _busy = false);
-                                          }
-                                        } else {
-                                          await _login();
-                                        }
-                                      },
-                                child: Text(
-                                  _busy
-                                      ? 'جارٍ التحقق…'
-                                      : signedIn
-                                      ? 'إعادة التحقق'
-                                      : 'تسجيل الدخول',
-                                ),
-                              ),
-                              if (signedIn)
-                                TextButton(
-                                  onPressed: _busy
+                                  const SizedBox(height: 12),
+                                  TextField(
+                                    controller: _password,
+                                    enabled: !_busy,
+                                    obscureText: true,
+                                    textDirection: TextDirection.ltr,
+                                    autofillHints: const [
+                                      AutofillHints.password,
+                                    ],
+                                    onSubmitted: (_) => _login(),
+                                    decoration: const InputDecoration(
+                                      labelText: 'كلمة المرور',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                ],
+                                if (_error != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 16),
+                                    child: Text(
+                                      _error!,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .error,
+                                      ),
+                                    ),
+                                  ),
+                                FilledButton(
+                                  onPressed: _busy || _auth == null
                                       ? null
                                       : () async {
-                                          _generation++;
-                                          setState(() {
-                                            _allowed = false;
-                                            _error = null;
-                                          });
-                                          await _auth!.signOut();
+                                          if (signedIn) {
+                                            setState(() => _busy = true);
+                                            await _verify();
+                                            if (mounted) {
+                                              setState(() => _busy = false);
+                                            }
+                                          } else {
+                                            await _login();
+                                          }
                                         },
-                                  child: const Text('استخدام حساب آخر'),
+                                  child: Text(
+                                    _busy
+                                        ? 'جارٍ التحقق…'
+                                        : signedIn
+                                        ? 'إعادة التحقق'
+                                        : 'تسجيل الدخول',
+                                  ),
                                 ),
-                            ],
+                                if (signedIn)
+                                  TextButton(
+                                    onPressed: _busy
+                                        ? null
+                                        : () async {
+                                            _generation++;
+                                            setState(() {
+                                              _allowed = false;
+                                              _error = null;
+                                            });
+                                            await _auth!.signOut();
+                                          },
+                                    child: const Text('استخدام حساب آخر'),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -387,8 +393,8 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
