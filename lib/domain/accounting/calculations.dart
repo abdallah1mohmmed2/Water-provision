@@ -86,8 +86,10 @@ class AccountingCalculations {
       end,
       allowMidnightCrossing: allowMidnightCrossing,
     );
-    final cloud = cloudMinutes.clamp(0, minutes);
-    final charge = minutes - cloud;
+    // محرك الديزل يعمل طوال زمن السقاية: لا خصم للغيم إطلاقًا.
+    // dieselPrice/rounding kept as API parameters for historic callers only.
+    final cloud = 0;
+    final charge = minutes;
     // سياسة محطة المياه: قيمة الماء تُقرّب للأعلى إلى أقرب ريال دائمًا.
     // لا نقرّب سعر الدقيقة منفردًا؛ نحسب من سعر الساعة والدقائق مباشرة.
     final water = amountForMinutes(
@@ -99,14 +101,15 @@ class AccountingCalculations {
     // لترات/ساعة بدقة 3 خانات عشرية، والحساب بأعداد صحيحة.
     final lphMilli = (litersPerHour * 1000).round();
     final liters = charge * lphMilli / 60000;
-    final fuel = divRound(charge * lphMilli * dieselPrice, 60000, rounding);
+    // الوقود عهدة عينية باللترات، وليس بند دخل أو مديونية مالية للسقاية.
+    const fuel = 0;
     return IrrigationResult(
       minutes: minutes,
       cloudMinutes: cloud,
       chargeableMinutes: charge,
       waterAmount: water,
       dieselAmount: fuel,
-      totalAmount: water + fuel,
+      totalAmount: water,
       dieselLiters: liters,
     );
   }
