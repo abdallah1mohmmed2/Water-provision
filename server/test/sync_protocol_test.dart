@@ -1565,7 +1565,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       },
     }]);
     expect((secondSession['results'] as List).single['status'],'accepted');
-    database.execute("DELETE FROM accounts WHERE code='4010'");
+    database.execute("CREATE TRIGGER fail_irrigation_journal BEFORE INSERT ON journal_lines BEGIN SELECT RAISE(ABORT, 'forced journal failure'); END");
     const failedIrrigationGlobalId = '22222222-3333-4333-8333-333333333333';
     final failedIrrigation = await postEvents(stationOneToken,[{
       'event_id':'22222222-4444-4444-8444-444444444444',
@@ -1599,7 +1599,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     // Operational work difference must be posted by Shelf with exactly the
     // beneficiary invoice amount; hourly worker and partner accruals cannot
     // inherit the special customer's price.
-    database.execute("INSERT INTO accounts(code,name,type) VALUES('4010','Diesel Revenue','income')");
+    database.execute("DROP TRIGGER fail_irrigation_journal");
     database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'work_price_difference_enabled','true'),(1,'work_minute_rate','120')");
     var nextIdentity = 1;
     String freshIdentity() {
@@ -1634,8 +1634,8 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       'work_price_enabled_snapshot': 1,
       'work_minute_rate_snapshot': 120,
       'water_amount': 7200,
-      'diesel_amount': 1000,
-      'total_amount': 8200,
+      'diesel_amount': 0,
+      'total_amount': 7200,
       'work_base_water_amount_snapshot': 6000,
       'work_difference_snapshot': 1200,
     };
@@ -1652,7 +1652,8 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     final specialSaved = database.select(
       'SELECT * FROM irrigations ORDER BY id DESC LIMIT 1').single;
     expect(specialSaved['water_amount'], 7200);
-    expect(specialSaved['total_amount'], 8200);
+    expect(specialSaved['total_amount'], 7200);
+    expect(specialSaved['diesel_amount'], 0);
     expect(specialSaved['work_price_enabled_snapshot'], 1);
     expect(specialSaved['work_base_water_amount_snapshot'], 6000);
     expect(specialSaved['work_difference_snapshot'], 1200);
@@ -1662,7 +1663,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       [specialId]).single['amount'], 100);
     expect(database.select(
       "SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?",
-      [specialId]).single['amount'], 6900);
+      [specialId]).single['amount'], 5900);
     final specialJournal = database.select("""
       SELECT SUM(jl.debit) debit,SUM(jl.credit) credit
       FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id
@@ -1689,7 +1690,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
         'end_datetime': '2026-11-08T15:00:00.000',
         'work_price_enabled_snapshot': 0,
         'water_amount': 6000,
-        'total_amount': 7000,
+        'total_amount': 6000,
         'work_difference_snapshot': 0,
       },
     }]);
