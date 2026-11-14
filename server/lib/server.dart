@@ -4340,6 +4340,33 @@ class SaqiaServer {
     db.execute("UPDATE beneficiaries SET status='deleted',updated_at=? WHERE id=? AND station_id=?",[DateTime.now().toIso8601String(),id,station]);
     return _json({'ok':true});
   }
+  /// Presentation amounts only: preserve posted irrigation totals, journals
+  /// and profit calculations. Old databases lacking the price column use their
+  /// saved amounts instead of reconstructing an unknown historical rate.
+  Map<int,int> _beneficiaryDisplayIrrigationAmounts(int id,int station) {
+    final columns = db.select('PRAGMA table_info(irrigations)')
+        .map((r)=>(r['name']??'').toString()).toSet();
+    final minuteSnapshot = columns.contains('work_minute_rate_snapshot')
+        ? 'COALESCE(work_minute_rate_snapshot,0)' : '0';
+    final rows = db.select('''
+      SELECT id,COALESCE(chargeable_minutes,minutes,0) net_minutes,
+             $minuteSnapshot minute_rate,
+             COALESCE(diesel_amount,0) diesel_amount,
+             COALESCE(total_amount,0) saved_total
+      FROM irrigations
+      WHERE beneficiary_id=? AND station_id=? AND status!='cancelled'
+    ''',[id,station]);
+    return <int,int>{
+      for (final row in rows)
+        (row['id'] as num).toInt():
+          ((row['minute_rate'] as num).toInt()>0
+            ? (row['net_minutes'] as num).toInt() *
+                (row['minute_rate'] as num).toInt() +
+                (row['diesel_amount'] as num).toInt()
+            : (row['saved_total'] as num).toInt()),
+    };
+  }
+
   Future<Response> _beneficiaryStatement(Request r,Map<String,dynamic> c) async {
     final station = _stationId(c);
     final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
@@ -4357,6 +4384,7 @@ class SaqiaServer {
     final initialBalance = opening + carried;
     final creditDelivery =
         _settingsForStation(station)['diesel_delivery_financial_credit'] == 'true';
+    final displayIrrigations = _beneficiaryDisplayIrrigationAmounts(id,station);
 
     // Every source is explicitly scoped to the authenticated station. Manual
     // debts inherit station ownership through their beneficiary relation.
@@ -4440,7 +4468,16 @@ class SaqiaServer {
     final result = <Map<String,Object?>>[];
     for (final row in events) {
       final event = Map<String,Object?>.from(row);
-      final debit = (event['debit'] as num?)?.round() ?? 0;
+      final isIrrigation = event['type']=='s';
+      final savedDebit = (event['debit'] as num?)?.round() ?? 0;
+      final debit = isIrrigation
+          ? displayIrrigations[(event['id'] as num).toInt()] ?? savedDebit
+          : savedDebit;
+      if (isIrrigation) {
+        event['debit']=debit;
+        event['alayh']=debit;
+        event['total_amount']=debit;
+      }
       final credit = (event['credit'] as num?)?.round() ?? 0;
       running += debit-credit;
       final date = DateTime.tryParse('${event['date'] ?? ''}');
@@ -4686,8 +4723,10 @@ return _json({'id':irrigationId,'minutes':mins,'chargeable_minutes':charge,'tota
       COALESCE((SELECT SUM(amount) FROM payments WHERE beneficiary_id=b.id AND station_id=? AND status='posted'),0) paid,
       COALESCE((SELECT SUM(amount) FROM diesel_movements WHERE beneficiary_id=b.id AND station_id=? AND kind='delivery'),0) diesel_credit
       FROM beneficiaries b WHERE b.id=? AND b.station_id=?''',[station,station,station,station,id,station])).first;
-    final balance=(x['opening_balance'] as num)+(x['carried_balance'] as num)+(x['due'] as num)+(x['advances'] as num)-(x['paid'] as num)-(includeDiesel?(x['diesel_credit'] as num):0);
-    return _json({...x,'balance':balance,'label':balance>0?'عليه $balance ريال':balance<0?'له ${-balance} ريال':'متوازن'});
+    final displayDue = _beneficiaryDisplayIrrigationAmounts(id,station)
+        .values.fold<int>(0,(total,amount)=>total+amount);
+    final balance=(x['opening_balance'] as num)+(x['carried_balance'] as num)+displayDue+(x['advances'] as num)-(x['paid'] as num)-(includeDiesel?(x['diesel_credit'] as num):0);
+    return _json({...x,'due':displayDue,'balance':balance,'label':balance>0?'عليه $balance ريال':balance<0?'له ${-balance} ريال':'متوازن'});
   }
   Future<Response> _beneficiaryNotifications(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM notifications WHERE beneficiary_id=? ORDER BY created_at DESC',[_bid(c)])));
   Future<Response> _beneficiaryNotificationRead(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);db.execute('UPDATE notifications SET read_at=? WHERE id=? AND beneficiary_id=?',[DateTime.now().toIso8601String(),id,_bid(c)]);return _json({'ok':true});}
