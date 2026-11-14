@@ -1181,10 +1181,7 @@ class StationRepository {
     final set = await settings();
     final warning =
         double.tryParse(set['diesel_warning_percent'] ?? '20') ?? 20;
-    final r = await db.rawQuery(
-      "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
-    );
-    final stock = (r.first['stock'] as num?)?.toDouble() ?? 0;
+    final stock = await accounting.dieselStock();
     final capacity =
         double.tryParse(set['diesel_tank_capacity_liters'] ?? '0') ?? 0;
     final percent = capacity > 0 ? stock / capacity * 100 : 100;
@@ -1198,17 +1195,18 @@ class StationRepository {
   }
 
   Future<double> dieselStock() => accounting.dieselStock();
-  Future<List<Map<String, Object?>>> diesel({String search = ''}) {
-    final args = <Object?>[];
+  Future<List<Map<String, Object?>>> diesel({String search = ''}) async {
+    final stationId = await accounting.currentStationId();
+    final searchArgs = <Object?>[];
     final clause = _partialSearchClause(
-      search,
-      ['b.name', 'dm.kind', 'dm.notes'],
-      args,
+      search, ['b.name', 'dm.kind', 'dm.notes'], searchArgs,
     );
-    final where = clause.isEmpty ? '' : ' WHERE $clause';
+    final where = clause.isEmpty
+        ? ' WHERE dm.station_id=?'
+        : ' WHERE dm.station_id=? AND ($clause)';
     return db.rawQuery(
       'SELECT dm.*,b.name beneficiary_name FROM diesel_movements dm LEFT JOIN beneficiaries b ON b.id=dm.beneficiary_id$where ORDER BY dm.date DESC',
-      args,
+      [stationId, ...searchArgs],
     );
   }
   Future<List<Map<String, Object?>>> payments() => db.rawQuery(
