@@ -718,7 +718,7 @@ class SaqiaServer {
         journalArgs.addAll([station, businessId]);
       }
       if (_hasTable('diesel_movements')) {
-        journalClauses.add("""(je.reference_type='diesel_advance' AND je.reference_id IN (
+        journalClauses.add("""(je.reference_type IN ('diesel_advance','diesel_consumption') AND je.reference_id IN (
           SELECT dm.id FROM diesel_movements dm WHERE dm.station_id=? AND dm.irrigation_id=?
         ))""");
         journalArgs.addAll([station, businessId]);
