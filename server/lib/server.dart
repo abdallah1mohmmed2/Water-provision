@@ -3103,9 +3103,56 @@ class SaqiaServer {
     final dieselPrice = int.tryParse(settings['diesel_price_per_liter'] ?? '0') ?? 0;
     if (waterRate < 0 || litersPerHour < 0 || dieselPrice < 0) throw StateError('إعدادات أسعار السقاية غير صالحة');
     final rounding = settings['rounding'] ?? 'nearest';
-    final waterAmount = _round(chargeable/60*waterRate,rounding);
-    final liters = chargeable/60*litersPerHour;
-    final dieselAmount = _round(liters*dieselPrice,rounding);
+    // Use the integer-precise price and partial-hour policy shared with Flutter.
+    final partialHour = settings['partial_hour'] != 'false';
+    final calculation = system == 'diesel'
+        ? AccountingCalculations.diesel(
+            start: start, end: end, hourlyWaterRate: waterRate,
+            litersPerHour: litersPerHour, dieselPrice: dieselPrice,
+            cloudMinutes: 0, rounding: rounding, partialHour: partialHour)
+        : system == 'solar'
+        ? AccountingCalculations.solar(
+            start: start, end: end, hourlyRate: waterRate,
+            cloudMinutes: cloudMinutes, rounding: rounding,
+            partialHour: partialHour)
+        : AccountingCalculations.equivalent(
+            start: start, end: end, hourlyRate: waterRate,
+            rounding: rounding, partialHour: partialHour);
+    final waterAmount = calculation.waterAmount;
+    final liters = calculation.dieselLiters;
+    var dieselAmount = calculation.dieselAmount;
+    var shortageLiters = 0.0;
+    // The beneficiary's in-kind balance, rather than the station's tank,
+    // determines the fuel charge and the automatic advance quantity.
+    if (system == 'diesel' && partyType == 'beneficiary' && liters > 0) {
+      if (!_hasTable('diesel_movements')) {
+        throw StateError('دفتر الديزل غير متاح لاحتساب رصيد المستفيد');
+      }
+      final beneficiaryColumns = db.select('PRAGMA table_info(beneficiaries)')
+          .map((row) => row['name'].toString()).toSet();
+      final openingColumn = beneficiaryColumns.contains('opening_diesel_liters')
+          ? 'COALESCE(b.opening_diesel_liters,0)' : '0';
+      final carriedColumn = beneficiaryColumns.contains('carried_diesel_liters')
+          ? 'COALESCE(b.carried_diesel_liters,0)' : '0';
+      final availableRows = db.select('''
+        SELECT $openingColumn + $carriedColumn +
+          COALESCE((SELECT SUM(CASE
+            WHEN kind IN ('delivery','advance') THEN liters
+            WHEN kind='consumption' THEN -liters ELSE 0 END)
+            FROM diesel_movements
+            WHERE station_id=? AND beneficiary_id=b.id),0) AS stock
+        FROM beneficiaries b WHERE b.id=? AND b.station_id=?
+      ''', [station, beneficiaryId, station]);
+      if (availableRows.length != 1) {
+        throw StateError('تعذر تحديد رصيد ديزل المستفيد في المحطة');
+      }
+      final available = (availableRows.single['stock'] as num).toDouble();
+      shortageLiters = (liters - available).clamp(0.0, liters).toDouble();
+      if (settings['diesel_delivery_financial_credit'] != 'true') {
+        dieselAmount = AccountingCalculations.roundAmount(
+            shortageLiters * dieselPrice, rounding);
+      }
+    }
     final rawEnabled = payload['work_price_enabled_snapshot'] ?? 0;
     if (rawEnabled is! int || (rawEnabled != 0 && rawEnabled != 1)) {
       throw StateError('لقطة حالة فارق العمل غير صالحة');
@@ -3375,15 +3422,15 @@ class SaqiaServer {
     }
 
     if (system=='diesel' && liters>0 && partyType == 'beneficiary') {
-      final stock = (db.select("SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements WHERE station_id=?",[station]).first['stock'] as num).toDouble();
-      final shortage = liters-stock;
-      if (shortage>0) {
-        final advanceAmount = _round(shortage*dieselPrice,rounding);
-        db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[station,beneficiaryId,irrigationId,'advance',shortage,dieselPrice,advanceAmount,now,'سلفة ديزل تلقائية',userId]);
-        // The advance is a quantity-only movement. Its value is already
-        // included in the irrigation total and must not create a second journal.
+      if (shortageLiters > 0) {
+        final advanceAmount = AccountingCalculations.roundAmount(
+            shortageLiters * dieselPrice, rounding);
+        db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
+            [station,beneficiaryId,irrigationId,'advance',shortageLiters,dieselPrice,advanceAmount,startText,'سلفة ديزل تلقائية (قيمتها ضمن إجمالي السقاية)',userId]);
+        // In-kind shortage is billed through the irrigation; no second GL.
       }
-      db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',[station,beneficiaryId,irrigationId,'consumption',liters,dieselPrice,dieselAmount,now,'استهلاك السقاية',userId]);
+      db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
+          [station,beneficiaryId,irrigationId,'consumption',liters,dieselPrice,calculation.dieselAmount,startText,'استهلاك جلسة السقي',userId]);
     }
     if (sessionId != null) {
       final session=db.select('SELECT status,actual_start,actual_end FROM irrigation_sessions WHERE id=?',[sessionId]);
