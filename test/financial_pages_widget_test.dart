@@ -1,12 +1,16 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:saqia_station/data/local/database.dart';
 import 'package:saqia_station/data/repositories/repositories.dart';
 import 'package:saqia_station/features/general_accounts_page.dart';
+import 'package:saqia_station/features/contact_phone_field.dart';
+import 'package:saqia_station/services/android_contact_picker.dart';
 import 'package:saqia_station/features/reconciliation_page.dart';
 import 'package:saqia_station/domain/accounting/reconciliation_service.dart';
 
@@ -158,9 +162,16 @@ void main() {
       await pumpUntilReady(tester);
 
       final fields = find.byType(TextFormField);
+      expect(find.byType(ContactPhoneField), findsOneWidget);
       await tester.enterText(fields.at(0), 'حساب اختبار الواجهة');
-      await tester.enterText(fields.at(1), '777123456');
-      await tester.enterText(fields.at(3), '1000');
+      await tester.enterText(
+        find.descendant(
+          of: find.byType(ContactPhoneField),
+          matching: find.byType(TextField),
+        ),
+        '777123456',
+      );
+      await tester.enterText(fields.at(2), '1000');
       await tester.tap(find.text('حفظ').last);
       debugPrint('GENERAL_TEST: account save tapped');
       await pumpUntilReady(tester);
@@ -214,6 +225,75 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );
+
+  testWidgets('الحسابات العامة: منتقي جهات الاتصال في الإضافة والتعديل دون حفظ تلقائي', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var pickCount = 0;
+    messenger.setMockMethodCallHandler(AndroidContactPicker.channel, (call) async {
+      expect(call.method, 'pickPhoneNumber');
+      pickCount++;
+      return pickCount == 1 ? '+967 777 111 111' : '+967 777 222 222';
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(
+          AndroidContactPicker.channel,
+          null,
+        ));
+
+    await pumpPage(tester, GeneralAccountsPage(repository, userId: 1));
+    await tester.tap(find.text('حساب جديد'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ContactPhoneField), findsOneWidget);
+    await tester.tap(find.byTooltip('اختيار رقم من جهات الاتصال'));
+    await tester.pumpAndSettle();
+    final createPhone = find.descendant(
+      of: find.byType(ContactPhoneField),
+      matching: find.byType(TextField),
+    );
+    expect(tester.widget<TextField>(createPhone).controller!.text, '+967 777 111 111');
+    expect(
+      await tester.runAsync(() => database.query('general_accounts')),
+      isEmpty,
+    );
+
+    await tester.enterText(find.byType(TextFormField).first, 'حساب اختبار الواجهة');
+    await tester.tap(find.text('حفظ').last);
+    await waitForGeneralAccount(tester);
+    await pumpUntilReady(tester);
+    final saved = await tester.runAsync(() => database.query('general_accounts'));
+    expect(saved!.single['phone'], '+967 777 111 111');
+
+    await tester.tap(find.byTooltip('تعديل الحساب'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ContactPhoneField), findsOneWidget);
+    await tester.tap(find.byTooltip('اختيار رقم من جهات الاتصال'));
+    await tester.pumpAndSettle();
+    final editPhone = find.descendant(
+      of: find.byType(ContactPhoneField),
+      matching: find.byType(TextField),
+    );
+    expect(tester.widget<TextField>(editPhone).controller!.text, '+967 777 222 222');
+    expect(
+      (await tester.runAsync(() => database.query('general_accounts')))!.single['phone'],
+      '+967 777 111 111',
+    );
+
+    await tester.tap(find.text('حفظ التعديلات'));
+    for (var attempt = 0; attempt < 50; attempt++) {
+      final rows = await tester.runAsync(() => database.query('general_accounts'));
+      if (rows!.single['phone'] == '+967 777 222 222') break;
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+    final updated = await tester.runAsync(() => database.query('general_accounts'));
+    expect(updated!.single['phone'], '+967 777 222 222');
+    expect(pickCount, 2);
+  }, timeout: const Timeout(Duration(seconds: 45)));
 
   testWidgets('شاشة التسوية تعرض الملخص والتاريخ وتحفظ تسوية الشهر', (tester) async {
     debugPrint('RECON_SAVE_TEST: start');
