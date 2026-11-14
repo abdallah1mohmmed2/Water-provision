@@ -1919,6 +1919,7 @@ class _DashboardState extends State<DashboardPage> {
   double diesel = 0;
   Map<String, Object?>? warning;
   String systemType = 'diesel';
+  String stationName = '';
   bool loading = true;
   late final PageController _statsController = PageController(viewportFraction: .78);
   late final PageController _menuReportsController = PageController();
@@ -1927,7 +1928,8 @@ class _DashboardState extends State<DashboardPage> {
     try {
       final a = await widget.r.dashboard(),
           c = await widget.r.currentSession(),
-          cfg = await SystemConfig.load(widget.r);
+          cfg = await SystemConfig.load(widget.r),
+          settings = await widget.r.settings();
       final b = cfg.isDiesel ? await widget.r.dieselStock() : 0.0;
       final w = cfg.isDiesel
           ? await widget.r.dieselWarning()
@@ -1939,6 +1941,7 @@ class _DashboardState extends State<DashboardPage> {
           session = c;
           warning = w;
           systemType = cfg.type;
+          stationName = (settings['station_name'] ?? '').trim();
           loading = false;
         });
       }
@@ -2274,7 +2277,7 @@ class _DashboardState extends State<DashboardPage> {
                       const Text('مرحباً بك في منظومة', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 7),
                       Text(
-                        SystemConfig.displayNameFor(systemType),
+                        stationName.isNotEmpty ? stationName : SystemConfig.displayNameFor(systemType),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: neon, fontSize: 16, fontWeight: FontWeight.w800),
