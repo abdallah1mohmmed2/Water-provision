@@ -30,8 +30,8 @@ void main() {
       expect(x.chargeableMinutes, 90);
       expect(x.waterAmount, 9000);
       expect(x.dieselLiters, 6);
-      expect(x.dieselAmount, 6000);
-      expect(x.totalAmount, 15000);
+      expect(x.dieselAmount, 0);
+      expect(x.totalAmount, 9000);
     });
 
     test('شمسي: خصم الغيم لا يتجاوز مدة السقي', () {
@@ -203,17 +203,20 @@ void main() {
       }
     });
 
-    test('ديزل: ثمن الوقود بدقة 3 خانات للتر/ساعة', () {
+    test('ديزل: الاستهلاك باللترات فقط دون أي تسعير أو خصم غيم', () {
       final x = AccountingCalculations.diesel(
         start: start,
         end: start.add(const Duration(minutes: 45)),
         hourlyWaterRate: 0,
         litersPerHour: 2.5,
         dieselPrice: 1000,
-        cloudMinutes: 0,
+        cloudMinutes: 20,
       );
+      expect(x.cloudMinutes, 0);
+      expect(x.chargeableMinutes, 45);
       expect(x.dieselLiters, closeTo(1.875, 1e-9));
-      expect(x.dieselAmount, 1875);
+      expect(x.dieselAmount, 0);
+      expect(x.totalAmount, 0);
     });
   });
 }
