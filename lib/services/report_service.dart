@@ -9,6 +9,7 @@ import '../domain/accounting/calculations.dart';
 import '../domain/accounting/debt_report_totals.dart';
 import 'official_report_template.dart';
 import 'party_statement_balance_display.dart';
+import 'report_file_name_service.dart';
 
 class ReportService {
   final StationRepository repo;
@@ -622,7 +623,9 @@ class ReportService {
     final isReceipt = rows.isNotEmpty && rows.first['beneficiary_id'] != null;
     final partyName = rows.isEmpty ? '' : '${rows.first['party_name'] ?? ''}'.trim();
     final baseName = '${isReceipt ? 'سند قبض' : 'سند صرف'}${partyName.isEmpty ? '' : ' $partyName'} رقم $paymentId';
-    await Printing.layoutPdf(name: _pdfFileName(baseName), onLayout: (_) async => bytes);
+    final chosenName = await ReportFileNameService.choose(baseName);
+    if (chosenName == null) return;
+    await Printing.layoutPdf(name: chosenName, onLayout: (_) async => bytes);
   }
 
   /// إنشاء PDF مخصص لتقرير الفواتير بأعمدته الثمانية وإجمالياته الرسمية.
@@ -924,9 +927,11 @@ class ReportService {
     DateTime? from,
     DateTime? to,
   }) async {
+    final chosenName = await ReportFileNameService.choose('تقرير الفواتير');
+    if (chosenName == null) return;
     final bytes = await invoicesPdf(rows: rows, from: from, to: to);
     await Printing.layoutPdf(
-      name: _pdfFileName('تقرير الفواتير'),
+      name: chosenName,
       onLayout: (_) async => bytes,
     );
   }
@@ -936,8 +941,13 @@ class ReportService {
     DateTime? from,
     DateTime? to,
   }) async {
+    final chosenName = await ReportFileNameService.choose('تقرير الفواتير');
+    if (chosenName == null) return;
     final bytes = await invoicesPdf(rows: rows, from: from, to: to);
-    await Printing.sharePdf(bytes: bytes, filename: '${_pdfFileName('تقرير الفواتير')}.pdf');
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: ReportFileNameService.withExtension(chosenName),
+    );
   }
 
   num _workerNum(Object? value) {
@@ -1335,14 +1345,8 @@ class ReportService {
 
   /// Removes characters rejected by Android's save/print filename field while
   /// preserving Arabic names and readable report titles.
-  String _pdfFileName(String value) {
-    final cleaned = value
-        .replaceAll(RegExp(r'[\\/:*?"<>|\u0000-\u001F]'), '-')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim()
-        .replaceAll(RegExp(r'[. ]+$'), '');
-    return cleaned.isEmpty ? 'تقرير' : cleaned;
-  }
+  String _pdfFileName(String value) =>
+      ReportFileNameService.normalizeBaseName(value);
 
   Future<String> _reportFileName(
     String key, {
@@ -1391,6 +1395,15 @@ class ReportService {
       await _printWorkerTransactionsOfficial(workerId: workerId, from: from, to: to);
       return;
     }
+    final chosenName = await ReportFileNameService.choose(
+      await _reportFileName(
+        key,
+        beneficiaryId: beneficiaryId,
+        workerId: workerId,
+        partnerId: partnerId,
+      ),
+    );
+    if (chosenName == null) return;
     // Generate the document before opening Android's print UI so exceptions
     // from fonts, data formatting, or PDF layout surface in the calling screen.
     final bytes = await pdf(
@@ -1414,7 +1427,7 @@ class ReportService {
       await Printing.layoutPdf(
         // Give Android's print/save dialog the actual report name instead of
         // its generic default filename, "document".
-        name: await _reportFileName(key, beneficiaryId: beneficiaryId, workerId: workerId, partnerId: partnerId),
+        name: chosenName,
         onLayout: (_) async => bytes,
       );
     } catch (printError) {
@@ -1423,7 +1436,7 @@ class ReportService {
       try {
         await Printing.sharePdf(
           bytes: bytes,
-          filename: '${await _reportFileName(key, beneficiaryId: beneficiaryId, workerId: workerId, partnerId: partnerId)}.pdf',
+          filename: ReportFileNameService.withExtension(chosenName),
         );
       } catch (shareError) {
         throw StateError(

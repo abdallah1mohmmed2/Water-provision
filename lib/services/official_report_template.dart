@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'report_file_name_service.dart';
 
 /// نموذج بيانات البطاقة الإحصائية العلوية.
 class StatBoxData {
@@ -54,7 +55,7 @@ class OfficialReportTemplate {
     List<String>? footerTotalRow,
     Uint8List? emblemImageBytes,
     String thirdSignatureLabel = 'الاعتماد والختم: ....................',
-    String fileName = 'official_report.pdf',
+    String? fileName,
     int minTableRows = 7,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
     int preferredRowsPerPage = 30,
@@ -161,10 +162,16 @@ class OfficialReportTemplate {
 
     final bytes = await document.save();
     if (printAfterGenerate) {
-      await Printing.layoutPdf(
-        onLayout: (_) async => bytes,
-        name: fileName,
+      // A caller without an explicit filename uses the real report title.
+      final chosenName = await ReportFileNameService.choose(
+        fileName == null || fileName.trim().isEmpty ? reportTitle : fileName,
       );
+      if (chosenName != null) {
+        await Printing.layoutPdf(
+          onLayout: (_) async => bytes,
+          name: chosenName,
+        );
+      }
     }
     return bytes;
   }

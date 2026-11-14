@@ -22,6 +22,7 @@ import '../services/admin_service.dart';
 import '../services/local_security_service.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
+import '../services/report_file_name_service.dart';
 import '../services/official_report_template.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
@@ -400,6 +401,7 @@ class _SaqiaAppState extends State<SaqiaApp> {
   Widget build(BuildContext context) => ValueListenableBuilder<AppPrefsData>(
     valueListenable: AppPrefs.notifier,
     builder: (_, p, __) => MaterialApp(
+      navigatorKey: ReportFileNameService.navigatorKey,
       debugShowCheckedModeBanner: false,
       locale: const Locale('ar'),
       supportedLocales: const [Locale('ar')],
@@ -6726,9 +6728,13 @@ class _IrrigationsState extends State<IrrigationsPage> {
         sourceRows: outputRows,
       );
       if (bytes.isEmpty) throw StateError('ملف PDF الناتج فارغ.');
+      final chosenName = await ReportFileNameService.choose(
+        'تقرير السقايات التفصيلي ${DateFormat('yyyyMMdd_HHmm').format(now)}',
+      );
+      if (chosenName == null) return;
       await Printing.sharePdf(
         bytes: bytes,
-        filename: 'تقرير_السقايات_${DateFormat('yyyyMMdd_HHmm').format(now)}.pdf',
+        filename: ReportFileNameService.withExtension(chosenName),
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -13433,16 +13439,54 @@ class _InvoicesPdfPreviewPage extends StatelessWidget {
   final Uint8List bytes;
   const _InvoicesPdfPreviewPage({required this.bytes});
 
+  Future<void> _export(BuildContext context, {required bool share}) async {
+    try {
+      final chosenName = await ReportFileNameService.choose('تقرير الفواتير');
+      if (chosenName == null) return;
+      if (share) {
+        await Printing.sharePdf(
+          bytes: bytes,
+          filename: ReportFileNameService.withExtension(chosenName),
+        );
+      } else {
+        await Printing.layoutPdf(
+          name: chosenName,
+          onLayout: (_) async => bytes,
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(friendlyError(error))),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Directionality(
     textDirection: TextDirection.rtl,
     child: Scaffold(
-      appBar: AppBar(title: const Text('معاينة PDF - تقرير الفواتير')),
+      appBar: AppBar(
+        title: const Text('معاينة PDF - تقرير الفواتير'),
+        actions: [
+          IconButton(
+            tooltip: 'طباعة PDF',
+            onPressed: () => _export(context, share: false),
+            icon: const Icon(Icons.print_rounded),
+          ),
+          IconButton(
+            tooltip: 'مشاركة PDF',
+            onPressed: () => _export(context, share: true),
+            icon: const Icon(Icons.share_rounded),
+          ),
+        ],
+      ),
       body: PdfPreview(
         build: (_) async => bytes,
         canChangeOrientation: false,
         canChangePageFormat: false,
-        useActions: true,
+        useActions: false,
       ),
     ),
   );
