@@ -132,6 +132,11 @@ void main() {
 
     // Unrelated station stock must never leak into this station's warning,
     // available stock or inventory list.
+    await db.insert('stations', {
+      'id': 2, 'name': 'Other station', 'active': 1,
+      'created_at': start.toIso8601String(),
+      'updated_at': start.toIso8601String(),
+    });
     await db.insert('diesel_movements', {
       'station_id': 2, 'kind': 'receipt', 'liters': 100,
       'unit_price': 500, 'amount': 50000,
