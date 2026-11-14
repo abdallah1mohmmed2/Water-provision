@@ -309,18 +309,16 @@ void main() {
       );
       expect((await accounting.workerBalance(workerId))['balance'], -75);
       expect((await accounting.partnerBalance(partnerId))['balance'], 0);
-      final statementRepository = StationRepository(db);
-      // A correction is still a previous debt (not an opening balance).
-      expect((await statementRepository.workerTransactions(workerId)).any(
-        (row) => row['type'] == 'previous_receivable' &&
-          row['previous_debt_transaction_id'] == workerDebt['id'],
-      ), isTrue);
-      expect((await statementRepository.workers()).singleWhere(
-        (row) => row['id'] == workerId,
-      )['previous_debt_total'], 75);
-      expect((await statementRepository.partners()).singleWhere(
-        (row) => row['id'] == partnerId,
-      )['previous_debt_total'], 0);
+      // Correcting an original debt must keep it in the ordinary statement
+      // as an amount ON the worker, not turn it into opening credit.
+      final correctedRows = await StationRepository(db).workerTransactions(workerId);
+      final correctedDebt = correctedRows.singleWhere(
+        (row) => row['type'] == 'previous_receivable',
+      );
+      expect(correctedDebt['alayh'], 75);
+      expect(correctedDebt['lah'], 0);
+      expect('${correctedDebt['description']}', contains('تصحيح مديونية سابقة'));
+      expect(correctedDebt['previous_debt_transaction_id'], workerDebt['id']);
       await expectLater(
         accounting.revisePreviousPartyDebt(
           partyType: 'partner',
