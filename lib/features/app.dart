@@ -2471,6 +2471,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
   bool loading = true;
   String? loadError;
   DateTime? filterFrom, filterTo;
+  bool _detailPeriodEdited = false;
   String paymentMovementFilter = 'all';
   DateTime? paymentFrom, paymentTo;
   List<Map<String, Object?>> paymentReceipts = [], paymentDisbursements = [];
@@ -2479,7 +2480,29 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
   @override
   void initState() {
     super.initState();
-    load();
+    if (const ['beneficiary', 'worker', 'partner'].contains(widget.kind)) {
+      _initializeIrrigationDetailPeriod();
+    } else {
+      load();
+    }
+  }
+
+  Future<void> _initializeIrrigationDetailPeriod() async {
+    try {
+      final period = await AutomaticIrrigationPeriod.forRepository(
+        widget.r,
+        beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
+        workerId: widget.kind == 'worker' ? widget.id : null,
+        partnerId: widget.kind == 'partner' ? widget.id : null,
+      );
+      if (!mounted) return;
+      if (!_detailPeriodEdited) {
+        setState(() { filterFrom = period.from; filterTo = period.to; });
+      }
+    } catch (_) {
+      // Keep the preexisting unfiltered view if the default probe fails.
+    }
+    if (mounted) await load();
   }
 
   @override
@@ -3359,6 +3382,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     );
     if (!mounted || picked == null) return;
     setState(() {
+      _detailPeriodEdited = true;
       if (fromDate) {
         filterFrom = picked;
       } else {
@@ -3607,6 +3631,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
               if (filterFrom != null || filterTo != null)
                 TextButton(
                   onPressed: () => setState(() {
+                    _detailPeriodEdited = true;
                     filterFrom = null;
                     filterTo = null;
                   }),
