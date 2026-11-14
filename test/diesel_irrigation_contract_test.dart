@@ -55,7 +55,7 @@ void main() {
       start: at, end: at.add(Duration(minutes: lengthMinutes)),
       systemType: 'diesel', waterRate: 6001, litersPerHour: 2,
       dieselPrice: 500, solarRate: 0, thirdRate: 0,
-      cloudMinutes: 0, paidAmount: 0, userId: 1,
+      cloudMinutes: 20, paidAmount: 0, userId: 1, // diesel must ignore cloud
     );
     Future<int> netAccount(String code) async {
       final rows = await db.rawQuery('''
@@ -128,6 +128,38 @@ void main() {
     expect(advances.single['unit_price'], 0);
     await repo.accounting.cancelIrrigation(cappedId, 1, 'Capped shortage regression');
     expect(await repo.accounting.dieselStock(), closeTo(10, 1e-7));
+
+    // The legacy cash-credit delivery switch must not turn irrigation
+    // diesel advances into monetary sales or receivables.
+    await repo.setSetting('diesel_delivery_financial_credit', 'true');
+    final cashPolicyParty = await db.insert('beneficiaries', {
+      'station_id': 1, 'name': 'In-kind despite delivery credit switch',
+      'status': 'active',
+      'created_at': start.toIso8601String(),
+      'updated_at': start.toIso8601String(),
+    });
+    final cashPolicyId = await record(
+      at: DateTime(2046, 2, 7, 8),
+      beneficiaryId: cashPolicyParty, partyType: 'beneficiary',
+      lengthMinutes: 60,
+    );
+    final cashPolicy = (await db.query('irrigations',
+      where: 'id=?', whereArgs: [cashPolicyId])).single;
+    expect(cashPolicy['cloud_minutes'], 0);
+    expect(cashPolicy['chargeable_minutes'], 60);
+    expect(cashPolicy['water_amount'], 6001);
+    expect(cashPolicy['diesel_amount'], 0);
+    expect(cashPolicy['total_amount'], 6001);
+    final cashPolicyAdvances = await db.query('diesel_movements',
+      where: "irrigation_id=? AND kind='advance'", whereArgs: [cashPolicyId]);
+    expect(cashPolicyAdvances, hasLength(1));
+    expect(cashPolicyAdvances.single['liters'], closeTo(2, 1e-7));
+    expect(cashPolicyAdvances.single['amount'], 0);
+    await repo.accounting.cancelIrrigation(
+      cashPolicyId, 1, 'In-kind delivery switch regression',
+    );
+    expect(await repo.accounting.dieselStock(), closeTo(10, 1e-7));
+    await repo.setSetting('diesel_delivery_financial_credit', 'false');
 
     final worker = await repo.createWorker(
       name: 'Diesel personal worker', payType: 'fixed',
