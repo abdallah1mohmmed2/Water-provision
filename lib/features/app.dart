@@ -1,4 +1,5 @@
 import 'beneficiary_statement_card.dart';
+import '../services/party_statement_balance_display.dart';
 import '../domain/accounting/beneficiary_statement_totals.dart';
 import '../domain/accounting/report_minute_pricing.dart';
 import 'dart:async';
@@ -14300,6 +14301,9 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
       final profitTotalRow = rows.where((x) => x['type'] == 'partner_profit_total').firstOrNull;
       final orderedRows = rows.where((x) => x['type'] != 'partner_profit_total').toList().reversed.toList();
       if (profitTotalRow != null) orderedRows.add(profitTotalRow);
+      // The PDF footer must also ignore informational rows with no balance.
+      final closingRow = profitTotalRow ??
+          orderedRows.where(PartyStatementBalanceDisplay.hasBalance).lastOrNull;
       final movementRows = <List<String>>[];
       for (final x in orderedRows) {
         final type = '${x['type'] ?? ''}';
@@ -14307,12 +14311,10 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
         final date = _date(x['date']);
         final credit = _n(x['lah']);
         final debit = _n(x['alayh']);
-        final balance = _n(x['balance']);
-        final balanceText = balance > 0
-            ? 'له ${NumberFormat('#,##0').format(balance)}'
-            : balance < 0
-                ? 'عليه ${NumberFormat('#,##0').format(balance.abs())}'
-                : 'صفر';
+        final balanceText = PartyStatementBalanceDisplay.format(
+          x,
+          money: (value) => NumberFormat('#,##0').format(value),
+        );
         movementRows.add([
           date,
           description,
@@ -14349,11 +14351,12 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
           '',
           amountText(rows.where((row) => row['type'] != 'partner_profit_total' && row['type'] != 'partner_irrigation_info').fold<int>(0, (sum, row) => sum + _n(row['lah']))),
           amountText(rows.where((row) => row['type'] != 'partner_profit_total' && row['type'] != 'partner_irrigation_info').fold<int>(0, (sum, row) => sum + _n(row['alayh']))),
-          (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) > 0
-              ? 'له ${amountText(orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance']))}'
-              : (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) < 0
-                  ? 'عليه ${amountText((orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])).abs())}'
-                  : 'صفر',
+          closingRow == null
+              ? '—'
+              : PartyStatementBalanceDisplay.format(
+                  closingRow,
+                  money: (value) => NumberFormat('#,##0').format(value),
+                ),
         ],
         minTableRows: 8,
       );

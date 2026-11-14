@@ -7,6 +7,7 @@ import 'package:printing/printing.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/calculations.dart';
 import 'official_report_template.dart';
+import 'party_statement_balance_display.dart';
 
 class ReportService {
   final StationRepository repo;
@@ -197,7 +198,16 @@ class ReportService {
           ]
         : rows.map((row) {
             return sourceHeaders
-                .map((header) => _shapeArabic(_formatValue(header, row[header], key)))
+                .map((header) {
+                  // Informational irrigation rows have no running balance.
+                  // Preserve a real zero balance on financial rows.
+                  if (header == 'balance' &&
+                      (key == 'worker_transactions' || key == 'partner_accounts') &&
+                      !PartyStatementBalanceDisplay.hasBalance(row)) {
+                    return _shapeArabic('—');
+                  }
+                  return _shapeArabic(_formatValue(header, row[header], key));
+                })
                 .toList(growable: false);
           }).toList(growable: false);
 
@@ -1122,12 +1132,10 @@ class ReportService {
       ordered.removeWhere((row) => row['type'] == 'opening_balance');
       ordered.insertAll(0, openingRows);
       final movements = ordered.map((row) {
-        final balance = _workerNum(row['balance']);
-        final balanceText = balance > 0
-            ? 'له ${_workerMoney(balance)}'
-            : balance < 0
-                ? 'عليه ${_workerMoney(balance.abs())}'
-                : 'صفر';
+        final balanceText = PartyStatementBalanceDisplay.format(
+          row,
+          money: _workerMoney,
+        );
         return <String>[
           _workerDate(row['date']),
           '${row['description'] ?? ''}',
@@ -1138,12 +1146,10 @@ class ReportService {
       }).toList();
       final incomeSummary = statementRows.where((row) => row['type'] == 'worker_income_total').firstOrNull;
       if (incomeSummary != null) {
-        final balance = _workerNum(incomeSummary['balance']);
-        final balanceText = balance > 0
-            ? 'له ${_workerMoney(balance)}'
-            : balance < 0
-                ? 'عليه ${_workerMoney(balance.abs())}'
-                : 'صفر';
+        final balanceText = PartyStatementBalanceDisplay.format(
+          incomeSummary,
+          money: _workerMoney,
+        );
         movements.add([
           _workerDate(incomeSummary['date']),
           '${incomeSummary['description'] ?? 'إجمالي دخل العامل'}',
