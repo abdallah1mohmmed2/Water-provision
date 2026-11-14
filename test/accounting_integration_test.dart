@@ -1833,7 +1833,7 @@ void main() {
     expect(await cashboxBalance(1), baselineCash);
   });
 
-  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 32', () async {
+  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 33', () async {
     final opened = await db.db;
     await opened.execute('PRAGMA user_version=17');
     await db.close();
@@ -1855,7 +1855,7 @@ void main() {
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 32);
+    expect((version.single.values.single as num).toInt(), 33);
   });
 
   test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {
