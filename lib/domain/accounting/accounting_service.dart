@@ -3091,6 +3091,9 @@ class AccountingService {
       }
       final old = rows.first;
       final type = '${old['system_type']}';
+      if (type == 'diesel' && ((old['diesel_amount'] as num?)?.round() ?? 0) != 0) {
+        throw StateError('السقاية القديمة تحمل قيمة مالية للديزل؛ لا يمكن إعادة تسعيرها ضمن سياسة اللترات فقط دون تسوية محاسبية موثقة. يمكن إلغاؤها بالقيد العكسي.');
+      }
       final oldStart = DateTime.parse('${old['start_datetime']}');
       final oldEnd = DateTime.parse('${old['end_datetime']}');
       try {
@@ -3170,10 +3173,7 @@ class AccountingService {
                   allowMidnightCrossing: allowMidnight,
                   rounding: rounding, partialHour: partialHour,
                 );
-      // Preserve physical fuel cost separately: in-kind credit may reduce
-      // the invoice, but it cannot erase consumption from the fuel ledger.
-      final physicalDieselAmount = result.dieselAmount;
-      var chargedDiesel = result.dieselAmount;
+      // Fuel remains a physical quantity with no price or journal.
       var shortageLiters = 0.0;
       final partyTypeForDiesel = '${old['party_type'] ?? 'beneficiary'}';
       final dieselBeneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
@@ -3190,17 +3190,6 @@ class AccountingService {
           if ('${move['kind']}' == 'consumption') stockWithoutThisIrrigation += liters;
         }
         shortageLiters = (result.dieselLiters - stockWithoutThisIrrigation).clamp(0, result.dieselLiters).toDouble();
-        final financialCredit = (cfg['diesel_delivery_financial_credit'] ?? '').toLowerCase() == 'true';
-        if (!financialCredit) {
-          chargedDiesel = AccountingCalculations.roundAmount(shortageLiters *
-            ((old['diesel_price_snapshot'] as num?)?.toDouble() ?? 0), rounding);
-        }
-        result = IrrigationResult(
-          minutes: result.minutes, cloudMinutes: result.cloudMinutes,
-          chargeableMinutes: result.chargeableMinutes, waterAmount: result.waterAmount,
-          dieselAmount: chargedDiesel, totalAmount: result.waterAmount + chargedDiesel,
-          dieselLiters: result.dieselLiters,
-        );
       }
       final partyType = '${old['party_type'] ?? 'beneficiary'}';
       final beneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
@@ -3305,7 +3294,6 @@ class AccountingService {
         reason: 'تصحيح بيانات السقاية رقم $id', userId: userId, date: oldStart,
       );
       final waterRevenue = await _accountIdTx(tx, '4000');
-      final fuelRevenue = await _accountIdTx(tx, '4010');
       final receivable = partyType == 'worker'
           ? await _workerAccountIdTx(tx, workerId!)
           : partyType == 'partner'
@@ -3320,10 +3308,6 @@ class AccountingService {
       if (editedBilledWater > 0) {
         lines.add({'account_id': waterRevenue, 'debit': 0,
           'credit': editedBilledWater, 'memo': 'إيراد السقي بعد التعديل'});
-      }
-      if (result.dieselAmount > 0) {
-        lines.add({'account_id': fuelRevenue, 'debit': 0,
-          'credit': result.dieselAmount, 'memo': 'قيمة ديزل السقي بعد التعديل'});
       }
       if (editedTotal > 0) {
         await _entry(tx,
@@ -3371,38 +3355,24 @@ class AccountingService {
         where: 'irrigation_id=?', whereArgs: [id], orderBy: 'id');
       await _reverseIrrigationDieselTx(tx, id, userId, 'تعديل السقاية');
       if (type == 'diesel' && result.dieselLiters > 0) {
-        final price = (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0;
         if (partyType == 'beneficiary' && shortageLiters > 0) {
           await tx.insert('diesel_movements', {
             'station_id': old['station_id'],
-            'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'advance',
-            'liters': shortageLiters, 'unit_price': price,
-            'amount': AccountingCalculations.roundAmount(shortageLiters * price, rounding),
+            'beneficiary_id': beneficiaryId, 'irrigation_id': id,
+            'kind': 'advance', 'liters': shortageLiters,
+            'unit_price': 0, 'amount': 0,
             'date': start.toIso8601String(), 'created_by': userId,
-            'notes': 'سلفة ديزل تلقائية (بعد تعديل السقاية)',
+            'notes': 'سلفة ديزل عينية بعد تعديل السقاية (لترات فقط)',
           });
         }
-        final consumptionId = await tx.insert('diesel_movements', {
+        await tx.insert('diesel_movements', {
           'station_id': old['station_id'],
-          'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'consumption',
-          'liters': result.dieselLiters, 'unit_price': price, 'amount': physicalDieselAmount,
+          'beneficiary_id': beneficiaryId, 'irrigation_id': id,
+          'kind': 'consumption', 'liters': result.dieselLiters,
+          'unit_price': 0, 'amount': 0,
           'date': start.toIso8601String(), 'created_by': userId,
-          'notes': 'استهلاك السقاية (بعد التعديل)',
+          'notes': 'استهلاك ديزل عيني بعد التعديل (لترات فقط)',
         });
-        if (physicalDieselAmount > 0) {
-          await _entry(tx,
-            description: 'تكلفة ديزل السقاية $id بعد التعديل',
-            referenceType: 'diesel_consumption', referenceId: consumptionId,
-            date: start, stationId: (old['station_id'] as num).toInt(),
-            userId: userId,
-            lines: [
-              {'account_id': await _accountIdTx(tx, '5010'),
-                'debit': physicalDieselAmount, 'credit': 0},
-              {'account_id': await _accountIdTx(tx, '1300'),
-                'debit': 0, 'credit': physicalDieselAmount},
-            ],
-          );
-        }
       }
       // Capture the persisted post-recalculation state, not the planning list:
       // this makes deleted/updated/inserted records reviewable from the audit log.
