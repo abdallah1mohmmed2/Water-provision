@@ -2746,6 +2746,18 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             'beneficiary',
             widget.id,
           );
+          // Match the beneficiary's always-special-rate statement in this
+          // screen only; do not change the accounting/settlement balance.
+          if (h.isNotEmpty) {
+            final shownIrrigationTotal = h.where((row) => row['type'] == 's')
+                .fold<int>(0, (sum, row) =>
+                    sum + ((row['alayh'] as num?)?.round() ?? 0));
+            financial = {
+              ...financial,
+              'irrigation_total': shownIrrigationTotal,
+              'balance': h.first['balance'] ?? financial['balance'],
+            };
+          }
           irrigations = await widget.r.partyIrrigations(
             'beneficiary',
             widget.id,
