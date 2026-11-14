@@ -3670,7 +3670,18 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
       padding: const EdgeInsets.only(bottom: 12),
       child: Align(
         alignment: AlignmentDirectional.centerStart,
-        child: OutlinedButton.icon(
+        child: ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() =>
+  ReportService(widget.r).printPdf(
+    'irrigations',
+    workerId: widget.kind == 'worker' ? widget.id : null,
+    partnerId: widget.kind == 'partner' ? widget.id : null,
+    from: filterFrom,
+    to: filterTo,
+    systemType: 'all',
+  )),
+  child: OutlinedButton.icon(
           icon: const Icon(Icons.picture_as_pdf_rounded),
           label: Text(
             worker
@@ -3696,6 +3707,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             }
           },
         ),
+),
       ),
     );
   }
@@ -3795,11 +3807,14 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
           ),
           actions: [
             if (['beneficiary', 'worker', 'partner'].contains(widget.kind))
-              IconButton(
+              ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(printPersonReport),
+  child: IconButton(
                 onPressed: printPersonReport,
-                tooltip: 'تصدير التقرير',
                 icon: const Icon(Icons.picture_as_pdf_rounded),
               ),
+),
             IconButton(
               onPressed: load,
               tooltip: 'تحديث',
@@ -3937,7 +3952,11 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                   ),
                   if (widget.kind == 'beneficiary') ...[
                     const SizedBox(height: 12),
-                                            OutlinedButton.icon(
+                                            ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() =>
+  ReportService(widget.r).printPdf('beneficiary_statement', beneficiaryId: widget.id)),
+  child: OutlinedButton.icon(
                                               onPressed: () async {
                                                 try {
                                                   final beneficiaryId = widget.id;
@@ -3969,6 +3988,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                                               icon: const Icon(Icons.picture_as_pdf_rounded),
                                               label: const Text('كشف الحساب'),
                                             ),
+),
 
                   ],
                   const SizedBox(height: 16),
@@ -6906,16 +6926,24 @@ class _IrrigationsState extends State<IrrigationsPage> {
                 onChanged: (value) { if (value != null) { setState(() => systemTypeFilter = value); load(); } },
               )),
               OutlinedButton.icon(onPressed: loading ? null : chooseCustomRange, icon: const Icon(Icons.date_range), label: const Text('فترة مخصصة')),
-              FilledButton.icon(
+              ReportPdfLongPress(
+  enabled: !loading,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(printIrrigationsReport),
+  child: FilledButton.icon(
                 onPressed: loading ? null : printIrrigationsReport,
                 icon: const Icon(Icons.print_rounded),
                 label: const Text('طباعة تقرير السقايات'),
               ),
-              OutlinedButton.icon(
+),
+              ReportPdfLongPress(
+  enabled: !loading,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(createIrrigationsPdf),
+  child: OutlinedButton.icon(
                 onPressed: loading ? null : createIrrigationsPdf,
                 icon: const Icon(Icons.picture_as_pdf_rounded),
                 label: const Text('إنشاء PDF'),
               ),
+),
             ],
           ),
           const SizedBox(height: 10),
@@ -8915,8 +8943,11 @@ class _PaymentsState extends State<PaymentsPage> {
                               color: Colors.red,
                             ),
                           ),
-                        IconButton(
-                          tooltip: 'إيصال',
+                        ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() =>
+  ReportService(widget.r).printPaymentReceipt(x['id'] as int)),
+  child: IconButton(
                           onPressed: () async {
                             try {
                               await ReportService(
@@ -8928,6 +8959,7 @@ class _PaymentsState extends State<PaymentsPage> {
                           },
                           icon: const Icon(Icons.receipt_long),
                         ),
+),
                       ],
                     ),
                   ),
@@ -10391,12 +10423,17 @@ class _WorkersState extends State<WorkersPage> {
       title: 'العمال',
       subtitle: 'الأجر بالساعة أو النسبة أو الراتب الثابت مع الاستحقاق والدفع',
       actions: [
-        OutlinedButton.icon(
+        ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() =>
+  ReportService(widget.r).printPdf('worker_transactions')),
+  child: OutlinedButton.icon(
           onPressed: () =>
               ReportService(widget.r).printPdf('worker_transactions'),
           icon: const Icon(Icons.picture_as_pdf_rounded),
           label: const Text('تقرير العمال'),
         ),
+),
         if (widget.manager)
           OutlinedButton.icon(
             onPressed: accrueMonthlySalary,
@@ -11027,11 +11064,16 @@ class _PartnersState extends State<PartnersPage> {
       title: 'الشركاء',
       subtitle: 'ملكية الشركاء وحصصهم واستحقاقاتهم ومدفوعاتهم',
       actions: [
-        OutlinedButton.icon(
+        ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() =>
+  ReportService(widget.r).printPdf('partner_accounts')),
+  child: OutlinedButton.icon(
           onPressed: () => ReportService(widget.r).printPdf('partner_accounts'),
           icon: const Icon(Icons.picture_as_pdf_rounded),
           label: const Text('تقرير الشركاء'),
         ),
+),
         FilledButton.icon(
           onPressed: add,
           icon: const Icon(Icons.group_add),
@@ -11751,11 +11793,15 @@ class _LedgerState extends State<LedgerPage> {
       title: 'الأستاذ العام',
       subtitle: 'حساب مستقل لكل رمز مع له وعليه والرصيد الجاري',
       actions: [
-        OutlinedButton.icon(
+        ReportPdfLongPress(
+  enabled: !loading,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_printLedger),
+  child: OutlinedButton.icon(
           onPressed: loading ? null : _printLedger,
           icon: const Icon(Icons.print_rounded),
           label: const Text('طباعة كشف الحساب'),
         ),
+),
         OutlinedButton.icon(
           onPressed: loading ? null : _init,
           icon: const Icon(Icons.refresh),
@@ -12160,7 +12206,11 @@ class _ReportsState extends State<ReportsPage> {
     _=>'معاينة البيانات والفلاتر والطباعة',
   };
   bool _allowedReport(String k) => currentType == 'diesel' || (k != 'diesel_inventory' && k != 'oil_status');
-  Widget _reportCard(String k){final title=ReportService.titles[k]??'تقرير';return Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .08),blurRadius:18,offset:const Offset(0,7))]),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(_icon(k),color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Text(title,softWrap:true,style:const TextStyle(fontWeight:FontWeight.w900,fontSize:16,color:_reportInk))),const Icon(Icons.swipe_rounded,size:20,color:_reportOlive)]),const SizedBox(height:14),Expanded(child:Align(alignment:Alignment.topRight,child:Text(_description(k),softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha: .72),fontSize:13,height:1.5)))),const SizedBox(height:10),Row(children:[Expanded(child:OutlinedButton.icon(onPressed:()=>previewR(k),style:OutlinedButton.styleFrom(foregroundColor:_reportOliveDark,side:const BorderSide(color:_reportLine),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.visibility_outlined,size:18),label:const Text('معاينة كاملة'))),const SizedBox(width:10),FilledButton.tonalIcon(onPressed:()=>printR(k),style:FilledButton.styleFrom(foregroundColor:_reportOliveDark,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.print_rounded,size:18),label:const Text('PDF'))])]));}
+  Widget _reportCard(String k){final title=ReportService.titles[k]??'تقرير';return Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .08),blurRadius:18,offset:const Offset(0,7))]),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(_icon(k),color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Text(title,softWrap:true,style:const TextStyle(fontWeight:FontWeight.w900,fontSize:16,color:_reportInk))),const Icon(Icons.swipe_rounded,size:20,color:_reportOlive)]),const SizedBox(height:14),Expanded(child:Align(alignment:Alignment.topRight,child:Text(_description(k),softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha: .72),fontSize:13,height:1.5)))),const SizedBox(height:10),Row(children:[Expanded(child:OutlinedButton.icon(onPressed:()=>previewR(k),style:OutlinedButton.styleFrom(foregroundColor:_reportOliveDark,side:const BorderSide(color:_reportLine),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.visibility_outlined,size:18),label:const Text('معاينة كاملة'))),const SizedBox(width:10),ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => printR(k)),
+  child: FilledButton.tonalIcon(onPressed:()=>printR(k),style:FilledButton.styleFrom(foregroundColor:_reportOliveDark,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.print_rounded,size:18),label:const Text('PDF')),
+)])]));}
   @override Widget build(BuildContext c)=>Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مركز التقارير',style:TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded)))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,32),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(28)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('تقاريرك المالية والتشغيلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:13)),const SizedBox(height:7),const Text('كل الأرقام في نظرة واضحة',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:23)),const SizedBox(height:10),Text('اختر فترة ثم افتح التقرير أو اطبعه PDF',style:TextStyle(color:Colors.white.withValues(alpha: .78),fontSize:12))]),),Container(width:68,height:68,decoration:BoxDecoration(color:Colors.white.withValues(alpha: .15),shape:BoxShape.circle),child:const Icon(Icons.insights_rounded,color:Colors.white,size:35))])),const SizedBox(height:16),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[const Icon(Icons.tune_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('نطاق التقرير',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),const Spacer(),TextButton(onPressed:()=>setState((){from=null;to=null;bid=null;wid=pid=cid=mid=null;category=status=null;type = currentType;}),child:const Text('مسح الكل'))]),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[for(final qr in _quickRanges())ChoiceChip(label:Text(qr.$1),selected:from==qr.$2&&to==qr.$3,onSelected:(_)=>setState((){from=qr.$2;to=qr.$3;}),selectedColor:_reportOliveDark, labelStyle:TextStyle(color:from==qr.$2&&to==qr.$3?Colors.white:_reportInk)),OutlinedButton.icon(onPressed:()async{from=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:from??AppClock.now(),locale:const Locale('ar'));setState((){});},icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.year}/${from!.month}/${from!.day}')),OutlinedButton.icon(onPressed:()async{to=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:to??AppClock.now(),locale:const Locale('ar'));setState((){});},icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.year}/${to!.month}/${to!.day}'))]),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[sel<int>('الصندوق',cid,[const DropdownMenuItem(value:null,child:Text('كل الصناديق')),for(final x in cs)DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']}'))],(v)=>setState(()=>cid=v))])])),const SizedBox(height:22),for(final group in ['السقايات والإيرادات','المالية والحركة','كشوف الحساب','دفتر الأستاذ','التشغيل والمتابعة']) _reportGroup(group)])));
   Widget _reportGroup(String group){final items=ReportsPage.keys.where((k)=>_group(k)==group&&_allowedReport(k)).toList();return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:6,height:24,decoration:BoxDecoration(color:_reportOliveDark,borderRadius:BorderRadius.circular(5))),const SizedBox(width:9),Expanded(child:Text(group,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,color:_reportInk))),Text('${items.length} تقارير',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:12))]),const SizedBox(height:11),if(items.isNotEmpty)SizedBox(height:228,child:PageView.builder(scrollDirection:Axis.horizontal,physics:const PageScrollPhysics(),padEnds:true,itemCount:items.length,controller:(_reportControllers[group]??=PageController(viewportFraction:.91)),itemBuilder:(context,index)=>Padding(padding:const EdgeInsetsDirectional.only(end:10,bottom:4),child:_reportCard(items[index])))),if(items.length>1)Padding(padding:const EdgeInsets.only(top:7),child:Center(child:Text('اسحب أفقيًا لاستعراض البطاقات • ${items.length} تقارير',style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:11)))),const SizedBox(height:25)]);}
 }

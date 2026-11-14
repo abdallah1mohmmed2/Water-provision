@@ -182,10 +182,23 @@ class ReportPdfLongPress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
+    label: 'ملف PDF',
     hint: 'اضغط مطولًا لمشاركة ملف PDF',
     child: GestureDetector(
       behavior: HitTestBehavior.deferToChild,
-      onLongPress: enabled ? () { onLongPress(); } : null,
+      onLongPress: enabled
+          ? () async {
+              try {
+                await onLongPress();
+              } catch (error) {
+                if (context.mounted) {
+                  ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                    SnackBar(content: Text('تعذر مشاركة PDF: $error')),
+                  );
+                }
+              }
+            }
+          : null,
       child: child,
     ),
   );
