@@ -2273,6 +2273,13 @@ class _DashboardState extends State<DashboardPage> {
                       const SizedBox(height: 7),
                       const Text('مرحباً بك في منظومة', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 7),
+                      Text(
+                        SystemConfig.displayNameFor(systemType),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: neon, fontSize: 16, fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 7),
                       Text('ملخص التشغيل والعمليات اليومية في مكان واحد',
                         style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 11, height: 1.5)),
                     ])),
