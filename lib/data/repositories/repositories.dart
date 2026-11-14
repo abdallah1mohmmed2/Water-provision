@@ -2907,7 +2907,10 @@ class StationRepository {
             a.add(to.toIso8601String());
           }
           if (beneficiaryId != null) { w += ' AND i.beneficiary_id=?'; a.add(beneficiaryId); }
-          if (workerId != null) { w += ' AND i.worker_id=?'; a.add(workerId); }
+          if (workerId != null) {
+            w += " AND (i.worker_id=? OR i.operator_worker_id=? OR EXISTS (SELECT 1 FROM worker_transactions wt WHERE wt.worker_id=? AND wt.reference_type='irrigation' AND wt.reference_id=i.id AND wt.type='irrigation'))";
+            a.addAll([workerId, workerId, workerId]);
+          }
           if (partnerId != null) { w += ' AND i.partner_id=?'; a.add(partnerId); }
           if (systemType != 'all') { w += ' AND i.system_type=?'; a.add(systemType); }
           return db.rawQuery(
