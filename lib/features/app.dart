@@ -5034,7 +5034,16 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         settings['rounding'] ?? 'nearest',
       );
     }
-    final total = c.waterAmount + diesel;
+    // Match recordIrrigation's active work-minute tariff in the preview.
+    // Only the beneficiary sees the special price; worker and partner
+    // accruals continue using the ordinary hourly basis.
+    final specialPricing = isBeneficiary &&
+        settings['work_price_difference_enabled'] == 'true';
+    final workMinuteRate = int.tryParse(settings['work_minute_rate'] ?? '0') ?? 0;
+    final billedWater = specialPricing && workMinuteRate > 0
+        ? c.chargeableMinutes * workMinuteRate
+        : c.waterAmount;
+    final total = billedWater + diesel;
     // الدفعة المرافقة للمستفيد فقط (الخدمة ترفضها لغيره).
     final paidValue = isBeneficiary ? (int.tryParse(paid.text) ?? 0) : 0;
     // المستفيد: رصيده + المستحق − المدفوع (الموجب عليه).
@@ -5044,7 +5053,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         : partyBalance - total;
     return {
       'الإجمالي': total,
-      'المياه': c.waterAmount,
+      'المياه': billedWater,
       'الديزل': diesel,
       'القابل للمحاسبة': c.chargeableMinutes,
       'المدفوع': paidValue,
