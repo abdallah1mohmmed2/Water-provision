@@ -11,16 +11,12 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
-  setUp(() {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-  });
-
   tearDown(() {
     messenger.setMockMethodCallHandler(AndroidContactPicker.channel, null);
-    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('Android contact icon imports selected number without saving', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
     final controller = TextEditingController(text: 'old number');
     addTearDown(controller.dispose);
     var pickerCalls = 0;
@@ -37,9 +33,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(pickerCalls, 1);
     expect(controller.text, '+967 777 123 456');
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('cancelling native picker retains previously entered number', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
     final controller = TextEditingController(text: '0123456');
     addTearDown(controller.dispose);
     messenger.setMockMethodCallHandler(AndroidContactPicker.channel, (_) async => null);
@@ -49,9 +47,11 @@ void main() {
     await tester.tap(find.byTooltip('اختيار رقم من جهات الاتصال'));
     await tester.pumpAndSettle();
     expect(controller.text, '0123456');
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('native error preserves existing phone value', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
     final controller = TextEditingController(text: '778899');
     addTearDown(controller.dispose);
     messenger.setMockMethodCallHandler(AndroidContactPicker.channel, (_) async {
@@ -64,6 +64,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.text, '778899');
     expect(find.text('لا يوجد تطبيق جهات اتصال'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('non-Android platforms retain manual phone entry without picker', (tester) async {
@@ -76,5 +77,6 @@ void main() {
     expect(find.byTooltip('اختيار رقم من جهات الاتصال'), findsNothing);
     await tester.enterText(find.byType(TextField), '123456');
     expect(controller.text, '123456');
+    debugDefaultTargetPlatformOverride = null;
   });
 }

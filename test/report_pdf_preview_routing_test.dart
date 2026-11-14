@@ -20,6 +20,12 @@ void main() {
     expect(ReportService.titles.keys.toSet().containsAll(batch), isTrue);
   });
 
+  test('all 28 report types are assigned to unified PDF preview', () {
+    expect(ReportService.titles.keys.length, 28);
+    expect(ReportService.previewReportKeys.length, 28);
+    expect(ReportService.previewReportKeys, ReportService.titles.keys.toSet());
+  });
+
   test('every common-preview key has a real report title and columns', () {
     for (final key in ReportService.previewReportKeys) {
       expect(ReportService.titles.containsKey(key), isTrue, reason: key);

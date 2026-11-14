@@ -2,8 +2,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
-import 'report_file_name_service.dart';
+import 'report_pdf_preview_service.dart';
 
 /// نموذج بيانات البطاقة الإحصائية العلوية.
 class StatBoxData {
@@ -162,16 +161,13 @@ class OfficialReportTemplate {
 
     final bytes = await document.save();
     if (printAfterGenerate) {
-      // A caller without an explicit filename uses the real report title.
-      final chosenName = await ReportFileNameService.choose(
-        fileName == null || fileName.trim().isEmpty ? reportTitle : fileName,
+      // The document bytes/layout are unchanged: only the UI opened after
+      // generation switches to the common pinch-zoom PDF reader.
+      await ReportPdfPreviewService.open(
+        bytes: bytes,
+        suggestedName:
+            fileName == null || fileName.trim().isEmpty ? reportTitle : fileName,
       );
-      if (chosenName != null) {
-        await Printing.layoutPdf(
-          onLayout: (_) async => bytes,
-          name: chosenName,
-        );
-      }
     }
     return bytes;
   }

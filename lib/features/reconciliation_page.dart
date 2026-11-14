@@ -125,7 +125,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
       rows: const [],
       cardsOnly: true,
       pageFormat: pdf.PdfPageFormat.a4,
-      fileName: 'reconciliation_${d['month_key']}.pdf',
+      fileName: 'بطاقات التسوية الشهرية — ${d['month_key']}',
       printAfterGenerate: true,
     );
   }

@@ -3,7 +3,6 @@ import '../core/app_clock.dart';
 import 'package:intl/intl.dart';
 import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
-import 'package:printing/printing.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/calculations.dart';
 import '../domain/accounting/debt_report_totals.dart';
@@ -48,6 +47,8 @@ class ReportService {
     'partner_profit_distribution',
     'beneficiary_statement',
     'invoices',
+    // Batch 4: the worker report takes the specialist official-template path.
+    'worker_transactions',
   };
 
   static const titles = {
@@ -658,9 +659,10 @@ class ReportService {
     final isReceipt = rows.isNotEmpty && rows.first['beneficiary_id'] != null;
     final partyName = rows.isEmpty ? '' : '${rows.first['party_name'] ?? ''}'.trim();
     final baseName = '${isReceipt ? 'سند قبض' : 'سند صرف'}${partyName.isEmpty ? '' : ' $partyName'} رقم $paymentId';
-    final chosenName = await ReportFileNameService.choose(baseName);
-    if (chosenName == null) return;
-    await Printing.layoutPdf(name: chosenName, onLayout: (_) async => bytes);
+    await ReportPdfPreviewService.open(
+      bytes: bytes,
+      suggestedName: baseName,
+    );
   }
 
   /// إنشاء PDF مخصص لتقرير الفواتير بأعمدته الثمانية وإجمالياته الرسمية.
@@ -962,12 +964,10 @@ class ReportService {
     DateTime? from,
     DateTime? to,
   }) async {
-    final chosenName = await ReportFileNameService.choose('تقرير الفواتير');
-    if (chosenName == null) return;
     final bytes = await invoicesPdf(rows: rows, from: from, to: to);
-    await Printing.layoutPdf(
-      name: chosenName,
-      onLayout: (_) async => bytes,
+    await ReportPdfPreviewService.open(
+      bytes: bytes,
+      suggestedName: 'تقرير الفواتير',
     );
   }
 
@@ -976,12 +976,10 @@ class ReportService {
     DateTime? from,
     DateTime? to,
   }) async {
-    final chosenName = await ReportFileNameService.choose('تقرير الفواتير');
-    if (chosenName == null) return;
     final bytes = await invoicesPdf(rows: rows, from: from, to: to);
-    await Printing.sharePdf(
+    await ReportPdfPreviewService.open(
       bytes: bytes,
-      filename: ReportFileNameService.withExtension(chosenName),
+      suggestedName: 'تقرير الفواتير',
     );
   }
 
@@ -1430,21 +1428,14 @@ class ReportService {
       await _printWorkerTransactionsOfficial(workerId: workerId, from: from, to: to);
       return;
     }
-    final suggestion = await _reportFileName(
+    // The existing PDF generator keeps the report's data, totals, layout
+    // and filters unchanged. Only the presentation/export UI is unified.
+    final suggestedName = await _reportFileName(
       key,
       beneficiaryId: beneficiaryId,
       workerId: workerId,
       partnerId: partnerId,
     );
-    // Until every family is migrated, legacy exports keep their former
-    // behavior, including the existing native print -> share fallback.
-    final usePreview = previewReportKeys.contains(key);
-    final chosenName = usePreview
-        ? null
-        : await ReportFileNameService.choose(suggestion);
-    if (!usePreview && chosenName == null) return;
-    // Generate the document before opening Android's print UI so exceptions
-    // from fonts, data formatting, or PDF layout surface in the calling screen.
     final bytes = await pdf(
       key,
       from: from,
@@ -1462,34 +1453,9 @@ class ReportService {
     if (bytes.isEmpty) {
       throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');
     }
-    if (usePreview) {
-      await ReportPdfPreviewService.open(
-        bytes: bytes,
-        suggestedName: suggestion,
-      );
-      return;
-    }
-    try {
-      await Printing.layoutPdf(
-        // Give Android's print/save dialog the actual report name instead of
-        // its generic default filename, "document".
-        name: chosenName!,
-        onLayout: (_) async => bytes,
-      );
-    } catch (printError) {
-      // Keep a usable PDF delivery path if Android's native print dialog fails
-      // for any reason, not only the known "No value" bridge error.
-      try {
-        await Printing.sharePdf(
-          bytes: bytes,
-          filename: ReportFileNameService.withExtension(chosenName!),
-        );
-      } catch (shareError) {
-        throw StateError(
-          'تم إنشاء ملف PDF لكن تعذّر فتح الطباعة أو المشاركة. '
-          'خطأ الطباعة: $printError؛ خطأ المشاركة/الحفظ: $shareError',
-        );
-      }
-    }
+    await ReportPdfPreviewService.open(
+      bytes: bytes,
+      suggestedName: suggestedName,
+    );
   }
 }

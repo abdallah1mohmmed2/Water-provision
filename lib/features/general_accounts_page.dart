@@ -377,7 +377,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
         ],
         columns: const ['التاريخ', 'نوع الحركة', 'المبلغ (ريال)', 'المرجع / الملاحظات', 'الرصيد الجاري'],
         rows: rows,
-        fileName: 'general_account_$accountId.pdf',
+        fileName: 'كشف حساب عام — ${account['name'] ?? 'حساب رقم $accountId'}',
         preferredRowsPerPage: 20,
         printAfterGenerate: true,
       );

@@ -9,7 +9,6 @@ import '../core/app_prefs.dart';
 import '../core/period_ranges.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' hide TextDirection;
-import 'package:printing/printing.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -23,6 +22,7 @@ import '../services/local_security_service.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
 import '../services/report_file_name_service.dart';
+import '../services/report_pdf_preview_service.dart';
 import '../services/official_report_template.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
@@ -6722,13 +6722,9 @@ class _IrrigationsState extends State<IrrigationsPage> {
         sourceRows: outputRows,
       );
       if (bytes.isEmpty) throw StateError('ملف PDF الناتج فارغ.');
-      final chosenName = await ReportFileNameService.choose(
-        'تقرير السقايات التفصيلي ${DateFormat('yyyyMMdd_HHmm').format(now)}',
-      );
-      if (chosenName == null) return;
-      await Printing.sharePdf(
+      await ReportPdfPreviewService.open(
         bytes: bytes,
-        filename: ReportFileNameService.withExtension(chosenName),
+        suggestedName: 'تقرير السقايات التفصيلي ${DateFormat('yyyyMMdd_HHmm').format(now)}',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -13209,7 +13205,10 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     try {
       final bytes = await ReportService(widget.r).invoicesPdf(rows: await _pdfRows(), from: from, to: to);
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => _InvoicesPdfPreviewPage(bytes: bytes)));
+      await ReportPdfPreviewService.open(
+        bytes: bytes,
+        suggestedName: 'تقرير الفواتير',
+      );
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
@@ -13427,63 +13426,6 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       ),
     );
   }
-}
-
-class _InvoicesPdfPreviewPage extends StatelessWidget {
-  final Uint8List bytes;
-  const _InvoicesPdfPreviewPage({required this.bytes});
-
-  Future<void> _export(BuildContext context, {required bool share}) async {
-    try {
-      final chosenName = await ReportFileNameService.choose('تقرير الفواتير');
-      if (chosenName == null) return;
-      if (share) {
-        await Printing.sharePdf(
-          bytes: bytes,
-          filename: ReportFileNameService.withExtension(chosenName),
-        );
-      } else {
-        await Printing.layoutPdf(
-          name: chosenName,
-          onLayout: (_) async => bytes,
-        );
-      }
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyError(error))),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Directionality(
-    textDirection: TextDirection.rtl,
-    child: Scaffold(
-      appBar: AppBar(
-        title: const Text('معاينة PDF - تقرير الفواتير'),
-        actions: [
-          IconButton(
-            tooltip: 'طباعة PDF',
-            onPressed: () => _export(context, share: false),
-            icon: const Icon(Icons.print_rounded),
-          ),
-          IconButton(
-            tooltip: 'مشاركة PDF',
-            onPressed: () => _export(context, share: true),
-            icon: const Icon(Icons.share_rounded),
-          ),
-        ],
-      ),
-      body: PdfPreview(
-        build: (_) async => bytes,
-        canChangeOrientation: false,
-        canChangePageFormat: false,
-        useActions: false,
-      ),
-    ),
-  );
 }
 
 class IrrigationDetailedReportPage extends StatefulWidget {
