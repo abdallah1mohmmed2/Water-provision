@@ -852,3 +852,12 @@ Files repaired: `server/lib/server.dart` (child projection operation), `server/t
 - فحوص مضافة: حقول التسقية وتوقيتها واستبعاد الملاحظات وثبات خريطة المصدر؛ قبض يعبر الرصيد من عليه إلى له؛ مديونية مع ملاحظات طويلة بعرض Android 320 وتكبير خط 200%؛ صرف ورصيد صفر.
 - فحص محلي: `git diff --check` و`python3 tools/sql_logic_check.py` ناجحان. Flutter/Dart غير مثبتين في بيئة العمل المحلية، فلا تُنسب إليها نتائج تشغيل Flutter.
 - CI على SHA الكود: [Flutter Analyze](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43596763262)، [SonarCloud](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43596763225)، [Build](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43596763260)، [Build Flutter APK](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43596759428). الحالة لحظة التسجيل: قيد التشغيل؛ Flutter/Shelf tests والتحليل وAPK النهائي غير متحققين حتى مراجعة النتائج النهائية. لا فحص على هاتف فعلي ولا إعلان اكتمال تحقق البناء قبل نجاحه.
+
+
+### اعتماد فحوص بطاقات الكشف على كود `8892c4039b56ca3495ca4990ed1e6554a843f57d`
+
+جميع التشغيلات المذكورة في القسم 33 انتهت **SUCCESS** على SHA الكود نفسه: Flutter Analyze (التشغيلتان)، SonarCloud، Build/SonarQube، وBuild Flutter APK. أكد سجل Build نجاح **99 اختبار Shelf و172 اختبار Flutter**؛ وأكد سجل SonarCloud نجاح الاختبارات الأربعة الجديدة لبطاقات الكشف بما فيها عرض 320 وتكبير الخط 200%.
+
+- APK التجريبي: [Saqia-App-Debug / 14114927726](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43596763260/artifacts/14114927726)، غير منتهي عند الفحص، SHA-256 للأرشيف `2ec89078295bdf79f5f46ccc288e8f8ded8bb4867162371ca37fc9b234013e98`.
+- APK من مسار Release: [Saqia-App-Release / 14114138663](https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/43596759428/artifacts/14114138663)، الحجم 36560093 بايت، منتهي الصلاحية: false، بصمة الأرشيف `sha256:c632a0d90a815b25613de53c1f59e52e044e6e7b930f5a6046374c6546282979`.
+- القبول: تعديل العرض مقبول باختبارات CI وبناء Android، دون تغيير PDF أو حسابات أو main. فحص التخطيط آلي عبر Flutter widgets وليس لقطة شاشة من هاتف المستخدم. لا ادعاء بتجربة جهاز فعلي أو تغيير توقيع إصدار التطبيق. هذا التحديث توثيقي لاحق؛ الأدلة تخص SHA الكود أعلاه.
