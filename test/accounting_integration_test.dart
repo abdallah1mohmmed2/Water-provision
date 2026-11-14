@@ -1856,6 +1856,23 @@ void main() {
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
     expect((version.single.values.single as num).toInt(), 33);
+    final irrigationColumns = (await upgraded.rawQuery(
+      'PRAGMA table_info(irrigations)',
+    )).map((row) => row['name']).toSet();
+    expect(irrigationColumns, containsAll({
+      'work_minute_rate_snapshot',
+      'work_price_enabled_snapshot',
+      'work_base_water_amount_snapshot',
+      'work_difference_snapshot',
+    }));
+    final historical = await upgraded.rawQuery(
+      "SELECT id,water_amount,total_amount,work_price_enabled_snapshot,work_difference_snapshot FROM irrigations WHERE status!='cancelled' LIMIT 1",
+    );
+    if (historical.isNotEmpty) {
+      // Migration adds snapshots; it must never reprice a posted invoice.
+      expect(historical.single['work_price_enabled_snapshot'], 0);
+      expect(historical.single['work_difference_snapshot'], 0);
+    }
   });
 
   test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {
