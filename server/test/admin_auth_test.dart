@@ -76,6 +76,27 @@ void main() {
     expect(response.statusCode, 200);
   });
 
+  test('unsafe legacy irrigation and session finish writes are blocked', () async {
+    final token = await login();
+    for (final endpoint in [
+      '/api/v1/irrigations',
+      '/api/v1/sessions/1/finish',
+    ]) {
+      final response = await handler(Request(
+        'POST', Uri.parse('http://localhost$endpoint'),
+        headers: {
+          'authorization': 'Bearer $token',
+          'content-type': 'application/json',
+        },
+        body: jsonEncode({'start': '2026-11-14T08:00:00',
+                          'end': '2026-11-14T09:00:00'}),
+      ));
+      expect(response.statusCode, 409);
+      final body = jsonDecode(await response.readAsString()) as Map;
+      expect(body['code'], 'versioned_irrigation_command_required');
+    }
+  });
+
   test('revokes an existing JWT immediately after account deactivation',
       () async {
     final token = await login();
