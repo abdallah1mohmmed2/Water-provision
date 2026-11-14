@@ -12654,7 +12654,7 @@ class _DebtsReportState extends State<DebtsReportPage>{
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('all_party_debts',from:month,to:DateTime(month.year,month.month+1,0));if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _print()async{try{await ReportService(widget.r).printPdf('all_party_debts',from:month,to:DateTime(month.year,month.month+1,0),sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   int _n(Object? v)=>(v as num?)?.round()??0;
-  List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final b=_n(x['balance']);final okView=view=='all'||(view=='alayh'&&b>0)||(view=='lah'&&b<0)||(view=='balanced'&&b==0);final okSearch=q.isEmpty||'${x['name']??''} ${x['phone']??''} ${x['party_type']??''}'.toLowerCase().contains(q);return okView&&okSearch;}).toList();}
+  List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final b=_n(x['balance']);final okView=view=='all'||(view=='alayh'&&(b>0||_n(x['previous_debt_total'])>0))||(view=='lah'&&b<0)||(view=='balanced'&&b==0);final okSearch=q.isEmpty||'${x['name']??''} ${x['phone']??''} ${x['party_type']??''}'.toLowerCase().contains(q);return okView&&okSearch;}).toList();}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
   Widget _card(Map<String,Object?> x) {
     final balance = _n(x['balance']);
@@ -12717,6 +12717,12 @@ class _DebtsReportState extends State<DebtsReportPage>{
                   style: TextStyle(
                     color: _reportInk.withValues(alpha: .55), fontSize: 11)),
               const SizedBox(height: 8),
+              if (_n(x['previous_debt_total']) > 0) ...[
+                const SizedBox(height: 4),
+                Text('مديونيات سابقة نشطة حاليًا: ${money(_n(x['previous_debt_total']))}',
+                  style: const TextStyle(color: _reportOrange,
+                    fontSize: 11, fontWeight: FontWeight.w900)),
+              ],
               const Text('فتح تفاصيل الحساب',
                   style: TextStyle(
                     color: _reportOliveDark, fontSize: 10, fontWeight: FontWeight.w800)),
