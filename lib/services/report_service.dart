@@ -38,6 +38,16 @@ class ReportService {
     'journal',
     'ledger',
     'debts',
+    // Batch 3 (nine additional reports)
+    'all_party_debts',
+    'beneficiary_detailed',
+    'beneficiary_stats',
+    'needy',
+    'beneficiary_list',
+    'partner_accounts',
+    'partner_profit_distribution',
+    'beneficiary_statement',
+    'invoices',
   };
 
   static const titles = {
