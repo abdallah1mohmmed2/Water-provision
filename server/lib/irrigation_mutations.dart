@@ -1478,8 +1478,16 @@ extension _P1Sync on SaqiaServer {
         immutable.add('third_type_hourly_rate_snapshot');
     }
     for (final key in immutable) {
-      if (payload[key] != old[key])
+      // Older clients do not carry the V33 switch flag. It is safe to omit
+      // only for a legacy general-hourly irrigation; special-rate history
+      // always needs an explicit immutable snapshot.
+      if (!payload.containsKey(key) && key == 'work_price_enabled_snapshot' &&
+          (old[key] as num?)?.toInt() == 0) {
+        continue;
+      }
+      if (payload[key] != old[key]) {
         throw StateError('لا يسمح بتغيير لقطة أسعار السقاية أو نوعها: $key');
+      }
     }
     final clock = DateTime.tryParse('${payload['updated_at']}');
     if (clock == null) throw StateError('تاريخ تعديل السقاية مطلوب');
@@ -1521,6 +1529,11 @@ extension _P1Sync on SaqiaServer {
       'start_datetime',
       'end_datetime',
     ]) {
+      if (!payload.containsKey(key) &&
+          const {'work_price_enabled_snapshot','work_base_water_amount_snapshot','work_difference_snapshot'}.contains(key) &&
+          (saved['work_price_enabled_snapshot'] as num?)?.toInt() == 0) {
+        continue;
+      }
       if (payload[key] != saved[key])
         throw StateError('حساب تعديل السقاية لا يطابق لقطة العميل: $key');
     }
