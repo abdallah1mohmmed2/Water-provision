@@ -3094,6 +3094,9 @@ class StationRepository {
             for (final row in statement) {
               combined.add({
                 ...row,
+                // Movement IDs repeat across beneficiaries; use the party ID
+                // to aggregate one closing balance per beneficiary.
+                'beneficiary_id': id,
                 'beneficiary_name': name,
                 'description': '$name - ${row['description'] ?? ''}',
               });

@@ -1,4 +1,5 @@
 import 'beneficiary_statement_card.dart';
+import '../domain/accounting/beneficiary_statement_totals.dart';
 import '../domain/accounting/report_minute_pricing.dart';
 import 'dart:async';
 import '../core/app_clock.dart';
@@ -12491,9 +12492,10 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         0,
         (sum, row) => sum + amountOf(row, 'paid_amount'),
       );
-      final endingBalance = reportRows.isEmpty
-          ? 0
-          : amountOf(reportRows.last, 'balance');
+      final endingBalance = BeneficiaryStatementTotals.closingBalance(
+        reportRows,
+        collective: widget.beneficiaryId == null,
+      );
       final now = AppClock.now();
       final tableRows = reportRows.map((row) => <String>[
         cellDate(row['date']),
@@ -12538,7 +12540,15 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
     }
   }
 
-  @override Widget build(BuildContext context){final net=visibleRows.isEmpty?'-':'${visibleRows.last['balance']??'-'}';return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(_title(),style:const TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:12),child:FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))),onPressed:_printReport,icon:const Icon(Icons.print_rounded),label:const Text('PDF')))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(26)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التقرير',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(_title(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(widget.filters.trim().isEmpty?'كل الفترات':widget.filters,style:TextStyle(color:Colors.white.withValues(alpha: .8),fontSize:11))]),),const Icon(Icons.assessment_rounded,color:Colors.white,size:48)])),const SizedBox(height:14),if(_hasBeneficiarySearch) ...[
+  @override
+  Widget build(BuildContext context) {
+    final net = widget.keyName == 'beneficiary_statement'
+        ? '${BeneficiaryStatementTotals.closingBalance(
+            visibleRows,
+            collective: widget.beneficiaryId == null,
+          )}'
+        : (visibleRows.isEmpty ? '-' : '${visibleRows.last['balance'] ?? '-'}');
+    return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(_title(),style:const TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:12),child:FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))),onPressed:_printReport,icon:const Icon(Icons.print_rounded),label:const Text('PDF')))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(26)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التقرير',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(_title(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(widget.filters.trim().isEmpty?'كل الفترات':widget.filters,style:TextStyle(color:Colors.white.withValues(alpha: .8),fontSize:11))]),),const Icon(Icons.assessment_rounded,color:Colors.white,size:48)])),const SizedBox(height:14),if(_hasBeneficiarySearch) ...[
   const SizedBox(height:14),
   TextField(
     onChanged:(value)=>setState(()=>search=value),
@@ -12550,7 +12560,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
     ),
   ),
 ],
-const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<int>(initialValue:_selectedPaymentMethodId,items:[const DropdownMenuItem<int>(value:null,child:Text('كل طرق الدفع')),for(final method in widget.paymentMethods)DropdownMenuItem<int>(value:method['id'] as int,child:Text('${method['name']}'))],onChanged:_applyPaymentMethod,decoration:const InputDecoration(labelText:'طريقة الدفع',border:OutlineInputBorder(),prefixIcon:Icon(Icons.payments_rounded)))),if(_hasQueueBookingStatusFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<String>(initialValue:_selectedQueueBookingStatus,items:[const DropdownMenuItem<String>(value:null,child:Text('كل حالات الطابور والحجز')),for(final value in _queueBookingStatuses)DropdownMenuItem<String>(value:value,child:Text(statusName(value)))],onChanged:_applyQueueBookingStatus,decoration:const InputDecoration(labelText:'حالة الطابور والحجز',border:OutlineInputBorder(),prefixIcon:Icon(Icons.event_available_rounded)))),Row(children:[_metric('عدد السجلات','${visibleRows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric('آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(visibleRows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[
+const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<int>(initialValue:_selectedPaymentMethodId,items:[const DropdownMenuItem<int>(value:null,child:Text('كل طرق الدفع')),for(final method in widget.paymentMethods)DropdownMenuItem<int>(value:method['id'] as int,child:Text('${method['name']}'))],onChanged:_applyPaymentMethod,decoration:const InputDecoration(labelText:'طريقة الدفع',border:OutlineInputBorder(),prefixIcon:Icon(Icons.payments_rounded)))),if(_hasQueueBookingStatusFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<String>(initialValue:_selectedQueueBookingStatus,items:[const DropdownMenuItem<String>(value:null,child:Text('كل حالات الطابور والحجز')),for(final value in _queueBookingStatuses)DropdownMenuItem<String>(value:value,child:Text(statusName(value)))],onChanged:_applyQueueBookingStatus,decoration:const InputDecoration(labelText:'حالة الطابور والحجز',border:OutlineInputBorder(),prefixIcon:Icon(Icons.event_available_rounded)))),Row(children:[_metric('عدد السجلات','${visibleRows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric(widget.keyName == 'beneficiary_statement' && widget.beneficiaryId == null ? 'إجمالي الرصيد الختامي' : 'آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(visibleRows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[
   Row(
     children: [
       const Icon(Icons.view_agenda_rounded, color: _reportOliveDark),
