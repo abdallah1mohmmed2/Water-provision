@@ -2579,6 +2579,19 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect((await postEvents(stationOneToken,[forged]))['results'].single['status'],'rejected');
     expect(database.select('SELECT id FROM partner_transactions'),isEmpty);
 
+    // 1,200 posted customer revenue includes a recorded special-price
+    // difference of 200. P3d must distribute only the hourly-base 1,000,
+    // rejecting a plan that tries to hand partners the extra 200.
+    database.execute('ALTER TABLE irrigations ADD COLUMN start_datetime TEXT');
+    database.execute('ALTER TABLE irrigations ADD COLUMN work_difference_snapshot INTEGER NOT NULL DEFAULT 0');
+    database.execute("""
+      INSERT INTO irrigations(id,station_id,status,start_datetime,work_difference_snapshot)
+      VALUES(999,1,'posted','2026-11-15T10:00:00.000',200)
+    """);
+    expect((await postEvents(stationOneToken,[event]))['results'].single['status'],'rejected');
+    expect(database.select('SELECT id FROM partner_transactions'),isEmpty);
+    database.execute('DELETE FROM irrigations WHERE id=999');
+
     database.execute("""CREATE TRIGGER p3d_fail_second_partner
       BEFORE INSERT ON journal_lines WHEN NEW.partner_id=3
       BEGIN SELECT RAISE(ABORT,'second partner failure'); END""");
