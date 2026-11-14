@@ -1219,7 +1219,7 @@ class StationRepository {
     if (searchClause.isNotEmpty) clauses.add(searchClause);
     final where = clauses.isEmpty ? '' : 'WHERE ${clauses.join(' AND ')}';
     return db.rawQuery(
-      "SELECT w.*, ${BalanceSql.workerPersonal('w')} balance, COALESCE((SELECT SUM(t.amount) FROM worker_transactions t WHERE t.worker_id=w.id AND t.reference_type='previous_debt' AND t.type='previous_receivable'),0) previous_debt_total FROM workers w $where ORDER BY w.name",
+      "SELECT w.*, ${BalanceSql.workerPersonal('w')} balance FROM workers w $where ORDER BY w.name",
       args,
     );
   }
@@ -1340,14 +1340,6 @@ class StationRepository {
       'earnings': earnings,
       'paid': paid,
       'balance': currentBalance,
-      // An active previous debt is distinct from the amount currently owed
-      // to the party; expose it without changing any posted journal entry.
-      'previous_debt_total': ((await db.rawQuery(
-        isWorker
-          ? "SELECT COALESCE(SUM(amount),0) total FROM worker_transactions WHERE worker_id=? AND reference_type='previous_debt' AND type='previous_receivable'"
-          : "SELECT COALESCE(SUM(amount),0) total FROM partner_transactions WHERE partner_id=? AND reference_type='previous_debt' AND type='previous_receivable'",
-        [id],
-      )).first['total'] as num?)?.round() ?? 0,
     };
   }
 
@@ -1446,9 +1438,13 @@ class StationRepository {
         'type': type == 'payment' && notes.trim().isNotEmpty
             ? 'payment_note'
             : type,
-        'description': type == 'payment'
-            ? (notes.trim().isNotEmpty ? 'صرف - ${notes.trim()}' : 'صرف')
-            : notes.trim().isNotEmpty
+        'description': type == 'previous_receivable'
+            ? (notes.trim().isEmpty
+                ? 'إضافة مديونية سابقة'
+                : 'إضافة مديونية سابقة - ${notes.trim()}')
+            : type == 'payment'
+                ? (notes.trim().isNotEmpty ? 'صرف - ${notes.trim()}' : 'صرف')
+                : notes.trim().isNotEmpty
                 ? notes.trim()
                 : switch (type) {
                 'accrual' || 'salary' || 'worker_entitlement' => 'استحقاق عامل',
@@ -1535,9 +1531,13 @@ class StationRepository {
         ...row,
         'journal_entry_id': null,
         'journal_line_id': null,
-        'description': type == 'payment'
-            ? (note.isEmpty ? 'صرف' : 'صرف - $note')
-            : note.isNotEmpty ? note : switch (type) {
+        'description': type == 'previous_receivable'
+            ? (note.isEmpty
+                ? 'إضافة مديونية سابقة'
+                : 'إضافة مديونية سابقة - $note')
+            : type == 'payment'
+                ? (note.isEmpty ? 'صرف' : 'صرف - $note')
+                : note.isNotEmpty ? note : switch (type) {
           'share_accrual' => 'استحقاق أرباح',
           'payment' => 'صرف',
           'irrigation' => 'سقاية على حساب الشريك',
@@ -1569,8 +1569,16 @@ class StationRepository {
     for (final row in rows) {
       final debit=(row['debit'] as num?)?.round() ?? 0, credit=(row['credit'] as num?)?.round() ?? 0, signed=credit-debit;
       running += signed; final ref='${row['reference_type']}';
-      final type=switch(ref){'payment'=>'payment','worker_payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=> (('${row['description'] ?? ''}'.startsWith('مديونية سابقة على ')) || ('${row['description'] ?? ''}'.startsWith('مديونية مصححة على '))) ? 'previous_receivable' : 'opening_balance',_=>ref};
-      out.add({...row,'type':type,'amount':signed.abs(),'signed_amount':signed,'description':row['memo'] ?? row['description'],'balance':running,'lah':signed>0?signed:0,'alayh':signed<0?-signed:0});
+      final originalDescription = '${row['description'] ?? ''}';
+      final correctedDebt = originalDescription.startsWith('مديونية مصححة على ');
+      final priorDebt = originalDescription.startsWith('مديونية سابقة على ') ||
+          correctedDebt;
+      final type=switch(ref){'payment'=>'payment','worker_payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=> priorDebt ? 'previous_receivable' : 'opening_balance',_=>ref};
+      final memo = '${row['memo'] ?? ''}'.trim();
+      final description = type == 'previous_receivable'
+          ? '${correctedDebt ? 'تصحيح مديونية سابقة' : 'إضافة مديونية سابقة'}${memo.isEmpty ? '' : ' - $memo'}'
+          : row['memo'] ?? row['description'];
+      out.add({...row,'type':type,'amount':signed.abs(),'signed_amount':signed,'description':description,'notes':memo,'balance':running,'lah':signed>0?signed:0,'alayh':signed<0?-signed:0});
     }
     return out.reversed.toList();
   }
@@ -1778,7 +1786,7 @@ class StationRepository {
     final searchClause = _partialSearchClause(search, ['p.name', 'p.phone'], args);
     if (searchClause.isNotEmpty) clauses.add(searchClause);
     return db.rawQuery(
-      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance, COALESCE((SELECT SUM(t.amount) FROM partner_transactions t WHERE t.partner_id=p.id AND t.reference_type='previous_debt' AND t.type='previous_receivable'),0) previous_debt_total FROM partners p WHERE ${clauses.join(' AND ')} ORDER BY p.name",
+      "SELECT p.*, ${BalanceSql.partnerPersonal('p')} balance FROM partners p WHERE ${clauses.join(' AND ')} ORDER BY p.name",
       args,
     );
   }
@@ -3022,24 +3030,9 @@ class StationRepository {
           // Beneficiary debt keeps its existing display-only minute-rate rule.
           // This new combined view never feeds the profit/distribution summaries.
           final beneficiaryRows = await report('debts', to: to);
-          // This is the CURRENT total of active prior-debt vouchers, distinct
-          // from the net period balance. Do not use it to re-post any journal.
-          final beneficiaryDebtRows = await db.rawQuery(
-            "SELECT beneficiary_id,COALESCE(SUM(amount),0) total FROM beneficiary_manual_debts WHERE status='posted' GROUP BY beneficiary_id",
-          );
-          final beneficiaryDebtTotals = <int, int>{
-            for (final debt in beneficiaryDebtRows)
-              (debt['beneficiary_id'] as num).toInt():
-                (debt['total'] as num).round(),
-          };
           final combined = <Map<String, Object?>>[
             for (final row in beneficiaryRows)
-              {
-                ...row,
-                'party_type': 'beneficiary',
-                'party_id': row['id'],
-                'previous_debt_total': beneficiaryDebtTotals[(row['id'] as num).toInt()] ?? 0,
-              },
+              {...row, 'party_type': 'beneficiary', 'party_id': row['id']},
           ];
           // Personal ledger convention: positive = owed TO worker/partner,
           // negative = owed BY them. In this unified debts report, positive
@@ -3070,7 +3063,6 @@ class StationRepository {
               'id': id,
               'party_id': id,
               'party_type': 'worker',
-              'previous_debt_total': person['previous_debt_total'] ?? 0,
               'name': person['name'],
               'phone': person['phone'],
               'balance': -actual,
@@ -3085,7 +3077,6 @@ class StationRepository {
               'id': id,
               'party_id': id,
               'party_type': 'partner',
-              'previous_debt_total': person['previous_debt_total'] ?? 0,
               'name': person['name'],
               'phone': person['phone'],
               'balance': -actual,
