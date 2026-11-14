@@ -2311,8 +2311,28 @@ class SaqiaServer {
       "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
     final worker = db.select(
       "SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
+    // A beneficiary's special-minute-rate surplus is not part of the
+    // hourly basis for partners' PERIODIC profit distribution either.
+    // The fixtures/old schemas may lack the V33 snapshots.
+    final irrigationCols = _hasTable('irrigations')
+        ? db.select('PRAGMA table_info(irrigations)')
+            .map((row) => '${row['name']}').toSet()
+        : <String>{};
+    final hasWorkDifference = {
+      'station_id', 'status', 'start_datetime', 'work_difference_snapshot',
+    }.every(irrigationCols.contains);
+    final operatingDifference = hasWorkDifference
+        ? (db.select(
+            "SELECT COALESCE(SUM(work_difference_snapshot),0) n "
+            "FROM irrigations WHERE station_id=? AND status!='cancelled' "
+            "AND start_datetime>=? AND start_datetime<?",
+            args,
+          ).first['n'] as num).round()
+        : 0;
+    final hourlyBaseRevenue =
+        (rev.first['n'] as num).round() - operatingDifference;
     final profit = ProfitDistributionCalculations.distributableProfit(
-      totalRevenue:(rev.first['n'] as num).round(),
+      totalRevenue:hourlyBaseRevenue,
       generalExpenses:(general.first['n'] as num).round(),
       workerEntitlements:(worker.first['n'] as num).round(),
     );
