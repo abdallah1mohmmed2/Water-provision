@@ -669,8 +669,6 @@ class _P1Mutations {
           'memo': 'إيراد السقي بعد التعديل',
         });
       }
-;
-      }
       if (editedTotal > 0) {
         _entry(
           tx,
