@@ -12711,6 +12711,34 @@ const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const Edge
 ]])));}
 }
 
+/// Resolve a display-only default before the initial report load.
+/// Explicitly supplied periods and date choices made while the async check
+/// runs always win. Report calculations and record queries are unchanged.
+Future<void> _initializeAutomaticReportRange({
+  required StationRepository repository,
+  required DateTime? initialFrom,
+  required DateTime? initialTo,
+  required bool Function() stillMounted,
+  required bool Function() maySetDefault,
+  required void Function(IrrigationPeriodSelection) apply,
+  required Future<void> Function() load,
+  String? systemType,
+}) async {
+  if (initialFrom == null && initialTo == null) {
+    try {
+      final period = await AutomaticIrrigationPeriod.forRepository(
+        repository,
+        systemType: systemType,
+      );
+      if (!stillMounted()) return;
+      if (maySetDefault()) apply(period);
+    } catch (_) {
+      // Preserve previous report behavior if the optional date probe fails.
+    }
+  }
+  if (stillMounted()) await load();
+}
+
 class RevenueComparisonsPage extends StatefulWidget {
   final StationRepository r;final DateTime? initialFrom,initialTo;
   const RevenueComparisonsPage(this.r,{this.initialFrom,this.initialTo,super.key});
@@ -12718,7 +12746,24 @@ class RevenueComparisonsPage extends StatefulWidget {
 }
 class _RevenueComparisonsState extends State<RevenueComparisonsPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: null,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('time_comparison',from:from,to:to,systemType:'all');if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -12750,7 +12795,24 @@ class MonthlyFinancialReportPage extends StatefulWidget {
 }
 class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: null,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('monthly_financial',from:from,to:to);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -12784,7 +12846,24 @@ class CashboxesTransfersReportPage extends StatefulWidget {
 }
 class _CashboxesTransfersReportState extends State<CashboxesTransfersReportPage>{
   List<Map<String,Object?>> boxes=[],transfers=[],flow=[];DateTime? from,to;String search='';bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: null,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final b=await widget.r.cashboxes();final t=await widget.r.transfers();final f=await widget.r.report('cash_flow',from:from,to:to);if(mounted)setState((){boxes=b;transfers=t;flow=f;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -12952,7 +13031,24 @@ class RevenueCollectionsReportPage extends StatefulWidget {
 }
 class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>{
   List<Map<String,Object?>> income=[],payments=[];DateTime? from,to;String systemType='all',search='';bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;systemType=widget.initialSystemType??'all';_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    systemType=widget.initialSystemType??'all';
+    
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: systemType,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final a=await widget.r.report('income',from:from,to:to,systemType:systemType);final b=await widget.r.report('payment_log',from:from,to:to);if(mounted)setState((){income=a;payments=b;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -12989,7 +13085,24 @@ class InventoryMovementReportPage extends StatefulWidget {
 }
 class _InventoryMovementReportState extends State<InventoryMovementReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;String? kind;String search='';double stock=0,capacity=0;bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: null,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.diesel();final s=await widget.r.dieselStock();final cfg=await widget.r.settings();if(mounted)setState((){rows=x;stock=s;capacity=double.tryParse('${cfg['diesel_tank_capacity_liters']??0}')??0;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -13028,7 +13141,24 @@ class ExpensesDetailedReportPage extends StatefulWidget {
 }
 class _ExpensesDetailedReportState extends State<ExpensesDetailedReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;String? category,status;String search='';bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;category=widget.initialCategory;status=widget.initialStatus;_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    category=widget.initialCategory;status=widget.initialStatus;
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: null,
+    );
+  }
   DateTime? get initialFrom=>widget.initialFrom;DateTime? get initialTo=>widget.initialTo;
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.expenseDetails(from:from,to:to,category:category,status:status);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
@@ -13077,12 +13207,21 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   bool useSpecialMinuteRateReports = false;
   String? error;
 
-  @override
+    @override
   void initState() {
     super.initState();
     from = widget.initialFrom;
     to = widget.initialTo;
-    _load();
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from = period.from; to = period.to; }),
+      load: _load,
+      systemType: 'all',
+    );
   }
 
   int _n(Object? value) => value is num ? value.round() : int.tryParse('$value') ?? 0;
@@ -13595,7 +13734,24 @@ class IrrigationDetailedReportPage extends StatefulWidget {
 }
 class _IrrigationDetailedReportState extends State<IrrigationDetailedReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;int? beneficiaryId;String systemType='all',search='';bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;beneficiaryId=widget.initialBeneficiaryId;systemType=widget.initialSystemType??'all';_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    
+    beneficiaryId=widget.initialBeneficiaryId;systemType=widget.initialSystemType??'all';
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: systemType,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('irrigations',from:from,to:to,systemType:systemType);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
