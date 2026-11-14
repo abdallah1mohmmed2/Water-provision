@@ -3421,8 +3421,8 @@ class SaqiaServer {
       ]);
     }
 
-    if (system=='diesel' && liters>0 && partyType == 'beneficiary') {
-      if (shortageLiters > 0) {
+    if (system=='diesel' && liters>0) {
+      if (partyType == 'beneficiary' && shortageLiters > 0) {
         final advanceAmount = AccountingCalculations.roundAmount(
             shortageLiters * dieselPrice, rounding);
         db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
