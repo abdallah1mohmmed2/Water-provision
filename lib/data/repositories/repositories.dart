@@ -2536,11 +2536,51 @@ class StationRepository {
     });
   }
 
+  /// One user-facing work-difference switch updates the operational mode
+  /// and its default invoices display mode in the same local transaction.
+  /// It never changes any historical irrigation, journal, or balance.
+  Future<void> setWorkDifferenceEnabled(bool enabled) async {
+    final config = await settings();
+    final rate = int.tryParse(config['work_minute_rate'] ?? '0') ?? 0;
+    if (enabled && (rate <= 0 || rate > 1000000)) {
+      throw StateError('يجب ضبط سعر الدقيقة الخاص قبل تفعيل فارق العمل');
+    }
+    final now = AppClock.now().toIso8601String();
+    await db.transaction((tx) async {
+      for (final key in const [
+        'work_price_difference_enabled',
+        'work_price_report_display_special_rate',
+      ]) {
+        await tx.insert('settings', {
+          'key': key,
+          'value': enabled ? 'true' : 'false',
+          'updated_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
   Future<void> setSetting(String key, String value) async {
     if (key == 'work_minute_rate') {
       final rate = int.tryParse(value);
       if (rate == null || rate < 0 || rate > 1000000) {
         throw ArgumentError('سعر الدقيقة الخاص يجب أن يكون رقماً من صفر إلى مليون');
+      }
+      if (rate == 0 &&
+          (await settings())['work_price_difference_enabled'] == 'true') {
+        throw StateError('أوقف فارق العمل قبل حذف سعر الدقيقة الخاص');
+      }
+    }
+    if (key == 'work_price_difference_enabled') {
+      if (value != 'true' && value != 'false') {
+        throw ArgumentError('حالة فارق العمل غير صحيحة');
+      }
+      if (value == 'true') {
+        final config = await settings();
+        final rate = int.tryParse(config['work_minute_rate'] ?? '0') ?? 0;
+        if (rate <= 0) {
+          throw StateError('اضبط سعر الدقيقة الخاص أولًا');
+        }
       }
     }
     if (key == 'work_price_report_display_special_rate' && value == 'true') {
