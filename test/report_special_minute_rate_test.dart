@@ -65,8 +65,17 @@ void main() {
 
     Map<String, Object?> findBalance(List<Map<String, Object?>> rows) =>
         rows.singleWhere((row) => row['id'] == personId);
+    // The "فارق العمل" switch affects invoices only. The beneficiary
+    // statement and debts always use the saved minute-rate snapshot.
     final baseline = findBalance(await repo.report('debts'));
-    expect(baseline['balance'], 6417);
+    expect(baseline['balance'], 6600);
+    final originalStatement = await repo.beneficiaryStatement(personId);
+    final originalIrrigation = originalStatement.singleWhere(
+      (row) => row['type'] == 's',
+    );
+    expect(originalIrrigation['alayh'], 6600);
+    expect(originalIrrigation['debit'], 6600);
+    expect(originalIrrigation['balance'], 6600);
     await repo.setSetting('work_minute_rate', '120');
     await repo.setSetting('work_price_report_display_special_rate', 'true');
     final special = findBalance(await repo.report('debts'));
@@ -74,7 +83,14 @@ void main() {
     await repo.setSetting('work_minute_rate', '300');
     expect(findBalance(await repo.report('debts'))['balance'], 6600);
     await repo.setSetting('work_price_report_display_special_rate', 'false');
-    expect(findBalance(await repo.report('debts'))['balance'], 6417);
+    expect(findBalance(await repo.report('debts'))['balance'], 6600);
+    expect((await repo.beneficiaryStatement(personId))
+        .singleWhere((row) => row['type'] == 's')['alayh'], 6600);
+    expect((await repo.settings())['work_price_report_display_special_rate'], 'false');
+    await repo.setSetting('work_price_report_display_special_rate', 'true');
+    expect((await repo.settings())['work_price_report_display_special_rate'], 'true');
+    expect((await repo.beneficiaryStatement(personId))
+        .singleWhere((row) => row['type'] == 's')['balance'], 6600);
     expect((await db.query('irrigations', where: 'id=?', whereArgs: [irrigationId]))
         .single['total_amount'], 6417);
     expect((await db.rawQuery('SELECT COUNT(*) c FROM journal_entries'))
