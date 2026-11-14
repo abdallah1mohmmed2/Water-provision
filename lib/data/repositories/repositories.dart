@@ -2545,6 +2545,17 @@ class StationRepository {
     if (enabled && (rate <= 0 || rate > 1000000)) {
       throw StateError('يجب ضبط سعر الدقيقة الخاص قبل تفعيل فارق العمل');
     }
+    // The server is authoritative for financial commands when connected.
+    // Push the station tariff first; on failure do not enable a divergent
+    // local operational mode that could create an unpostable invoice.
+    final api = SyncCoordinator.instance.apiClient;
+    if (api != null) {
+      await api.put('/settings', {
+        'work_minute_rate': '$rate',
+        'work_price_difference_enabled': enabled ? 'true' : 'false',
+        'work_price_report_display_special_rate': enabled ? 'true' : 'false',
+      });
+    }
     final now = AppClock.now().toIso8601String();
     await db.transaction((tx) async {
       for (final key in const [
@@ -2595,6 +2606,13 @@ class StationRepository {
       if (set['initial_setup_completed'] == 'true' && set['system_type'] != value) {
         throw StateError('نوع المنظومة ثابت منذ الإعداد الأولي ولا يمكن تغييره');
       }
+    }
+    final api = SyncCoordinator.instance.apiClient;
+    if (api != null && const {
+      'work_minute_rate',
+      'work_price_difference_enabled',
+    }.contains(key)) {
+      await api.put('/settings', {key: value});
     }
     await db.insert('settings', {
       'key': key,
