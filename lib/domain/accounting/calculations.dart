@@ -57,12 +57,6 @@ class AccountingCalculations {
   }
 
   /// مبلغ = دقائق × سعر الساعة / 60 (أو ساعات كاملة مقرّبة لأعلى إن عُطّلت الساعة الجزئية).
-  /// Beneficiary report-only minute value; never round the minute rate.
-  static int amountAtMinuteRate(int minutes, int minuteRate) {
-    if (minutes <= 0 || minuteRate <= 0) return 0;
-    return minutes * minuteRate;
-  }
-
   static int amountForMinutes(
     int minutes,
     int hourlyRate,

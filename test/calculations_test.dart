@@ -1,15 +1,16 @@
+import 'package:saqia_station/domain/accounting/report_minute_pricing.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saqia_station/domain/accounting/calculations.dart';
 
 void main() {
   group('حسابات السقي', () {
     test('سعر الدقيقة الخاص للعرض لا يقرب سعر الدقيقة ولا يغيّر الأساس', () {
-      expect(AccountingCalculations.amountAtMinuteRate(1, 120), 120);
-      expect(AccountingCalculations.amountAtMinuteRate(30, 120), 3600);
-      expect(AccountingCalculations.amountAtMinuteRate(60, 120), 7200);
-      expect(AccountingCalculations.amountAtMinuteRate(90, 120), 10800);
-      expect(AccountingCalculations.amountAtMinuteRate(0, 120), 0);
-      expect(AccountingCalculations.amountAtMinuteRate(60, 0), 0);
+      expect(ReportMinutePricing.amountAtMinuteRate(1, 120), 120);
+      expect(ReportMinutePricing.amountAtMinuteRate(30, 120), 3600);
+      expect(ReportMinutePricing.amountAtMinuteRate(60, 120), 7200);
+      expect(ReportMinutePricing.amountAtMinuteRate(90, 120), 10800);
+      expect(ReportMinutePricing.amountAtMinuteRate(0, 120), 0);
+      expect(ReportMinutePricing.amountAtMinuteRate(60, 0), 0);
       // Distinct general hourly basis for worker and partner accounting.
       expect(AccountingCalculations.amountForMinutes(60, 7000, 'up', true), 7000);
     });

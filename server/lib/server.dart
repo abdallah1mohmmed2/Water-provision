@@ -3117,13 +3117,15 @@ class SaqiaServer {
       'worker_id':workerId,'partner_id':partnerId,'party_type':partyType,
       'date':startText.substring(0,10),'start_datetime':startText,'end_datetime':endText,'minutes':minutes,
       'system_type':system,'water_hourly_rate_snapshot':system=='diesel'?waterRate:0,
-      'work_minute_rate_snapshot':reportMinuteRate,
       'diesel_liters_per_hour_snapshot':litersPerHour,'diesel_price_snapshot':dieselPrice,
       'solar_hourly_rate_snapshot':system=='solar'?waterRate:0,'third_type_hourly_rate_snapshot':system=='equivalent_hybrid'?waterRate:0,
       'cloud_minutes':cloudMinutes,'chargeable_minutes':chargeable,'water_amount':waterAmount,
       'diesel_amount':dieselAmount,'total_amount':total,'paid_amount':0,'status':'posted',
       'created_by':userId,'created_at':now,'updated_at':now,
     };
+    // Older server databases may not yet carry the display-only column.
+    // Financial posting must remain compatible; new schemas persist the snapshot.
+    if (columns.contains('work_minute_rate_snapshot')) irrigationValues['work_minute_rate_snapshot']=reportMinuteRate;
     if (columns.contains('session_id')) irrigationValues['session_id']=sessionId;
     if (columns.contains('queue_entry_id')) irrigationValues['queue_entry_id']=queueId;
     if (columns.contains('booking_id')) irrigationValues['booking_id']=bookingId;

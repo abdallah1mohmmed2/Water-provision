@@ -1,3 +1,4 @@
+import '../../domain/accounting/report_minute_pricing.dart';
 import 'dart:async';
 
 import '../../api/api_client.dart';
@@ -3079,7 +3080,7 @@ class StationRepository {
               _ => (irrigation['water_hourly_rate_snapshot'] as num?)?.round() ?? 0,
             };
             final displayedWater = useSpecialMinuteRate && minuteRate > 0
-                ? AccountingCalculations.amountAtMinuteRate(minutes, minuteRate)
+                ? ReportMinutePricing.amountAtMinuteRate(minutes, minuteRate)
                 : hourlyRate > 0
                     ? AccountingCalculations.amountForMinutes(
                         minutes, hourlyRate, 'up', partialHour,

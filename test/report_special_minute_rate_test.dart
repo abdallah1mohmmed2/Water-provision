@@ -1,3 +1,4 @@
+import 'package:saqia_station/domain/accounting/report_minute_pricing.dart';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -58,7 +59,7 @@ void main() {
         .singleWhere((row) => row['invoice_id'] == irrigationId);
     expect(original['total_amount'], 6417);
     expect(original['work_minute_rate_snapshot'], 120);
-    expect(AccountingCalculations.amountAtMinuteRate(
+    expect(ReportMinutePricing.amountAtMinuteRate(
       (original['chargeable_minutes'] as num).toInt(),
       (original['work_minute_rate_snapshot'] as num).toInt(),
     ), 6600);

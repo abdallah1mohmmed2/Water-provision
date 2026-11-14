@@ -1,3 +1,4 @@
+import '../domain/accounting/report_minute_pricing.dart';
 import '../core/app_clock.dart';
 import 'package:intl/intl.dart';
 import 'dart:typed_data';
@@ -736,7 +737,7 @@ class ReportService {
         final savedMinuteRate = n(row['work_minute_rate_snapshot']);
         final minuteRate = savedMinuteRate;
         if (minuteRate > 0) {
-          return AccountingCalculations.amountAtMinuteRate(minutes, minuteRate) +
+          return ReportMinutePricing.amountAtMinuteRate(minutes, minuteRate) +
               n(row['diesel_amount']);
         }
       }

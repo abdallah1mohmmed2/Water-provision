@@ -1,3 +1,4 @@
+import '../domain/accounting/report_minute_pricing.dart';
 import 'dart:async';
 import '../core/app_clock.dart';
 import '../core/app_prefs.dart';
@@ -12797,7 +12798,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       final savedRate = _n(row['work_minute_rate_snapshot']);
       final rate = savedRate;
       if (rate > 0) {
-        return AccountingCalculations.amountAtMinuteRate(
+        return ReportMinutePricing.amountAtMinuteRate(
               minutes.clamp(0, 100000000).toInt(), rate,
             ) +
             _n(row['diesel_amount']);
