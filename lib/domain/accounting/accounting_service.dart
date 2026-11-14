@@ -2609,8 +2609,21 @@ class AccountingService {
         "SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
         args,
       );
+      // The work-price surplus is real beneficiary income but NOT part of
+      // the general-hourly basis that partners are entitled to distribute.
+      // Only active irrigation snapshots in this period are excluded, so
+      // reversed/cancelled historical invoices never create another deduction.
+      final differenceRows = await tx.rawQuery(
+        "SELECT COALESCE(SUM(work_difference_snapshot),0) n "
+        "FROM irrigations WHERE station_id=? AND status!='cancelled' "
+        "AND start_datetime>=? AND start_datetime<?",
+        args,
+      );
+      final operatingDifference = (differenceRows.first['n'] as num).round();
+      final hourlyBaseRevenue =
+          (rev.first['n'] as num).round() - operatingDifference;
       final profit = AccountingCalculations.distributableProfit(
-        totalRevenue: (rev.first['n'] as num).round(),
+        totalRevenue: hourlyBaseRevenue,
         generalExpenses: (general.first['n'] as num).round(),
         workerEntitlements: (worker.first['n'] as num).round(),
       );
