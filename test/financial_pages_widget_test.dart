@@ -226,8 +226,6 @@ void main() {
   );
 
   testWidgets('الحسابات العامة: منتقي جهات الاتصال في الإضافة والتعديل دون حفظ تلقائي', (tester) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     var pickCount = 0;
@@ -292,7 +290,8 @@ void main() {
     final updated = await tester.runAsync(() => database.query('general_accounts'));
     expect(updated!.single['phone'], '+967 777 222 222');
     expect(pickCount, 2);
-  }, timeout: const Timeout(Duration(seconds: 45)));
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android),
+     timeout: const Timeout(Duration(seconds: 45)));
 
   testWidgets('شاشة التسوية تعرض الملخص والتاريخ وتحفظ تسوية الشهر', (tester) async {
     debugPrint('RECON_SAVE_TEST: start');
