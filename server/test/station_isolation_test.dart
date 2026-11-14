@@ -290,7 +290,7 @@ void main() {
     database.execute('''
       CREATE TABLE diesel_movements (
         id INTEGER PRIMARY KEY,station_id INTEGER,beneficiary_id INTEGER,
-        date TEXT,amount INTEGER,kind TEXT,irrigation_id INTEGER
+        date TEXT,amount INTEGER,kind TEXT,irrigation_id INTEGER,notes TEXT
       )
     ''');
     database.execute('''
