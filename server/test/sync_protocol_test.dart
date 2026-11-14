@@ -1590,6 +1590,106 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
     expect(database.select('SELECT COUNT(*) n FROM diesel_movements').single['n'],2);
     expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
+
+    // Operational work difference must be posted by Shelf with exactly the
+    // beneficiary invoice amount; hourly worker and partner accruals cannot
+    // inherit the special customer's price.
+    database.execute("INSERT INTO accounts(code,name,type) VALUES('4010','Diesel Revenue','income')");
+    database.execute("INSERT INTO station_settings(station_id,key,value) VALUES(1,'work_price_difference_enabled','true'),(1,'work_minute_rate','120')");
+    var nextIdentity = 1;
+    String freshIdentity() {
+      final suffix = (nextIdentity++).toRadixString(16).padLeft(12, '0');
+      return '99999999-9999-4999-8999-$suffix';
+    }
+    final copiedEffects = payload['_derived_global_ids'] as Map;
+    final newEffects = <String, List<String>>{
+      for (final e in copiedEffects.entries)
+        '${e.key}': (e.key == 'cloud_periods' ||
+                e.key == 'irrigation_sessions' ||
+                e.key == 'queue_entries' ||
+                e.key == 'booking_requests')
+            ? <String>[]
+            : List<String>.generate((e.value as List).length,
+                (_) => freshIdentity()),
+    };
+    const specialGlobalId = '99990000-aaaa-4aaa-8aaa-000000000001';
+    final specialPayload = <String, dynamic>{
+      ...payload,
+      '_global_id': specialGlobalId,
+      '_global_refs': {
+        'pump_id': {'table': 'pumps', 'global_id': 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+        'beneficiary_id': {'table': 'beneficiaries', 'global_id': 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+      },
+      'session_id': null,
+      'start_datetime': '2026-11-08T12:00:00.000',
+      'end_datetime': '2026-11-08T13:00:00.000',
+      'cloud_minutes': 0,
+      'cloud_periods': <Map<String,dynamic>>[],
+      '_derived_global_ids': newEffects,
+      'work_price_enabled_snapshot': 1,
+      'work_minute_rate_snapshot': 120,
+      'water_amount': 7200,
+      'diesel_amount': 1000,
+      'total_amount': 8200,
+      'work_base_water_amount_snapshot': 6000,
+      'work_difference_snapshot': 1200,
+    };
+    final specialCreated = await postEvents(stationOneToken, [{
+      'event_id': '99990000-aaaa-4aaa-8aaa-000000000002',
+      'entity_type': 'irrigations',
+      'entity_key': 'irrigations:$specialGlobalId',
+      'operation': 'create',
+      'base_version': 0,
+      'payload': specialPayload,
+    }]);
+    final specialStatus = (specialCreated['results'] as List).single;
+    expect(specialStatus['status'], 'accepted', reason: '$specialStatus');
+    final specialSaved = database.select(
+      'SELECT * FROM irrigations ORDER BY id DESC LIMIT 1').single;
+    expect(specialSaved['water_amount'], 7200);
+    expect(specialSaved['total_amount'], 8200);
+    expect(specialSaved['work_price_enabled_snapshot'], 1);
+    expect(specialSaved['work_base_water_amount_snapshot'], 6000);
+    expect(specialSaved['work_difference_snapshot'], 1200);
+    final specialId = (specialSaved['id'] as num).toInt();
+    expect(database.select(
+      "SELECT amount FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=?",
+      [specialId]).single['amount'], 100);
+    expect(database.select(
+      "SELECT amount FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?",
+      [specialId]).single['amount'], 6900);
+    final specialJournal = database.select("""
+      SELECT SUM(jl.debit) debit,SUM(jl.credit) credit
+      FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id
+      WHERE (je.reference_type='irrigation' AND je.reference_id=?)
+        OR (je.reference_type='worker' AND je.reference_id IN
+            (SELECT id FROM worker_transactions WHERE reference_type='irrigation' AND reference_id=?))
+        OR (je.reference_type='partner' AND je.reference_id IN
+            (SELECT id FROM partner_transactions WHERE reference_type='irrigation_profit' AND reference_id=?))
+    """, [specialId, specialId, specialId]).single;
+    expect(specialJournal['debit'], specialJournal['credit']);
+
+    // A second device with stale general-hourly mode must be rejected rather
+    // than silently recording a different beneficiary invoice.
+    final staleOff = await postEvents(stationOneToken, [{
+      'event_id': '99990000-aaaa-4aaa-8aaa-000000000003',
+      'entity_type': 'irrigations',
+      'entity_key': 'irrigations:99990000-aaaa-4aaa-8aaa-000000000004',
+      'operation': 'create',
+      'base_version': 0,
+      'payload': {
+        ...specialPayload,
+        '_global_id': '99990000-aaaa-4aaa-8aaa-000000000004',
+        'start_datetime': '2026-11-08T14:00:00.000',
+        'end_datetime': '2026-11-08T15:00:00.000',
+        'work_price_enabled_snapshot': 0,
+        'water_amount': 6000,
+        'total_amount': 7000,
+        'work_difference_snapshot': 0,
+      },
+    }]);
+    expect((staleOff['results'] as List).single['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 2);
   });
 
   test('sync applies independent diesel opening stock once with balanced journal', () async {
