@@ -6,6 +6,7 @@ import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/calculations.dart';
+import '../domain/accounting/debt_report_totals.dart';
 import 'official_report_template.dart';
 import 'party_statement_balance_display.dart';
 
@@ -217,6 +218,9 @@ class ReportService {
           return sum + (num.tryParse('${value ?? ''}') ?? 0);
         });
     String money(num value) => NumberFormat('#,##0.##').format(value);
+    final debtTotals = (key == 'debts' || key == 'all_party_debts')
+        ? DebtReportTotals.fromRows(rows)
+        : null;
     final summaryBoxes = <StatBoxData>[
       StatBoxData(
         number: '1',
@@ -286,25 +290,24 @@ class ReportService {
           value: '${money(sumOf('net_amount'))} ريال',
           isBlueTint: true,
         ),
-      if (key == 'debts' || key == 'all_party_debts') ...[
+      if (debtTotals != null) ...[
         StatBoxData(
           number: '10',
           title: 'إجمالي المديونية (عليه)',
-          value: '${money(rows.fold<num>(0, (sum, row) {
-            final value = row['balance'];
-            final balance = value is num ? value : num.tryParse('${value ?? ''}') ?? 0;
-            return sum + (balance > 0 ? balance : 0);
-          }))} ريال',
+          value: '${money(debtTotals.totalAlayh)} ريال',
         ),
         StatBoxData(
           number: '11',
           title: 'إجمالي الرصيد الدائن (له)',
-          value: '${money(rows.fold<num>(0, (sum, row) {
-            final value = row['balance'];
-            final balance = value is num ? value : num.tryParse('${value ?? ''}') ?? 0;
-            return sum + (balance < 0 ? balance.abs() : 0);
-          }))} ريال',
+          value: '${money(debtTotals.totalLah)} ريال',
           isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '12',
+          title: 'صافي المتبقي (له / عليه)',
+          // Net is a summary difference, not an offset of any party's debt.
+          value: debtTotals.netLabel((amount) => '${money(amount)} ريال'),
+          isLarge: true,
         ),
       ],
     ];
