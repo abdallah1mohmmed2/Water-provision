@@ -28,6 +28,16 @@ class ReportService {
     'activity_overview',
     'expenses',
     'cash_flow',
+    // Batch 2 (nine additional reports)
+    'cashboxes',
+    'payment_methods',
+    'payment_log',
+    'queue_bookings',
+    'diesel_inventory',
+    'oil_status',
+    'journal',
+    'ledger',
+    'debts',
   };
 
   static const titles = {
@@ -1462,7 +1472,7 @@ class ReportService {
       try {
         await Printing.sharePdf(
           bytes: bytes,
-          filename: ReportFileNameService.withExtension(chosenName),
+          filename: ReportFileNameService.withExtension(chosenName!),
         );
       } catch (shareError) {
         throw StateError(
