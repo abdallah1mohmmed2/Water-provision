@@ -1701,23 +1701,53 @@ void main() {
     expect(forParty(after, 'beneficiary', beneficiary)['balance'], b0 + 1300);
     expect(forParty(after, 'worker', worker)['balance'], w0 + 2400);
     expect(forParty(after, 'partner', partner)['balance'], p0 + 3500);
-    expect(forParty(after, 'beneficiary', beneficiary)['previous_debt_total'], 1300);
-    expect(forParty(after, 'worker', worker)['previous_debt_total'], 2400);
-    expect(forParty(after, 'partner', partner)['previous_debt_total'], 3500);
     expect((await svc.workerBalance(worker))['balance'], -2400);
     expect((await svc.partnerBalance(partner))['balance'], -3500);
-    // The debt voucher must remain visible independently of the net balance:
-    // a party can owe a prior debt even when it has a larger earned credit.
-    final workerCard = (await repo.workers()).singleWhere(
-      (row) => row['id'] == worker,
+
+    // Use the same existing statement columns as beneficiary debts.
+    // No separate prior-debt column and no duplicate journal posting.
+    expect(ReportService.reportColumns['worker_transactions'],
+        ['date', 'description', 'lah', 'alayh', 'balance']);
+    expect(ReportService.reportColumns['partner_accounts'],
+        ['date', 'description', 'lah', 'alayh', 'balance']);
+    expect(ReportService.reportColumns['all_party_debts'],
+        ['party_type', 'name', 'balance']);
+    final workerStatement = await repo.report('worker_transactions',
+        workerId: worker);
+    final partnerStatement = await repo.report('partner_accounts',
+        partnerId: partner);
+    final workerDebitRow = workerStatement.singleWhere(
+      (row) => row['type'] == 'previous_receivable',
     );
-    final partnerCard = (await repo.partners()).singleWhere(
-      (row) => row['id'] == partner,
+    final partnerDebitRow = partnerStatement.singleWhere(
+      (row) => row['type'] == 'previous_receivable',
     );
-    expect(workerCard['previous_debt_total'], 2400);
-    expect(partnerCard['previous_debt_total'], 3500);
-    expect((await repo.partyFinancialSummary('worker', worker))['previous_debt_total'], 2400);
-    expect((await repo.partyFinancialSummary('partner', partner))['previous_debt_total'], 3500);
+    expect(workerDebitRow['lah'], 0);
+    expect(workerDebitRow['alayh'], 2400);
+    expect(workerDebitRow['signed_amount'], -2400);
+    expect('${workerDebitRow['description']}', contains('إضافة مديونية سابقة'));
+    expect('${workerDebitRow['description']}', contains('اختبار مديونية عامل'));
+    expect(partnerDebitRow['lah'], 0);
+    expect(partnerDebitRow['alayh'], 3500);
+    expect(partnerDebitRow['signed_amount'], -3500);
+    expect('${partnerDebitRow['description']}', contains('إضافة مديونية سابقة'));
+    expect('${partnerDebitRow['description']}', contains('اختبار مديونية شريك'));
+    expect(workerDebitRow.containsKey('previous_debt_total'), isFalse);
+    expect(partnerDebitRow.containsKey('previous_debt_total'), isFalse);
+
+    for (final party in [('worker', worker, 2400),
+                         ('partner', partner, 3500)]) {
+      final statement = await repo.partyLedgerStatementData(
+        kind: party.$1, id: party.$2,
+      );
+      final movement = (statement['rows'] as List)
+          .cast<Map<String,Object?>>()
+          .singleWhere((row) =>
+              row['debit'] == party.$3 &&
+              row['alayh'] == party.$3);
+      expect(movement['lah'], 0);
+      expect(statement['closing_balance'], -party.$3);
+    }
     expect(
       (await repo.report('debts', to: end))
           .any((row) => row['id'] == worker && row['name'] == 'ALL-DEBTS-W-$unique'),
