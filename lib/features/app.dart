@@ -14248,7 +14248,22 @@ class CentralLedgerReportPage extends StatefulWidget {
 }
 class _CentralLedgerReportState extends State<CentralLedgerReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;String search='';bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    
+    
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('ledger',from:from,to:to);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -14289,7 +14304,22 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
   List<Map<String,Object?>> rows=[],beneficiaries=[],workers=[],partners=[],cashboxes=[]; Map<String,Object?> statementSummary={};
   bool loading=true; String? error;
   final labels=<String,String>{'beneficiary':'كشف المستفيد','worker':'كشف العامل','partner':'كشف الشريك','expenses':'كشف المصروفات','receipts':'كشف المقبوضات','payments':'كشف المدفوعات','cashbox':'كشف الصندوق'};
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_loadLists();}
+  @override void initState(){
+    super.initState();
+    
+    
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _loadLists,
+    );
+  }
   Future<void> _loadLists()async{try{final b=await widget.r.beneficiaries(),w=await widget.r.workers(),p=await widget.r.partners(),c=await widget.r.cashboxes();if(mounted)setState((){beneficiaries=b;workers=w;partners=p;cashboxes=c;selectedId=kind=='beneficiary'||b.isEmpty?null:b.first['id'] as int?;});await _load();}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _load()async{if((kind=='beneficiary'||kind=='worker'||kind=='partner'||kind=='cashbox')&&selectedId==null){if(mounted)setState((){rows=[];statementSummary={'opening_balance':0,'total_lah':0,'total_alayh':0,'net_movement':0,'closing_balance':0,'rows':<Map<String,Object?>>[]};loading=false;error=null;});return;}if(mounted)setState((){loading=true;error=null;});try{final data=await widget.r.partyLedgerStatementData(kind:kind,id:selectedId,from:from,to:to);final x=(data['rows'] as List).cast<Map<String,Object?>>();if(mounted)setState((){rows=x;statementSummary=data;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   int _n(Object? v)=>(v as num?)?.round()??0;
@@ -14421,7 +14451,22 @@ class WorkerTransactionsOverviewPage extends StatefulWidget {
 }
 class _WorkerTransactionsOverviewState extends State<WorkerTransactionsOverviewPage>{
   List<Map<String,Object?>> data=[]; DateTime? from,to; String search=''; bool loading=true; String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    
+    
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final ws=await widget.r.workers();final out=<Map<String,Object?>>[];for(final w in ws){final tx=await widget.r.report('worker_transactions',workerId:w['id'] as int,from:from,to:to);final financial=tx.where((x)=>!const ['opening_balance','current_balance','worker_irrigation_info'].contains(x['type'])).toList();final openingRows=tx.where((x)=>x['type']=='opening_balance').toList();final lah=financial.fold<int>(0,(s,x)=>s+_n(x['lah']))+openingRows.fold<int>(0,(s,x)=>s+_n(x['lah']));final alayh=financial.fold<int>(0,(s,x)=>s+_n(x['alayh']))+openingRows.fold<int>(0,(s,x)=>s+_n(x['alayh']));out.add({...w,'lahTotal':lah,'alayhTotal':alayh,'movementCount':financial.where((x)=>x['type']!='worker_income_total').length});}if(mounted)setState((){data=out;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   int _n(Object? v)=>(v as num?)?.round()??0;
   String _date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
@@ -14466,7 +14511,22 @@ class _WorkerAccountsReportState extends State<WorkerAccountsReportPage> {
   String workerSearch='';
   bool loading=true;
   String? error;
-  @override void initState(){super.initState();selectedId=widget.initialWorkerId;from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    selectedId=widget.initialWorkerId;
+    
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+    );
+  }
   @override void dispose(){workerSearchController.dispose();super.dispose();}
   Future<void> _load() async {
     if(mounted)setState((){loading=true;error=null;});
@@ -14517,7 +14577,22 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
   bool loading=true;
   String? error;
 
-  @override void initState(){super.initState();selectedId=widget.initialPartnerId;from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    
+    selectedId=widget.initialPartnerId;
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+    );
+  }
   Future<void> _load() async {
     if (mounted) setState((){loading=true;error=null;});
     try {
