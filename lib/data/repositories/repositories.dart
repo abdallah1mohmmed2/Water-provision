@@ -1201,9 +1201,12 @@ class StationRepository {
     final clause = _partialSearchClause(
       search, ['b.name', 'dm.kind', 'dm.notes'], searchArgs,
     );
+    // Legacy null-station movements may only be displayed when there is
+    // exactly one station; never attribute ambiguous old rows in multi-station DBs.
+    const stationFilter = "(dm.station_id=? OR (dm.station_id IS NULL AND (SELECT COUNT(*) FROM stations)=1))";
     final where = clause.isEmpty
-        ? ' WHERE dm.station_id=?'
-        : ' WHERE dm.station_id=? AND ($clause)';
+        ? ' WHERE $stationFilter'
+        : ' WHERE $stationFilter AND ($clause)';
     return db.rawQuery(
       'SELECT dm.*,b.name beneficiary_name FROM diesel_movements dm LEFT JOIN beneficiaries b ON b.id=dm.beneficiary_id$where ORDER BY dm.date DESC',
       [stationId, ...searchArgs],
