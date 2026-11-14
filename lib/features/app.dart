@@ -4611,6 +4611,14 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                         ),
                                       ),
                                       const SizedBox(height: 10),
+                                      PartyPaymentActions(
+                                        repository: widget.r,
+                                        userId: widget.userId,
+                                        partyType: 'beneficiary',
+                                        partyId: x['id'] as int,
+                                        onChanged: load,
+                                      ),
+                                      const SizedBox(height: 8),
                                       Align(
                                         alignment: Alignment.centerLeft,
                                         child: Wrap(
@@ -8288,14 +8296,68 @@ class _DieselState extends State<DieselPage> {
       : const Center(child: Text('عناصر الديزل غير متاحة لأن المنظومة شمسية.'));
 }
 
+class PartyPaymentActions extends StatelessWidget {
+  final StationRepository repository;
+  final int userId;
+  final String partyType;
+  final int partyId;
+  final Future<void> Function() onChanged;
+  const PartyPaymentActions({
+    required this.repository,
+    required this.userId,
+    required this.partyType,
+    required this.partyId,
+    required this.onChanged,
+    super.key,
+  });
+
+  Future<void> _open(BuildContext context, {required bool debt}) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => PaymentsPage(
+        repository,
+        userId: userId,
+        compactOnly: true,
+        initialTarget: partyType,
+        initialPartyId: partyId,
+        openDebt: debt,
+      ),
+    ));
+    if (context.mounted) await onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      OutlinedButton.icon(
+        onPressed: () => _open(context, debt: true),
+        icon: const Icon(Icons.note_add_outlined),
+        label: const Text('إضافة مديونية'),
+      ),
+      FilledButton.icon(
+        onPressed: () => _open(context, debt: false),
+        icon: const Icon(Icons.add_card),
+        label: const Text('إضافة دفعة'),
+      ),
+    ],
+  );
+}
+
 class PaymentsPage extends StatefulWidget {
   final StationRepository r;
   final int userId;
   final bool compactOnly;
+  final String initialTarget;
+  final int? initialPartyId;
+  final bool openDebt;
   const PaymentsPage(
     this.r, {
     required this.userId,
     this.compactOnly = false,
+    this.initialTarget = 'beneficiary',
+    this.initialPartyId,
+    this.openDebt = false,
     super.key,
   });
   @override
@@ -8339,13 +8401,26 @@ class _PaymentsState extends State<PaymentsPage> {
   @override
   void initState() {
     super.initState();
+    target = widget.initialTarget;
     if (widget.compactOnly) {
       // حمّل خيارات المستفيدين والعمال والشركاء والصناديق قبل فتح نموذج الدفع.
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
-        await load();
-        if (!mounted) return;
-        await add();
+        try {
+          await load();
+          if (!mounted) return;
+          final parties = target == 'beneficiary' ? bs : target == 'worker' ? ws : ps;
+          if (widget.initialPartyId != null &&
+              !parties.any((p) => p['id'] == widget.initialPartyId)) {
+            msg('الطرف المحدد غير متاح؛ لم تُسجّل أي حركة.');
+          } else if (widget.openDebt) {
+            await addPreviousDebt();
+          } else {
+            await add();
+          }
+        } catch (error) {
+          msg(friendlyError(error));
+        }
         if (mounted) Navigator.of(context).maybePop();
       });
     } else {
@@ -8367,7 +8442,7 @@ class _PaymentsState extends State<PaymentsPage> {
         ? ws
         : ps;
     final initialPartyId = existing == null
-        ? null
+        ? widget.initialPartyId
         : (existing['beneficiary_id'] ?? existing['worker_id'] ?? existing['partner_id']) as int?;
     if (existing != null && initialPartyId != null &&
         !list.any((x) => x['id'] == initialPartyId)) {
@@ -8387,6 +8462,7 @@ class _PaymentsState extends State<PaymentsPage> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (c, s) => AlertDialog(
+          scrollable: true,
           title: Text(existing == null ? 'تسجيل دفعة' : 'تعديل سند قبض/صرف'),
           content: SizedBox(
             width: 480,
@@ -8639,8 +8715,8 @@ class _PaymentsState extends State<PaymentsPage> {
       msg('لا يوجد ${targetName(target)} متاحون لإضافة مديونية سابقة');
       return;
     }
-    // Require deliberate selection: never post a debt to the first party by default.
-    int? partyId;
+    // A list-card action is an explicit selection; the general form stays unselected.
+    int? partyId = widget.initialPartyId;
     final amount = TextEditingController();
     final notes = TextEditingController();
     final partyLabel = target == 'beneficiary'
@@ -10364,21 +10440,10 @@ class _WorkersState extends State<WorkersPage> {
                 ? const EmptyView('لا يوجد عمال مطابقون')
                 : LayoutBuilder(
                     builder: (_, box) {
-                      final cols = box.maxWidth >= 1100
-                          ? 3
-                          : box.maxWidth >= 720
-                          ? 2
-                          : 1;
-                      const gap = 12.0;
-                      final w = (box.maxWidth - gap * (cols - 1)) / cols;
-                      return GridView.builder(
+                      final w = box.maxWidth;
+                      return ListView.separated(
                         padding: EdgeInsets.zero,
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: cols,
-                          crossAxisSpacing: gap,
-                          mainAxisSpacing: gap,
-                          childAspectRatio: cols == 1 ? 1.1 : 0.85,
-                        ),
+                        separatorBuilder: (_, index) => const SizedBox(height: 12),
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final x = filtered[index];
@@ -10462,6 +10527,14 @@ style: TextStyle(
 ),
                                           ),
                                           const SizedBox(height: 12),
+                                      PartyPaymentActions(
+                                        repository: widget.r,
+                                        userId: widget.userId,
+                                        partyType: 'worker',
+                                        partyId: x['id'] as int,
+                                        onChanged: load,
+                                      ),
+                                      const SizedBox(height: 8),
                                           Align(
                                             alignment: Alignment.centerLeft,
                                             child: Wrap(
@@ -11002,21 +11075,10 @@ class _PartnersState extends State<PartnersPage> {
                 ? const EmptyView('لا يوجد شركاء مطابقون')
                 : LayoutBuilder(
                     builder: (_, box) {
-                      final cols = box.maxWidth >= 1100
-                          ? 3
-                          : box.maxWidth >= 720
-                          ? 2
-                          : 1;
-                      const gap = 12.0;
-                      final w = (box.maxWidth - gap * (cols - 1)) / cols;
-                      return GridView.builder(
+                      final w = box.maxWidth;
+                      return ListView.separated(
                         padding: EdgeInsets.zero,
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: cols,
-                          crossAxisSpacing: gap,
-                          mainAxisSpacing: gap,
-                          childAspectRatio: cols == 1 ? 1.1 : 0.85,
-                        ),
+                        separatorBuilder: (_, index) => const SizedBox(height: 12),
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final x = filtered[index];
@@ -11102,6 +11164,14 @@ style: TextStyle(
 ),
                                           ),
                                           const SizedBox(height: 12),
+                                      PartyPaymentActions(
+                                        repository: widget.r,
+                                        userId: widget.userId,
+                                        partyType: 'partner',
+                                        partyId: x['id'] as int,
+                                        onChanged: load,
+                                      ),
+                                      const SizedBox(height: 8),
                                           Row(
                                             children: [
                                               Expanded(
