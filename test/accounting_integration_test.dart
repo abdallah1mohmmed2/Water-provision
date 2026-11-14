@@ -1701,6 +1701,9 @@ void main() {
     expect(forParty(after, 'beneficiary', beneficiary)['balance'], b0 + 1300);
     expect(forParty(after, 'worker', worker)['balance'], w0 + 2400);
     expect(forParty(after, 'partner', partner)['balance'], p0 + 3500);
+    expect(forParty(after, 'beneficiary', beneficiary)['previous_debt_total'], 1300);
+    expect(forParty(after, 'worker', worker)['previous_debt_total'], 2400);
+    expect(forParty(after, 'partner', partner)['previous_debt_total'], 3500);
     expect((await svc.workerBalance(worker))['balance'], -2400);
     expect((await svc.partnerBalance(partner))['balance'], -3500);
     // The debt voucher must remain visible independently of the net balance:
