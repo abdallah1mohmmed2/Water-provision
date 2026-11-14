@@ -2492,6 +2492,19 @@ class StationRepository {
   }
 
   Future<void> setSetting(String key, String value) async {
+    if (key == 'work_minute_rate') {
+      final rate = int.tryParse(value);
+      if (rate == null || rate < 0 || rate > 1000000) {
+        throw ArgumentError('سعر الدقيقة الخاص يجب أن يكون رقماً من صفر إلى مليون');
+      }
+    }
+    if (key == 'work_price_report_display_special_rate' && value == 'true') {
+      final values = await settings();
+      final rate = int.tryParse(values['work_minute_rate'] ?? '0') ?? 0;
+      if (rate <= 0) {
+        throw StateError('حدد سعر الدقيقة الخاص أولاً قبل تفعيل عرضه في التقارير');
+      }
+    }
     if (key == 'system_type') {
       final set = await settings();
       if (set['initial_setup_completed'] == 'true' && set['system_type'] != value) {
