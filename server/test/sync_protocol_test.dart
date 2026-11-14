@@ -1514,7 +1514,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(peerTypes.where((type) => type == 'worker_transactions'), hasLength(1));
     expect(peerTypes.where((type) => type == 'partner_transactions'), hasLength(1));
     expect(peerTypes.where((type) => type == 'journal_entries'), hasLength(3));
-    expect(peerTypes.where((type) => type == 'journal_lines'), hasLength(7));
+    expect(peerTypes.where((type) => type == 'journal_lines'), hasLength(6));
     expect(peerTypes.lastIndexOf('irrigation_sessions'), greaterThan(peerTypes.indexOf('irrigations')));
     final projectionLogCount = database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'];
 

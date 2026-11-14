@@ -298,8 +298,9 @@ class _FirebaseAccessGateState extends State<FirebaseAccessGate>
                                         if (signedIn) {
                                           setState(() => _busy = true);
                                           await _verify();
-                                          if (mounted)
+                                          if (mounted) {
                                             setState(() => _busy = false);
+                                          }
                                         } else {
                                           await _login();
                                         }

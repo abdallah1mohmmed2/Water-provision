@@ -88,7 +88,7 @@ class AccountingCalculations {
     );
     // محرك الديزل يعمل طوال زمن السقاية: لا خصم للغيم إطلاقًا.
     // dieselPrice/rounding kept as API parameters for historic callers only.
-    final cloud = 0;
+    const cloud = 0;
     final charge = minutes;
     // سياسة محطة المياه: قيمة الماء تُقرّب للأعلى إلى أقرب ريال دائمًا.
     // لا نقرّب سعر الدقيقة منفردًا؛ نحسب من سعر الساعة والدقائق مباشرة.
