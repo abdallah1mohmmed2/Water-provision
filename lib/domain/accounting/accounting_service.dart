@@ -1377,9 +1377,8 @@ class AccountingService {
           beneficiaryId,
         ]);
         final available = (br.first['stock'] as num?)?.toDouble() ?? 0;
-        shortageLiters = calc.dieselLiters > available
-            ? calc.dieselLiters - available
-            : 0;
+        shortageLiters =
+            (calc.dieselLiters - available).clamp(0.0, calc.dieselLiters).toDouble();
         final financialCredit =
             (set['diesel_delivery_financial_credit'] ?? '').toLowerCase() ==
             'true';
