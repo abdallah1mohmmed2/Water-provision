@@ -1569,7 +1569,7 @@ class StationRepository {
     for (final row in rows) {
       final debit=(row['debit'] as num?)?.round() ?? 0, credit=(row['credit'] as num?)?.round() ?? 0, signed=credit-debit;
       running += signed; final ref='${row['reference_type']}';
-      final type=switch(ref){'payment'=>'payment','worker_payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=> '${row['description'] ?? ''}'.startsWith('مديونية سابقة على ') ? 'previous_receivable' : 'opening_balance',_=>ref};
+      final type=switch(ref){'payment'=>'payment','worker_payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=> (('${row['description'] ?? ''}'.startsWith('مديونية سابقة على ')) || ('${row['description'] ?? ''}'.startsWith('مديونية مصححة على '))) ? 'previous_receivable' : 'opening_balance',_=>ref};
       out.add({...row,'type':type,'amount':signed.abs(),'signed_amount':signed,'description':row['memo'] ?? row['description'],'balance':running,'lah':signed>0?signed:0,'alayh':signed<0?-signed:0});
     }
     return out.reversed.toList();
