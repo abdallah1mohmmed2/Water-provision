@@ -3397,10 +3397,11 @@ class AccountingService {
       final oldDieselMoves = await tx.query('diesel_movements',
         where: 'irrigation_id=?', whereArgs: [id], orderBy: 'id');
       await _reverseIrrigationDieselTx(tx, id, userId, 'تعديل السقاية');
-      if (type == 'diesel' && partyType == 'beneficiary' && result.dieselLiters > 0) {
+      if (type == 'diesel' && result.dieselLiters > 0) {
         final price = (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0;
-        if (shortageLiters > 0) {
+        if (partyType == 'beneficiary' && shortageLiters > 0) {
           await tx.insert('diesel_movements', {
+            'station_id': old['station_id'],
             'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'advance',
             'liters': shortageLiters, 'unit_price': price,
             'amount': AccountingCalculations.roundAmount(shortageLiters * price, rounding),
@@ -3409,6 +3410,7 @@ class AccountingService {
           });
         }
         await tx.insert('diesel_movements', {
+          'station_id': old['station_id'],
           'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'consumption',
           'liters': result.dieselLiters, 'unit_price': price, 'amount': result.dieselAmount,
           'date': start.toIso8601String(), 'created_by': userId,
