@@ -1703,6 +1703,18 @@ void main() {
     expect(forParty(after, 'partner', partner)['balance'], p0 + 3500);
     expect((await svc.workerBalance(worker))['balance'], -2400);
     expect((await svc.partnerBalance(partner))['balance'], -3500);
+    // The debt voucher must remain visible independently of the net balance:
+    // a party can owe a prior debt even when it has a larger earned credit.
+    final workerCard = (await repo.workers()).singleWhere(
+      (row) => row['id'] == worker,
+    );
+    final partnerCard = (await repo.partners()).singleWhere(
+      (row) => row['id'] == partner,
+    );
+    expect(workerCard['previous_debt_total'], 2400);
+    expect(partnerCard['previous_debt_total'], 3500);
+    expect((await repo.partyFinancialSummary('worker', worker))['previous_debt_total'], 2400);
+    expect((await repo.partyFinancialSummary('partner', partner))['previous_debt_total'], 3500);
     expect(
       (await repo.report('debts', to: end))
           .any((row) => row['id'] == worker && row['name'] == 'ALL-DEBTS-W-$unique'),
