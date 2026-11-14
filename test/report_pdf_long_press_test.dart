@@ -9,7 +9,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: ReportPdfLongPress(
-          onLongPress: () async => shares++,
+          onLongPress: () async { shares++; },
           child: FilledButton(
             onPressed: () => previews++,
             child: const Text('PDF'),
@@ -29,7 +29,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: ReportPdfLongPress(
-          onLongPress: () async => shares++,
+          onLongPress: () async { shares++; },
           child: FilledButton(
             onPressed: () => previews++,
             child: const Text('PDF'),
@@ -49,7 +49,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
         body: ReportPdfLongPress(
-          onLongPress: () async => shares++,
+          onLongPress: () async { shares++; },
           child: IconButton(
             onPressed: () => previews++,
             icon: const Icon(Icons.picture_as_pdf_rounded),
@@ -68,7 +68,7 @@ void main() {
       home: Scaffold(
         body: ReportPdfLongPress(
           enabled: false,
-          onLongPress: () async => shares++,
+          onLongPress: () async { shares++; },
           child: const FilledButton(onPressed: null, child: Text('PDF')),
         ),
       ),

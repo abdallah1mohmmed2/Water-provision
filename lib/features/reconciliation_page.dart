@@ -6,6 +6,7 @@ import '../core/app_clock.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/reconciliation_service.dart';
 import '../services/official_report_template.dart';
+import '../services/report_pdf_preview_service.dart';
 
 class ReconciliationPage extends StatefulWidget {
   final StationRepository repo;
@@ -162,7 +163,11 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
           title: const Text('التسوية الشهرية'),
           actions: [
             IconButton(onPressed: loading ? null : _load, tooltip: 'تحديث', icon: const Icon(Icons.refresh_rounded)),
-            IconButton(onPressed: loading || d == null ? null : _exportPdf, tooltip: 'PDF بطاقات إحصائية', icon: const Icon(Icons.picture_as_pdf_rounded)),
+            ReportPdfLongPress(
+  enabled: !loading && d != null,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_exportPdf),
+  child: IconButton(onPressed: loading || d == null ? null : _exportPdf, icon: const Icon(Icons.picture_as_pdf_rounded)),
+),
           ],
         ),
         body: loading
@@ -274,7 +279,11 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                           ),
                       ],
                       const SizedBox(height: 10),
-                      OutlinedButton.icon(onPressed: _exportPdf, icon: const Icon(Icons.picture_as_pdf_rounded), label: const Text('طباعة PDF — بطاقات إحصائية فقط')),
+                      ReportPdfLongPress(
+  enabled: !loading && data != null,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_exportPdf),
+  child: OutlinedButton.icon(onPressed: _exportPdf, icon: const Icon(Icons.picture_as_pdf_rounded), label: const Text('طباعة PDF — بطاقات إحصائية فقط')),
+),
                     ],
                   ),
       ),

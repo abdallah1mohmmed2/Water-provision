@@ -4,6 +4,7 @@ import '../core/app_clock.dart';
 import '../data/repositories/repositories.dart';
 import '../services/manual_message_service.dart';
 import '../services/official_report_template.dart';
+import '../services/report_pdf_preview_service.dart';
 
 /// Signed balance: positive means "لنا عليه"; negative means "له علينا".
 /// A receipt reduces the amount owed to us; a payment increases it.
@@ -459,14 +460,17 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
                                 spacing: 0,
                                 runSpacing: 0,
                                 children: [
-                                  IconButton(
-                                    tooltip: 'كشف حساب PDF',
+                                  ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _exportAccountPdf(account)),
+  child: IconButton(
                                     visualDensity: VisualDensity.compact,
                                     constraints: const BoxConstraints.tightFor(width: 36, height: 36),
                                     padding: EdgeInsets.zero,
                                     onPressed: () => _exportAccountPdf(account),
                                     icon: const Icon(Icons.picture_as_pdf_outlined, size: 20),
                                   ),
+),
                                   IconButton(
                                     tooltip: 'تعديل الحساب',
                                     visualDensity: VisualDensity.compact,
