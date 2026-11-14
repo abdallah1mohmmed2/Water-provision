@@ -6,6 +6,8 @@ import 'package:saqia_station/features/contact_phone_field.dart';
 import 'package:saqia_station/services/android_contact_picker.dart';
 
 void main() {
+  // Flutter's test message binding must exist before reading its instance.
+  TestWidgetsFlutterBinding.ensureInitialized();
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
