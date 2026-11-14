@@ -1775,6 +1775,64 @@ void main() {
     expect(forParty(beforeDebtDate, 'beneficiary', beneficiary)['balance'], b0);
   });
 
+  test('مديونية العامل والشريك تخفض له أولًا ثم تزيد عليه داخل الأعمدة الأصلية', () async {
+    final repo = StationRepository(db);
+    final unique = DateTime.now().microsecondsSinceEpoch.toString();
+    final worker = await repo.createWorker(
+      name: 'DEBT-NET-W-$unique', payType: 'fixed', opening: 5000,
+    );
+    final partner = await repo.createPartner(
+      name: 'DEBT-NET-P-$unique', mode: 'shares', shares: 1, opening: 5000,
+    );
+    final baselineCash = await cashboxBalance(1);
+    for (final party in [('worker', worker), ('partner', partner)]) {
+      final kind = party.$1;
+      final id = party.$2;
+      final first = AppClock.now().add(const Duration(minutes: 5));
+      final second = first.add(const Duration(minutes: 1));
+      final initialBalance = kind == 'worker'
+          ? (await svc.workerBalance(id))['balance']
+          : (await svc.partnerBalance(id))['balance'];
+      expect(initialBalance, 5000);
+      await svc.addPreviousPartyDebt(
+        partyType: kind, partyId: id, amount: 2000,
+        date: first, notes: 'دين أول',
+      );
+      final afterFirst = kind == 'worker'
+          ? (await svc.workerBalance(id))['balance']
+          : (await svc.partnerBalance(id))['balance'];
+      expect(afterFirst, 3000); // 5,000 له - 2,000 عليه.
+      await svc.addPreviousPartyDebt(
+        partyType: kind, partyId: id, amount: 6000,
+        date: second, notes: 'دين ثانٍ',
+      );
+      final afterSecond = kind == 'worker'
+          ? (await svc.workerBalance(id))['balance']
+          : (await svc.partnerBalance(id))['balance'];
+      expect(afterSecond, -3000); // 3,000 له - 6,000 عليه.
+      final statement = await repo.report(
+        kind == 'worker' ? 'worker_transactions' : 'partner_accounts',
+        workerId: kind == 'worker' ? id : null,
+        partnerId: kind == 'partner' ? id : null,
+      );
+      final debtRows = statement
+          .where((row) => row['type'] == 'previous_receivable')
+          .toList();
+      expect(debtRows, hasLength(2));
+      expect(debtRows.map((row) => row['alayh']).toSet(), {2000, 6000});
+      expect(debtRows.every((row) => row['lah'] == 0), isTrue);
+      expect(debtRows.every((row) =>
+          '${row['description']}'.contains('إضافة مديونية سابقة')), isTrue);
+      expect(debtRows.every((row) =>
+          !row.containsKey('previous_debt_total')), isTrue);
+      final unified = await repo.report('all_party_debts');
+      final person = unified.singleWhere((row) =>
+          row['party_type'] == kind && row['party_id'] == id);
+      expect(person['balance'], 3000);
+    }
+    expect(await cashboxBalance(1), baselineCash);
+  });
+
   test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 32', () async {
     final opened = await db.db;
     await opened.execute('PRAGMA user_version=17');
