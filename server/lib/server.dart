@@ -3104,6 +3104,11 @@ class SaqiaServer {
     final workPriceEnabled = rawEnabled == 1;
     final reportMinuteRate = partyType == 'beneficiary' && rawMinuteRate is int
         ? rawMinuteRate : 0;
+    if (partyType == 'beneficiary' &&
+        settings.containsKey('work_price_difference_enabled') &&
+        (settings['work_price_difference_enabled'] == 'true') != workPriceEnabled) {
+      throw StateError('حالة فارق العمل لدى الجهاز لا تطابق إعداد المحطة على الخادم');
+    }
     if (workPriceEnabled) {
       // Server tariff policy is authoritative. Financial price cannot be
       // supplied by an arbitrary client unless station settings match.
