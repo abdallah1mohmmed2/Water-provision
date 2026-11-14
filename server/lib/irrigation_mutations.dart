@@ -464,10 +464,7 @@ class _P1Mutations {
               rounding: rounding,
               partialHour: partialHour,
             );
-      // Preserve physical fuel cost separately: in-kind credit may reduce
-      // the invoice, but it cannot erase consumption from the fuel ledger.
-      final physicalDieselAmount = result.dieselAmount;
-      var chargedDiesel = result.dieselAmount;
+      // In-kind diesel shortage is liters only, not a financial charge.
       var shortageLiters = 0.0;
       final partyTypeForDiesel = '${old['party_type'] ?? 'beneficiary'}';
       final dieselBeneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
@@ -496,25 +493,6 @@ class _P1Mutations {
         shortageLiters = (result.dieselLiters - stockWithoutThisIrrigation)
             .clamp(0, result.dieselLiters)
             .toDouble();
-        final financialCredit =
-            (cfg['diesel_delivery_financial_credit'] ?? '').toLowerCase() ==
-            'true';
-        if (!financialCredit) {
-          chargedDiesel = AccountingCalculations.roundAmount(
-            shortageLiters *
-                ((old['diesel_price_snapshot'] as num?)?.toDouble() ?? 0),
-            rounding,
-          );
-        }
-        result = IrrigationResult(
-          minutes: result.minutes,
-          cloudMinutes: result.cloudMinutes,
-          chargeableMinutes: result.chargeableMinutes,
-          waterAmount: result.waterAmount,
-          dieselAmount: chargedDiesel,
-          totalAmount: result.waterAmount + chargedDiesel,
-          dieselLiters: result.dieselLiters,
-        );
       }
       final partyType = '${old['party_type'] ?? 'beneficiary'}';
       final beneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
@@ -665,7 +643,6 @@ class _P1Mutations {
         date: oldStart,
       );
       final waterRevenue = _accountIdTx(tx, '4000');
-      final fuelRevenue = _accountIdTx(tx, '4010');
       final receivable = partyType == 'worker'
           ? _workerAccountIdTx(tx, workerId!)
           : partyType == 'partner'
@@ -692,13 +669,7 @@ class _P1Mutations {
           'memo': 'إيراد السقي بعد التعديل',
         });
       }
-      if (result.dieselAmount > 0) {
-        lines.add({
-          'account_id': fuelRevenue,
-          'debit': 0,
-          'credit': result.dieselAmount,
-          'memo': 'قيمة ديزل السقي بعد التعديل',
-        });
+;
       }
       if (editedTotal > 0) {
         _entry(
@@ -768,49 +739,24 @@ class _P1Mutations {
       );
       _reverseIrrigationDieselTx(tx, id, userId, 'تعديل السقاية');
       if (type == 'diesel' && result.dieselLiters > 0) {
-        final price = (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0;
         if (partyType == 'beneficiary' && shortageLiters > 0) {
           tx.insert('diesel_movements', {
             'station_id': old['station_id'],
-            'beneficiary_id': beneficiaryId,
-            'irrigation_id': id,
-            'kind': 'advance',
-            'liters': shortageLiters,
-            'unit_price': price,
-            'amount': AccountingCalculations.roundAmount(
-              shortageLiters * price,
-              rounding,
-            ),
-            'date': start.toIso8601String(),
-            'created_by': userId,
-            'notes': 'سلفة ديزل تلقائية (بعد تعديل السقاية)',
+            'beneficiary_id': beneficiaryId, 'irrigation_id': id,
+            'kind': 'advance', 'liters': shortageLiters,
+            'unit_price': 0, 'amount': 0,
+            'date': start.toIso8601String(), 'created_by': userId,
+            'notes': 'سلفة ديزل عينية بعد التعديل (لترات فقط)',
           });
         }
-        final consumptionId = tx.insert('diesel_movements', {
+        tx.insert('diesel_movements', {
           'station_id': old['station_id'],
-          'beneficiary_id': beneficiaryId,
-          'irrigation_id': id,
-          'kind': 'consumption',
-          'liters': result.dieselLiters,
-          'unit_price': price,
-          'amount': physicalDieselAmount,
-          'date': start.toIso8601String(),
-          'created_by': userId,
-          'notes': 'استهلاك السقاية (بعد التعديل)',
+          'beneficiary_id': beneficiaryId, 'irrigation_id': id,
+          'kind': 'consumption', 'liters': result.dieselLiters,
+          'unit_price': 0, 'amount': 0,
+          'date': start.toIso8601String(), 'created_by': userId,
+          'notes': 'استهلاك ديزل عيني بعد التعديل (لترات فقط)',
         });
-        if (physicalDieselAmount > 0) {
-          _entry(tx,
-            description: 'تكلفة ديزل السقاية $id بعد التعديل',
-            referenceType: 'diesel_consumption',
-            referenceId: consumptionId, date: start, userId: userId,
-            lines: [
-              {'account_id': _accountId('5010'),
-                'debit': physicalDieselAmount, 'credit': 0},
-              {'account_id': _accountId('1300'),
-                'debit': 0, 'credit': physicalDieselAmount},
-            ],
-          );
-        }
       }
       // Capture the persisted post-recalculation state, not the planning list:
       // this makes deleted/updated/inserted records reviewable from the audit log.
@@ -1407,6 +1353,11 @@ extension _P1Sync on SaqiaServer {
     if (roots.length != 1 || roots.single['status'] != 'posted')
       throw StateError('السقاية غير موجودة أو ملغاة');
     final old = roots.single;
+    if (old['system_type'] == 'diesel' &&
+        ((old['diesel_amount'] as num?)?.round() ?? 0) != 0 &&
+        payload['status'] != 'cancelled') {
+      throw StateError('سقاية الديزل القديمة تحمل مبلغ وقود؛ لا يجوز إعادة تسعيرها دون تسوية موثقة. يمكن إلغاؤها بالقيد العكسي.');
+    }
     final id = (old['id'] as num).toInt();
     // Refuse inconsistent historical ownership instead of touching another station.
     for (final table in ['worker_transactions', 'partner_transactions']) {
