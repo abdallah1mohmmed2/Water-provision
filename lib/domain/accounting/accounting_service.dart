@@ -1582,7 +1582,7 @@ class AccountingService {
             'notes': 'سلفة ديزل تلقائية (قيمتها ضمن إجمالي السقاية)',
           });
         }
-        await tx.insert('diesel_movements', {
+        final consumptionId = await tx.insert('diesel_movements', {
           'station_id': stationId,
           'beneficiary_id': beneficiaryId,
           'irrigation_id': id,
@@ -1594,6 +1594,21 @@ class AccountingService {
           'created_by': userId,
           'notes': 'استهلاك جلسة السقي',
         });
+        // Fuel consumption removes an asset even when it was not billed
+        // (the beneficiary's own in-kind diesel covered the fuel charge).
+        if (calc.dieselAmount > 0) {
+          await _entry(tx,
+            description: 'تكلفة ديزل السقاية $id',
+            referenceType: 'diesel_consumption', referenceId: consumptionId,
+            date: start, stationId: stationId, userId: userId,
+            lines: [
+              {'account_id': await _accountIdTx(tx, '5010'),
+                'debit': calc.dieselAmount, 'credit': 0},
+              {'account_id': await _accountIdTx(tx, '1300'),
+                'debit': 0, 'credit': calc.dieselAmount},
+            ],
+          );
+        }
       }
       if (paidAmount > 0) {
         final src = await resolvePaymentSource(
@@ -3096,7 +3111,11 @@ class AccountingService {
   Future<void> _reverseIrrigationDieselTx(Transaction tx, int irrigationId, int? userId, String reason) async {
     final moves = await tx.rawQuery("SELECT d.* FROM diesel_movements d WHERE d.irrigation_id=? AND d.reversal_of IS NULL AND NOT EXISTS (SELECT 1 FROM diesel_movements r WHERE r.reversal_of=d.id) ORDER BY d.id", [irrigationId]);
     for (final move in moves) {
-      await _reverseEntriesTx(tx, referenceType: 'diesel_advance', referenceId: (move['id'] as num).toInt(), reason: reason, userId: userId);
+      final movementId = (move['id'] as num).toInt();
+      await _reverseEntriesTx(tx,
+        referenceType: move['kind'] == 'consumption'
+            ? 'diesel_consumption' : 'diesel_advance',
+        referenceId: movementId, reason: reason, userId: userId);
       await tx.insert('diesel_movements', {
         'station_id': move['station_id'], 'beneficiary_id': move['beneficiary_id'],
         'irrigation_id': irrigationId, 'kind': move['kind'],
@@ -3409,13 +3428,27 @@ class AccountingService {
             'notes': 'سلفة ديزل تلقائية (بعد تعديل السقاية)',
           });
         }
-        await tx.insert('diesel_movements', {
+        final consumptionId = await tx.insert('diesel_movements', {
           'station_id': old['station_id'],
           'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'consumption',
           'liters': result.dieselLiters, 'unit_price': price, 'amount': result.dieselAmount,
           'date': start.toIso8601String(), 'created_by': userId,
           'notes': 'استهلاك السقاية (بعد التعديل)',
         });
+        if (result.dieselAmount > 0) {
+          await _entry(tx,
+            description: 'تكلفة ديزل السقاية $id بعد التعديل',
+            referenceType: 'diesel_consumption', referenceId: consumptionId,
+            date: start, stationId: (old['station_id'] as num).toInt(),
+            userId: userId,
+            lines: [
+              {'account_id': await _accountIdTx(tx, '5010'),
+                'debit': result.dieselAmount, 'credit': 0},
+              {'account_id': await _accountIdTx(tx, '1300'),
+                'debit': 0, 'credit': result.dieselAmount},
+            ],
+          );
+        }
       }
       // Capture the persisted post-recalculation state, not the planning list:
       // this makes deleted/updated/inserted records reviewable from the audit log.
