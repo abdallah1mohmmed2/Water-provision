@@ -141,6 +141,7 @@ class _DieselOilPageState extends State<DieselOilPage> {
   int? station, method, cashbox;
   List<Map<String, Object?>> methods = [], boxes = [];
   bool busy = false;
+  bool confirming = false;
   String? error;
   String request = const Uuid().v4();
   bool get manager => widget.role == 'manager';
@@ -229,11 +230,18 @@ class _DieselOilPageState extends State<DieselOilPage> {
   }
 
   Future<void> _change() async {
+    if (busy || confirming) return;
     final amount = int.tryParse(cost.text.trim());
     if (amount == null || amount <= 0 || method == null || cashbox == null) {
       setState(() => error = 'أدخل تكلفة موجبة واختر طريقة الدفع والصندوق');
       return;
     }
+    final cycle = status!.cycle;
+    final requestId = request;
+    final sourceMethod = method!;
+    final sourceBox = cashbox!;
+    final sourceStation = station!;
+    setState(() => confirming = true);
     final yes = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -253,18 +261,18 @@ class _DieselOilPageState extends State<DieselOilPage> {
         ],
       ),
     );
-    if (yes != true || !mounted) {
-      return;
-    }
+    if (!mounted) return;
+    setState(() => confirming = false);
+    if (yes != true) return;
     await _run(() async {
       await service.change(
-        station: station!,
+        station: sourceStation,
         user: widget.userId,
         amount: amount,
-        paymentMethod: method!,
-        cashbox: cashbox!,
-        expectedCycle: status!.cycle,
-        requestId: request,
+        paymentMethod: sourceMethod,
+        cashbox: sourceBox,
+        expectedCycle: cycle,
+        requestId: requestId,
       );
       request = const Uuid().v4();
       cost.clear();
@@ -466,7 +474,7 @@ class _DieselOilPageState extends State<DieselOilPage> {
                     'تُسجّل التكلفة مرة واحدة كمصروف زيت، وتُخصم من الصندوق ومن صافي الربح.',
                   ),
                   FilledButton.icon(
-                    onPressed: busy ? null : _change,
+                    onPressed: busy || confirming ? null : _change,
                     icon: const Icon(Icons.oil_barrel_outlined),
                     label: const Text('تم تغيير الزيت'),
                   ),

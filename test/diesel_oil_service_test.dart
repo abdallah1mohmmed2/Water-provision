@@ -1,3 +1,7 @@
+import 'package:flutter/material.dart';
+import 'package:saqia_station/features/diesel_oil_page.dart';
+import 'package:saqia_station/data/repositories/repositories.dart';
+
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -324,4 +328,69 @@ void main() {
     await expectLater(change(cycle, 'disabled'), throwsStateError);
     expect(await scalar('SELECT COUNT(*) FROM expenses'), 0);
   });
+  testWidgets(
+    'oil confirmation can be cancelled and retried, posts one expense',
+    (tester) async {
+      tester.view.physicalSize = const Size(1000, 1800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(() => configure());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DieselOilPage(
+            StationRepository(db),
+            userId: 1,
+            role: 'manager',
+          ),
+        ),
+      );
+      for (
+        var i = 0;
+        i < 100 && find.text('تسجيل تغيير الزيت').evaluate().isEmpty;
+        i++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+      expect(find.text('تسجيل تغيير الزيت'), findsOneWidget);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'تكلفة تغيير الزيت'),
+        '2500',
+      );
+      await tester.tap(find.byType(DropdownButtonFormField<int>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('نقدي').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('تم تغيير الزيت'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(find.text('رجوع'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('تم تغيير الزيت'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(find.text('تم تغيير الزيت').last);
+      await tester.pump();
+      for (
+        var i = 0;
+        i < 100 && find.text('تم الحفظ').evaluate().isEmpty;
+        i++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(find.text('تم الحفظ'), findsOneWidget);
+      final count = await tester.runAsync(
+        () => scalar('SELECT COUNT(*) FROM expenses'),
+      );
+      expect(count, 1);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 }
