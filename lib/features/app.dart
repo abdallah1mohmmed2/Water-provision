@@ -3954,7 +3954,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                     );
                   }
                   return Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       for (int i = 0; i < items.length; i++) ...[
                         if (i > 0) const SizedBox(width: 10),
