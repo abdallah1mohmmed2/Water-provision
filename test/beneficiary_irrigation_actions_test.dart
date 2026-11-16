@@ -96,6 +96,7 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 20));
     }
+    await tester.pumpAndSettle();
   }
 
   Widget page({int? user = 1}) => MaterialApp(
