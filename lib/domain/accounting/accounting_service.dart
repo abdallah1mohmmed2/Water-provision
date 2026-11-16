@@ -3084,9 +3084,11 @@ class AccountingService {
     required DateTime start,
     required DateTime end,
     int? userId,
+    Future<void> Function(Transaction tx)? beforeChange,
   }) async {
     if (!end.isAfter(start)) throw ArgumentError('وقت النهاية يجب أن يكون بعد البداية');
     return database.transaction((tx) async {
+      if (beforeChange != null) await beforeChange(tx);
       final rows = await tx.query('irrigations', where: 'id=?', whereArgs: [id], limit: 1);
       if (rows.isEmpty || rows.first['status'] != 'posted') {
         throw StateError('السقاية غير موجودة أو ملغاة/غير مرحّلة');
@@ -3481,9 +3483,10 @@ class AccountingService {
     }, captureSyncTables: const {'irrigations'});
   }
 
-  Future<void> cancelIrrigation(int id, int userId, String reason) async {
+  Future<void> cancelIrrigation(int id, int userId, String reason, {Future<void> Function(Transaction tx)? beforeChange}) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب إلغاء السقاية مطلوب');
     await database.transaction((tx) async {
+      if (beforeChange != null) await beforeChange(tx);
       final rows = await tx.query(
         'irrigations',
         where: 'id=?',

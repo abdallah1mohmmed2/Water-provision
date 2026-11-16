@@ -1,3 +1,5 @@
+import 'beneficiary_irrigation_menu.dart';
+import '../domain/accounting/beneficiary_irrigation_actions.dart';
 import 'diesel_delivery_page.dart';
 import 'diesel_oil_page.dart';
 import 'beneficiary_statement_card.dart';
@@ -2458,11 +2460,13 @@ class RecordDetailsPage extends StatefulWidget {
   final String kind;
   final int id;
   final String title;
+  final int? userId;
   const RecordDetailsPage(
     this.r, {
     required this.kind,
     required this.id,
     required this.title,
+    this.userId,
     super.key,
   });
   @override
@@ -2475,6 +2479,8 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
   List<Map<String, Object?>> irrigations = [];
   Map<String, Object?> financial = {};
   bool loading = true;
+  bool canManageIrrigations = false;
+  bool _irrigationActionBusy = false;
   String? loadError;
   DateTime? filterFrom, filterTo;
   bool _detailPeriodEdited = false;
@@ -2776,6 +2782,9 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
       List<Map<String, Object?>> h = [];
       switch (widget.kind) {
         case 'beneficiary':
+          final permission = widget.userId == null ? <Map<String,Object?>>[] : await widget.r.db.query("SELECT 1 FROM app_users u JOIN beneficiaries b ON b.station_id=u.station_id WHERE u.id=? AND b.id=? AND u.active=1 AND u.role IN ('manager','accountant')",args:[widget.userId,widget.id]);
+          canManageIrrigations = permission.isNotEmpty;
+
           d = await widget.r.beneficiaryDetails(widget.id);
           // الكشف تصاعدي لحساب الرصيد الجاري؛ نعرضه الأحدث أولًا.
           h = (await widget.r.beneficiaryStatement(widget.id)).reversed.toList();
@@ -3297,6 +3306,17 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     }
   }
 
+  Future<void> irrigationActions(int id) async {
+    if (_irrigationActionBusy || !canManageIrrigations || widget.userId == null) return;
+    _irrigationActionBusy = true;
+    try {
+      final changed = await showBeneficiaryIrrigationMenu(context, BeneficiaryIrrigationActions(widget.r.db,userId:widget.userId!,beneficiaryId:widget.id,irrigationId:id));
+      if (changed && mounted) await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));
+    } finally { _irrigationActionBusy = false; }
+  }
+
   Widget historyView(BuildContext c) {
     if (history.isEmpty) {
       return Container(
@@ -3323,12 +3343,16 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: _TimelineItem(
+                child: GestureDetector(
+                  key: ValueKey('beneficiary-irrigation-history-${history[i]['type']}-${history[i]['id']}'),
+                  onLongPress: widget.kind == 'beneficiary' && canManageIrrigations && history[i]['type'] == 's' && history[i]['status'] == 'posted' ? () => irrigationActions((history[i]['id'] as num).toInt()) : null,
+                  child: _TimelineItem(
                   first: i == 0,
                   last: i == shown - 1,
                   title: _historyTitle(history[i]),
                   subtitle: _historySub(history[i]),
                   amount: _historyAmount(history[i]),
+                  ),
                 ),
               ),
               if ((widget.kind == 'beneficiary' &&
@@ -3666,6 +3690,8 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 rows: [
                   for (final x in rows)
                     DataRow(
+                      key: ValueKey('beneficiary-irrigation-${x['id']}'),
+                      onLongPress: widget.kind == 'beneficiary' && canManageIrrigations && x['status'] == 'posted' ? () => irrigationActions((x['id'] as num).toInt()) : null,
                       cells: [
                         DataCell(
                           Text(
@@ -3679,6 +3705,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                         DataCell(
                           Text(
                             '${systemName('${x['system_type']}')} • ${x['notes'] ?? 'جلسة سقي'}',
+                            key: ValueKey('beneficiary-irrigation-table-${x['id']}'),
                           ),
                         ),
                         DataCell(Text('${x['minutes'] ?? 0} دقيقة')),
@@ -4457,6 +4484,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
         builder: (_) => RecordDetailsPage(
           widget.r,
           kind: 'beneficiary',
+          userId: widget.userId,
           id: x['id'] as int,
           title: 'تفاصيل المستفيد',
         ),

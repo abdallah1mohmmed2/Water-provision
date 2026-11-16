@@ -1381,7 +1381,7 @@ class StationRepository {
     };
     return db.rawQuery('''
       SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.minutes,i.cloud_minutes,
-             i.chargeable_minutes,i.total_amount,i.paid_amount,i.system_type,
+             i.chargeable_minutes,i.total_amount,i.paid_amount,i.system_type,i.status,
              COALESCE(b.name,w.name,p.name) party_name,
              COALESCE(i.notes,'') notes
       FROM irrigations i
