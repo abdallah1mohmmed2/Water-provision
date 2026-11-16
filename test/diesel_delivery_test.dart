@@ -1,3 +1,5 @@
+import 'package:saqia_station/features/app.dart' show BeneficiariesPage;
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -302,6 +304,135 @@ void main() {
       expect(old['worker_id'], isNull);
       await receive('worker', 2);
       expect(await service.balance(1, 'worker', ids['worker']!), 2);
+    },
+  );
+  Future<void> waitForUi(WidgetTester tester, bool Function() ready) async {
+    for (var i = 0; i < 150 && !ready(); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+  }
+
+  void largeView(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1200, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
+  testWidgets(
+    'beneficiary card opens exact person and saves diesel against their debt',
+    (tester) async {
+      largeView(tester);
+      final target = await tester.runAsync(
+        () => app.insert('beneficiaries', {
+          'station_id': 1,
+          'name': 'مستفيد آخر',
+          'opening_diesel_liters': -20,
+          'created_at': '2026-01-01',
+          'updated_at': '2026-01-01',
+        }),
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: BeneficiariesPage(repo, userId: 1, manager: true)),
+      );
+      final button = find.byKey(ValueKey('beneficiary-diesel-$target'));
+      await waitForUi(tester, () => button.evaluate().isNotEmpty);
+      expect(button, findsOneWidget);
+      await tester.ensureVisible(button);
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      await waitForUi(
+        tester,
+        () => find.text('الرصيد الحالي: عليه 20.000 لتر').evaluate().isNotEmpty,
+      );
+      expect(find.text('الرصيد الحالي: عليه 20.000 لتر'), findsOneWidget);
+      final selector = tester.widget<DropdownButtonFormField<int>>(
+        find.byType(DropdownButtonFormField<int>),
+      );
+      expect(selector.initialValue, target);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'الكمية المستلمة باللترات'),
+        '15',
+      );
+      await tester.pump();
+      expect(find.text('بعد التسليم: عليه 5.000 لتر'), findsOneWidget);
+      await tester.tap(find.text('حفظ تسليم الديزل'));
+      await tester.pump();
+      await waitForUi(
+        tester,
+        () => find
+            .text('تم تسجيل التسليم وتسوية رصيد الديزل')
+            .evaluate()
+            .isNotEmpty,
+      );
+      expect(
+        await tester.runAsync(() => service.balance(1, 'beneficiary', target!)),
+        -5,
+      );
+      expect(
+        await tester.runAsync(
+          () => service.balance(1, 'beneficiary', ids['beneficiary']!),
+        ),
+        0,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  for (final system in ['solar', 'equivalent_hybrid']) {
+    testWidgets('beneficiary card hides diesel delivery for $system', (
+      tester,
+    ) async {
+      largeView(tester);
+      await tester.runAsync(() => repo.setSetting('system_type', system));
+      await tester.pumpWidget(
+        MaterialApp(home: BeneficiariesPage(repo, userId: 1, manager: true)),
+      );
+      await waitForUi(
+        tester,
+        () => find.text('شخص الاختبار').evaluate().isNotEmpty,
+      );
+      expect(find.text('شخص الاختبار'), findsOneWidget);
+      expect(find.text('إضافة تسليم ديزل'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+  testWidgets(
+    'missing initial beneficiary fails closed without choosing somebody else',
+    (tester) async {
+      largeView(tester);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DieselDeliveryPage(
+            repo,
+            userId: 1,
+            initialBeneficiaryId: 999999,
+          ),
+        ),
+      );
+      await waitForUi(
+        tester,
+        () => find
+            .textContaining('المستفيد المحدد غير موجود')
+            .evaluate()
+            .isNotEmpty,
+      );
+      expect(find.textContaining('المستفيد المحدد غير موجود'), findsOneWidget);
+      expect(find.text('حفظ تسليم الديزل'), findsNothing);
+      expect(
+        await tester.runAsync(
+          () => scalar(
+            'SELECT COUNT(*) FROM diesel_movements WHERE party_receipt=1',
+          ),
+        ),
+        0,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
     },
   );
 }

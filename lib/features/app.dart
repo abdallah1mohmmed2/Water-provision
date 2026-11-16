@@ -4199,6 +4199,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   List<Map<String, Object?>> rows = [];
   bool loading = true;
   bool sourceFromServer = false;
+  bool dieselSystem = false;
   String? loadError;
   Timer? _debounce;
   int _seq = 0;
@@ -4211,9 +4212,11 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
     });
     try {
       final x = await widget.r.beneficiaries(q.text.trim());
+      final settings = await widget.r.settings();
       if (mounted && seq == _seq) {
         setState(() {
           rows = x;
+          dieselSystem = settings['system_type'] == 'diesel';
           sourceFromServer = widget.r.beneficiariesFromServer;
         });
       }
@@ -4672,6 +4675,16 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                           spacing: 8,
                                           runSpacing: 8,
                                           children: [
+                                            if (dieselSystem)
+                                              OutlinedButton.icon(
+                                                key: ValueKey('beneficiary-diesel-${x['id']}'),
+                                                onPressed: () async {
+                                                  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselDeliveryPage(widget.r, userId: widget.userId, initialBeneficiaryId: x['id'] as int)));
+                                                  if (mounted) await load();
+                                                },
+                                                icon: const Icon(Icons.local_gas_station_outlined),
+                                                label: const Text('إضافة تسليم ديزل'),
+                                              ),
                                             OutlinedButton.icon(
                                               onPressed: () => details(x),
                                               icon: const Icon(Icons.open_in_new),

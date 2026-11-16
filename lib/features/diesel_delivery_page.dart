@@ -8,7 +8,13 @@ import '../domain/maintenance/diesel_delivery_service.dart';
 class DieselDeliveryPage extends StatefulWidget {
   final StationRepository repo;
   final int userId;
-  const DieselDeliveryPage(this.repo, {required this.userId, super.key});
+  final int? initialBeneficiaryId;
+  const DieselDeliveryPage(
+    this.repo, {
+    required this.userId,
+    this.initialBeneficiaryId,
+    super.key,
+  });
   @override
   State<DieselDeliveryPage> createState() => _DieselDeliveryPageState();
 }
@@ -33,7 +39,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
   @override
   void initState() {
     super.initState();
-    _loadPeople();
+    _loadPeople(useInitial: true);
   }
 
   @override
@@ -44,7 +50,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
     super.dispose();
   }
 
-  Future<void> _loadPeople() async {
+  Future<void> _loadPeople({bool useInitial = false}) async {
     final token = ++generation;
     setState(() {
       enabled = false;
@@ -63,6 +69,12 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
       if (!mounted || token != generation) {
         return;
       }
+      final initial = useInitial ? widget.initialBeneficiaryId : null;
+      if (initial != null && !rows.any((row) => row['id'] == initial)) {
+        throw StateError(
+          'المستفيد المحدد غير موجود في بيانات المحطة الحالية؛ حدّث بيانات المستفيدين',
+        );
+      }
       setState(() {
         station = id;
         people = rows;
@@ -72,6 +84,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
         balance = null;
         movements = [];
       });
+      if (initial != null) await _select(initial);
     } catch (e) {
       if (mounted && token == generation) {
         setState(() {
