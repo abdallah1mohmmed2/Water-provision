@@ -171,10 +171,17 @@ void main() {
           (await tester.runAsync(() => row(otherId!)))!['total_amount'],
           6000,
         );
+        await drain(tester, () => find.text('120 دقيقة').evaluate().isNotEmpty);
+        expect(find.text('120 دقيقة'), findsOneWidget);
         final history = find.byKey(
           ValueKey('beneficiary-irrigation-history-s-$id'),
         );
-        await drain(tester, () => history.evaluate().isNotEmpty);
+        await drain(
+          tester,
+          () =>
+              history.evaluate().isNotEmpty &&
+              tester.widget<GestureDetector>(history).onLongPress != null,
+        );
         await tester.ensureVisible(history);
         await tester.pump();
         await tester.longPress(history);

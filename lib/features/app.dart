@@ -3308,13 +3308,13 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
 
   Future<void> irrigationActions(int id) async {
     if (_irrigationActionBusy || !canManageIrrigations || widget.userId == null) return;
-    _irrigationActionBusy = true;
+    setState(() => _irrigationActionBusy = true);
     try {
       final changed = await showBeneficiaryIrrigationMenu(context, BeneficiaryIrrigationActions(widget.r.db,userId:widget.userId!,beneficiaryId:widget.id,irrigationId:id));
       if (changed && mounted) await load();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));
-    } finally { _irrigationActionBusy = false; }
+    } finally { if (mounted) setState(() => _irrigationActionBusy = false); }
   }
 
   Widget historyView(BuildContext c) {
@@ -3344,8 +3344,9 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             children: [
               Expanded(
                 child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
                   key: ValueKey('beneficiary-irrigation-history-${history[i]['type']}-${history[i]['id']}'),
-                  onLongPress: widget.kind == 'beneficiary' && canManageIrrigations && history[i]['type'] == 's' && history[i]['status'] == 'posted' ? () => irrigationActions((history[i]['id'] as num).toInt()) : null,
+                  onLongPress: widget.kind == 'beneficiary' && canManageIrrigations && !_irrigationActionBusy && history[i]['type'] == 's' && history[i]['status'] == 'posted' ? () => irrigationActions((history[i]['id'] as num).toInt()) : null,
                   child: _TimelineItem(
                   first: i == 0,
                   last: i == shown - 1,
@@ -3691,7 +3692,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                   for (final x in rows)
                     DataRow(
                       key: ValueKey('beneficiary-irrigation-${x['id']}'),
-                      onLongPress: widget.kind == 'beneficiary' && canManageIrrigations && x['status'] == 'posted' ? () => irrigationActions((x['id'] as num).toInt()) : null,
+                      onLongPress: widget.kind == 'beneficiary' && canManageIrrigations && !_irrigationActionBusy && x['status'] == 'posted' ? () => irrigationActions((x['id'] as num).toInt()) : null,
                       cells: [
                         DataCell(
                           Text(
