@@ -28,7 +28,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 33,
+      version: 34,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -569,6 +569,12 @@ class AppDatabase {
 
   /// Durable local Outbox/Inbox protocol metadata. Existing queue rows are preserved.
   Future<void> _ensureSyncSchema(Database d) async {
+    final dieselColumns = await d.rawQuery('PRAGMA table_info(diesel_movements)');
+    for (final item in const {'worker_id':'INTEGER REFERENCES workers(id)', 'partner_id':'INTEGER REFERENCES partners(id)', 'request_id':'TEXT', 'party_receipt':'INTEGER NOT NULL DEFAULT 0'}.entries) {
+      if (!dieselColumns.any((c) => c['name'] == item.key)) await d.execute('ALTER TABLE diesel_movements ADD COLUMN ${item.key} ${item.value}');
+    }
+    await d.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_diesel_request ON diesel_movements(request_id) WHERE request_id IS NOT NULL');
+
     final columns = await d.rawQuery('PRAGMA table_info(sync_queue)');
     if (!columns.any((x) => x['name'] == 'event_id')) {
       await d.execute('ALTER TABLE sync_queue ADD COLUMN event_id TEXT');

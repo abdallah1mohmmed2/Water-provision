@@ -1698,6 +1698,45 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 2);
   });
 
+  for (final type in ['beneficiary','worker','partner']) {
+    test('party fuel receipt $type zero stock, replay, reversal and station rejection', () async {
+      prepareDieselFixture();
+      database.execute("CREATE TABLE workers(id INTEGER PRIMARY KEY,station_id INTEGER,name TEXT)");
+      database.execute("CREATE TABLE partners(id INTEGER PRIMARY KEY,station_id INTEGER,name TEXT)");
+      final table = type == 'beneficiary' ? 'beneficiaries' : type == 'worker' ? 'workers' : 'partners';
+      database.execute("INSERT INTO $table(id,station_id,name) VALUES(77,1,'Fuel owner'),(88,2,'Foreign owner')");
+      database.execute("INSERT INTO station_settings(station_id,key,value,updated_at) VALUES(1,'system_type','diesel','2026-01-01')");
+      const owner='dededede-dede-4ede-8ede-dededededede';
+      const foreign='dededede-dede-4ede-8ede-dedededededf';
+      database.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(1,?,?,77,'2026-01-01'),(2,?,?,88,'2026-01-01')",[table,owner,table,foreign]);
+      const original='cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
+      Map<String,dynamic> receipt(String id, {double liters=15, String? reversal, String ownerId=owner}) => {
+        'event_id':id,'entity_type':'diesel_movements','entity_key':'diesel_movements:$id','operation':'create','base_version':0,
+        'payload':{'_global_id':id,'kind':'receipt','party_receipt':1,'${type}_id':77,'liters':liters,'unit_price':0,'amount':0,'date':'2026-11-08T08:00:00.000','notes':'سبب موثق',if(reversal!=null)'reversal_of':1,
+          '_global_refs':{'${type}_id':{'table':table,'global_id':ownerId},if(reversal!=null)'reversal_of':{'table':'diesel_movements','global_id':reversal}}}
+      };
+      final first=await postEvents(stationOneToken,[receipt(original)]);
+      expect((first['results'] as List).single['status'],'accepted',reason:'$first');
+      final replay=await postEvents(stationOneToken,[receipt(original)]);
+      expect((replay['results'] as List).single['status'],'duplicate');
+      final reversed=await postEvents(stationOneToken,[receipt('cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdce',liters:-15,reversal:original)]);
+      expect((reversed['results'] as List).single['status'],'accepted',reason:'$reversed');
+      final twice=await postEvents(stationOneToken,[receipt('cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcf',liters:-15,reversal:original)]);
+      expect((twice['results'] as List).single['status'],'rejected');
+      final wrong=await postEvents(stationOneToken,[receipt('cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdd0',ownerId:foreign)]);
+      expect((wrong['results'] as List).single['status'],'rejected');
+      expect(database.select('SELECT SUM(liters) n FROM diesel_movements').single['n'],0);
+      expect(database.select('SELECT COUNT(*) n FROM diesel_movements').single['n'],2);
+      expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],0);
+      expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],5000);
+      final inbox=await getInbox(stationOneToken);
+      expect('$inbox',contains('party_receipt'));
+      database.execute("UPDATE station_settings SET value='solar' WHERE station_id=1 AND key='system_type'");
+      final solar=await postEvents(stationOneToken,[receipt('cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdd1')]);
+      expect((solar['results'] as List).single['status'],'rejected');
+    });
+  }
+
   test('sync applies independent diesel opening stock once with balanced journal', () async {
     prepareDieselFixture();
     const globalId = 'abababab-abab-4bab-8bab-abababababab';

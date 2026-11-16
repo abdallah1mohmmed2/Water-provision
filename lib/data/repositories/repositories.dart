@@ -398,7 +398,7 @@ class StationRepository {
         );
       }
       final dieselRows = await tx.rawQuery(
-        "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)+COALESCE((SELECT carried_diesel_liters FROM beneficiaries WHERE id=?),0)+COALESCE((SELECT SUM(CASE WHEN kind IN ('delivery','advance') THEN liters WHEN kind='consumption' THEN -liters ELSE 0 END) FROM diesel_movements WHERE beneficiary_id=?),0) stock",
+        "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)+COALESCE((SELECT carried_diesel_liters FROM beneficiaries WHERE id=?),0)+COALESCE((SELECT SUM(CASE WHEN (kind='delivery' OR (kind='receipt' AND party_receipt=1)) THEN liters WHEN kind='advance' AND irrigation_id IS NULL THEN liters WHEN kind='consumption' THEN -liters ELSE 0 END) FROM diesel_movements WHERE beneficiary_id=?),0) stock",
         [id, id, id],
       );
       final dieselBalance = (dieselRows.first['stock'] as num?)?.toDouble() ?? 0;
@@ -1199,7 +1199,7 @@ class StationRepository {
     final stationId = await accounting.currentStationId();
     final searchArgs = <Object?>[];
     final clause = _partialSearchClause(
-      search, ['b.name', 'dm.kind', 'dm.notes'], searchArgs,
+      search, ['b.name', 'w.name', 'p.name', 'dm.kind', 'dm.notes'], searchArgs,
     );
     // Legacy null-station movements may only be displayed when there is
     // exactly one station; never attribute ambiguous old rows in multi-station DBs.
@@ -1208,7 +1208,7 @@ class StationRepository {
         ? ' WHERE $stationFilter'
         : ' WHERE $stationFilter AND ($clause)';
     return db.rawQuery(
-      'SELECT dm.*,b.name beneficiary_name FROM diesel_movements dm LEFT JOIN beneficiaries b ON b.id=dm.beneficiary_id$where ORDER BY dm.date DESC',
+      "SELECT dm.*,COALESCE(b.name,w.name,p.name) beneficiary_name,EXISTS(SELECT 1 FROM diesel_movements r WHERE r.reversal_of=dm.id) cancelled FROM diesel_movements dm LEFT JOIN beneficiaries b ON b.id=dm.beneficiary_id LEFT JOIN workers w ON w.id=dm.worker_id LEFT JOIN partners p ON p.id=dm.partner_id$where ORDER BY dm.date DESC,dm.id DESC",
       [stationId, ...searchArgs],
     );
   }

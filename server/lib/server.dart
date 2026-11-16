@@ -18,6 +18,7 @@ class SaqiaServer {
   final String jwtSecret;
   SaqiaServer(this.db, {required this.jwtSecret}) {
     _ensureFinancialStationOwnership();
+    _ensurePartyDieselSchema();
     _ensureLoginRateLimitTable();
     _ensureSyncTables();
     _ensureP1Schema();
@@ -481,6 +482,8 @@ class SaqiaServer {
       'partner_transactions': {'partner_id': 'partners'},
       'payments': {'beneficiary_id':'beneficiaries','partner_id':'partners','worker_id':'workers','payment_method_id':'payment_methods','cashbox_id':'cashboxes','irrigation_id':'irrigations','replaces_payment_id':'payments'},
       'diesel_movements': {
+        'worker_id': 'workers',
+        'partner_id': 'partners',
         'reversal_of': 'diesel_movements',
         'beneficiary_id': 'beneficiaries',
         'irrigation_id': 'irrigations',
@@ -1220,10 +1223,190 @@ class SaqiaServer {
     _journal(description:opening ? 'تحويل افتتاحي' : 'تحويل بين الصناديق',referenceType:'cashbox_transfer',referenceId:transferId,userId:userId,date:date,lines:[{'account_id':debitAccount,'debit':amount,'credit':0},{'account_id':creditAccount,'debit':0,'credit':amount}]);
     db.execute("INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'cashbox_transfers',?,?,?)",[station,globalId,transferId,now]);
   }
+void _assertPartyDieselPeriod(int station, DateTime date) {
+  if (!_hasTable('period_closures')) {
+    return;
+  }
+  final rows = db.select(
+    "SELECT id FROM period_closures WHERE station_id=? AND status='locked' AND period_start<=? AND COALESCE(period_end_exclusive,period_end)>?",
+    [station, date.toIso8601String(), date.toIso8601String()],
+  );
+  if (rows.isNotEmpty) {
+    throw StateError('الفترة مقفلة');
+  }
+}
+
+void _ensurePartyDieselSchema() {
+  if (!_hasTable('diesel_movements')) {
+    return;
+  }
+  final columns = db
+      .select('PRAGMA table_info(diesel_movements)')
+      .map((c) => c['name'])
+      .toSet();
+  for (final item in const {
+    'worker_id': 'INTEGER REFERENCES workers(id)',
+    'partner_id': 'INTEGER REFERENCES partners(id)',
+    'request_id': 'TEXT',
+    'party_receipt': 'INTEGER NOT NULL DEFAULT 0',
+    'reversal_of': 'INTEGER REFERENCES diesel_movements(id)',
+  }.entries) {
+    if (!columns.contains(item.key)) {
+      db.execute(
+        'ALTER TABLE diesel_movements ADD COLUMN ${item.key} ${item.value}',
+      );
+    }
+  }
+  db.execute(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_party_diesel_reversal ON diesel_movements(reversal_of) WHERE reversal_of IS NOT NULL',
+  );
+}
+
+void _applyPartyDieselReceipt({
+  required int station,
+  required String entityKey,
+  required String operation,
+  required Map payload,
+  required String now,
+  required int? userId,
+  required String? role,
+}) {
+  _ensurePartyDieselSchema();
+  if (userId == null ||
+      _stationForUser(userId) != station ||
+      !{'manager', 'accountant'}.contains(role)) {
+    throw StateError('صلاحية تسليم الديزل غير متاحة');
+  }
+  if (_settingsForStation(station)['system_type'] != 'diesel') {
+    throw StateError('التسليم خاص بمنظومة الديزل');
+  }
+  final globalId = '${payload['_global_id'] ?? ''}';
+  if (!RegExp(
+        r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+      ).hasMatch(globalId) ||
+      entityKey != 'diesel_movements:$globalId') {
+    throw StateError('هوية التسليم غير صالحة');
+  }
+  final refs = payload['_global_refs'];
+  if (refs is! Map) {
+    throw StateError('مراجع التسليم مفقودة');
+  }
+  final ids = <String, int>{};
+  for (final entry in const {
+    'beneficiary_id': 'beneficiaries',
+    'worker_id': 'workers',
+    'partner_id': 'partners',
+  }.entries) {
+    if (payload[entry.key] != null) {
+      final id = _resolveSyncReference(
+        station: station,
+        entityType: entry.value,
+        column: entry.key,
+        references: refs,
+      );
+      _requireOwn(entry.value, id, station, 'الطرف');
+      ids[entry.key] = id;
+    }
+  }
+  if (payload['kind'] != 'receipt' || ids.length != 1 ||
+      payload['irrigation_id'] != null ||
+      payload['cashbox_id'] != null ||
+      payload['unit_price'] != 0 ||
+      payload['amount'] != 0) {
+    throw StateError('التسليم لطرف واحد وباللترات فقط');
+  }
+  if (payload['kind'] != 'receipt') { throw StateError('نوع تسليم الديزل غير صالح'); }
+  final liters = payload['liters'];
+  final date = DateTime.tryParse('${payload['date']}');
+  if (liters is! num || !liters.isFinite || liters == 0 || date == null) {
+    throw StateError('كمية أو تاريخ التسليم غير صالح');
+  }
+  final links = db.select(
+    "SELECT local_id FROM sync_entity_links WHERE station_id=? AND entity_type='diesel_movements' AND global_id=?",
+    [station, globalId],
+  );
+  if (operation == 'update') {
+    if (links.length != 1) {
+      throw StateError('التسليم غير موجود');
+    }
+    final row = db.select(
+      'SELECT * FROM diesel_movements WHERE id=? AND station_id=?',
+      [links.single['local_id'], station],
+    ).single;
+    if (row['liters'] != liters ||
+        row['date'] != date.toIso8601String() ||
+        ids.entries.any((e) => row[e.key] != e.value) ||
+        payload['reversal_of'] != null) {
+      throw StateError('تعديل التسليم يتطلب إلغاءً مدققًا');
+    }
+    db.execute('UPDATE diesel_movements SET notes=? WHERE id=?', [
+      payload['notes'],
+      row['id'],
+    ]);
+    return;
+  }
+  if (operation != 'create' || links.isNotEmpty) {
+    throw StateError('عملية تسليم غير مسموحة');
+  }
+  _assertPartyDieselPeriod(station, date);
+  int? reversal;
+  if (payload['reversal_of'] != null) {
+    reversal = _resolveSyncReference(
+      station: station,
+      entityType: 'diesel_movements',
+      column: 'reversal_of',
+      references: refs,
+    );
+    final originals = db.select(
+      "SELECT * FROM diesel_movements WHERE id=? AND station_id=? AND party_receipt=1",
+      [reversal, station],
+    );
+    if (originals.length != 1) {
+      throw StateError('أصل التسليم غير موجود');
+    }
+    final original = originals.single;
+    if (original['reversal_of'] != null ||
+        (original['liters'] as num) <= 0 ||
+        liters != -(original['liters'] as num) ||
+        ids.entries.any((e) => original[e.key] != e.value) ||
+        '${payload['notes'] ?? ''}'.trim().isEmpty) {
+      throw StateError('عكس التسليم غير مطابق للأصل');
+    }
+    _assertPartyDieselPeriod(station, DateTime.parse('${original['date']}'));
+  } else if (liters < 0) {
+    throw StateError('الكمية السالبة تتطلب مرجع إلغاء');
+  }
+  db.execute(
+    'INSERT INTO diesel_movements(station_id,beneficiary_id,worker_id,partner_id,kind,liters,unit_price,amount,date,notes,created_by,reversal_of,party_receipt) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1)',
+    [
+      station,
+      ids['beneficiary_id'],
+      ids['worker_id'],
+      ids['partner_id'],
+      'receipt',
+      liters,
+      0,
+      0,
+      date.toIso8601String(),
+      payload['notes'],
+      userId,
+      reversal,
+    ],
+  );
+  final id = db.lastInsertRowId;
+  db.execute(
+    "INSERT INTO sync_entity_links(station_id,entity_type,global_id,local_id,created_at) VALUES(?,'diesel_movements',?,?,?)",
+    [station, globalId, id, now],
+  );
+}
   void _applySyncDieselMovement({
     required int station, required String entityKey, required String operation,
     required Map payload, required String now, required int? userId, required String? role,
   }) {
+    if (payload['party_receipt'] == 1) {
+      _applyPartyDieselReceipt(station:station, entityKey:entityKey, operation:operation, payload:payload, now:now, userId:userId, role:role);
+      return;
+    }
     if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بمزامنة حركات الديزل');
     if (userId == null || _stationForUser(userId) != station) throw StateError('مستخدم حركة الديزل لا يتبع المحطة الموثقة');
     final globalId = (payload['_global_id'] ?? '').toString();
@@ -3128,6 +3311,7 @@ class SaqiaServer {
     // Beneficiary's in-kind balance determines the number of liters to
     // advance, never a fuel invoice or a monetary debt.
     if (system == 'diesel' && partyType == 'beneficiary' && liters > 0) {
+      _ensurePartyDieselSchema();
       if (!_hasTable('diesel_movements')) {
         throw StateError('دفتر الديزل غير متاح لاحتساب رصيد المستفيد');
       }
@@ -3140,7 +3324,7 @@ class SaqiaServer {
       final availableRows = db.select('''
         SELECT $openingColumn + $carriedColumn +
           COALESCE((SELECT SUM(CASE
-            WHEN kind IN ('delivery','advance') THEN liters
+            WHEN (kind='delivery' OR (kind='receipt' AND party_receipt=1)) THEN liters WHEN kind='advance' AND irrigation_id IS NULL THEN liters
             WHEN kind='consumption' THEN -liters ELSE 0 END)
             FROM diesel_movements
             WHERE station_id=? AND beneficiary_id=b.id),0) AS stock

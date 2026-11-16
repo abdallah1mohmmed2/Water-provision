@@ -1,3 +1,4 @@
+import '../maintenance/diesel_delivery_service.dart';
 import '../../core/app_clock.dart';
 import '../../core/app_prefs.dart';
 import '../../core/period_ranges.dart';
@@ -18,7 +19,7 @@ const String _stationDieselStockSql =
 const String _beneficiaryDieselStockSql =
     "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)"
     "+COALESCE((SELECT carried_diesel_liters FROM beneficiaries WHERE id=?),0)"
-    "+COALESCE((SELECT SUM(CASE WHEN kind IN ('delivery','advance') THEN liters WHEN kind='consumption' THEN -liters ELSE 0 END) FROM diesel_movements WHERE beneficiary_id=?),0) stock";
+    "+COALESCE((SELECT SUM(CASE WHEN (kind='delivery' OR (kind='receipt' AND party_receipt=1)) THEN liters WHEN kind='advance' AND irrigation_id IS NULL THEN liters WHEN kind='consumption' THEN -liters ELSE 0 END) FROM diesel_movements WHERE beneficiary_id=?),0) stock";
 
 class AccountingService {
   final AppDatabase database;
@@ -3893,6 +3894,11 @@ class AccountingService {
       await _assertPeriodOpen(tx, DateTime.parse('${m['date']}'),
           stationId: (m['station_id'] as num?)?.toInt());
       final kind = '${m['kind']}';
+      if (m['party_receipt'] == 1) {
+        await _assertPeriodOpen(tx, AppClock.now(), stationId: m['station_id'] as int);
+        await DieselDeliveryService(database).cancelOn(tx, m, userId, reason);
+        return;
+      }
       final liters = (m['liters'] as num).toDouble();
       // أثر الحركة على مخزون المحطة، وبعد إلغائها يجب ألا يصبح سالبًا.
       final delta = switch (kind) {

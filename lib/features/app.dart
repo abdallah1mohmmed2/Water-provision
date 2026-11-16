@@ -1,3 +1,4 @@
+import 'diesel_delivery_page.dart';
 import 'diesel_oil_page.dart';
 import 'beneficiary_statement_card.dart';
 import '../services/party_statement_balance_display.dart';
@@ -4853,7 +4854,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   Future<void> selectBeneficiary(int id) async {
     final h = await widget.r.irrigations(beneficiaryId: id);
     final d = await widget.r.db.query(
-      "SELECT COALESCE(b.opening_diesel_liters, 0)+COALESCE(b.carried_diesel_liters,0)+COALESCE((SELECT SUM(liters) FROM diesel_movements WHERE beneficiary_id=? AND kind IN ('delivery','advance')),0)-COALESCE((SELECT SUM(liters) FROM diesel_movements WHERE beneficiary_id=? AND kind='consumption'),0) stock FROM beneficiaries b WHERE b.id=?",
+      "SELECT COALESCE(b.opening_diesel_liters, 0)+COALESCE(b.carried_diesel_liters,0)+COALESCE((SELECT SUM(liters) FROM diesel_movements WHERE beneficiary_id=? AND ((kind='delivery' OR (kind='receipt' AND party_receipt=1)) OR (kind='advance' AND irrigation_id IS NULL))),0)-COALESCE((SELECT SUM(liters) FROM diesel_movements WHERE beneficiary_id=? AND kind='consumption'),0) stock FROM beneficiaries b WHERE b.id=?",
       args: [id, id, id],
     );
     final bal = await widget.r.accounting.beneficiaryBalance(id);
@@ -8170,10 +8171,6 @@ class _DieselState extends State<DieselPage> {
                       child: Text('شراء وإضافة للمخزون'),
                     ),
                     DropdownMenuItem(
-                      value: 'delivery',
-                      child: Text('تسليم لمستفيد'),
-                    ),
-                    DropdownMenuItem(
                       value: 'advance',
                       child: Text('سلفة ديزل'),
                     ),
@@ -8271,7 +8268,7 @@ class _DieselState extends State<DieselPage> {
       context,
       'إلغاء حركة الديزل',
       message:
-          'ستُعكس قيودها ويُردّ أثرها على المخزون والصندوق. ${statusName(x['kind'])} — ${x['liters']} لتر',
+          'ستُعكس قيودها ويُردّ أثرها على المخزون والصندوق. ${x['party_receipt'] == 1 ? ((x['liters'] as num) < 0 ? 'عكس تسليم ديزل' : (x['cancelled'] == 1 ? 'تسليم ديزل ملغى' : 'تسليم ديزل للمنظومة')) : statusName(x['kind'])} — ${x['liters']} لتر',
     );
     if (reason == null || !mounted) return;
     if (!await runGuarded(
@@ -8329,6 +8326,7 @@ class _DieselState extends State<DieselPage> {
           title: 'الديزل',
           subtitle: 'المخزون والحركات والتنبيه والسلف والتسليم',
           actions: [
+            FilledButton.icon(onPressed: () async { await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselDeliveryPage(widget.r, userId: widget.userId))); await load(); }, icon: const Icon(Icons.add), label: const Text('إضافة تسليم ديزل')),
             if (warning?['warning'] == true)
               OutlinedButton.icon(
                 onPressed: () async {
@@ -8394,7 +8392,7 @@ class _DieselState extends State<DieselPage> {
                     return Card(
                       child: ListTile(
                         title: Text(
-                          '${x['beneficiary_name'] ?? 'المخزون'} • ${statusName(x['kind'])}',
+                          '${x['beneficiary_name'] ?? 'المخزون'} • ${x['party_receipt'] == 1 ? ((x['liters'] as num) < 0 ? 'عكس تسليم ديزل' : (x['cancelled'] == 1 ? 'تسليم ديزل ملغى' : 'تسليم ديزل للمنظومة')) : statusName(x['kind'])}',
                         ),
                         subtitle: Text(
                           '${x['liters']} لتر • ${x['date']}${(x['notes'] ?? '').toString().isEmpty ? '' : ' • ${x['notes']}'}',
