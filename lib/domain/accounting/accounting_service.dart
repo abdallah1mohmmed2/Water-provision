@@ -1917,6 +1917,7 @@ class AccountingService {
     int? userId,
     String? attachmentPath,
     String? notes,
+    Future<void> Function(Transaction tx, int expenseId)? afterPosting,
   }) async => database.transaction((tx) async {
     await _assertPeriodOpen(tx, date);
     if (amount <= 0) {
@@ -1978,6 +1979,7 @@ class AccountingService {
       userId: userId,
       date: date,
     );
+    if (afterPosting != null) await afterPosting(tx, id);
     return id;
   }, captureSyncTables: const {'expenses'});
 

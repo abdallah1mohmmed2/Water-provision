@@ -1,3 +1,4 @@
+import 'diesel_oil_page.dart';
 import 'beneficiary_statement_card.dart';
 import '../services/party_statement_balance_display.dart';
 import '../domain/accounting/beneficiary_statement_totals.dart';
@@ -1406,7 +1407,7 @@ class _ShellState extends State<AdminShell> {
   ][i];
   Widget _page(int i, {Key? key}) {
     final w = switch (i) {
-      0 => DashboardPage(repo, onOpen: go, availableMenu: visible.toList()),
+      0 => DashboardPage(repo, userId: widget.userId, role: widget.role, onOpen: go, availableMenu: visible.toList()),
       1 => BeneficiariesPage(
         repo,
         key: _beneficiariesKey,
@@ -1479,7 +1480,7 @@ class _ShellState extends State<AdminShell> {
       18 => PerformancePage(repo),
       19 => GeneralAccountsPage(repo, userId: widget.userId),
       20 => ReconciliationPage(repo, userId: widget.userId),
-      _ => DashboardPage(repo, onOpen: go, availableMenu: visible.toList()),
+      _ => DashboardPage(repo, userId: widget.userId, role: widget.role, onOpen: go, availableMenu: visible.toList()),
     };
     return KeyedSubtree(key: key, child: w);
   }
@@ -1914,10 +1915,12 @@ class ErrorBox extends StatelessWidget {
 }
 
 class DashboardPage extends StatefulWidget {
+  final int userId;
+  final String role;
   final StationRepository r;
   final void Function(int) onOpen;
   final List<int> availableMenu;
-  const DashboardPage(this.r, {required this.onOpen, this.availableMenu = const [1, 2, 3, 5, 7, 9, 10, 11, 8, 14, 16, 17], super.key});
+  const DashboardPage(this.r, {this.userId = 0, this.role = 'operations', required this.onOpen, this.availableMenu = const [1, 2, 3, 5, 7, 9, 10, 11, 8, 14, 16, 17], super.key});
   @override
   State<DashboardPage> createState() => _DashboardState();
 }
@@ -2264,6 +2267,7 @@ class _DashboardState extends State<DashboardPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
               children: [
+                if (systemType == 'diesel') DieselOilCard(widget.r, userId: widget.userId, role: widget.role),
                 Container(
                   padding: const EdgeInsets.all(19),
                   decoration: BoxDecoration(
@@ -16277,6 +16281,7 @@ class _SettingsState extends State<SettingsPage> {
                 trailing: const Icon(Icons.verified_rounded, color: _reportGreen),
               ),
               if ((s['system_type'] ?? 'diesel') == 'diesel') ...[
+                ListTile(leading: const Icon(Icons.oil_barrel_outlined), title: const Text('موعد تغيير الزيت وتكلفته'), subtitle: const Text('ساعات السقاية، التنبيه، وسجل المصروفات'), onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselOilPage(widget.r, userId: widget.userId, role: widget.manager ? 'manager' : 'operations')))),
                 setTile(
                   'diesel_hourly_water_rate',
                   'سعر مياه الديزل بالساعة',
