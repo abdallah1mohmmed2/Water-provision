@@ -172,7 +172,13 @@ void main() {
           6000,
         );
         await drain(tester, () => find.text('120 دقيقة').evaluate().isNotEmpty);
-        expect(find.text('120 دقيقة'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(DataTable),
+            matching: find.text('120 دقيقة'),
+          ),
+          findsOneWidget,
+        );
         final history = find.byKey(
           ValueKey('beneficiary-irrigation-history-s-$id'),
         );
