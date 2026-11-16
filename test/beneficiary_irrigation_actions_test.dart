@@ -199,14 +199,19 @@ void main() {
         );
         await tester.tap(find.text('حذف السقاية (إلغاء وعكس الأثر)'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('تأكيد إلغاء السقاية'));
+        final confirmCancellation = find.widgetWithText(
+          FilledButton,
+          'تأكيد إلغاء السقاية',
+        );
+        expect(confirmCancellation, findsOneWidget);
+        await tester.tap(confirmCancellation);
         await tester.pump();
         expect(find.text('سبب الإلغاء مطلوب'), findsOneWidget);
         await tester.enterText(
           find.widgetWithText(TextField, 'سبب الإلغاء'),
           'تصحيح سجل المستفيد',
         );
-        await tester.tap(find.text('تأكيد إلغاء السقاية'));
+        await tester.tap(confirmCancellation);
         await tester.pump();
         await drain(
           tester,
