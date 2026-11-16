@@ -286,7 +286,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
                           firstDate: DateTime(2000),
                           lastDate: AppClock.now(),
                         );
-                        if (selected != null && mounted)
+                        if (selected != null && mounted) {
                           setState(
                             () => date = DateTime(
                               selected.year,
@@ -296,6 +296,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
                               date.minute,
                             ),
                           );
+                        }
                       },
               ),
               TextField(

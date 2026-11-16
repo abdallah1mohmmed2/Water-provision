@@ -31,6 +31,9 @@ void main() {
     service = DieselDeliveryService(app);
     sequence = 0;
     await repo.setSetting('system_type', 'diesel');
+    await repo.setSetting('diesel_hourly_water_rate', '6000');
+    await repo.setSetting('diesel_liters_per_hour', '10');
+    await repo.setSetting('partial_hour', 'true');
     await repo.setSetting('min_wait_days', '0');
     final beneficiary = await app.insert('beneficiaries', {
       'station_id': 1,
@@ -237,6 +240,7 @@ void main() {
         find.widgetWithText(TextField, 'الكمية المستلمة باللترات'),
         '15',
       );
+      await tester.pump();
       expect(find.text('بعد التسليم: له 15.000 لتر'), findsOneWidget);
       await tester.tap(find.text('حفظ تسليم الديزل'));
       await tester.pump();
@@ -260,6 +264,44 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
+    },
+  );
+  test(
+    'v33 diesel rows survive migration and gain nullable party fields',
+    () async {
+      final db = await app.db;
+      final id = await db.insert('diesel_movements', {
+        'station_id': 1,
+        'kind': 'receipt',
+        'liters': 17.5,
+        'unit_price': 100,
+        'amount': 1750,
+        'date': '2026-01-01',
+      });
+      await db.execute('DROP INDEX idx_diesel_request');
+      for (final column in [
+        'worker_id',
+        'partner_id',
+        'request_id',
+        'party_receipt',
+      ]) {
+        await db.execute('ALTER TABLE diesel_movements DROP COLUMN $column');
+      }
+      await db.execute('PRAGMA user_version=33');
+      await app.close();
+      final upgraded = await app.db;
+      final old = (await upgraded.query(
+        'diesel_movements',
+        where: 'id=?',
+        whereArgs: [id],
+      )).single;
+      expect(old['liters'], 17.5);
+      expect(old['amount'], 1750);
+      expect(old['kind'], 'receipt');
+      expect(old['party_receipt'], 0);
+      expect(old['worker_id'], isNull);
+      await receive('worker', 2);
+      expect(await service.balance(1, 'worker', ids['worker']!), 2);
     },
   );
 }
