@@ -906,6 +906,7 @@ class _ShellState extends State<AdminShell> {
   }
 
   StreamSubscription<AppAlert>? _alertSub;
+  StreamSubscription<void>? _oilSub;
 
   @override
   void initState() {
@@ -921,6 +922,7 @@ class _ShellState extends State<AdminShell> {
       _consumePendingFloatingAction();
     });
     refreshCounts();
+    _oilSub = watchDieselOilAlerts(repo);
     // النافذة المنبثقة (إن كان إعدادها مفعّلًا؛ الصوت يُشغَّل داخل AppAlerts نفسه).
     _alertSub = AppAlerts.stream.listen((a) {
       if (!mounted) return;
@@ -936,6 +938,7 @@ class _ShellState extends State<AdminShell> {
   @override
   void dispose() {
     _alertSub?.cancel();
+    _oilSub?.cancel();
     _floatingBubbleChannel.setMethodCallHandler(null);
     menuSearch.dispose();
     super.dispose();

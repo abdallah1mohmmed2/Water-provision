@@ -102,19 +102,33 @@ class DieselOilService {
   static int operatingMinutes(
     Iterable<Map<String, Object?>> rows,
     DateTime since,
-    DateTime until,
-  ) {
+    DateTime until, {
+    int? afterId,
+  }) {
     var minutes = 0;
     for (final row in rows) {
-      if (row['system_type'] != 'diesel' || row['status'] == 'cancelled') {
+      if (row['system_type'] != 'diesel' || row['status'] != 'posted') {
         continue;
       }
       final start = DateTime.tryParse('${row['start_datetime']}');
       final end = DateTime.tryParse('${row['end_datetime']}');
-      if (start == null ||
-          end == null ||
-          !end.isAfter(start) ||
-          end.isAfter(until)) {
+      if (start == null || end == null || !end.isAfter(start)) {
+        continue;
+      }
+      if (afterId != null) {
+        if ((row['id'] as num).toInt() > afterId) {
+          minutes += end.difference(start).inMinutes;
+        }
+        continue;
+      }
+      // Existing cycles retain their historical boundary. Newly saved posted
+      // irrigations count in full even when their entered time is backdated.
+      final created = DateTime.tryParse('${row['created_at']}');
+      if (created != null && !created.isBefore(since) && !created.isAfter(until)) {
+        minutes += end.difference(start).inMinutes;
+        continue;
+      }
+      if (end.isAfter(until)) {
         continue;
       }
       final clipped = start.isBefore(since) ? since : start;
@@ -150,11 +164,12 @@ class DieselOilService {
       '${last?['at'] ?? config['configured_at']}',
     );
     final rows = await tx.rawQuery(
-      "SELECT start_datetime,end_datetime,system_type,status FROM irrigations WHERE station_id=? AND system_type='diesel' AND status!='cancelled'",
+      "SELECT id,created_at,start_datetime,end_datetime,system_type,status FROM irrigations WHERE station_id=? AND system_type='diesel' AND status='posted'",
       [station],
     );
     final used =
-        operatingMinutes(rows, baseline, now()) +
+        operatingMinutes(rows, baseline, now(), afterId:
+          (last == null ? config['irrigation_baseline_id'] : last['irrigation_baseline_id']) as int?) +
         (last == null ? (config['initial'] as int) : 0);
     return OilStatus(
       config,
@@ -166,6 +181,12 @@ class DieselOilService {
 
   Future<OilStatus> load(int station) =>
       db.transaction((tx) => _load(tx, station), captureSync: false);
+
+  Future<int> _lastIrrigationId(DatabaseExecutor tx, int station) async =>
+      ((await tx.rawQuery(
+        'SELECT COALESCE(MAX(id),0) id FROM irrigations WHERE station_id=?',
+        [station],
+      )).single['id'] as num).toInt();
 
   Future<void> configure({
     required int station,
@@ -192,6 +213,7 @@ class DieselOilService {
         config.addAll({
           'configured_at': now().toIso8601String(),
           'initial': initial,
+          'irrigation_baseline_id': await _lastIrrigationId(tx, station),
           'changes': <dynamic>[],
         });
       }
@@ -268,6 +290,7 @@ class DieselOilService {
           'expense_id': expense,
           'at': at.toIso8601String(),
           'request_id': requestId,
+          'irrigation_baseline_id': await _lastIrrigationId(tx, station),
         });
         await _write(tx, station, {...status.config, 'changes': changes});
       },

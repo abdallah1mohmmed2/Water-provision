@@ -7,6 +7,33 @@ import '../core/app_prefs.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/maintenance/diesel_oil_service.dart';
 
+final _announcedOilStates = <int, String>{};
+
+void _announceOilStatus(int station, OilStatus value) {
+  final token = '${value.cycle}/${value.state}/${value.usedMinutes}';
+  if (_announcedOilStates[station] == token) {
+    return;
+  }
+  _announcedOilStates[station] = token;
+  if (value.state == 'warning' || value.state == 'due') {
+    AppAlerts.emit('تنبيه تغيير الزيت', value.message);
+  }
+}
+
+/// Keep reminders active while the user records irrigation away from Dashboard.
+StreamSubscription<void> watchDieselOilAlerts(StationRepository repo) =>
+    repo.db.irrigationChanges.listen((_) async {
+      try {
+        if ((await repo.settings())['system_type'] != 'diesel') {
+          return;
+        }
+        final station = await repo.accounting.currentStationId();
+        _announceOilStatus(station, await DieselOilService(repo.db).load(station));
+      } catch (_) {
+        // A failed read must not emit a misleading maintenance warning.
+      }
+    });
+
 class DieselOilCard extends StatefulWidget {
   final StationRepository repo;
   final int userId;
@@ -26,13 +53,15 @@ class _DieselOilCardState extends State<DieselOilCard>
   OilStatus? status;
   String? error;
   Timer? timer;
+  StreamSubscription<void>? irrigationSubscription;
   bool reading = false;
-  static final Map<int, String> announced = {};
+  bool reloadRequested = false;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _load();
+    irrigationSubscription = widget.repo.db.irrigationChanges.listen((_) => _load());
     timer = Timer.periodic(const Duration(seconds: 30), (_) => _load());
   }
 
@@ -52,12 +81,14 @@ class _DieselOilCardState extends State<DieselOilCard>
   @override
   void dispose() {
     timer?.cancel();
+    irrigationSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   Future<void> _load() async {
     if (reading) {
+      reloadRequested = true;
       return;
     }
     reading = true;
@@ -71,19 +102,17 @@ class _DieselOilCardState extends State<DieselOilCard>
         status = value;
         error = null;
       });
-      final token = '${value.cycle}/${value.state}';
-      if (announced[station] != token) {
-        announced[station] = token;
-        if (value.state == 'warning' || value.state == 'due') {
-          AppAlerts.emit('تنبيه تغيير الزيت', value.message);
-        }
-      }
+      _announceOilStatus(station, value);
     } catch (_) {
       if (mounted) {
         setState(() => error = 'تعذر قراءة متابعة الزيت؛ اضغط لإعادة المحاولة');
       }
     } finally {
       reading = false;
+      if (reloadRequested && mounted) {
+        reloadRequested = false;
+        unawaited(_load());
+      }
     }
   }
 

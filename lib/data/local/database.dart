@@ -1,5 +1,6 @@
 import '../../core/app_clock.dart';
 import 'dart:convert';
+import 'dart:async';
 import 'global_identity.dart';
 import 'business_sync_payload.dart';
 import 'package:uuid/uuid.dart';
@@ -13,6 +14,8 @@ import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
   AppDatabase._();
+  final _irrigationChanges = StreamController<void>.broadcast();
+  Stream<void> get irrigationChanges => _irrigationChanges.stream;
   Database? _db;
   Future<Database> get db async {
     if (_db != null) return _db!;
@@ -910,9 +913,13 @@ class AppDatabase {
     Map<String, Set<int>>? captureSyncRecordIds,
   }) async {
     final database = await db;
-    return database.transaction((tx) async {
+    var irrigationChanged = false;
+    final committed = await database.transaction((tx) async {
       await tx.delete('sync_change_log');
       final result = await action(tx);
+      irrigationChanged = (await tx.rawQuery(
+        "SELECT 1 FROM sync_change_log WHERE table_name='irrigations' AND operation!='noop' LIMIT 1",
+      )).isNotEmpty;
       if (!captureSync) {
         await tx.delete('sync_change_log');
         return result;
@@ -1010,6 +1017,11 @@ class AppDatabase {
       await tx.delete('sync_change_log');
       return result;
     });
+    // Publish only after COMMIT, never for reads or rolled-back writes.
+    if (irrigationChanged) {
+      _irrigationChanges.add(null);
+    }
+    return committed;
   }
   Future<void> close() async {
     final d = _db;
