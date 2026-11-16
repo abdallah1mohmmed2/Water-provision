@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../domain/accounting/beneficiary_irrigation_actions.dart';
 
 String _error(Object e) => e is StateError
-    ? '${e.message}'
+    ? e.message
     : e is ArgumentError
     ? '${e.message}'
     : '$e';
