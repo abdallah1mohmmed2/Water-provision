@@ -251,4 +251,77 @@ void main() {
       expect(await scalar('SELECT COUNT(*) FROM expenses'), 1);
     },
   );
+  test(
+    'cancel older change keeps newest cycle; restart preserves history',
+    () async {
+      await configure(initial: 300);
+      final first = await change((await service.load(1)).cycle, 'one');
+      clock = clock.add(const Duration(hours: 1));
+      final second = await change((await service.load(1)).cycle, 'two');
+      await service.cancel(
+        station: 1,
+        user: 1,
+        expense: first,
+        reason: 'تسجيل قديم خاطئ',
+      );
+      expect((await service.load(1)).usedMinutes, 0);
+      await db.close();
+      final restarted = DieselOilService(db, clock: () => clock);
+      expect((await restarted.load(1)).history.length, 2);
+      await restarted.cancel(
+        station: 1,
+        user: 1,
+        expense: second,
+        reason: 'تصحيح',
+      );
+      expect((await restarted.load(1)).usedMinutes, 300);
+      expect(
+        await scalar('SELECT current_balance FROM cashboxes WHERE id=1'),
+        0,
+      );
+      await expectLater(
+        restarted.cancel(station: 1, user: 1, expense: second, reason: 'تكرار'),
+        throwsStateError,
+      );
+    },
+  );
+  test(
+    'configuration change invalidates stale submission without posting',
+    () async {
+      await configure();
+      final cycle = (await service.load(1)).cycle;
+      await configure(interval: 1200);
+      await expectLater(change(cycle, 'stale'), throwsStateError);
+      expect(await scalar('SELECT COUNT(*) FROM expenses'), 0);
+      expect(await scalar('SELECT COUNT(*) FROM sync_queue'), 0);
+      clock = clock.subtract(const Duration(days: 1));
+      await expectLater(
+        change((await service.load(1)).cycle, 'bad-clock'),
+        throwsStateError,
+      );
+      expect(await scalar('SELECT COUNT(*) FROM expenses'), 0);
+    },
+  );
+  test('cross-station and disabled user cannot post', () async {
+    await configure();
+    final cycle = (await service.load(1)).cycle;
+    await expectLater(
+      service.change(
+        station: 2,
+        user: 1,
+        amount: 2500,
+        paymentMethod: 1,
+        cashbox: 1,
+        expectedCycle: cycle,
+        requestId: 'foreign',
+      ),
+      throwsStateError,
+    );
+    await db.transaction(
+      (tx) => tx.update('app_users', {'active': 0}, where: 'id=1'),
+      captureSync: false,
+    );
+    await expectLater(change(cycle, 'disabled'), throwsStateError);
+    expect(await scalar('SELECT COUNT(*) FROM expenses'), 0);
+  });
 }

@@ -44,7 +44,9 @@ class _DieselOilCardState extends State<DieselOilCard>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _load();
+    if (state == AppLifecycleState.resumed) {
+      _load();
+    }
   }
 
   @override
@@ -55,12 +57,16 @@ class _DieselOilCardState extends State<DieselOilCard>
   }
 
   Future<void> _load() async {
-    if (reading) return;
+    if (reading) {
+      return;
+    }
     reading = true;
     try {
       final station = await widget.repo.accounting.currentStationId();
       final value = await DieselOilService(widget.repo.db).load(station);
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         status = value;
         error = null;
@@ -68,12 +74,14 @@ class _DieselOilCardState extends State<DieselOilCard>
       final token = '${value.cycle}/${value.state}';
       if (announced[station] != token) {
         announced[station] = token;
-        if (value.state == 'warning' || value.state == 'due')
+        if (value.state == 'warning' || value.state == 'due') {
           AppAlerts.emit('تنبيه تغيير الزيت', value.message);
+        }
       }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() => error = 'تعذر قراءة متابعة الزيت؛ اضغط لإعادة المحاولة');
+      }
     } finally {
       reading = false;
     }
@@ -157,12 +165,21 @@ class _DieselOilPageState extends State<DieselOilPage> {
       final value = await service.load(id);
       final m = await widget.repo.paymentMethods();
       final b = await widget.repo.cashboxes();
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
       setState(() {
         station = id;
         status = value;
         methods = m.where((e) => e['station_id'] == id).toList();
         boxes = b.where((e) => e['station_id'] == id).toList();
+        if (!methods.any((e) => e['id'] == method)) {
+          method = null;
+          cashbox = null;
+        }
+        if (!boxes.any((e) => e['id'] == cashbox)) {
+          cashbox = null;
+        }
         interval.text = value.configured ? OilStatus.hours(value.interval) : '';
         warning.text = value.configured ? OilStatus.hours(value.warning) : '';
         initial.text = value.configured
@@ -171,19 +188,24 @@ class _DieselOilPageState extends State<DieselOilPage> {
         error = null;
       });
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) {
+        setState(() => error = '$e');
+      }
     }
   }
 
   int _minutes(String text) {
     final n = double.tryParse(text.trim());
-    if (n == null || !n.isFinite || n < 0 || n > 1000000)
+    if (n == null || !n.isFinite || n < 0 || n > 1000000) {
       throw ArgumentError('أدخل عدد ساعات صحيحًا أو عشريًا بين صفر ومليون');
+    }
     return (n * 60).round();
   }
 
   Future<void> _run(Future<void> Function() action) async {
-    if (busy || station == null) return;
+    if (busy || station == null) {
+      return;
+    }
     setState(() {
       busy = true;
       error = null;
@@ -191,13 +213,18 @@ class _DieselOilPageState extends State<DieselOilPage> {
     try {
       await action();
       await _load();
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('تم الحفظ')));
+      }
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) {
+        setState(() => error = '$e');
+      }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) {
+        setState(() => busy = false);
+      }
     }
   }
 
@@ -226,7 +253,9 @@ class _DieselOilPageState extends State<DieselOilPage> {
         ],
       ),
     );
-    if (yes != true || !mounted) return;
+    if (yes != true || !mounted) {
+      return;
+    }
     await _run(() async {
       await service.change(
         station: station!,
@@ -264,8 +293,9 @@ class _DieselOilPageState extends State<DieselOilPage> {
           ),
           FilledButton(
             onPressed: () {
-              if (reason.text.trim().isNotEmpty)
+              if (reason.text.trim().isNotEmpty) {
                 Navigator.pop(c, reason.text.trim());
+              }
             },
             child: const Text('تأكيد الإلغاء'),
           ),
@@ -275,7 +305,7 @@ class _DieselOilPageState extends State<DieselOilPage> {
     // Dialog routes finish their exit transition before disposing field controllers.
     await Future<void>.delayed(const Duration(milliseconds: 300));
     reason.dispose();
-    if (text != null && mounted)
+    if (text != null && mounted) {
       await _run(
         () => service.cancel(
           station: station!,
@@ -284,6 +314,7 @@ class _DieselOilPageState extends State<DieselOilPage> {
           reason: text,
         ),
       );
+    }
   }
 
   Widget _hours(
@@ -392,6 +423,7 @@ class _DieselOilPageState extends State<DieselOilPage> {
                     ),
                   ),
                   DropdownButtonFormField<int>(
+                    key: ValueKey('method-$method'),
                     initialValue: method,
                     isExpanded: true,
                     decoration: const InputDecoration(labelText: 'طريقة الدفع'),
@@ -411,10 +443,13 @@ class _DieselOilPageState extends State<DieselOilPage> {
                                       (e) => e['id'] == v,
                                     )['cashbox_id']
                                     as int?;
+                            if (!boxes.any((e) => e['id'] == cashbox)) {
+                              cashbox = null;
+                            }
                           }),
                   ),
                   DropdownButtonFormField<int>(
-                    key: ValueKey(method),
+                    key: ValueKey('$method/$cashbox'),
                     initialValue: cashbox,
                     isExpanded: true,
                     decoration: const InputDecoration(labelText: 'الصندوق'),

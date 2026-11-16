@@ -47,6 +47,17 @@ class DieselOilService {
     int user, {
     bool manager = false,
   }) async {
+    final selected = await tx.rawQuery(
+      "SELECT p.station_id FROM settings s JOIN pumps p ON p.id=CAST(s.value AS INTEGER) WHERE s.key='selected_pump_id' AND p.active=1 LIMIT 1",
+    );
+    final fallback = selected.isEmpty
+        ? await tx.rawQuery(
+            'SELECT id station_id FROM stations WHERE active=1 ORDER BY id LIMIT 1',
+          )
+        : selected;
+    if (fallback.isEmpty || fallback.first['station_id'] != station) {
+      throw StateError('تغيرت المحطة الحالية؛ افتح شاشة الزيت من جديد');
+    }
     final users = await tx.rawQuery(
       'SELECT role FROM app_users WHERE id=? AND station_id=? AND active=1',
       [user, station],
@@ -67,7 +78,9 @@ class DieselOilService {
     final rows = await tx.rawQuery('SELECT value FROM settings WHERE key=?', [
       _key(station),
     ]);
-    if (rows.isEmpty) return {};
+    if (rows.isEmpty) {
+      return {};
+    }
     return Map<String, dynamic>.from(
       jsonDecode(rows.first['value'] as String) as Map,
     );
@@ -93,24 +106,30 @@ class DieselOilService {
   ) {
     var minutes = 0;
     for (final row in rows) {
-      if (row['system_type'] != 'diesel' || row['status'] == 'cancelled')
+      if (row['system_type'] != 'diesel' || row['status'] == 'cancelled') {
         continue;
+      }
       final start = DateTime.tryParse('${row['start_datetime']}');
       final end = DateTime.tryParse('${row['end_datetime']}');
       if (start == null ||
           end == null ||
           !end.isAfter(start) ||
-          end.isAfter(until))
+          end.isAfter(until)) {
         continue;
+      }
       final clipped = start.isBefore(since) ? since : start;
-      if (end.isAfter(clipped)) minutes += end.difference(clipped).inMinutes;
+      if (end.isAfter(clipped)) {
+        minutes += end.difference(clipped).inMinutes;
+      }
     }
     return minutes;
   }
 
   Future<OilStatus> _load(DatabaseExecutor tx, int station) async {
     final config = await _config(tx, station);
-    if (config.isEmpty) return const OilStatus({}, [], 0, 'unset');
+    if (config.isEmpty) {
+      return const OilStatus({}, [], 0, 'unset');
+    }
     final history = <Map<String, Object?>>[];
     for (final record in (config['changes'] as List? ?? [])) {
       final change = Map<String, Object?>.from(record as Map);
@@ -118,7 +137,9 @@ class DieselOilService {
         'SELECT id,status,amount,date FROM expenses WHERE id=? AND station_id=? AND category=\'oil\'',
         [change['expense_id'], station],
       );
-      if (expenses.isNotEmpty) history.add({...change, ...expenses.first});
+      if (expenses.isNotEmpty) {
+        history.add({...change, ...expenses.first});
+      }
     }
     history.sort(
       (a, b) => (b['expense_id'] as int).compareTo(a['expense_id'] as int),
@@ -167,14 +188,23 @@ class DieselOilService {
         'warning': warning,
         'revision': ((old['revision'] as int?) ?? 0) + 1,
       };
-      if (old.isEmpty)
+      if (old.isEmpty) {
         config.addAll({
           'configured_at': now().toIso8601String(),
           'initial': initial,
           'changes': <dynamic>[],
         });
+      }
       // Subsequent configuration edits never reset hours or rewrite an oil cycle.
       await _write(tx, station, config);
+      await db.auditTx(
+        tx,
+        userId: user,
+        operation: 'configure_diesel_oil',
+        table: 'settings',
+        oldValues: old,
+        newValues: config,
+      );
     }, captureSync: false);
   }
 
@@ -209,8 +239,9 @@ class DieselOilService {
         if (source.isEmpty ||
             source.first['station_id'] != station ||
             method.isEmpty ||
-            method.first['station_id'] != station)
+            method.first['station_id'] != station) {
           throw StateError('طريقة الدفع والصندوق يجب أن يتبعا المحطة');
+        }
         await tx.update(
           'expenses',
           {'station_id': station},
@@ -218,18 +249,21 @@ class DieselOilService {
           whereArgs: [expense],
         );
         final status = await _load(tx, station);
-        if (!status.configured || status.cycle != expectedCycle)
+        if (!status.configured || status.cycle != expectedCycle) {
           throw StateError('تغيرت دورة الزيت؛ حدّث الشاشة قبل التسجيل');
+        }
         final changes = List<dynamic>.from(status.config['changes'] as List);
         if (requestId.trim().isEmpty ||
-            changes.any((e) => (e as Map)['request_id'] == requestId))
+            changes.any((e) => (e as Map)['request_id'] == requestId)) {
           throw StateError('عملية تغيير الزيت مسجلة بالفعل');
+        }
         final last = status.history.where((e) => e['status'] == 'posted');
         final baseline = DateTime.parse(
           '${last.isEmpty ? status.config['configured_at'] : last.first['at']}',
         );
-        if (at.isBefore(baseline))
+        if (at.isBefore(baseline)) {
           throw StateError('تاريخ الجهاز يسبق بداية دورة الزيت');
+        }
         changes.add({
           'expense_id': expense,
           'at': at.toIso8601String(),
@@ -246,16 +280,21 @@ class DieselOilService {
     required int expense,
     required String reason,
   }) async {
-    await db.transaction((tx) async {
-      await _authorize(tx, station, user);
-      final status = await _load(tx, station);
-      if (!status.history.any(
-        (e) => e['expense_id'] == expense && e['status'] == 'posted',
-      ))
-        throw StateError('سجل تغيير الزيت غير موجود أو ملغى');
-    }, captureSync: false);
-    // The existing audited reversal refunds cash and reverses GL. Projection
-    // automatically falls back to the previous still-posted oil change.
-    await AccountingService(db).cancelExpense(expense, user, reason);
+    await AccountingService(db).cancelExpense(
+      expense,
+      user,
+      reason,
+      beforeCancellation: (tx) async {
+        await _authorize(tx, station, user);
+        final status = await _load(tx, station);
+        if (!status.history.any(
+          (e) => e['expense_id'] == expense && e['status'] == 'posted',
+        )) {
+          throw StateError('سجل تغيير الزيت غير موجود أو ملغى');
+        }
+      },
+    );
+    // Audited expense reversal restores cash/GL; the projection falls back
+    // to the previous still-posted oil change without deleting its history.
   }
 }

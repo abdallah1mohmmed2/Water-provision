@@ -1993,9 +1993,10 @@ class AccountingService {
     _ => '5030',
   };
 
-  Future<void> cancelExpense(int id, int userId, String reason) async {
+  Future<void> cancelExpense(int id, int userId, String reason, {Future<void> Function(Transaction tx)? beforeCancellation}) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الإلغاء مطلوب');
     await database.transaction((tx) async {
+      if (beforeCancellation != null) await beforeCancellation(tx);
       final r = await tx.query(
         'expenses',
         where: 'id=?',
