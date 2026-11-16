@@ -336,7 +336,11 @@ void main() {
         }),
       );
       await tester.pumpWidget(
-        MaterialApp(home: BeneficiariesPage(repo, userId: 1, manager: true)),
+        MaterialApp(
+          home: Scaffold(
+            body: BeneficiariesPage(repo, userId: 1, manager: true),
+          ),
+        ),
       );
       final button = find.byKey(ValueKey('beneficiary-diesel-$target'));
       await waitForUi(tester, () => button.evaluate().isNotEmpty);
@@ -389,7 +393,11 @@ void main() {
       largeView(tester);
       await tester.runAsync(() => repo.setSetting('system_type', system));
       await tester.pumpWidget(
-        MaterialApp(home: BeneficiariesPage(repo, userId: 1, manager: true)),
+        MaterialApp(
+          home: Scaffold(
+            body: BeneficiariesPage(repo, userId: 1, manager: true),
+          ),
+        ),
       );
       await waitForUi(
         tester,
