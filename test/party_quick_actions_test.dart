@@ -211,6 +211,8 @@ void main() {
             expect(find.text('حفظ سقاية'), findsOneWidget);
             expect(find.text('حفظ سقاية جديدة'), findsNothing);
             await tester.tap(find.text('إغلاق'));
+            await waitFor(tester, () => find.byType(NewIrrigationPage).evaluate().isEmpty &&
+                find.byType(CircularProgressIndicator).evaluate().isEmpty);
             await tester.pumpAndSettle();
             expect(find.byType(NewIrrigationPage), findsNothing);
           }
