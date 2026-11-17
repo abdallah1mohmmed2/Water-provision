@@ -1220,7 +1220,9 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       expect((reset['results'] as List).single['status'], 'accepted');
       expect(database.select('SELECT diesel_liters_per_hour FROM $table').single['diesel_liters_per_hour'], isNull);
       final foreign = await postEvents(stationTwoToken, [event(2, 9)]);
-      expect((foreign['results'] as List).single['status'], 'rejected');
+      expect((foreign['results'] as List).single['status'], 'conflict');
+      expect(database.select('SELECT id FROM $table WHERE station_id=2'), isEmpty);
+      expect(database.select('SELECT diesel_liters_per_hour FROM $table WHERE station_id=1').single['diesel_liters_per_hour'], isNull);
     }
   });
 

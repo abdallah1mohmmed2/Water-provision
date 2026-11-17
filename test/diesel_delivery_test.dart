@@ -371,6 +371,7 @@ void main() {
       expect((await app.query('irrigations', where: 'id=?', whereArgs: [fallback])).single['diesel_liters_per_hour_snapshot'], 10);
       await expectLater(update(-1), throwsArgumentError);
       await expectLater(update(4.655), throwsArgumentError);
+      await repo.accounting.cancelIrrigation(fallback, 1, 'إنهاء حالة الاختبار قبل الطرف التالي');
     }
   });
 
