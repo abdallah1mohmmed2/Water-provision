@@ -13784,6 +13784,37 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       return;
     }
 
+    final isSolar = '${row['system_type']}' == 'solar';
+    int? cloudOverride;
+    if (isSolar) {
+      final input = TextEditingController(text: '${_n(row['cloud_minutes'])}');
+      final minutes = await showDialog<int>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('تعديل دقائق الغيم'),
+          content: TextField(
+            controller: input,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'إجمالي دقائق الغيم', helperText: 'سيحل الإجمالي الجديد محل فترات الغيم التفصيلية السابقة'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('إلغاء')),
+            FilledButton(onPressed: () {
+              final value = int.tryParse(input.text.trim());
+              if (value == null || value < 0 || value > end.difference(start).inMinutes) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('أدخل دقائق صحيحة لا تتجاوز مدة السقاية')));
+                return;
+              }
+              Navigator.pop(dialogContext, value);
+            }, child: const Text('متابعة')),
+          ],
+        ),
+      );
+      input.dispose();
+      if (minutes == null || !mounted) return;
+      if (minutes != _n(row['cloud_minutes'])) cloudOverride = minutes;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -13799,7 +13830,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
 
     try {
       final newTotal = await widget.r.accounting.updateIrrigationBasic(
-        id: id, start: start, end: end,
+        id: id, start: start, end: end, cloudMinutesOverride: cloudOverride,
       );
       if (!mounted) return;
       final paid = _n(row['paid_amount']);

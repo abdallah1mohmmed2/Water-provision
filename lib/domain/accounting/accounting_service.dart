@@ -3092,6 +3092,7 @@ class AccountingService {
     required int id,
     required DateTime start,
     required DateTime end,
+    int? cloudMinutesOverride,
     int? userId,
     Future<void> Function(Transaction tx)? beforeChange,
   }) async {
@@ -3157,6 +3158,13 @@ class AccountingService {
         // Older irrigation rows may store only a total cloud-minute value.
         // Clamp it to the edited duration just as recordIrrigation does.
         cloud = cloud.clamp(0, end.difference(start).inMinutes).toInt();
+      }
+      if (cloudMinutesOverride != null) {
+        if (type != 'solar') throw ArgumentError('تعديل الغيم متاح للسقاية الشمسية فقط');
+        if (cloudMinutesOverride < 0 || cloudMinutesOverride > end.difference(start).inMinutes) {
+          throw ArgumentError('دقائق الغيم يجب أن تكون بين صفر ومدة السقاية');
+        }
+        cloud = cloudMinutesOverride;
       }
       // Cloud stoppage is only billable for solar systems. Keep diesel and
       // equivalent-system recalculation consistent with recordIrrigation.
@@ -3348,8 +3356,13 @@ class AccountingService {
       };
       await tx.update('irrigations', values, where: 'id=?', whereArgs: [id]);
 
+      // An explicit total-minute override replaces the detailed intervals;
+      // otherwise their sum would disagree with the edited invoice.
+      if (cloudMinutesOverride != null) {
+        await tx.delete('cloud_periods', where: 'irrigation_id=?', whereArgs: [id]);
+      }
       // Keep detailed cloud intervals aligned with the edited irrigation window.
-      for (final period in shiftedCloudPeriods) {
+      for (final period in cloudMinutesOverride == null ? shiftedCloudPeriods : <Map<String, Object?>>[]) {
         final periodId = (period['id'] as num).toInt();
         if (period['delete'] == true) {
           await tx.update('cloud_periods', {'start_datetime': start.toIso8601String(),
