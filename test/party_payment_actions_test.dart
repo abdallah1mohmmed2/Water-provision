@@ -31,7 +31,7 @@ void main() {
           repository: _Parties(), userId: 42, partyType: kind, partyId: 7,
           onChanged: () async { reloads++; },
         ))));
-        await tester.tap(find.text(debt ? 'إضافة مديونية' : 'إضافة دفعة'));
+        await tester.tap(find.text(debt ? 'إضافة دين سابق' : (kind == 'beneficiary' ? 'قبض نقود' : 'صرف نقود')));
         await tester.pumpAndSettle();
         final selectors = tester.widgetList<DropdownButtonFormField<int>>(
           find.byType(DropdownButtonFormField<int>));

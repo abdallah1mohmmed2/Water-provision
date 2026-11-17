@@ -4347,7 +4347,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
           ),
           TextField(
             controller: a,
-            decoration: const InputDecoration(labelText: 'العنوان'),
+            decoration: const InputDecoration(labelText: 'المنطقة'),
           ),
           TextField(
             controller: l,
@@ -4428,7 +4428,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
           ),
           TextField(
             controller: a,
-            decoration: const InputDecoration(labelText: 'العنوان'),
+            decoration: const InputDecoration(labelText: 'المنطقة'),
           ),
           TextField(
             controller: l,
@@ -8612,12 +8612,12 @@ class PartyPaymentActions extends StatelessWidget {
       OutlinedButton.icon(
         onPressed: () => _open(context, debt: true),
         icon: const Icon(Icons.note_add_outlined),
-        label: const Text('إضافة مديونية'),
+        label: const Text('إضافة دين سابق'),
       ),
       FilledButton.icon(
         onPressed: () => _open(context, debt: false),
         icon: const Icon(Icons.add_card),
-        label: const Text('إضافة دفعة'),
+        label: Text(partyType == 'beneficiary' ? 'قبض نقود' : 'صرف نقود'),
       ),
     ],
   );
@@ -9104,7 +9104,7 @@ class _PaymentsState extends State<PaymentsPage> {
       OutlinedButton.icon(
         onPressed: addPreviousDebt,
         icon: const Icon(Icons.note_add_outlined),
-        label: const Text('إضافة مديونية سابقة'),
+        label: const Text('إضافة دين سابق'),
       ),
       FilledButton.icon(
         onPressed: add,
