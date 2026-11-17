@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:intl/date_symbol_data_local.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -128,6 +129,7 @@ void main() {
     late StationRepository repo;
     late Map<String, int> targets;
     setUpAll(() async {
+      await initializeDateFormatting('ar');
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
       folder = await Directory.systemTemp.createTemp('party-shortcuts-');
