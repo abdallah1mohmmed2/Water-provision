@@ -78,19 +78,6 @@ class ManualMessageService {
     }
   }
 
-  static TextButton _copyButton(BuildContext context, String message) => TextButton.icon(
-    onPressed: () async {
-      await Clipboard.setData(ClipboardData(text: message));
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم نسخ نص الرسالة')),
-        );
-      }
-    },
-    icon: const Icon(Icons.copy_rounded),
-    label: const Text('نسخ نص الرسالة'),
-  );
-
   static Future<bool> open(
     ManualMessageChannel channel, {
     required String phone,
@@ -122,84 +109,148 @@ class ManualMessageService {
     );
   }
 
+  static bool _choosing = false;
+
   static Future<void> offerChoices(
     BuildContext context, {
     required String title,
     required String recipientName,
     required String phone,
     required String message,
+    String? notice,
   }) async {
-    if (phone.trim().isEmpty) {
-      await showDialog<void>(
+    // A double tap must not stack a second composer with the original text.
+    if (_choosing) return;
+    _choosing = true;
+    try {
+      final choice = await showDialog<_MessageChoice>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(title),
-          content: Text(
-            'لا يوجد رقم هاتف مسجل لـ$recipientName. أضف الرقم إلى بيانات الطرف لإتاحة الإرسال.',
-          ),
-          actions: [
-            _copyButton(dialogContext, message),
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('حسنًا'),
-            ),
-          ],
+        builder: (_) => _MessageDraftDialog(
+          title: title,
+          recipientName: recipientName,
+          phone: phone,
+          initialMessage: message,
+          notice: notice,
         ),
       );
-      return;
+      if (choice == null || !context.mounted) return;
+      try {
+        final opened = await open(choice.channel, phone: phone, message: choice.message);
+        if (!opened && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تعذر فتح التطبيق. يمكنك نسخ النص والمحاولة مجددًا.')),
+          );
+        }
+      } on FormatException catch (error) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message.toString())));
+        }
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('تعذر فتح تطبيق الرسائل لهذا الرقم.')),
+          );
+        }
+      }
+    } finally {
+      _choosing = false;
     }
+  }
+}
 
-    final channel = await showDialog<ManualMessageChannel>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: Text(
-          'اختر تطبيقًا لفتح رسالة فردية جاهزة إلى $recipientName. لن تُرسل الرسالة إلا بعد ضغطك على زر الإرسال داخل التطبيق.',
+class _MessageChoice {
+  final ManualMessageChannel channel;
+  final String message;
+  const _MessageChoice(this.channel, this.message);
+}
+
+class _MessageDraftDialog extends StatefulWidget {
+  const _MessageDraftDialog({
+    required this.title,
+    required this.recipientName,
+    required this.phone,
+    required this.initialMessage,
+    this.notice,
+  });
+  final String title, recipientName, phone, initialMessage;
+  final String? notice;
+  @override
+  State<_MessageDraftDialog> createState() => _MessageDraftDialogState();
+}
+
+class _MessageDraftDialogState extends State<_MessageDraftDialog> {
+  late final TextEditingController draft;
+  bool chosen = false;
+  @override
+  void initState() {
+    super.initState();
+    draft = TextEditingController(text: widget.initialMessage);
+  }
+  @override
+  void dispose() {
+    draft.dispose();
+    super.dispose();
+  }
+  void choose(ManualMessageChannel channel) {
+    if (chosen || draft.text.trim().isEmpty || widget.phone.trim().isEmpty) return;
+    chosen = true;
+    Navigator.pop(context, _MessageChoice(channel, draft.text));
+  }
+  @override
+  Widget build(BuildContext context) {
+    final hasText = draft.text.trim().isNotEmpty;
+    final canOpen = hasText && widget.phone.trim().isNotEmpty && !chosen;
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: 480,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(widget.phone.trim().isEmpty
+                ? 'لا يوجد رقم هاتف مسجل لـ${widget.recipientName}. يمكنك نسخ النص أو إضافة الرقم إلى بياناته.'
+                : 'راجع رسالة ${widget.recipientName} وعدّلها قبل فتح التطبيق. الإرسال النهائي من داخل تطبيق الرسائل.'),
+              if (widget.notice != null) ...[
+                const SizedBox(height: 8),
+                Text(widget.notice!),
+              ],
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('manual-message-draft'),
+                controller: draft,
+                minLines: 3,
+                maxLines: 7,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(labelText: 'نص الرسالة', border: OutlineInputBorder()),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() => draft.text = widget.initialMessage),
+                icon: const Icon(Icons.restore),
+                label: const Text('إعادة تجهيز النص'),
+              ),
+            ],
+          ),
         ),
-        actions: [
-          _copyButton(dialogContext, message),
-          TextButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, ManualMessageChannel.sms),
-            child: const Text('فتح SMS'),
-          ),
-          TextButton(
-            onPressed: () =>
-                Navigator.pop(dialogContext, ManualMessageChannel.whatsapp),
-            child: const Text('فتح WhatsApp'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('لاحقًا'),
-          ),
-        ],
       ),
+      actions: [
+        TextButton.icon(
+          onPressed: !hasText ? null : () async {
+            await Clipboard.setData(ClipboardData(text: draft.text));
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('تم نسخ نص الرسالة')),
+              );
+            }
+          },
+          icon: const Icon(Icons.copy_rounded),
+          label: const Text('نسخ نص الرسالة'),
+        ),
+        TextButton(onPressed: canOpen ? () => choose(ManualMessageChannel.sms) : null, child: const Text('فتح SMS')),
+        TextButton(onPressed: canOpen ? () => choose(ManualMessageChannel.whatsapp) : null, child: const Text('فتح WhatsApp')),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('لاحقًا')),
+      ],
     );
-    if (channel == null || !context.mounted) return;
-
-    try {
-      final opened = await open(channel, phone: phone, message: message);
-      if (!opened && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'تعذر فتح التطبيق. تأكد من تثبيت تطبيق الرسائل أو WhatsApp.',
-            ),
-          ),
-        );
-      }
-    } on FormatException catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.message.toString())));
-      }
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تعذر فتح تطبيق الرسائل لهذا الرقم.')),
-        );
-      }
-    }
   }
 }

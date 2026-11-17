@@ -1,3 +1,4 @@
+import '../services/beneficiary_irrigation_message_service.dart';
 import 'party_quick_actions.dart';
 import '../core/message_time.dart';
 import '../services/irrigation_message_fuel_service.dart';
@@ -3324,7 +3325,19 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     if (_irrigationActionBusy || !canManageIrrigations || widget.userId == null) return;
     setState(() => _irrigationActionBusy = true);
     try {
-      final changed = await showBeneficiaryIrrigationMenu(context, BeneficiaryIrrigationActions(widget.r.db,userId:widget.userId!,beneficiaryId:widget.id,irrigationId:id));
+      final changed = await showBeneficiaryIrrigationMenu(context,
+        BeneficiaryIrrigationActions(widget.r.db, userId: widget.userId!, beneficiaryId: widget.id, irrigationId: id),
+        onResend: () async {
+          final message = await BeneficiaryIrrigationMessageService(widget.r).prepare(
+            userId: widget.userId!, beneficiaryId: widget.id, irrigationId: id);
+          if (!mounted) return;
+          await ManualMessageService.offerChoices(context,
+            title: 'إعادة إرسال رسالة السقاية', recipientName: message.name,
+            phone: message.phone, message: message.text,
+            notice: 'البيانات من السقاية المحفوظة، والرصيد الحالي وقت التجهيز. الرصيد السابق الأصلي غير محفوظ.',
+          );
+        },
+      );
       if (changed && mounted) await load();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));
@@ -15707,7 +15720,9 @@ class _SettingsState extends State<SettingsPage> {
                     ),
                     const SizedBox(height: 10),
                     TextField(
+                      key: ValueKey('message-template-$selected'),
                       controller: controllers[selected],
+                      onChanged: (_) => refresh(() {}),
                       minLines: 8,
                       maxLines: 14,
                       decoration: const InputDecoration(labelText: 'نص الرسالة', border: OutlineInputBorder(), alignLabelWithHint: true),

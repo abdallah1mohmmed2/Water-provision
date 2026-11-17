@@ -1,3 +1,7 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:saqia_station/services/manual_message_service.dart';
+import 'package:saqia_station/services/beneficiary_irrigation_message_service.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -115,6 +119,95 @@ void main() {
       userId: user,
     ),
   );
+  Future<List<Map<String, Object?>>> accountingSnapshot() => db.query("""
+    SELECT (SELECT COUNT(*) FROM irrigations) irrigations,
+           (SELECT COUNT(*) FROM payments) payments,
+           (SELECT COUNT(*) FROM journal_entries) journals,
+           (SELECT COUNT(*) FROM journal_lines) lines,
+           (SELECT COUNT(*) FROM diesel_movements) fuel,
+           (SELECT COUNT(*) FROM sync_queue) outbox,
+           (SELECT current_balance FROM cashboxes WHERE id=1) cash
+  """);
+  for (final type in ['diesel', 'solar', 'equivalent_hybrid']) {
+    testWidgets('$type resend from details table and timeline is read only and explicitly repeatable', (tester) async {
+      tester.view.physicalSize = const Size(1400, 4000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        ManualMessageService.smsComposerChannel, (call) async { calls.add(call); return true; });
+      addTearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        ManualMessageService.smsComposerChannel, null));
+      final id = await tester.runAsync(() => record(type));
+      await tester.runAsync(() async {
+        await db.update('beneficiaries', {'phone': '771234567'}, 'id=?', [beneficiary]);
+        await repo.setSetting('system_type', type == 'diesel' ? 'solar' : 'diesel');
+        await repo.setSetting('diesel_liters_per_hour', '99');
+      });
+      final before = await tester.runAsync(accountingSnapshot);
+      final original = await tester.runAsync(() => row(id!));
+      await tester.pumpWidget(page());
+      final draft = find.byKey(const ValueKey('manual-message-draft'));
+      for (final source in ['table', 'history-s']) {
+        final target = find.byKey(ValueKey('beneficiary-irrigation-$source-$id'));
+        await drain(tester, () => target.evaluate().isNotEmpty);
+        await tester.ensureVisible(target);
+        await tester.longPress(target);
+        await drain(tester, () => find.text('إعادة إرسال الرسالة').evaluate().isNotEmpty);
+        expect(find.text('تعديل السقاية'), findsOneWidget);
+        expect(find.text('حذف السقاية (إلغاء وعكس الأثر)'), findsOneWidget);
+        expect(find.text('إعادة إرسال الرسالة'), findsOneWidget);
+        await tester.tap(find.text('إعادة إرسال الرسالة'));
+        await drain(tester, () => draft.evaluate().isNotEmpty);
+        final text = tester.widget<TextField>(draft).controller!.text;
+        expect(text, contains('صاحب السقاية'));
+        expect(text, contains('08:00 ص'));
+        expect(text, contains('09:00 ص'));
+        expect(text, contains('القيمة: 6000 ريال'));
+        expect(text, contains('المدفوع: 300 ريال'));
+        expect(text, contains('الرصيد الحالي: عليه 5700 ريال'));
+        expect(text, contains('الرصيد السابق: غير محفوظ لهذه السقاية'));
+        expect(text, contains('رقم العملية: $id'));
+        if (type == 'diesel') {
+          expect(text, contains('الديزل المستهلك: 2 لتر'));
+        } else {
+          expect(text, isNot(contains('الديزل المستهلك')));
+        }
+        if (source == 'history-s') {
+          await tester.enterText(draft, 'رسالة معدلة للسقاية $id');
+          await tester.pump();
+        }
+        await tester.tap(find.text('فتح SMS'));
+        await tester.pumpAndSettle();
+        expect((calls.last.arguments as Map)['phone'], '967771234567');
+        expect((calls.last.arguments as Map)['message'], source == 'history-s' ? 'رسالة معدلة للسقاية $id' : text);
+      }
+      expect(calls.length, 2);
+      expect(await tester.runAsync(accountingSnapshot), before);
+      expect(await tester.runAsync(() => row(id!)), original);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+  test('resend rejects a wrong beneficiary, unavailable actor, missing or cancelled irrigation', () async {
+    final id = await record('diesel');
+    final service = BeneficiaryIrrigationMessageService(repo);
+    final before = await accountingSnapshot();
+    await expectLater(service.prepare(userId: 1, beneficiaryId: other, irrigationId: id), throwsStateError);
+    await expectLater(service.prepare(userId: 9999, beneficiaryId: beneficiary, irrigationId: id), throwsStateError);
+    await expectLater(service.prepare(userId: 1, beneficiaryId: beneficiary, irrigationId: 9999), throwsStateError);
+    expect(await accountingSnapshot(), before);
+    await db.update('app_users', {'role': 'operations'}, 'id=?', [1]);
+    await expectLater(service.prepare(userId: 1, beneficiaryId: beneficiary, irrigationId: id), throwsStateError);
+    await db.update('app_users', {'role': 'manager'}, 'id=?', [1]);
+    await actions(id).cancel('اختبار منع رسالة الملغى');
+    final afterCancellation = await accountingSnapshot();
+    await expectLater(service.prepare(userId: 1, beneficiaryId: beneficiary, irrigationId: id), throwsStateError);
+    expect(await accountingSnapshot(), afterCancellation);
+  });
   for (final type in ['diesel', 'solar', 'equivalent_hybrid']) {
     testWidgets(
       '$type details long press edits table irrigation then cancels through timeline',

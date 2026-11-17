@@ -91,7 +91,6 @@ class MainActivity : FlutterFragmentActivity() {
                             // ACTION_SENDTO opens a composer; the user still presses Send.
                             startActivity(Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", phone, null)).apply {
                                 putExtra("sms_body", message)
-                                putExtra(Intent.EXTRA_TEXT, message)
                             })
                             result.success(true)
                         } catch (exception: ActivityNotFoundException) {

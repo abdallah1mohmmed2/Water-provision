@@ -95,15 +95,26 @@ void main() {
       expect(receipt, isNot(contains('{')));
     });
 
-    test('uses defaults when the saved template is empty', () {
+    test('uses defaults only when no template was saved', () {
       final message = MessageTemplateService.render(
-        '   ',
+        null,
         MessageTemplateService.receiptKey,
         const {},
       );
 
       expect(message, contains('—'));
       expect(message, isNot(contains('{')));
+    });
+    test('explicitly cleared templates and previews never restore themselves', () {
+      for (final system in ['diesel', 'solar', 'equivalent_hybrid']) {
+        for (final key in MessageTemplateService.defaults.keys) {
+          for (final deleted in ['', '   ']) {
+            expect(MessageTemplateService.render(deleted, key, const {}, systemType: system), isEmpty);
+            expect(MessageTemplateService.preview(deleted, key: key, systemType: system), isEmpty);
+          }
+          expect(MessageTemplateService.render(null, key, const {}, systemType: system), isNotEmpty);
+        }
+      }
     });
   });
 }

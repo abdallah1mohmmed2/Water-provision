@@ -72,6 +72,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(copied, ['ديزل 4.65\nرصيد له 5.75']);
       expect(tester.takeException(), isNull);
+      await tester.tap(find.text('لاحقًا'));
+      await tester.pumpAndSettle();
     });
   }
 

@@ -11,8 +11,9 @@ String _error(Object e) => e is StateError
 
 Future<bool> showBeneficiaryIrrigationMenu(
   BuildContext context,
-  BeneficiaryIrrigationActions actions,
-) async {
+  BeneficiaryIrrigationActions actions, {
+  Future<void> Function()? onResend,
+}) async {
   final row = await actions.record();
   if (!context.mounted) return false;
   final choice = await showModalBottomSheet<String>(
@@ -23,6 +24,12 @@ Future<bool> showBeneficiaryIrrigationMenu(
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(title: Text('إجراءات السقاية رقم ${actions.irrigationId}')),
+          if (onResend != null)
+            ListTile(
+              leading: const Icon(Icons.send_outlined),
+              title: const Text('إعادة إرسال الرسالة'),
+              onTap: () => Navigator.pop(c, 'resend'),
+            ),
           ListTile(
             leading: const Icon(Icons.edit_outlined),
             title: const Text('تعديل السقاية'),
@@ -38,6 +45,11 @@ Future<bool> showBeneficiaryIrrigationMenu(
     ),
   );
   if (choice == null || !context.mounted) return false;
+  if (choice == 'resend') {
+    await actions.record();
+    await onResend!();
+    return false;
+  }
   if (choice == 'edit') {
     final total = await showDialog<int>(
       context: context,

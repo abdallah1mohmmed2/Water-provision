@@ -69,8 +69,10 @@ class MessageTemplateService {
     Map<String, Object?> values, {
     String? systemType,
   }) {
-    final saved = savedTemplate?.toString() ?? '';
-    var template = saved.trim().isEmpty ? defaultFor(key, systemType: systemType) : saved;
+    // A saved empty template is an explicit deletion, not a request to restore.
+    var template = savedTemplate == null
+        ? defaultFor(key, systemType: systemType)
+        : savedTemplate.toString();
     final knownFields = availableFields(key, systemType: systemType);
     // Hide fuel-only lines in a template copied from a diesel station. Keep
     // mixed lines' ordinary fields; unavailable fuel tokens render empty.
