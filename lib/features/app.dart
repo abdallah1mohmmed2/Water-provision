@@ -6694,6 +6694,15 @@ int? parseClock(String raw) {
   ) => SizedBox(
     width: 270,
     child: DropdownButtonFormField<T>(
+      isExpanded: true,
+      selectedItemBuilder: (context) => items.map((item) => Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: DefaultTextStyle.merge(
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          child: item.child,
+        ),
+      )).toList(),
       // Flutter يرمي assertion إن لم تطابق القيمة عنصرًا واحدًا بالضبط.
       initialValue: items.where((i) => i.value == value).length == 1 ? value : null,
       items: items,
