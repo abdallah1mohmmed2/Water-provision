@@ -1,3 +1,4 @@
+import 'party_quick_actions.dart';
 import '../core/message_time.dart';
 import '../services/irrigation_message_fuel_service.dart';
 import '../core/party_diesel_rate.dart';
@@ -3880,14 +3881,20 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
           ),
           actions: [
             if (['beneficiary', 'worker', 'partner'].contains(widget.kind))
-              ReportPdfLongPress(
-  enabled: true,
-  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(printPersonReport),
-  child: IconButton(
-                onPressed: printPersonReport,
+              IconButton(
+                tooltip: 'تقارير PDF',
+                onPressed: () => showPartyPdfChoices(context,
+                  name: widget.title,
+                  generate: (irrigations) => irrigations
+                    ? ReportService(widget.r).printPdf('irrigations',
+                        beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
+                        workerId: widget.kind == 'worker' ? widget.id : null,
+                        partnerId: widget.kind == 'partner' ? widget.id : null,
+                        from: filterFrom, to: filterTo, systemType: 'all')
+                    : printPersonReport(),
+                ),
                 icon: const Icon(Icons.picture_as_pdf_rounded),
               ),
-),
             IconButton(
               onPressed: load,
               tooltip: 'تحديث',
@@ -4669,6 +4676,22 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
+                                      PartyQuickActions(
+                                        repository: widget.r,
+                                        partyType: 'beneficiary',
+                                        partyId: x['id'] as int,
+                                        name: '${x['name']}',
+                                        onNewIrrigation: () async {
+                                          await Navigator.push(context, MaterialPageRoute<void>(
+                                            builder: (_) => NewIrrigationPage(widget.r,
+                                              manager: widget.manager,
+                                              initialPartyType: 'beneficiary',
+                                              initialPartyId: x['id'] as int,
+                                            ),
+                                          ));
+                                          if (mounted) await load();
+                                        },
+                                      ),
                                       Row(
                                         children: [
                                           const CircleAvatar(
@@ -4779,7 +4802,14 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
 class NewIrrigationPage extends StatefulWidget {
   final StationRepository r;
   final bool manager;
-  const NewIrrigationPage(this.r, {required this.manager, super.key});
+  final String? initialPartyType;
+  final int? initialPartyId;
+  const NewIrrigationPage(this.r, {
+    required this.manager,
+    this.initialPartyType,
+    this.initialPartyId,
+    super.key,
+  });
   @override
   State<NewIrrigationPage> createState() => _NewIrrigationState();
 }
@@ -4833,6 +4863,27 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   List<Map<String, Object?>> methods = [];
   int? payMethod;
   late Future<void> _initialLoadFuture;
+  String? _initialPartyError;
+
+  Future<void> _loadInitialParty() async {
+    await load();
+    if (!mounted) return;
+    final kind = widget.initialPartyType;
+    final id = widget.initialPartyId;
+    if (kind == null && id == null) return;
+    final people = switch (kind) {
+      'beneficiary' => beneficiaries,
+      'worker' => workers,
+      'partner' => partners,
+      _ => <Map<String, Object?>>[],
+    };
+    if (id == null || !people.any((x) => x['id'] == id)) {
+      setState(() => _initialPartyError = 'هذا الشخص غير متاح للسقاية في المنظومة الحالية. ارجع إلى قائمته وحدّث البيانات.');
+      return;
+    }
+    await selectParty(kind!, id);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -4843,7 +4894,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     startTimeController.text = _hm12(start);
     endTimeController.text = _hm12(end);
     // احتفظ بمهمة التحميل الأولى حتى ينتظرها النموذج السريع قبل فتح الحوار.
-    _initialLoadFuture = load();
+    _initialLoadFuture = _loadInitialParty();
   }
 
   @override
@@ -5976,6 +6027,10 @@ int? parseClock(String raw) {
   }
 
   Future<void> save({bool keepQuickForm = false}) async {
+    if (_initialPartyError != null) {
+      msg(_initialPartyError!);
+      return;
+    }
     if (timeStep != 2) {
       msg('أكمل تحديد وقت البداية والنهاية بالضغط على التالي أولاً');
       return;
@@ -6251,6 +6306,15 @@ int? parseClock(String raw) {
 
   @override
   Widget build(c) {
+    if (_initialPartyError != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('سقاية جديدة')),
+        body: Center(child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(_initialPartyError!),
+        )),
+      );
+    }
     if (loading && beneficiaries.isEmpty) return const LoadingView();
     final p = preview();
     bool keepSelected(Map<String, Object?> x, int? selected) =>
@@ -10705,6 +10769,22 @@ class _WorkersState extends State<WorkersPage> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
+                                          PartyQuickActions(
+                                            repository: widget.r,
+                                            partyType: 'worker',
+                                            partyId: x['id'] as int,
+                                            name: '${x['name']}',
+                                            onNewIrrigation: () async {
+                                              await Navigator.push(context, MaterialPageRoute<void>(
+                                                builder: (_) => NewIrrigationPage(widget.r,
+                                                  manager: widget.manager,
+                                                  initialPartyType: 'worker',
+                                                  initialPartyId: x['id'] as int,
+                                                ),
+                                              ));
+                                              if (mounted) await load();
+                                            },
+                                          ),
                                           Row(
                                             children: [
                                               const CircleAvatar(
@@ -11357,6 +11437,22 @@ class _PartnersState extends State<PartnersPage> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
+                                          PartyQuickActions(
+                                            repository: widget.r,
+                                            partyType: 'partner',
+                                            partyId: x['id'] as int,
+                                            name: '${x['name']}',
+                                            onNewIrrigation: () async {
+                                              await Navigator.push(context, MaterialPageRoute<void>(
+                                                builder: (_) => NewIrrigationPage(widget.r,
+                                                  manager: widget.manager,
+                                                  initialPartyType: 'partner',
+                                                  initialPartyId: x['id'] as int,
+                                                ),
+                                              ));
+                                              if (mounted) await load();
+                                            },
+                                          ),
                                           Row(
                                             children: [
                                               const CircleAvatar(

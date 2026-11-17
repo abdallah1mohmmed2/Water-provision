@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import '../core/message_time.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -45,7 +47,7 @@ class ManualMessageService {
   static Uri smsUri(String phone, String message) => Uri(
     scheme: 'sms',
     path: normalizePhoneDigits(phone),
-    queryParameters: {'body': message},
+    query: 'body=${Uri.encodeComponent(message)}',
   );
 
   static Uri whatsappUri(String phone, String message) {
@@ -56,7 +58,37 @@ class ManualMessageService {
   static Uri _whatsappAppUri(String phone, String message) => Uri(
     scheme: 'whatsapp',
     host: 'send',
-    queryParameters: {'phone': normalizePhoneDigits(phone), 'text': message},
+    query: 'phone=${normalizePhoneDigits(phone)}&text=${Uri.encodeComponent(message)}',
+  );
+
+  static const smsComposerChannel = MethodChannel('saqia/message_composer');
+
+  /// Android's native composer receives the complete text as an Intent extra.
+  /// No SEND_SMS permission or automatic sending is involved.
+  static Future<bool> openNativeSms(String phone, String message) async {
+    try {
+      return await smsComposerChannel.invokeMethod<bool>('composeSms', {
+        'phone': normalizePhoneDigits(phone),
+        'message': message,
+      }) ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  static TextButton _copyButton(BuildContext context, String message) => TextButton.icon(
+    onPressed: () async {
+      await Clipboard.setData(ClipboardData(text: message));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم نسخ نص الرسالة')),
+        );
+      }
+    },
+    icon: const Icon(Icons.copy_rounded),
+    label: const Text('نسخ نص الرسالة'),
   );
 
   static Future<bool> open(
@@ -65,6 +97,8 @@ class ManualMessageService {
     required String message,
   }) async {
     if (channel == ManualMessageChannel.sms) {
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android &&
+          await openNativeSms(phone, message)) return true;
       return launchUrl(
         smsUri(phone, message),
         mode: LaunchMode.externalApplication,
@@ -102,6 +136,7 @@ class ManualMessageService {
             'لا يوجد رقم هاتف مسجل لـ$recipientName. أضف الرقم إلى بيانات الطرف لإتاحة الإرسال.',
           ),
           actions: [
+            _copyButton(dialogContext, message),
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text('حسنًا'),
@@ -120,6 +155,7 @@ class ManualMessageService {
           'اختر تطبيقًا لفتح رسالة فردية جاهزة إلى $recipientName. لن تُرسل الرسالة إلا بعد ضغطك على زر الإرسال داخل التطبيق.',
         ),
         actions: [
+          _copyButton(dialogContext, message),
           TextButton(
             onPressed: () =>
                 Navigator.pop(dialogContext, ManualMessageChannel.sms),

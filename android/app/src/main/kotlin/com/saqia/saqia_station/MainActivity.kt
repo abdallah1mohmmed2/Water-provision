@@ -77,6 +77,31 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "saqia/message_composer")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "composeSms") {
+                    result.notImplemented()
+                } else {
+                    val phone = call.argument<String>("phone")
+                    val message = call.argument<String>("message")
+                    if (phone == null || !phone.matches(Regex("[0-9]{8,15}")) || message == null) {
+                        result.error("INVALID_MESSAGE", "تعذر تجهيز رقم الهاتف ونص الرسالة", null)
+                    } else {
+                        try {
+                            // ACTION_SENDTO opens a composer; the user still presses Send.
+                            startActivity(Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", phone, null)).apply {
+                                putExtra("sms_body", message)
+                                putExtra(Intent.EXTRA_TEXT, message)
+                            })
+                            result.success(true)
+                        } catch (exception: ActivityNotFoundException) {
+                            result.success(false)
+                        } catch (exception: SecurityException) {
+                            result.success(false)
+                        }
+                    }
+                }
+            }
         pendingQuickAction = intent?.getStringExtra(EXTRA_QUICK_ACTION)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, contactsChannel)
             .setMethodCallHandler { call, result ->
