@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:saqia_station/services/manual_message_service.dart';
 import 'package:saqia_station/services/beneficiary_irrigation_message_service.dart';
@@ -134,8 +133,6 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      debugDefaultTargetPlatformOverride = TargetPlatform.android;
-      addTearDown(() => debugDefaultTargetPlatformOverride = null);
       final calls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
         ManualMessageService.smsComposerChannel, (call) async { calls.add(call); return true; });
@@ -190,7 +187,7 @@ void main() {
       expect(await tester.runAsync(() => row(id!)), original);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
-    });
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
   }
   test('resend rejects a wrong beneficiary, unavailable actor, missing or cancelled irrigation', () async {
     final id = await record('diesel');

@@ -201,11 +201,11 @@ class _MessageDraftDialogState extends State<_MessageDraftDialog> {
     final hasText = draft.text.trim().isNotEmpty;
     final canOpen = hasText && widget.phone.trim().isNotEmpty && !chosen;
     return AlertDialog(
+      scrollable: true,
       title: Text(widget.title),
       content: SizedBox(
         width: 480,
-        child: SingleChildScrollView(
-          child: Column(
+        child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -231,7 +231,6 @@ class _MessageDraftDialogState extends State<_MessageDraftDialog> {
                 label: const Text('إعادة تجهيز النص'),
               ),
             ],
-          ),
         ),
       ),
       actions: [

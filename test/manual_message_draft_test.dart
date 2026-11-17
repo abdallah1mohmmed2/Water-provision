@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,12 +8,10 @@ void main() {
   late List<MethodCall> calls;
   setUp(() {
     calls = [];
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
       ManualMessageService.smsComposerChannel, (call) async { calls.add(call); return true; });
   });
   tearDown(() {
-    debugDefaultTargetPlatformOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
       ManualMessageService.smsComposerChannel, null);
   });
@@ -39,20 +36,23 @@ void main() {
     await tester.pumpAndSettle();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-    tester.view.physicalSize = const Size(850, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.physicalSize = const Size(320, 480);
     addTearDown(tester.view.resetPhysicalSize);
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(draft).controller!.text, isEmpty);
     expect(tester.widget<TextButton>(find.widgetWithText(TextButton, 'فتح SMS')).onPressed, isNull);
     expect(tester.widget<TextButton>(find.widgetWithText(TextButton, 'فتح WhatsApp')).onPressed, isNull);
     expect(calls, isEmpty);
+    await tester.ensureVisible(find.text('إعادة تجهيز النص'));
     await tester.tap(find.text('إعادة تجهيز النص'));
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(draft).controller!.text, 'رسالة أصلية 5.75 لتر');
     expect(calls, isEmpty);
     await tester.tap(find.text('لاحقًا'));
     await tester.pumpAndSettle();
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   testWidgets('only edited text opens once and resume cannot repopulate or relaunch', (tester) async {
     await tester.pumpWidget(page());
@@ -76,7 +76,7 @@ void main() {
     expect(tester.widget<TextField>(draft).controller!.text, 'رسالة أصلية 5.75 لتر');
     await tester.tap(find.text('لاحقًا'));
     await tester.pumpAndSettle();
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   testWidgets('concurrent requests do not stack original message composers', (tester) async {
     await tester.pumpWidget(page(twice: true));
@@ -90,5 +90,5 @@ void main() {
     expect(calls.length, 1);
     expect((calls.single.arguments as Map)['message'], 'المسودة المعدلة');
     expect(draft, findsNothing);
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 }
