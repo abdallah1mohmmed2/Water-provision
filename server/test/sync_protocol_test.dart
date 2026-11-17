@@ -1199,7 +1199,8 @@ test('legacy beneficiary rows receive a stable global identity on first API read
 
   test('personal fuel rate sync validates all owner types and publishes nullable reset', () async {
     for (final table in ['workers', 'partners']) {
-      database.execute('CREATE TABLE $table(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1)');
+      final requiredColumn = table == 'workers' ? "pay_type TEXT NOT NULL DEFAULT 'fixed'" : "ownership_mode TEXT NOT NULL DEFAULT 'shares'";
+      database.execute('CREATE TABLE $table(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,$requiredColumn)');
     }
     var n = 0;
     for (final table in ['beneficiaries', 'workers', 'partners']) {
@@ -1208,11 +1209,13 @@ test('legacy beneficiary rows receive a stable global identity on first API read
         'event_id': 'abcddcba-2222-4222-8222-${(++n).toString().padLeft(12,'0')}',
         'entity_type': table, 'entity_key': '$table:$global',
         'operation': version == 0 ? 'create' : 'update', 'base_version': version,
-        'payload': {'_global_id': global, 'name': 'صاحب معدل', 'diesel_liters_per_hour': rate},
+        'payload': {'_global_id': global, 'name': 'صاحب معدل', 'diesel_liters_per_hour': rate,
+          if (table == 'workers' && version == 0) 'pay_type': 'fixed',
+          if (table == 'partners' && version == 0) 'ownership_mode': 'shares'},
       };
       final create = event(0, 4.65);
       final accepted = await postEvents(stationOneToken, [create]);
-      expect((accepted['results'] as List).single['status'], 'accepted');
+      expect((accepted['results'] as List).single['status'], 'accepted', reason: '$table: $accepted');
       expect(database.select('SELECT diesel_liters_per_hour FROM $table').single['diesel_liters_per_hour'], 4.65);
       final invalid = await postEvents(stationOneToken, [event(1, -1)]);
       expect((invalid['results'] as List).single['status'], 'rejected');
