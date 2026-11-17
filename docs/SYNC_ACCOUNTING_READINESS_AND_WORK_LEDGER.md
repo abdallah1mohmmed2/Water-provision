@@ -1309,3 +1309,12 @@ Files repaired: `server/lib/server.dart` (child projection operation), `server/t
 - السبب الثاني: اختبارات إعادة تجهيز السقاية الثلاث تترك debugDefaultTargetPlatformOverride إلى addTearDown بعد فحص Flutter invariants؛ استُبدل بـTargetPlatformVariant في الاختبارات الست، كما في اختبارات البوابة القائمة.
 - الملفات: lib/services/manual_message_service.dart، test/manual_message_draft_test.dart، test/beneficiary_irrigation_actions_test.dart وهذا السجل. مسار إعادة التجهيز يبقى قراءة فقط؛ لا تغيير Repository/AccountingService/SQLite/Outbox/SyncService/Shelf/Inbox أو مخطط أو عكس محاسبي. توقعات ثبات السقاية والقيود والمدفوعات والديزل والصندوق وOutbox وصلاحيات الأطراف باقية.
 - Flutter/Dart غير مثبتين محليًا؛ التشغيل الشامل والتحليل وAPK بانتظار CI على SHA الإصلاح. لا قبول نهائي ولا تعديل main قبل تسجيل الأدلة.
+
+
+### القبول النهائي لإصلاح §53 — 2026-11-17
+
+- SHA الكود المختبر: a5548d9bef20f1dad0ac03153b6305380c3e60a0. الفحوص الخمسة نهائية SUCCESS: Analyze push44101915947 وPR44101928779، SonarCloud44101928832، Build/SonarQube44101928730، Release44101915931 (كل الروابط تحت https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/).
+- سجل Release job134103893280: 311/311 Flutter و105/105 Shelf ناجحة، تحليل الطرفين بلا ملاحظات، app-release.apk81.1MB. حالات المسودة الثلاث وإعادة تجهيز السقاية الثلاث نجحت مع جميع اختبارات المحاسبة والعكس السابقة. SQL logic وtooling4/4 وgit diff --check ناجحة محليًا؛ لا Flutter محلي.
+- APK: https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/44101915931/artifacts/14337695348 ، Saqia-App-Release، ZIP37543414بايت، غير منتهٍ، sha256:09d004b05615afb9440ca17e94030bfbce5ce9f01023bd4781ff32b4ca7f31cd، head_sha مطابق. Debug artifact14336323165 من44101928730 موجود أيضًا.
+- لا تعديل في الحسابات أو المخطط أو Outbox/Shelf/Inbox. اختبارات إعادة التجهيز تثبت ثبات السقاية والقيود والمدفوعات والصندوق والوقود وOutbox، ورفض الطرف/المستخدم/السجل الملغى؛ اختبارات التعديل والإلغاء القديمة ناجحة. توقيع Debug القائم في وضع Release؛ لا اختبار هاتف فعلي أو نشر خادم أو دمج main.
+- الحالة: §53 مكتملة ومقبولة ضمن النطاق المختبر. هذا تحديث توثيقي لاحق، ولا تنسب نجاحات SHA الكود إلى SHA التوثيق تلقائيًا.
