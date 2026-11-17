@@ -1,3 +1,4 @@
+import '../services/diesel_report_columns.dart';
 import 'party_diesel_balance.dart';
 import '../core/diesel_quantity.dart';
 import 'beneficiary_irrigation_menu.dart';
@@ -12701,6 +12702,8 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         0,
         (sum, row) => sum + amountOf(row, 'minutes'),
       );
+      final dieselStatement = DieselReportColumns.dieselOnly(reportRows, settings['system_type'] ?? 'diesel');
+      final totalFuel = reportRows.fold<num>(0, (sum, row) => sum + amountOf(row, 'diesel_consumption_liters'));
       final totalCloud = reportRows.fold<num>(
         0,
         (sum, row) => sum + amountOf(row, 'cloud_minutes'),
@@ -12737,7 +12740,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         summaryBoxes: [
           StatBoxData(number: '1', title: 'إجمالي عدد السقايات', value: amountText(reportRows.length)),
           StatBoxData(number: '2', title: 'إجمالي الدقائق', value: amountText(totalMinutes)),
-          StatBoxData(number: '3', title: 'إجمالي الغيم', value: amountText(totalCloud)),
+          StatBoxData(number: '3', title: dieselStatement ? 'استهلاك الديزل (لتر)' : 'إجمالي الغيم', value: dieselStatement ? DieselQuantity.format(totalFuel) : amountText(totalCloud)),
           StatBoxData(number: '4', title: 'إجمالي القيمة', value: amountText(totalValue), isBlueTint: true),
           StatBoxData(number: '5', title: 'إجمالي المدفوع', value: amountText(totalPaid)),
           StatBoxData(number: '6', title: 'إجمالي له أو عليه', value: 'له ${amountText(totalLah)} / عليه ${amountText(totalAlayh)}', isLarge: true),
