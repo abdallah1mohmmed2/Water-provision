@@ -1,3 +1,5 @@
+import '../core/party_diesel_rate.dart';
+import 'party_diesel_rate_field.dart';
 import '../services/diesel_report_columns.dart';
 import 'party_diesel_balance.dart';
 import '../core/diesel_quantity.dart';
@@ -4299,6 +4301,11 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   }
 
   Future<void> add() async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: '');
     final n = TextEditingController(),
         p = TextEditingController(),
         j = TextEditingController(),
@@ -4324,6 +4331,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             labelText: 'رقم الهاتف',
             hintText: 'رقم التواصل',
           ),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
           TextField(
             controller: j,
             decoration: const InputDecoration(labelText: 'رقم الجربة'),
@@ -4362,6 +4370,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
       if (!await runGuarded(
         context,
         () => widget.r.createBeneficiary(
+          dieselLitersPerHour: dieselEnabled ? PartyDieselRate.parseOptional(fuelRate.text) : null,
           name: n.text,
           phone: p.text,
           jerba: j.text,
@@ -4380,6 +4389,11 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   }
 
   Future<void> edit(Map<String, Object?> x) async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: x['diesel_liters_per_hour'] == null ? '' : DieselQuantity.format(x['diesel_liters_per_hour'] as num));
     final n = TextEditingController(text: '${x['name']}'),
         p = TextEditingController(text: '${x['phone'] ?? ''}'),
         j = TextEditingController(text: '${x['jerba_number'] ?? ''}'),
@@ -4398,6 +4412,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             decoration: const InputDecoration(labelText: 'الاسم'),
           ),
           ContactPhoneField(controller: p, labelText: 'الهاتف'),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
           TextField(
             controller: j,
             decoration: const InputDecoration(labelText: 'رقم الجربة'),
@@ -4436,6 +4451,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
       if (!await runGuarded(
         context,
         () => widget.r.updateBeneficiary(x['id'] as int, {
+          if (dieselEnabled) 'diesel_liters_per_hour': PartyDieselRate.parseOptional(fuelRate.text),
           'name': n.text.trim(),
           'phone': p.text,
           'jerba_number': j.text,
@@ -5021,8 +5037,13 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         );
   int get waterRate =>
       int.tryParse(settings['diesel_hourly_water_rate'] ?? '0') ?? 0;
-  double get liters =>
-      double.tryParse(settings['diesel_liters_per_hour'] ?? '0') ?? 0;
+  double get liters {
+    final list = partyType == 'beneficiary' ? beneficiaries : partyType == 'worker' ? workers : partners;
+    final id = partyType == 'beneficiary' ? bid : partyType == 'worker' ? workerId : partnerId;
+    final owner = list.where((row) => row['id'] == id);
+    return PartyDieselRate.resolve(owner.isEmpty ? null : owner.first['diesel_liters_per_hour'],
+        double.tryParse(settings['diesel_liters_per_hour'] ?? '0') ?? 0);
+  }
   int get dieselPrice =>
       int.tryParse(settings['diesel_price_per_liter'] ?? '0') ?? 0;
   int get solarRate => int.tryParse(settings['solar_hourly_rate'] ?? '0') ?? 0;
@@ -9995,6 +10016,11 @@ class _WorkersState extends State<WorkersPage> {
   }
 
   Future<void> add() async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: '');
     final n = TextEditingController(), phone = TextEditingController();
     final open = TextEditingController(text: '0');
     final rate = TextEditingController(),
@@ -10015,6 +10041,7 @@ class _WorkersState extends State<WorkersPage> {
                 decoration: const InputDecoration(labelText: 'اسم العامل'),
               ),
               ContactPhoneField(controller: phone, labelText: 'الهاتف'),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
               TextField(
                 controller: open,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -10082,6 +10109,7 @@ class _WorkersState extends State<WorkersPage> {
       if (!await runGuarded(
         context,
         () => widget.r.createWorker(
+          dieselLitersPerHour: dieselEnabled ? PartyDieselRate.parseOptional(fuelRate.text) : null,
           name: n.text,
           phone: phone.text,
           opening: int.tryParse(open.text.trim()) ?? 0,
@@ -10231,6 +10259,11 @@ class _WorkersState extends State<WorkersPage> {
   }
 
   Future<void> editWorker(Map<String, Object?> x) async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: x['diesel_liters_per_hour'] == null ? '' : DieselQuantity.format(x['diesel_liters_per_hour'] as num));
     final n = TextEditingController(text: '${x['name'] ?? ''}'),
         phone = TextEditingController(text: '${x['phone'] ?? ''}');
     String type = '${x['pay_type'] ?? 'hourly'}';
@@ -10241,6 +10274,7 @@ class _WorkersState extends State<WorkersPage> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (c, s) => AlertDialog(
+          scrollable: true,
           title: const Text('تعديل معلومات العامل'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -10250,6 +10284,7 @@ class _WorkersState extends State<WorkersPage> {
                 decoration: const InputDecoration(labelText: 'الاسم'),
               ),
               ContactPhoneField(controller: phone, labelText: 'الهاتف'),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
               DropdownButtonFormField<String>(
                 initialValue: type,
                 items: const [
@@ -10304,6 +10339,7 @@ class _WorkersState extends State<WorkersPage> {
     if (ok == true) {
       if (!mounted) return;
       if (!await runGuarded(context, () => widget.r.updateWorker(x['id'] as int, {
+        if (dieselEnabled) 'diesel_liters_per_hour': PartyDieselRate.parseOptional(fuelRate.text),
         'name': n.text.trim(),
         'phone': phone.text,
         'pay_type': type,
@@ -10806,6 +10842,11 @@ class _PartnersState extends State<PartnersPage> {
   }
 
   Future<void> add() async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: '');
     final n = TextEditingController(), phone = TextEditingController();
     final open = TextEditingController(text: '0');
     final sh = TextEditingController(), pc = TextEditingController();
@@ -10824,6 +10865,7 @@ class _PartnersState extends State<PartnersPage> {
                 decoration: const InputDecoration(labelText: 'اسم الشريك'),
               ),
               ContactPhoneField(controller: phone, labelText: 'الهاتف'),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
               TextField(
                 controller: open,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -10887,6 +10929,7 @@ class _PartnersState extends State<PartnersPage> {
       if (!await runGuarded(
         context,
         () => widget.r.createPartner(
+          dieselLitersPerHour: dieselEnabled ? PartyDieselRate.parseOptional(fuelRate.text) : null,
           name: n.text,
           mode: mode,
           shares: double.tryParse(sh.text.trim().replaceAll(',', '.')) ?? 0,
@@ -11077,6 +11120,11 @@ class _PartnersState extends State<PartnersPage> {
   }
 
   Future<void> editPartner(Map<String, Object?> x) async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: x['diesel_liters_per_hour'] == null ? '' : DieselQuantity.format(x['diesel_liters_per_hour'] as num));
     final n = TextEditingController(text: '${x['name'] ?? ''}'),
         phone = TextEditingController(text: '${x['phone'] ?? ''}'),
         pct = TextEditingController(text: '${x['ownership_percentage'] ?? 0}'),
@@ -11086,6 +11134,7 @@ class _PartnersState extends State<PartnersPage> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (c, s) => AlertDialog(
+          scrollable: true,
           title: const Text('تعديل معلومات الشريك'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -11095,6 +11144,7 @@ class _PartnersState extends State<PartnersPage> {
                 decoration: const InputDecoration(labelText: 'الاسم'),
               ),
               ContactPhoneField(controller: phone, labelText: 'الهاتف'),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
               DropdownButtonFormField<String>(
                 initialValue: mode,
                 items: const [
@@ -11143,6 +11193,7 @@ class _PartnersState extends State<PartnersPage> {
     if (ok == true) {
       if (!mounted) return;
       if (!await runGuarded(context, () => widget.r.updatePartner(x['id'] as int, {
+        if (dieselEnabled) 'diesel_liters_per_hour': PartyDieselRate.parseOptional(fuelRate.text),
         'name': n.text.trim(),
         'phone': phone.text,
         'ownership_mode': mode,

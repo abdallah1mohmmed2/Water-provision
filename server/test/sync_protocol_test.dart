@@ -1197,6 +1197,33 @@ test('legacy beneficiary rows receive a stable global identity on first API read
 
 
 
+  test('personal fuel rate sync validates all owner types and publishes nullable reset', () async {
+    for (final table in ['workers', 'partners']) {
+      database.execute('CREATE TABLE $table(id INTEGER PRIMARY KEY,station_id INTEGER NOT NULL,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1)');
+    }
+    var n = 0;
+    for (final table in ['beneficiaries', 'workers', 'partners']) {
+      final global = 'abcddcba-1111-4111-8111-${(++n).toString().padLeft(12,'0')}';
+      Map<String,dynamic> event(int version, Object? rate) => {
+        'event_id': 'abcddcba-2222-4222-8222-${(++n).toString().padLeft(12,'0')}',
+        'entity_type': table, 'entity_key': '$table:$global',
+        'operation': version == 0 ? 'create' : 'update', 'base_version': version,
+        'payload': {'_global_id': global, 'name': 'صاحب معدل', 'diesel_liters_per_hour': rate},
+      };
+      final create = event(0, 4.65);
+      final accepted = await postEvents(stationOneToken, [create]);
+      expect((accepted['results'] as List).single['status'], 'accepted');
+      expect(database.select('SELECT diesel_liters_per_hour FROM $table').single['diesel_liters_per_hour'], 4.65);
+      final invalid = await postEvents(stationOneToken, [event(1, -1)]);
+      expect((invalid['results'] as List).single['status'], 'rejected');
+      final reset = await postEvents(stationOneToken, [event(1, null)]);
+      expect((reset['results'] as List).single['status'], 'accepted');
+      expect(database.select('SELECT diesel_liters_per_hour FROM $table').single['diesel_liters_per_hour'], isNull);
+      final foreign = await postEvents(stationTwoToken, [event(2, 9)]);
+      expect((foreign['results'] as List).single['status'], 'rejected');
+    }
+  });
+
   test('master-data events apply atomically with station ownership and soft deletion', () async {
     database.execute('''CREATE TABLE pumps(
       id INTEGER PRIMARY KEY AUTOINCREMENT, station_id INTEGER NOT NULL,

@@ -1,3 +1,4 @@
+import '../../core/party_diesel_rate.dart';
 import '../../domain/accounting/report_minute_pricing.dart';
 import 'dart:async';
 
@@ -94,6 +95,8 @@ class StationRepository {
             'opening_diesel_liters', 'notes', 'status', 'created_at', 'updated_at',
           ])
             if (remote.containsKey(key) && remote[key] != null) key: remote[key],
+          if (remote.containsKey('diesel_liters_per_hour'))
+            'diesel_liters_per_hour': remote['diesel_liters_per_hour'],
           'created_at': remote['created_at'] ?? now,
           'updated_at': remote['updated_at'] ?? now,
         };
@@ -222,7 +225,9 @@ class StationRepository {
     double openingDiesel = 0,
     String? notes,
     int? userId,
+    double? dieselLitersPerHour,
   }) async {
+    PartyDieselRate.validate(dieselLitersPerHour);
     if (name.trim().isEmpty) throw ArgumentError('اسم المستفيد مطلوب');
     if (serverSessionActive &&
         (opening != 0 || carried != 0 || openingDiesel != 0)) {
@@ -234,6 +239,7 @@ class StationRepository {
     final id = await db.transaction((tx) async {
       final newId = await tx.insert('beneficiaries', {
         'name': name.trim(),
+        'diesel_liters_per_hour': dieselLitersPerHour,
         'phone': phone,
         'address': address,
         'location': location,
@@ -278,6 +284,7 @@ class StationRepository {
   }
 
   static const Set<String> _beneficiaryEditable = {
+    'diesel_liters_per_hour',
     'name',
     'phone',
     'address',
@@ -295,6 +302,9 @@ class StationRepository {
     Map<String, Object?> values,
     int? userId,
   ) async {
+    if (values.containsKey('diesel_liters_per_hour')) {
+      PartyDieselRate.validate(values['diesel_liters_per_hour']);
+    }
     final unknown = values.keys.where((k) => k != 'updated_at' && !_beneficiaryEditable.contains(k));
     if (unknown.isNotEmpty) {
       throw ArgumentError('حقول غير قابلة للتعديل: ${unknown.join('، ')}');
@@ -1627,7 +1637,9 @@ class StationRepository {
     String? title,
     int opening = 0,
     int? userId,
+    double? dieselLitersPerHour,
   }) async {
+    PartyDieselRate.validate(dieselLitersPerHour);
     if (name.trim().isEmpty) throw ArgumentError('اسم العامل مطلوب');
     if (!{'fixed', 'hourly', 'percentage'}.contains(payType)) {
       throw ArgumentError('نوع أجر العامل غير صالح');
@@ -1643,6 +1655,7 @@ class StationRepository {
       final newId = await tx.insert('workers', {
         'station_id': stationId,
         'name': name.trim(),
+        'diesel_liters_per_hour': dieselLitersPerHour,
         'phone': phone,
         'job_title': title,
         'pay_type': payType,
@@ -1673,15 +1686,20 @@ class StationRepository {
   }
 
   static const Set<String> _workerEditable = {
+    'diesel_liters_per_hour',
     'name', 'phone', 'job_title', 'pay_type', 'fixed_salary', 'hourly_rate',
     'percentage_rate', 'notes',
   };
   static const Set<String> _partnerEditable = {
+    'diesel_liters_per_hour',
     'name', 'phone', 'ownership_mode', 'shares_count', 'ownership_percentage',
     'notes',
   };
 
   Future<void> updateWorker(int id, Map<String,Object?> values, int? userId) async {
+    if (values.containsKey('diesel_liters_per_hour')) {
+      PartyDieselRate.validate(values['diesel_liters_per_hour']);
+    }
     final unknown = values.keys.where((k) => !_workerEditable.contains(k));
     if (unknown.isNotEmpty) throw ArgumentError('حقول غير قابلة للتعديل: ${unknown.join('، ')}');
     if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
@@ -1833,7 +1851,9 @@ class StationRepository {
     String? phone,
     int opening = 0,
     int? userId,
+    double? dieselLitersPerHour,
   }) async {
+    PartyDieselRate.validate(dieselLitersPerHour);
     if (name.trim().isEmpty) throw ArgumentError('اسم الشريك مطلوب');
     if (!{'shares','percentage'}.contains(mode)) throw ArgumentError('طريقة توزيع الشريك غير صالحة');
     if (mode == 'shares' &&
@@ -1856,6 +1876,7 @@ class StationRepository {
       final newId = await tx.insert('partners', {
         'station_id': stationId,
         'name': name.trim(),
+        'diesel_liters_per_hour': dieselLitersPerHour,
         'phone': phone,
         'ownership_mode': mode,
         'shares_count': mode == 'shares' ? shares : 0,
@@ -1884,6 +1905,9 @@ class StationRepository {
   }
 
   Future<void> updatePartner(int id, Map<String,Object?> values, int? userId) async {
+    if (values.containsKey('diesel_liters_per_hour')) {
+      PartyDieselRate.validate(values['diesel_liters_per_hour']);
+    }
     final unknown = values.keys.where((k) => !_partnerEditable.contains(k));
     if (unknown.isNotEmpty) throw ArgumentError('حقول غير قابلة للتعديل: ${unknown.join('، ')}');
     if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {

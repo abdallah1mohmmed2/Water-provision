@@ -1,3 +1,4 @@
+import '../../core/party_diesel_rate.dart';
 import '../maintenance/diesel_delivery_service.dart';
 import '../../core/app_clock.dart';
 import '../../core/app_prefs.dart';
@@ -1216,7 +1217,15 @@ class AccountingService {
 
     // الأسعار أيضًا تؤخذ من الإعدادات لحظة التسجيل حتى يكون السعر Snapshot موحدًا.
     final effectiveWaterRate = int.tryParse(set['diesel_hourly_water_rate'] ?? '0') ?? 0;
-    final effectiveLiters = double.tryParse(set['diesel_liters_per_hour'] ?? '0') ?? 0;
+    final partyTable = const {'beneficiary':'beneficiaries', 'worker':'workers', 'partner':'partners'}[partyType]!;
+    final ownerId = partyType == 'beneficiary' ? beneficiaryId : partyType == 'worker' ? workerId : partnerId;
+    final owner = await database.query('SELECT diesel_liters_per_hour FROM $partyTable WHERE id=? AND station_id=?', args: [ownerId, stationId]);
+    if (owner.isEmpty) {
+      throw StateError('صاحب السقاية لا يتبع المحطة');
+    }
+    final effectiveLiters = effectiveType == 'diesel'
+        ? PartyDieselRate.resolve(owner.first['diesel_liters_per_hour'], double.tryParse(set['diesel_liters_per_hour'] ?? '0') ?? 0)
+        : 0.0;
     // Irrigation diesel is an in-kind quantity, not a billed fuel product.
     const effectiveDieselPrice = 0;
     final effectiveSolarRate = int.tryParse(set['solar_hourly_rate'] ?? '0') ?? 0;

@@ -1,3 +1,4 @@
+import 'party_diesel_rate.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -124,7 +125,9 @@ class SaqiaServer {
   void _ensureFinancialStationOwnership() {
     const tables = ['payments','expenses','diesel_movements','cashbox_transfers','worker_transactions','partner_transactions'];
     for (final table in tables) {
-      if (!_hasTable(table)) continue;
+      if (!_hasTable(table)) {
+      continue;
+    }
       final cols = db.select('PRAGMA table_info($table)');
       if (!cols.any((x) => x['name'] == 'station_id')) db.execute('ALTER TABLE $table ADD COLUMN station_id INTEGER REFERENCES stations(id)');
       db.execute('CREATE INDEX IF NOT EXISTS idx_${table}_station_date ON $table(station_id,date)');
@@ -1236,7 +1239,20 @@ void _assertPartyDieselPeriod(int station, DateTime date) {
   }
 }
 
+void _ensurePartyFuelRates() {
+  for (final table in const ['beneficiaries', 'workers', 'partners']) {
+    if (!_hasTable(table)) {
+      continue;
+    }
+    final columns = db.select('PRAGMA table_info($table)').map((row) => row['name']).toSet();
+    if (!columns.contains('diesel_liters_per_hour')) {
+      db.execute('ALTER TABLE $table ADD COLUMN diesel_liters_per_hour REAL CHECK(diesel_liters_per_hour IS NULL OR diesel_liters_per_hour>0)');
+    }
+  }
+}
+
 void _ensurePartyDieselSchema() {
+  _ensurePartyFuelRates();
   if (!_hasTable('diesel_movements')) {
     return;
   }
@@ -3009,11 +3025,15 @@ void _applyPartyDieselReceipt({
   }) {
     const fields = <String, Set<String>>{
       'pumps': {'name', 'system_type', 'active', 'notes'},
-      'partners': {'name', 'phone', 'ownership_mode', 'shares_count', 'ownership_percentage', 'active', 'notes'},
-      'workers': {'name', 'phone', 'job_title', 'pay_type', 'fixed_salary', 'hourly_rate', 'percentage_rate', 'active', 'notes'},
+      'partners': {'diesel_liters_per_hour', 'name', 'phone', 'ownership_mode', 'shares_count', 'ownership_percentage', 'active', 'notes'},
+      'workers': {'diesel_liters_per_hour', 'name', 'phone', 'job_title', 'pay_type', 'fixed_salary', 'hourly_rate', 'percentage_rate', 'active', 'notes'},
       'payment_methods': {'name', 'type', 'account_number', 'bank_name', 'cashbox_id', 'ledger_account_code', 'active'},
       'cashboxes': {'name', 'currency', 'ledger_account_code', 'active'},
     };
+    _ensurePartyFuelRates();
+    if (payload.containsKey('diesel_liters_per_hour')) {
+      PartyDieselRate.validate(payload['diesel_liters_per_hour']);
+    }
     final allowed = fields[entityType];
     if (allowed == null) throw UnsupportedError('مجال البيانات الأساسية غير مدعوم');
     if (role != 'manager' && role != 'accountant') {
@@ -3284,7 +3304,16 @@ void _applyPartyDieselReceipt({
     if (cloudReported != cloudMinutes || cloudMinutes > minutes) throw StateError('مجموع فترات الغيم لا يطابق دقائق الغيم أو يتجاوز مدة السقاية');
     final chargeable = system == 'solar' ? minutes-cloudMinutes : minutes;
     final waterRate = system == 'diesel' ? (int.tryParse(settings['diesel_hourly_water_rate'] ?? '0') ?? 0) : system == 'solar' ? (int.tryParse(settings['solar_hourly_rate'] ?? '0') ?? 0) : (int.tryParse(settings['third_type_hourly_rate'] ?? '0') ?? 0);
-    final litersPerHour = system == 'diesel' ? (double.tryParse(settings['diesel_liters_per_hour'] ?? '0') ?? 0) : 0.0;
+    _ensurePartyFuelRates();
+    final ownerTable = const {'beneficiary':'beneficiaries', 'worker':'workers', 'partner':'partners'}[partyType]!;
+    final ownerId = partyType == 'beneficiary' ? beneficiaryId : partyType == 'worker' ? workerId : partnerId;
+    final owner = db.select('SELECT diesel_liters_per_hour FROM $ownerTable WHERE id=? AND station_id=?', [ownerId,station]);
+    if (owner.isEmpty) {
+      throw StateError('صاحب السقاية لا يتبع المحطة');
+    }
+    final litersPerHour = system == 'diesel'
+        ? PartyDieselRate.resolve(owner.first['diesel_liters_per_hour'], double.tryParse(settings['diesel_liters_per_hour'] ?? '0') ?? 0)
+        : 0.0;
     // Diesel price never participates in irrigation invoices or accruals.
     const dieselPrice = 0;
     if (waterRate < 0 || litersPerHour < 0) throw StateError('إعدادات أسعار السقاية غير صالحة');
@@ -3876,6 +3905,10 @@ void _applyPartyDieselReceipt({
     required int station, required String entityType, required String entityKey,
     required String operation, required Map payload, required String now, required int? userId, required String? role,
   }) {
+    _ensurePartyFuelRates();
+    if (payload.containsKey('diesel_liters_per_hour')) {
+      PartyDieselRate.validate(payload['diesel_liters_per_hour']);
+    }
     if (const {'pumps','partners','workers','payment_methods','cashboxes'}.contains(entityType)) {
       _applySyncMasterData(station:station,entityType:entityType,entityKey:entityKey,operation:operation,payload:payload,now:now,role:role);
       return;
@@ -3999,7 +4032,7 @@ void _applyPartyDieselReceipt({
     final localId = links.isEmpty ? null : (links.first['local_id'] as num).toInt();
     const allowed = {
       'name', 'phone', 'address', 'location', 'jerba_number',
-      'area', 'is_needy', 'notes',
+      'area', 'is_needy', 'notes', 'diesel_liters_per_hour',
     };
     for (final financialField in const {
       'opening_balance', 'carried_balance', 'opening_diesel_liters',
@@ -4606,7 +4639,7 @@ void _applyPartyDieselReceipt({
       ORDER BY b.name
     """, args)));
   }
-  Future<Response> _beneficiaryCreate(Request r,Map<String,dynamic> c) async { final b=await _body(r); if('${b['name']??''}'.trim().isEmpty)return _json({'error':'اسم المستفيد مطلوب'},status:422); final now=DateTime.now().toIso8601String(); final id=db.lastInsertRowId; db.execute('INSERT INTO beneficiaries(station_id,name,phone,address,location,jerba_number,area,is_needy,opening_balance,carried_balance,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,\'active\',?,?)',[_stationId(c),b['name'],b['phone'],b['address'],b['location'],b['jerba_number'],b['area'],b['is_needy']==true?1:0,(b['opening_balance'] as num?)?.round()??0,(b['carried_balance'] as num?)?.round()??0,now,now]); return _json({'id':db.lastInsertRowId}); }
+  Future<Response> _beneficiaryCreate(Request r,Map<String,dynamic> c) async { final b=await _body(r); if('${b['name']??''}'.trim().isEmpty)return _json({'error':'اسم المستفيد مطلوب'},status:422); PartyDieselRate.validate(b['diesel_liters_per_hour']);final now=DateTime.now().toIso8601String(); db.execute('INSERT INTO beneficiaries(station_id,name,phone,address,location,jerba_number,area,is_needy,opening_balance,carried_balance,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,\'active\',?,?)',[_stationId(c),b['name'],b['phone'],b['address'],b['location'],b['jerba_number'],b['area'],b['is_needy']==true?1:0,(b['opening_balance'] as num?)?.round()??0,(b['carried_balance'] as num?)?.round()??0,now,now]); final id=db.lastInsertRowId; db.execute('UPDATE beneficiaries SET diesel_liters_per_hour=? WHERE id=?',[b['diesel_liters_per_hour'],id]); return _json({'id':id}); }
   int? _resolveBeneficiaryRouteId(String routeId, int stationId) {
     // API clients address entities by their stable global UUID. Numeric IDs
     // remain supported for legacy admin clients, but are always station-scoped.
@@ -4647,7 +4680,8 @@ void _applyPartyDieselReceipt({
     final id = _resolveBeneficiaryRouteId(r.params['id']!, station);
     if (id == null) return _json({'error':'المستفيد غير موجود'},status:404);
     final b=await _body(r);
-    const allowed=['name','phone','address','location','jerba_number','area','is_needy','notes'];
+    const allowed=['name','phone','address','location','jerba_number','area','is_needy','notes','diesel_liters_per_hour'];
+    if(b.containsKey('diesel_liters_per_hour')) PartyDieselRate.validate(b['diesel_liters_per_hour']);
     final sets=<String>[];
     final args=<Object?>[];
     for(final k in allowed){if(b.containsKey(k)){sets.add('$k=?');args.add(b[k] is bool?(b[k]?1:0):b[k]);}}

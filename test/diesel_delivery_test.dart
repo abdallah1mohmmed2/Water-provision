@@ -341,6 +341,61 @@ void main() {
     }
   });
 
+  test('personal diesel rates apply per owner and clearing restores station default', () async {
+    for (final type in ['beneficiary', 'worker', 'partner']) {
+      final id = ids[type]!;
+      Future<void> update(double? rate) async {
+        final values = <String,Object?>{'diesel_liters_per_hour': rate};
+        if (type == 'beneficiary') {
+          await repo.updateBeneficiary(id, values, 1);
+        } else if (type == 'worker') {
+          await repo.updateWorker(id, values, 1);
+        } else {
+          await repo.updatePartner(id, values, 1);
+        }
+      }
+      await update(type == 'beneficiary' ? 5 : 4.65);
+      final irrigation = await irrigate(type, 2);
+      final saved = (await app.query('irrigations', where: 'id=?', whereArgs: [irrigation])).single;
+      final expected = type == 'beneficiary' ? 10.0 : 9.3;
+      expect(await service.balance(1, type, id), closeTo(-expected, 0.00001));
+      expect(saved['diesel_liters_per_hour_snapshot'], type == 'beneficiary' ? 5 : 4.65);
+      await update(9);
+      expect(await service.balance(1, type, id), closeTo(-expected, 0.00001));
+      final stillSaved = (await app.query('irrigations', where: 'id=?', whereArgs: [irrigation])).single;
+      expect(stillSaved['diesel_liters_per_hour_snapshot'], saved['diesel_liters_per_hour_snapshot']);
+      await repo.accounting.cancelIrrigation(irrigation, 1, 'عكس بعد تعديل المعدل');
+      expect(await service.balance(1, type, id), closeTo(0, 0.00001));
+      await update(null);
+      final fallback = await irrigate(type, 1);
+      expect((await app.query('irrigations', where: 'id=?', whereArgs: [fallback])).single['diesel_liters_per_hour_snapshot'], 10);
+      await expectLater(update(-1), throwsArgumentError);
+      await expectLater(update(4.655), throwsArgumentError);
+    }
+  });
+
+  test('creation stores personal rates and version 34 upgrade preserves records', () async {
+    final b = await repo.createBeneficiary(name: 'معدل مستفيد', dieselLitersPerHour: 5);
+    final w = await repo.createWorker(name: 'معدل عامل', payType: 'fixed', dieselLitersPerHour: 4.65);
+    final p = await repo.createPartner(name: 'معدل شريك', mode: 'shares', shares: 1, dieselLitersPerHour: 4.5);
+    for (final entry in {'beneficiaries': b, 'workers': w, 'partners': p}.entries) {
+      expect((await app.query(entry.key, where: 'id=?', whereArgs: [entry.value])).single['diesel_liters_per_hour'], isNotNull);
+    }
+    final db = await app.db;
+    for (final table in ['beneficiaries', 'workers', 'partners']) {
+      await db.execute('ALTER TABLE $table DROP COLUMN diesel_liters_per_hour');
+    }
+    await db.execute('PRAGMA user_version=34');
+    await app.close();
+    final upgraded = await app.db;
+    expect(await upgraded.getVersion(), 35);
+    for (final entry in {'beneficiaries': b, 'workers': w, 'partners': p}.entries) {
+      final row = (await app.query(entry.key, where: 'id=?', whereArgs: [entry.value])).single;
+      expect(row['diesel_liters_per_hour'], isNull);
+      expect(row['name'], startsWith('معدل'));
+    }
+  });
+
   Future<void> waitForUi(WidgetTester tester, bool Function() ready) async {
     for (var i = 0; i < 150 && !ready(); i++) {
       await tester.runAsync(

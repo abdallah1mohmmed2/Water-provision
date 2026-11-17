@@ -31,7 +31,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 34,
+      version: 35,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -572,6 +572,13 @@ class AppDatabase {
 
   /// Durable local Outbox/Inbox protocol metadata. Existing queue rows are preserved.
   Future<void> _ensureSyncSchema(Database d) async {
+    for (final table in const ['beneficiaries', 'workers', 'partners']) {
+      final fields = await d.rawQuery('PRAGMA table_info($table)');
+      if (!fields.any((row) => row['name'] == 'diesel_liters_per_hour')) {
+        await d.execute('ALTER TABLE $table ADD COLUMN diesel_liters_per_hour REAL CHECK(diesel_liters_per_hour IS NULL OR diesel_liters_per_hour>0)');
+      }
+    }
+
     final dieselColumns = await d.rawQuery('PRAGMA table_info(diesel_movements)');
     for (final item in const {'worker_id':'INTEGER REFERENCES workers(id)', 'partner_id':'INTEGER REFERENCES partners(id)', 'request_id':'TEXT', 'party_receipt':'INTEGER NOT NULL DEFAULT 0'}.entries) {
       if (!dieselColumns.any((c) => c['name'] == item.key)) await d.execute('ALTER TABLE diesel_movements ADD COLUMN ${item.key} ${item.value}');

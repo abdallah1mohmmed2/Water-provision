@@ -157,6 +157,7 @@ void main() {
         final now = DateTime(2090, 1, 1, 8);
         final party = await db.insert('beneficiaries', {
           'name': 'P1 party',
+          if (system == 'diesel') 'diesel_liters_per_hour': 4.65,
           'created_at': now.toIso8601String(),
           'updated_at': now.toIso8601String(),
         });
