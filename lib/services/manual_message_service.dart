@@ -98,7 +98,9 @@ class ManualMessageService {
   }) async {
     if (channel == ManualMessageChannel.sms) {
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android &&
-          await openNativeSms(phone, message)) return true;
+          await openNativeSms(phone, message)) {
+        return true;
+      }
       return launchUrl(
         smsUri(phone, message),
         mode: LaunchMode.externalApplication,
