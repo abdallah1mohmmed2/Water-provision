@@ -216,7 +216,7 @@ void main() {
     }
   });
   testWidgets('oil card updates immediately and alerts after every threshold irrigation without timer spam', (tester) async {
-    await tester.runAsync(() => configure(interval: 600, warning: 120));
+    await tester.runAsync(() => configure(interval: 600, warning: 120).timeout(const Duration(seconds: 10)));
     final alerts = <AppAlert>[];
     final subscription = AppAlerts.stream.listen(alerts.add);
     Future<void> waitFor(String message) async {
@@ -230,10 +230,10 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: Scaffold(body:
         DieselOilCard(StationRepository(db), userId: 1, role: 'manager'))));
       await waitFor('متبقي 10.00 ساعة سقاية لتغيير الزيت');
-      await tester.runAsync(() => irrigation(clock, clock.add(const Duration(hours: 8))));
+      await tester.runAsync(() => irrigation(clock, clock.add(const Duration(hours: 8))).timeout(const Duration(seconds: 10)));
       await waitFor('متبقي 2.00 ساعة سقاية لتغيير الزيت');
       expect(alerts.where((a) => a.title == 'تنبيه تغيير الزيت'), hasLength(1));
-      await tester.runAsync(() => irrigation(clock, clock.add(const Duration(minutes: 30))));
+      await tester.runAsync(() => irrigation(clock, clock.add(const Duration(minutes: 30))).timeout(const Duration(seconds: 10)));
       await waitFor('متبقي 1.50 ساعة سقاية لتغيير الزيت');
       expect(alerts.where((a) => a.title == 'تنبيه تغيير الزيت'), hasLength(2));
       await tester.pump(const Duration(seconds: 30));
@@ -247,13 +247,13 @@ void main() {
         await tester.pump();
       }
       expect(alerts.where((a) => a.title == 'تنبيه تغيير الزيت'), hasLength(2));
-      await tester.runAsync(() => irrigation(clock, clock.add(const Duration(hours: 2))));
+      await tester.runAsync(() => irrigation(clock, clock.add(const Duration(hours: 2))).timeout(const Duration(seconds: 10)));
       await waitFor('تأخر تغيير الزيت بمقدار 0.50 ساعة سقاية');
       expect(alerts.where((a) => a.title == 'تنبيه تغيير الزيت'), hasLength(3));
       expect(tester.takeException(), isNull);
     } finally {
       await tester.pumpWidget(const SizedBox());
-      await subscription.cancel();
+      await tester.runAsync(() => subscription.cancel().timeout(const Duration(seconds: 10)));
     }
   });
   test(
