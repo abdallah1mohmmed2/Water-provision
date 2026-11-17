@@ -792,6 +792,7 @@ class ReportService {
     String money(Object? value) => NumberFormat('#,##0').format(n(value));
 
     final dieselInvoices = DieselReportColumns.dieselOnly(data, settings['system_type'] ?? 'diesel');
+    final showInvoiceCloud = DieselReportColumns.invoiceHasCloud(data, settings['system_type'] ?? 'diesel');
     final totalFuel = data.fold<num>(0, (sum, row) => sum + ((row['diesel_consumption_liters'] as num?) ?? 0));
     final totalMinutes =
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
@@ -867,7 +868,7 @@ class ReportService {
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
           '${invoiceNetMinutes(data[i])}',
-          '${n(data[i]['cloud_minutes'])}',
+          if (showInvoiceCloud) data[i]['system_type'] == 'diesel' ? '—' : '${n(data[i]['cloud_minutes'])}',
           money(reportAmount(data[i], beforeCloud: false)),
           money(data[i]['paid_amount']),
           if (dieselInvoices) DieselQuantity.format((data[i]['diesel_consumption_liters'] as num?) ?? 0),
@@ -952,7 +953,7 @@ class ReportService {
         'من',
         'إلى',
         'إجمالي الدقائق',
-        'الغيم (دقيقة)',
+        if (showInvoiceCloud) 'الغيم (دقيقة)',
         'القيمة الإجمالية',
         'المسلّم',
         if (dieselInvoices) 'استهلاك الديزل (لتر)',
@@ -965,7 +966,8 @@ class ReportService {
         '',
         '',
         duration(data.fold<int>(0, (sum, row) => sum + invoiceNetMinutes(row))),
-        duration(data.fold<int>(0, (sum, row) => sum + n(row['cloud_minutes']))),
+        if (showInvoiceCloud) duration(data.fold<int>(0, (sum, row) =>
+            sum + (row['system_type'] == 'diesel' ? 0 : n(row['cloud_minutes'])))),
         money(totalAmount),
         money(totalPaid),
         if (dieselInvoices) DieselQuantity.format(totalFuel),

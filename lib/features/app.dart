@@ -13534,6 +13534,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   DateTime? from, to;
   String search = '';
   String sortKey = 'start_datetime';
+  String _reportSystemType = 'diesel';
   bool ascending = false, loading = true;
   bool partialHour = true;
   bool useSpecialMinuteRateReports = false;
@@ -13591,6 +13592,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       if (mounted) {
         setState(() {
           rows = result;
+          _reportSystemType = settings['system_type'] ?? 'diesel';
           partialHour = settings['partial_hour'] != 'false';
           useSpecialMinuteRateReports =
               settings['work_price_report_display_special_rate'] == 'true';
@@ -13873,8 +13875,15 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
         ]),
       );
 
+  bool get _showInvoiceCloud => DieselReportColumns.invoiceHasCloud(visible, _reportSystemType);
+  List<String> get _invoiceColumnKeys => [
+    'invoice_id', 'party_name', 'start_datetime', 'end_datetime', 'minutes',
+    if (_showInvoiceCloud) 'cloud_minutes',
+    'total_amount', 'paid_amount', 'notes',
+  ];
+
   void _sort(int column, bool ascendingValue) {
-    const keys = ['invoice_id', 'party_name', 'start_datetime', 'end_datetime', 'minutes', 'cloud_minutes', 'total_amount', 'paid_amount', 'notes'];
+    final keys = _invoiceColumnKeys;
     setState(() {
       sortKey = keys[column];
       ascending = ascendingValue;
@@ -13884,6 +13893,8 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   @override
   Widget build(BuildContext context) {
     final data = visible;
+    final showCloud = _showInvoiceCloud;
+    final sortIndex = _invoiceColumnKeys.indexOf(sortKey);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -14003,7 +14014,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                             scrollDirection: Axis.horizontal,
                             child: DataTable(
                               sortAscending: ascending,
-                              sortColumnIndex: const {'invoice_id': 0, 'party_name': 1, 'start_datetime': 2, 'end_datetime': 3, 'minutes': 4, 'cloud_minutes': 5, 'total_amount': 6, 'paid_amount': 7, 'notes': 8}[sortKey],
+                              sortColumnIndex: sortIndex < 0 ? null : sortIndex,
                               headingRowColor: WidgetStateProperty.all(_reportCream),
                               dataRowMinHeight: 52,
                               dataRowMaxHeight: 70,
@@ -14013,7 +14024,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                 DataColumn(label: const Text('من'), onSort: _sort),
                                 DataColumn(label: const Text('إلى'), onSort: _sort),
                                 DataColumn(label: const Text('إجمالي الدقائق'), onSort: _sort),
-                                DataColumn(label: const Text('الغيم (دقيقة)'), numeric: true, onSort: _sort),
+                                if (showCloud) DataColumn(label: const Text('الغيم (دقيقة)'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('القيمة الإجمالية'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('المسلّمة'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('ملاحظات'), onSort: _sort),
@@ -14029,7 +14040,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text(_time(data[i]['start_datetime']))),
                                       DataCell(Text(_time(data[i]['end_datetime']))),
                                       DataCell(Text('${_invoiceNetMinutes(data[i])}')),
-                                      DataCell(Text('${_n(data[i]['cloud_minutes'])}')),
+                                      if (showCloud) DataCell(Text(data[i]['system_type'] == 'diesel' ? '—' : '${_n(data[i]['cloud_minutes'])}')),
                                       DataCell(Text(_money(_amountAfterCloud(data[i])), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),

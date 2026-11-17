@@ -3,13 +3,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:saqia_station/data/repositories/repositories.dart';
 import 'package:saqia_station/features/app.dart';
 import 'package:saqia_station/services/report_service.dart';
+import 'package:saqia_station/services/diesel_report_columns.dart';
 
 class InvoiceRepository extends StationRepository {
   final List<Map<String, Object?>> records;
-  InvoiceRepository(this.records);
+  final String systemType;
+  InvoiceRepository(this.records, {this.systemType = 'solar'});
 
   @override
-  Future<Map<String, String>> settings() async => {'system_type': 'solar'};
+  Future<Map<String, String>> settings() async => {'system_type': systemType};
 
   @override
   Future<List<Map<String, Object?>>> report(String key, {
@@ -48,7 +50,7 @@ void main() {
       expect(row.cells.length, table().columns.length);
       final name = (row.cells[1].child as Text).data;
       expect((row.cells[4].child as Text).data, name == 'شمسي' ? '55' : '60');
-      expect((row.cells[5].child as Text).data, name == 'شمسي' ? '5' : '0');
+      expect((row.cells[5].child as Text).data, name == 'شمسي' ? '5' : '—');
       expect((row.cells[6].child as Text).data, '6,000');
       expect((row.cells[7].child as Text).data, '1,000');
       expect(row.cells[8].child, isA<SizedBox>());
@@ -65,11 +67,55 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  for (final type in ['solar', 'equivalent_hybrid', 'diesel']) {
+    testWidgets('$type invoice columns keep amount paid notes and edit aligned', (tester) async {
+      tester.view.physicalSize = const Size(2200, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final showCloud = type != 'diesel';
+      final repo = InvoiceRepository([invoice('شخص', type, showCloud ? 5 : 0)], systemType: type);
+      await tester.pumpWidget(MaterialApp(home: InvoicesReportPage(repo, autoSelectPeriod: false)));
+      await tester.pumpAndSettle();
+      DataTable table() => tester.widget<DataTable>(find.byType(DataTable));
+      expect(table().columns.length, showCloud ? 10 : 9);
+      expect(find.text('الغيم (دقيقة)'), showCloud ? findsOneWidget : findsNothing);
+      final amountIndex = showCloud ? 6 : 5;
+      final row = table().rows.single;
+      expect(row.cells.length, table().columns.length);
+      if (showCloud) {
+        expect((row.cells[5].child as Text).data, '5');
+      }
+      expect((row.cells[amountIndex].child as Text).data, '6,000');
+      expect((row.cells[amountIndex + 1].child as Text).data, '1,000');
+      expect(row.cells[amountIndex + 2].child, isA<SizedBox>());
+      expect(row.cells[amountIndex + 3].child, isA<IconButton>());
+      table().columns[amountIndex].onSort!(amountIndex, true);
+      await tester.pump();
+      expect(table().sortColumnIndex, amountIndex);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
+  test('invoice cloud visibility follows solar hybrid and diesel including empty reports', () {
+    for (final type in ['solar', 'equivalent_hybrid', 'diesel']) {
+      final showCloud = type != 'diesel';
+      expect(DieselReportColumns.invoiceHasCloud([invoice('شخص', type, 5)], 'diesel'), showCloud);
+      expect(DieselReportColumns.invoiceHasCloud([], type), showCloud);
+    }
+    expect(DieselReportColumns.invoiceHasCloud([
+      invoice('شمس', 'solar', 5), invoice('ديزل', 'diesel', 0),
+    ], 'diesel'), isTrue);
+  });
+
   test('invoice PDF builds with cloud column for solar diesel mixed and empty rows', () async {
     final solar = invoice('شمسي', 'solar', 5);
     final diesel = invoice('ديزل', 'diesel', 0);
-    for (final rows in [[solar], [diesel], [solar, diesel], <Map<String, Object?>>[]]) {
-      final bytes = await ReportService(InvoiceRepository(rows)).invoicesPdf(rows: rows);
+    final hybrid = invoice('هجين', 'equivalent_hybrid', 5);
+    for (final rows in [[solar], [hybrid], [diesel], [solar, diesel], <Map<String, Object?>>[]]) {
+      final type = rows.isEmpty ? 'diesel' : rows.first['system_type'] as String;
+      final bytes = await ReportService(InvoiceRepository(rows, systemType: type)).invoicesPdf(rows: rows);
       expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
       expect(bytes.length, greaterThan(1000));
     }
