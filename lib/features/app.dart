@@ -4700,6 +4700,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                               manager: widget.manager,
                                               initialPartyType: 'beneficiary',
                                               initialPartyId: x['id'] as int,
+                                              compactOnly: true,
                                             ),
                                           ));
                                           if (mounted) await load();
@@ -4817,10 +4818,12 @@ class NewIrrigationPage extends StatefulWidget {
   final bool manager;
   final String? initialPartyType;
   final int? initialPartyId;
+  final bool compactOnly;
   const NewIrrigationPage(this.r, {
     required this.manager,
     this.initialPartyType,
     this.initialPartyId,
+    this.compactOnly = false,
     super.key,
   });
   @override
@@ -4908,6 +4911,14 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     endTimeController.text = _hm12(end);
     // احتفظ بمهمة التحميل الأولى حتى ينتظرها النموذج السريع قبل فتح الحوار.
     _initialLoadFuture = _loadInitialParty();
+    if (widget.compactOnly) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await openQuickForm();
+        if (mounted && _initialPartyError == null) {
+          Navigator.of(context).pop();
+        }
+      });
+    }
   }
 
   @override
@@ -5783,7 +5794,7 @@ int? parseClock(String raw) {
       if (mounted) msg('تعذر تحميل بيانات السقاية: ${friendlyError(e)}');
       return;
     }
-    if (!mounted || loading || saved) return;
+    if (!mounted || loading || saved || _initialPartyError != null) return;
 
     await showDialog<void>(
       context: context,
@@ -6326,6 +6337,12 @@ int? parseClock(String raw) {
           padding: const EdgeInsets.all(24),
           child: Text(_initialPartyError!),
         )),
+      );
+    }
+    if (widget.compactOnly) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('سقاية جديدة')),
+        body: loading ? const LoadingView() : const SizedBox.shrink(),
       );
     }
     if (loading && beneficiaries.isEmpty) return const LoadingView();
@@ -13848,7 +13865,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       );
 
   void _sort(int column, bool ascendingValue) {
-    const keys = ['invoice_id', 'party_name', 'start_datetime', 'end_datetime', 'minutes', 'total_amount', 'paid_amount', 'notes'];
+    const keys = ['invoice_id', 'party_name', 'start_datetime', 'end_datetime', 'minutes', 'cloud_minutes', 'total_amount', 'paid_amount', 'notes'];
     setState(() {
       sortKey = keys[column];
       ascending = ascendingValue;
@@ -13977,7 +13994,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                             scrollDirection: Axis.horizontal,
                             child: DataTable(
                               sortAscending: ascending,
-                              sortColumnIndex: const {'invoice_id': 0, 'party_name': 1, 'start_datetime': 2, 'end_datetime': 3, 'minutes': 4, 'total_amount': 5, 'paid_amount': 6, 'notes': 7}[sortKey],
+                              sortColumnIndex: const {'invoice_id': 0, 'party_name': 1, 'start_datetime': 2, 'end_datetime': 3, 'minutes': 4, 'cloud_minutes': 5, 'total_amount': 6, 'paid_amount': 7, 'notes': 8}[sortKey],
                               headingRowColor: WidgetStateProperty.all(_reportCream),
                               dataRowMinHeight: 52,
                               dataRowMaxHeight: 70,
@@ -13987,6 +14004,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                 DataColumn(label: const Text('من'), onSort: _sort),
                                 DataColumn(label: const Text('إلى'), onSort: _sort),
                                 DataColumn(label: const Text('إجمالي الدقائق'), onSort: _sort),
+                                DataColumn(label: const Text('الغيم (دقيقة)'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('القيمة الإجمالية'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('المسلّمة'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('ملاحظات'), onSort: _sort),
@@ -14002,6 +14020,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text(_time(data[i]['start_datetime']))),
                                       DataCell(Text(_time(data[i]['end_datetime']))),
                                       DataCell(Text('${_invoiceNetMinutes(data[i])}')),
+                                      DataCell(Text('${_n(data[i]['cloud_minutes'])}')),
                                       DataCell(Text(_money(_amountAfterCloud(data[i])), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),

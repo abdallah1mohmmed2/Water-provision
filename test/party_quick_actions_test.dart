@@ -201,6 +201,17 @@ void main() {
           final form = tester.widget<NewIrrigationPage>(find.byType(NewIrrigationPage));
           expect(form.initialPartyType, kind);
           expect(form.initialPartyId, targets[kind]);
+          expect(form.compactOnly, kind == 'beneficiary');
+          if (kind == 'beneficiary') {
+            await waitFor(tester, () => find.text('بطاقة وقت التشغيل').evaluate().isNotEmpty);
+            await tester.pumpAndSettle();
+            expect(find.byType(AlertDialog), findsOneWidget);
+            expect(find.text('حفظ سقاية'), findsOneWidget);
+            expect(find.text('حفظ سقاية جديدة'), findsNothing);
+            await tester.tap(find.text('إغلاق'));
+            await tester.pumpAndSettle();
+            expect(find.byType(NewIrrigationPage), findsNothing);
+          }
           expect(await tester.runAsync(counts), before);
           expect(tester.takeException(), isNull);
           await tester.pumpWidget(const SizedBox());
@@ -213,7 +224,8 @@ void main() {
       testWidgets('missing $kind fails closed without selecting another party', (tester) async {
         final before = await tester.runAsync(counts);
         await tester.pumpWidget(MaterialApp(home: NewIrrigationPage(repo,
-          manager: true, initialPartyType: kind, initialPartyId: 999999)));
+          manager: true, initialPartyType: kind, initialPartyId: 999999,
+          compactOnly: kind == 'beneficiary')));
         await waitFor(tester, () => find.textContaining('هذا الشخص غير متاح').evaluate().isNotEmpty);
         expect(find.text('حفظ السقاية'), findsNothing);
         expect(await tester.runAsync(counts), before);
