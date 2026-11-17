@@ -51,14 +51,35 @@ class MessageTemplateService {
     ],
   };
 
+  static const dieselFields = [
+    'الديزل المستهلك', 'رصيد الديزل المتبقي', 'ديزل له', 'ديزل عليه',
+  ];
+
+  static List<String> availableFields(String key, {String? systemType}) => [
+    ...(fields[key] ?? const <String>[]),
+    if (key == irrigationKey && systemType == 'diesel') ...dieselFields,
+  ];
+
+  static String defaultFor(String key, {String? systemType}) =>
+      '${defaults[key] ?? ''}${key == irrigationKey && systemType == 'diesel' ? '\nالديزل المستهلك: {الديزل المستهلك}\nرصيد الديزل المتبقي: {رصيد الديزل المتبقي}' : ''}';
+
   static String render(
     Object? savedTemplate,
     String key,
-    Map<String, Object?> values,
-  ) {
+    Map<String, Object?> values, {
+    String? systemType,
+  }) {
     final saved = savedTemplate?.toString() ?? '';
-    final template = saved.trim().isEmpty ? (defaults[key] ?? '') : saved;
-    final knownFields = fields[key] ?? const <String>[];
+    var template = saved.trim().isEmpty ? defaultFor(key, systemType: systemType) : saved;
+    final knownFields = availableFields(key, systemType: systemType);
+    // Hide fuel-only lines in a template copied from a diesel station. Keep
+    // mixed lines' ordinary fields; unavailable fuel tokens render empty.
+    if (systemType != 'diesel') {
+      template = template.split('\n').where((line) {
+        final tokens = RegExp(r'\{([^{}]+)\}').allMatches(line).map((m) => m.group(1)!.trim()).toList();
+        return !tokens.any(dieselFields.contains) || tokens.any(knownFields.contains);
+      }).join('\n');
+    }
     return template.replaceAllMapped(RegExp(r'\{([^{}]+)\}'), (match) {
       final name = match.group(1)!.trim();
       if (!knownFields.contains(name)) return '';
@@ -68,7 +89,7 @@ class MessageTemplateService {
     }).trim();
   }
 
-  static String preview(String template) {
+  static String preview(String template, {String? key, String? systemType}) {
     const samples = <String, Object?>{
       'اسم العميل': 'أحمد محمد',
       'تاريخ السقاية': '2026/10/28',
@@ -78,7 +99,11 @@ class MessageTemplateService {
       'قيمة السقاية': '2000 ريال',
       'المبلغ المدفوع': '500 ريال',
       'المتبقي من السقاية': '1500 ريال',
-      'التاريخ': '2026/10/28 10:15',
+      'التاريخ': '2026/10/28 01:15 م',
+      'الديزل المستهلك': '9.3 لتر',
+      'رصيد الديزل المتبقي': 'عليه 3.55 لتر',
+      'ديزل له': '0 لتر',
+      'ديزل عليه': '3.55 لتر',
       'رقم السند': 'R-125',
       'المبلغ': '700 ريال',
       'طريقة الدفع': 'نقدًا',
@@ -87,9 +112,12 @@ class MessageTemplateService {
       'الرصيد الحالي': 'عليه 1300 ريال',
       'رقم العملية': '125',
     };
+    if (key != null) {
+      return render(template, key, samples, systemType: systemType);
+    }
     for (final key in defaults.keys) {
       if (fields[key]!.any((field) => template.contains('{$field}'))) {
-        return render(template, key, samples);
+        return render(template, key, samples, systemType: systemType);
       }
     }
     return template.replaceAll(RegExp(r'\{[^{}]*\}'), '—');

@@ -1,3 +1,4 @@
+import 'package:saqia_station/services/irrigation_message_fuel_service.dart';
 import 'package:saqia_station/features/party_diesel_balance.dart';
 import 'package:saqia_station/core/diesel_quantity.dart';
 import 'package:saqia_station/features/app.dart' show BeneficiariesPage;
@@ -396,6 +397,33 @@ void main() {
       expect(row['name'], startsWith('معدل'));
     }
   });
+
+  for (final type in ['beneficiary', 'worker', 'partner']) {
+    test('message fuel uses saved consumption and signed $type balance without writes', () async {
+      final table = DieselDeliveryService.tables[type]!;
+      await (await app.db).update(table, {'diesel_liters_per_hour': 4.65}, where:'id=?', whereArgs:[ids[type]]);
+      await receive(type, 5.75);
+      final irrigation = await irrigate(type, 2);
+      await (await app.db).update(table, {'diesel_liters_per_hour': 99}, where:'id=?', whereArgs:[ids[type]]);
+      final queue = await scalar('SELECT COUNT(*) FROM sync_queue');
+      final journals = await scalar('SELECT COUNT(*) FROM journal_entries');
+      final fuel = IrrigationMessageFuelService(repo);
+      final values = await fuel.forIrrigation(irrigation);
+      expect(values['الديزل المستهلك'], '9.3 لتر');
+      expect(values['رصيد الديزل المتبقي'], 'عليه 3.55 لتر');
+      expect(values['ديزل له'], '0 لتر');
+      expect(values['ديزل عليه'], '3.55 لتر');
+      expect(await scalar('SELECT COUNT(*) FROM sync_queue'), queue);
+      expect(await scalar('SELECT COUNT(*) FROM journal_entries'), journals);
+      await receive(type, 10);
+      final positive = await fuel.forIrrigation(irrigation);
+      expect(positive['الديزل المستهلك'], '9.3 لتر');
+      expect(positive['رصيد الديزل المتبقي'], 'له 6.45 لتر');
+      expect(positive['ديزل عليه'], '0 لتر');
+      await repo.accounting.cancelIrrigation(irrigation, 1, 'عكس اختبار الرسالة');
+      expect(await fuel.forIrrigation(irrigation), isEmpty);
+    });
+  }
 
   Future<void> waitForUi(WidgetTester tester, bool Function() ready) async {
     for (var i = 0; i < 150 && !ready(); i++) {

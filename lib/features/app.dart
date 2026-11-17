@@ -1,3 +1,5 @@
+import '../core/message_time.dart';
+import '../services/irrigation_message_fuel_service.dart';
 import '../core/party_diesel_rate.dart';
 import 'party_diesel_rate_field.dart';
 import '../services/diesel_report_columns.dart';
@@ -88,7 +90,7 @@ Future<String> _renderSavedMessageTemplate(
   Map<String, Object?> values,
 ) async {
   final savedSettings = await repository.settings();
-  return MessageTemplateService.render(savedSettings[key], key, values);
+  return MessageTemplateService.render(savedSettings[key], key, values, systemType: savedSettings['system_type']);
 }
 
 String friendlyError(Object e) {
@@ -6090,6 +6092,8 @@ int? parseClock(String raw) {
             [irrigationId],
           );
           final row = irrigationRows.isEmpty ? <String, Object?>{} : irrigationRows.first;
+          final messageStart = DateTime.tryParse('${row['start_datetime']}') ?? start;
+          final messageEnd = DateTime.tryParse('${row['end_datetime']}') ?? end;
           final currentBalance = (await widget.r.accounting.beneficiaryBalance(bid!))['balance'] ?? 0;
           String balanceText(int value) => value > 0
               ? 'عليه $value ريال'
@@ -6120,7 +6124,7 @@ int? parseClock(String raw) {
               'المستفيد: ${row['beneficiary_name'] ?? recipient?['name'] ?? 'غير محدد'}',
               'المضخة: ${row['pump_name'] ?? 'غير محددة'}',
               'نوع المنظومة: $systemName',
-              'وقت السقاية: ${DateFormat('yyyy/MM/dd HH:mm').format(start)} إلى ${DateFormat('yyyy/MM/dd HH:mm').format(end)}',
+              'وقت السقاية: ${MessageTime.dateTime(messageStart)} إلى ${MessageTime.dateTime(messageEnd)}',
               if (systemName == 'شمسي')
                 'مدة السقاية: $minutes دقيقة (خصم الغيم: $cloud دقيقة)'
               else
@@ -6152,6 +6156,8 @@ int? parseClock(String raw) {
         final irrigationRow = irrigationRows.isEmpty
             ? <String, Object?>{}
             : irrigationRows.first;
+        final messageStart = DateTime.tryParse('${irrigationRow['start_datetime']}') ?? start;
+        final messageEnd = DateTime.tryParse('${irrigationRow['end_datetime']}') ?? end;
         final currentBalance = await _messageBalanceForParty(
           widget.r,
           partyType,
@@ -6161,21 +6167,23 @@ int? parseClock(String raw) {
             (irrigationRow['total_amount'] as num?)?.round() ?? 0;
         final paidAmount =
             (irrigationRow['paid_amount'] as num?)?.round() ?? 0;
+        final fuelFields = await IrrigationMessageFuelService(widget.r).forIrrigation(irrigationId);
         final message = await _renderSavedMessageTemplate(
           widget.r,
           MessageTemplateService.irrigationKey,
           {
             'اسم العميل': recipientName,
-            'تاريخ السقاية': DateFormat('yyyy/MM/dd').format(start),
-            'وقت البداية': DateFormat('HH:mm').format(start),
-            'وقت النهاية': DateFormat('HH:mm').format(end),
-            'إجمالي الدقائق': '$minutes',
+            'تاريخ السقاية': DateFormat('yyyy/MM/dd').format(messageStart),
+            'وقت البداية': MessageTime.time(messageStart),
+            'وقت النهاية': MessageTime.time(messageEnd),
+            'إجمالي الدقائق': '${irrigationRow['minutes'] ?? minutes}',
             'قيمة السقاية': money(totalAmount),
             'المبلغ المدفوع': money(paidAmount),
             'المتبقي من السقاية': money(totalAmount - paidAmount),
             'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
             'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: partyType),
             'رقم العملية': '$irrigationId',
+            ...fuelFields,
           },
         );
         if (!mounted) return;
@@ -8881,7 +8889,7 @@ class _PaymentsState extends State<PaymentsPage> {
           templateKey,
           {
             'اسم العميل': recipientName,
-            'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+            'التاريخ': MessageTime.dateTime(transactionAt),
             'رقم السند': reference.text.trim().isNotEmpty
                 ? reference.text.trim()
                 : '$paymentId',
@@ -10239,7 +10247,7 @@ class _WorkersState extends State<WorkersPage> {
         MessageTemplateService.paymentKey,
         {
           'اسم العميل': recipientName,
-          'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+          'التاريخ': MessageTime.dateTime(transactionAt),
           'رقم السند': paymentId == null ? '—' : '$paymentId',
           'المبلغ': money(amountValue),
           'طريقة الدفع': paymentMethodName,
@@ -11096,7 +11104,7 @@ class _PartnersState extends State<PartnersPage> {
           MessageTemplateService.paymentKey,
           {
             'اسم العميل': recipientName,
-            'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+            'التاريخ': MessageTime.dateTime(transactionAt),
             'رقم السند': '$paymentId',
             'المبلغ': money(amountValue),
             'طريقة الدفع': paymentMethodName,
@@ -15573,7 +15581,7 @@ class _SettingsState extends State<SettingsPage> {
     final controllers = <String, TextEditingController>{
       for (final key in keys)
         key: TextEditingController(
-          text: s[key] ?? MessageTemplateService.defaults[key]!,
+          text: s[key] ?? MessageTemplateService.defaultFor(key, systemType: s['system_type']),
         ),
     };
     try {
@@ -15615,7 +15623,7 @@ class _SettingsState extends State<SettingsPage> {
                       spacing: 6,
                       runSpacing: 6,
                       children: [
-                        for (final field in MessageTemplateService.fields[selected] ?? const <String>[])
+                        for (final field in MessageTemplateService.availableFields(selected, systemType: s['system_type']))
                           ActionChip(
                             label: Text(field),
                             onPressed: () {
@@ -15636,14 +15644,14 @@ class _SettingsState extends State<SettingsPage> {
                     ),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                      onPressed: () => refresh(() => controllers[selected]!.text = MessageTemplateService.defaults[selected]!),
+                      onPressed: () => refresh(() => controllers[selected]!.text = MessageTemplateService.defaultFor(selected, systemType: s['system_type'])),
                       icon: const Icon(Icons.restore),
                       label: const Text('استعادة النص الافتراضي'),
                     ),
                     const Divider(),
                     const Text('معاينة تجريبية', style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 6),
-                    Text(MessageTemplateService.preview(controllers[selected]!.text)),
+                    Text(MessageTemplateService.preview(controllers[selected]!.text, key: selected, systemType: s['system_type'])),
                   ],
                 ),
               ),

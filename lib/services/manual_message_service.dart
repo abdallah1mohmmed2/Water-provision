@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import '../core/message_time.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 enum ManualMessageChannel { sms, whatsapp }
@@ -15,7 +15,7 @@ class ManualMessageService {
     'كشف حساب مختصر',
     '$partyLabel: $recipientName',
     'الرصيد الحالي: $balanceLabel',
-    'أُعدّ بتاريخ: ${DateFormat('yyyy/MM/dd HH:mm').format(asOf)}',
+    'أُعدّ بتاريخ: ${MessageTime.dateTime(asOf)}',
   ].join('\n');
 
   static String normalizePhoneDigits(String phone) {
