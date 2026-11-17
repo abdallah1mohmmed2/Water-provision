@@ -1,3 +1,5 @@
+import 'package:saqia_station/features/party_diesel_balance.dart';
+import 'package:saqia_station/core/diesel_quantity.dart';
 import 'package:saqia_station/features/app.dart' show BeneficiariesPage;
 
 import 'dart:convert';
@@ -243,7 +245,7 @@ void main() {
         '15',
       );
       await tester.pump();
-      expect(find.text('بعد التسليم: له 15.000 لتر'), findsOneWidget);
+      expect(find.text('بعد التسليم: له 15 لتر'), findsOneWidget);
       await tester.tap(find.text('حفظ تسليم الديزل'));
       await tester.pump();
       for (
@@ -306,6 +308,39 @@ void main() {
       expect(await service.balance(1, 'worker', ids['worker']!), 2);
     },
   );
+  test('card balances and report consumption use recorded liters for all owners', () async {
+    final cash = await scalar('SELECT current_balance FROM cashboxes WHERE id=1');
+    for (final type in ['beneficiary', 'worker', 'partner']) {
+      final irrigation = await irrigate(type, 1);
+      final receipt = await receive(type, 5.75);
+      final cards = await PartyDieselBalance.loadRows(repo, type, [
+        {'id': ids[type]},
+      ]);
+      expect(cards.single['party_diesel_balance'], -4.25);
+      expect(DieselQuantity.balanceLabel(cards.single['party_diesel_balance'] as num), 'ديزل عليه 4.25 لتر');
+      final report = await repo.report('irrigations', systemType: 'all');
+      expect(report.singleWhere((row) => row['irrigation_id'] == irrigation)['diesel_consumption_liters'], 10);
+      await repo.accounting.cancelDieselMovement(receipt, 1, 'عكس التسليم');
+      expect(await service.balance(1, type, ids[type]!), -10);
+      await repo.accounting.cancelIrrigation(irrigation, 1, 'عكس التسقية');
+      expect(await service.balance(1, type, ids[type]!), 0);
+    }
+    expect(await scalar('SELECT current_balance FROM cashboxes WHERE id=1'), cash);
+    await repo.setSetting('system_type', 'solar');
+    final rows = await PartyDieselBalance.loadRows(repo, 'beneficiary', [{'id': ids['beneficiary']}]);
+    expect(rows.single.containsKey('party_diesel_balance'), isFalse);
+  });
+
+  test('old consumption survives engine rate changes in PDF sources', () async {
+    final irrigation = await irrigate('beneficiary', 1);
+    await repo.setSetting('diesel_liters_per_hour', '99');
+    for (final key in ['irrigations', 'invoices', 'beneficiary_detailed']) {
+      final rows = await repo.report(key, beneficiaryId: ids['beneficiary'], systemType: 'diesel');
+      final row = rows.singleWhere((row) => row['irrigation_id'] == irrigation || row['invoice_id'] == irrigation || row['type'] == 's');
+      expect(row['diesel_consumption_liters'], 10);
+    }
+  });
+
   Future<void> waitForUi(WidgetTester tester, bool Function() ready) async {
     for (var i = 0; i < 150 && !ready(); i++) {
       await tester.runAsync(
@@ -350,9 +385,9 @@ void main() {
       await tester.pumpAndSettle();
       await waitForUi(
         tester,
-        () => find.text('الرصيد الحالي: عليه 20.000 لتر').evaluate().isNotEmpty,
+        () => find.text('الرصيد الحالي: عليه 20 لتر').evaluate().isNotEmpty,
       );
-      expect(find.text('الرصيد الحالي: عليه 20.000 لتر'), findsOneWidget);
+      expect(find.text('الرصيد الحالي: عليه 20 لتر'), findsOneWidget);
       final selector = tester.widget<DropdownButtonFormField<int>>(
         find.byType(DropdownButtonFormField<int>),
       );
@@ -362,7 +397,7 @@ void main() {
         '15',
       );
       await tester.pump();
-      expect(find.text('بعد التسليم: عليه 5.000 لتر'), findsOneWidget);
+      expect(find.text('بعد التسليم: عليه 5 لتر'), findsOneWidget);
       await tester.tap(find.text('حفظ تسليم الديزل'));
       await tester.pump();
       await waitForUi(

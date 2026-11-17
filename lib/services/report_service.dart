@@ -1,3 +1,5 @@
+import '../core/diesel_quantity.dart';
+import 'diesel_report_columns.dart';
 import '../domain/accounting/report_minute_pricing.dart';
 import '../core/app_clock.dart';
 import 'package:intl/intl.dart';
@@ -184,7 +186,12 @@ class ReportService {
     final availableKeys = <String>{
       for (final row in rows) ...row.keys,
     };
-    final expectedHeaders = reportColumns[key] ?? <String>[];
+    final dieselOnly = DieselReportColumns.dieselOnly(rows, systemType);
+    final fuelReport = const ['irrigations', 'beneficiary_detailed'].contains(key);
+    final expectedHeaders = fuelReport
+        ? DieselReportColumns.select(reportColumns[key]!, dieselOnly: dieselOnly,
+            hasDiesel: rows.any((row) => row['system_type'] == 'diesel'))
+        : reportColumns[key] ?? <String>[];
     // Empty reports keep the configured columns so the official template can
     // render a useful empty-state table instead of failing on zero columns.
     final sourceHeaders = rows.isEmpty
@@ -273,7 +280,10 @@ class ReportService {
           title: 'إجمالي الدقائق',
           value: '${money(sumOf('minutes'))} د',
         ),
-      if (rows.any((row) => row.containsKey('cloud_minutes')))
+      if (fuelReport && (dieselOnly || rows.any((row) => row['system_type'] == 'diesel')))
+        StatBoxData(number: '3D', title: 'استهلاك الديزل (لتر)',
+          value: DieselQuantity.format(sumOf('diesel_consumption_liters'))),
+      if ((!fuelReport || !dieselOnly) && rows.any((row) => row.containsKey('cloud_minutes')))
         StatBoxData(
           number: '3',
           title: 'إجمالي الغيم',
@@ -441,7 +451,7 @@ class ReportService {
   }
 
   String _fieldName(String key) => {
-    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','party_type':'نوع الطرف','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
+    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','party_type':'نوع الطرف','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','diesel_consumption_liters':'استهلاك الديزل (لتر)','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
   }[key] ?? 'بيان';
 
   String _categoryName(String v) => {
@@ -488,6 +498,9 @@ class ReportService {
           dateOnly ? 'yyyy/MM/dd' : 'yyyy/MM/dd HH:mm',
         ).format(d);
       }
+    }
+    if (key == 'diesel_consumption_liters' || key == 'liters') {
+      return value == null ? '—' : DieselQuantity.format(value is num ? value : num.tryParse('$value') ?? 0);
     }
     if (key == 'party_type') {
       return switch ('$value') {
@@ -778,6 +791,8 @@ class ReportService {
     }
     String money(Object? value) => NumberFormat('#,##0').format(n(value));
 
+    final dieselInvoices = DieselReportColumns.dieselOnly(data, settings['system_type'] ?? 'diesel');
+    final totalFuel = data.fold<num>(0, (sum, row) => sum + ((row['diesel_consumption_liters'] as num?) ?? 0));
     final totalMinutes =
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
     final totalCloudMinutes = data.fold<int>(0, (sum, row) =>
@@ -854,6 +869,7 @@ class ReportService {
           '${invoiceNetMinutes(data[i])}',
           money(reportAmount(data[i], beforeCloud: false)),
           money(data[i]['paid_amount']),
+          if (dieselInvoices) DieselQuantity.format((data[i]['diesel_consumption_liters'] as num?) ?? 0),
           display(data[i]['notes']),
         ],
     ];
@@ -880,24 +896,24 @@ class ReportService {
         ),
         StatBoxData(
           number: '3',
-          title: 'دقائق الغيم المخصومة',
-          value: duration(totalCloudMinutes),
+          title: dieselInvoices ? 'استهلاك الديزل (لتر)' : 'دقائق الغيم المخصومة',
+          value: dieselInvoices ? DieselQuantity.format(totalFuel) : duration(totalCloudMinutes),
           isBlueTint: true,
         ),
         StatBoxData(
           number: '4',
-          title: 'الإيرادات قبل خصم الغيم',
+          title: dieselInvoices ? 'إجمالي الإيرادات' : 'الإيرادات قبل خصم الغيم',
           value: '${money(totalAmountBeforeCloud)} ريال',
         ),
         StatBoxData(
           number: '5',
-          title: 'قيمة خصم الغيم',
-          value: '${money(cloudDeductionAmount)} ريال',
+          title: dieselInvoices ? 'عدد تسقيات الديزل' : 'قيمة خصم الغيم',
+          value: dieselInvoices ? '${data.length}' : '${money(cloudDeductionAmount)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
           number: '6',
-          title: 'الإيرادات بعد خصم الغيم',
+          title: dieselInvoices ? 'صافي الإيرادات' : 'الإيرادات بعد خصم الغيم',
           value: '${money(totalAmount)} ريال',
           isBlueTint: true,
         ),
@@ -929,7 +945,7 @@ class ReportService {
           value: period,
         ),
       ],
-      columns: const [
+      columns: [
         'م',
         'المستفيد / العامل / الشريك',
         'من',
@@ -937,6 +953,7 @@ class ReportService {
         'إجمالي الدقائق',
         'القيمة الإجمالية',
         'المسلّم',
+        if (dieselInvoices) 'استهلاك الديزل (لتر)',
         'ملاحظات',
       ],
       rows: tableRows,
@@ -948,6 +965,7 @@ class ReportService {
         duration(data.fold<int>(0, (sum, row) => sum + invoiceNetMinutes(row))),
         money(totalAmount),
         money(totalPaid),
+        if (dieselInvoices) DieselQuantity.format(totalFuel),
         'المتبقي: ${money(remaining)}',
       ],
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',

@@ -533,10 +533,14 @@ class StationRepository {
       "SELECT id,COALESCE(chargeable_minutes,minutes,0) chargeable_minutes,"
       "COALESCE(work_minute_rate_snapshot,0) minute_rate,"
       "COALESCE(diesel_amount,0) diesel_amount,"
-      "COALESCE(total_amount,0) saved_total "
-      "FROM irrigations WHERE beneficiary_id=? AND status!='cancelled'",
+      "COALESCE(total_amount,0) saved_total, "
+      "(SELECT COALESCE(SUM(dm.liters),0) FROM diesel_movements dm WHERE dm.irrigation_id=i.id AND dm.station_id=i.station_id AND dm.kind='consumption') diesel_consumption_liters "
+      "FROM irrigations i WHERE beneficiary_id=? AND status!='cancelled'",
       [id],
     );
+    final irrigationFuel = <int, Object?>{
+      for (final row in irrigationPrices) (row['id'] as num).toInt(): row['diesel_consumption_liters'],
+    };
     final displayedIrrigationTotals = <int,int>{
       for (final irrigation in irrigationPrices)
         (irrigation['id'] as num).toInt():
@@ -591,6 +595,7 @@ class StationRepository {
       final description = '${raw['description'] ?? ''}'.trim();
       result.add({
         ...raw,
+        if (isIrrigation) 'diesel_consumption_liters': irrigationFuel[(raw['id'] as num).toInt()] ?? 0,
         if (isIrrigation) 'total_amount': debit,
         if (isIrrigation) 'debit': debit,
         if (isIrrigation) 'alayh': debit,
@@ -2866,6 +2871,7 @@ class StationRepository {
           }
           return db.rawQuery(
             '''SELECT i.id invoice_id,
+                      (SELECT COALESCE(SUM(dm.liters),0) FROM diesel_movements dm WHERE dm.irrigation_id=i.id AND dm.station_id=i.station_id AND dm.kind='consumption') diesel_consumption_liters,
                       i.beneficiary_id,i.worker_id,i.partner_id,
                       COALESCE(NULLIF(TRIM(b.name),''),NULLIF(TRIM(wk.name),''),NULLIF(TRIM(pt.name),''),'غير محدد') party_name,
                       i.start_datetime,i.end_datetime,
@@ -2916,7 +2922,8 @@ class StationRepository {
           if (systemType != 'all') { w += ' AND i.system_type=?'; a.add(systemType); }
           return db.rawQuery(
             '''SELECT i.id irrigation_id,i.beneficiary_id,COALESCE(b.name,wk.name,pt.name,'غير محدد') party_name,
-                      i.start_datetime,i.end_datetime,i.minutes,i.paid_amount,i.total_amount,
+                      i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.paid_amount,i.total_amount,
+                      (SELECT COALESCE(SUM(dm.liters),0) FROM diesel_movements dm WHERE dm.irrigation_id=i.id AND dm.station_id=i.station_id AND dm.kind='consumption') diesel_consumption_liters,
                       COALESCE(i.cloud_minutes,0) cloud_minutes,
                       CASE WHEN COALESCE(i.cloud_minutes,0)>0 THEN 'discounted' ELSE 'none' END cloud_status
                FROM irrigations i

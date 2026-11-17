@@ -1,3 +1,4 @@
+import '../core/diesel_quantity.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
@@ -30,10 +31,10 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
   bool busy = false, enabled = false;
   String? error;
   int generation = 0;
-  String quantity(double n) => n.abs().toStringAsFixed(3);
-  String balanceText(double n) => n < -0.0005
+  String quantity(double n) => DieselQuantity.format(n.abs());
+  String balanceText(double n) => n < 0 && quantity(n) != '0'
       ? 'عليه ${quantity(n)} لتر'
-      : n > 0.0005
+      : n > 0 && quantity(n) != '0'
       ? 'له ${quantity(n)} لتر'
       : 'الرصيد متعادل';
   @override
@@ -130,9 +131,9 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
     if (busy || !enabled || person == null || station == null) {
       return;
     }
-    final amount = double.tryParse(liters.text.trim());
+    final amount = DieselQuantity.parseInput(liters.text);
     if (amount == null || !amount.isFinite || amount <= 0) {
-      setState(() => error = 'أدخل كمية لترات موجبة');
+      setState(() => error = 'أدخل كمية لترات موجبة بمنزلتين عشريتين كحد أقصى، مثل 5.75');
       return;
     }
     setState(() {
@@ -222,7 +223,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final amount = double.tryParse(liters.text.trim());
+    final amount = DieselQuantity.parseInput(liters.text);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -278,6 +279,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
                 ),
                 decoration: const InputDecoration(
                   labelText: 'الكمية المستلمة باللترات',
+                  helperText: 'مثال: 5.75 — منزلتان عشريتان كحد أقصى',
                 ),
                 onChanged: (_) => setState(() {}),
               ),

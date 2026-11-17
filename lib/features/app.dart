@@ -1,3 +1,5 @@
+import 'party_diesel_balance.dart';
+import '../core/diesel_quantity.dart';
 import 'beneficiary_irrigation_menu.dart';
 import '../domain/accounting/beneficiary_irrigation_actions.dart';
 import 'diesel_delivery_page.dart';
@@ -2941,6 +2943,9 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
         default:
           d = {};
       }
+      if (const ['beneficiary', 'worker', 'partner'].contains(widget.kind)) {
+        d = (await PartyDieselBalance.loadRows(widget.r, widget.kind, [d])).first;
+      }
       if (mounted) {
         setState(() {
           data = d;
@@ -3974,6 +3979,8 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
               section(c, 'الأرصدة والاستحقاقات', Icons.account_balance_rounded, accounting),
               section(c, 'معلومات السجل', Icons.info_outline_rounded, meta),
             ],
+            if (data['party_diesel_balance'] is num)
+              PartyDieselBalance(data['party_diesel_balance'] as num),
             paymentMethodMovements(c),
             Container(
               padding: const EdgeInsets.all(20),
@@ -4242,7 +4249,8 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
       loadError = null;
     });
     try {
-      final x = await widget.r.beneficiaries(q.text.trim());
+      final x = await PartyDieselBalance.loadRows(widget.r, 'beneficiary',
+          await widget.r.beneficiaries(q.text.trim()));
       final settings = await widget.r.settings();
       if (mounted && seq == _seq) {
         setState(() {
@@ -4693,6 +4701,8 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                         ),
                                       ),
                                       const SizedBox(height: 10),
+                                      if (x['party_diesel_balance'] is num)
+                                        PartyDieselBalance(x['party_diesel_balance'] as num),
                                       PartyPaymentActions(
                                         repository: widget.r,
                                         userId: widget.userId,
@@ -6095,8 +6105,8 @@ int? parseClock(String raw) {
                 'مدة السقاية: $minutes دقيقة',
               'قيمة المياه: $water ريال',
               if (systemName == 'ديزل') ...[
-                'الديزل المستهلك: ${dieselLiters('consumption').toStringAsFixed(3)} لتر',
-                'سلفة ديزل عينية: ${dieselLiters('advance').toStringAsFixed(3)} لتر',
+                'الديزل المستهلك: ${DieselQuantity.format(dieselLiters('consumption'))} لتر',
+                'سلفة ديزل عينية: ${DieselQuantity.format(dieselLiters('advance'))} لتر',
               ],
               'الرصيد السابق: ${balanceText(previousBalance)}',
               'قيمة السقاية الحالية: $total ريال',
@@ -6510,10 +6520,10 @@ int? parseClock(String raw) {
                 ),
                 Metric(type == 'diesel' ? 'قيمة المياه' : 'قيمة السقي', money(p['المياه']), _blue),
                 if (type == 'diesel') ...[
-                  Metric('الديزل المستهلك', "${p['ديزل مستهلك']!.toStringAsFixed(3)} لتر", _purple),
+                  Metric('الديزل المستهلك', "${DieselQuantity.format(p['ديزل مستهلك']!)} لتر", _purple),
                   if (partyType == 'beneficiary') ...[
-                    Metric('من رصيد المستفيد', "${p['ديزل من الرصيد']!.toStringAsFixed(3)} لتر", _cyan),
-                    Metric('سلفة ديزل عينية', "${p['ديزل سلفة']!.toStringAsFixed(3)} لتر", Colors.orange),
+                    Metric('من رصيد المستفيد', "${DieselQuantity.format(p['ديزل من الرصيد']!)} لتر", _cyan),
+                    Metric('سلفة ديزل عينية', "${DieselQuantity.format(p['ديزل سلفة']!)} لتر", Colors.orange),
                   ],
                 ],
                 if (type == 'solar' && cloudMin > 0) Metric('خصم الغيم', '$cloudMin دقيقة', _cyan),
@@ -9965,7 +9975,8 @@ class _WorkersState extends State<WorkersPage> {
 
   Future<void> load() async {
     final generation = ++_searchGeneration;
-    final x = await widget.r.workers(search: q);
+    final x = await PartyDieselBalance.loadRows(widget.r, 'worker',
+        await widget.r.workers(search: q));
     if (mounted && generation == _searchGeneration) setState(() => rows = x);
   }
 
@@ -10705,6 +10716,8 @@ style: TextStyle(
 ),
                                           ),
                                           const SizedBox(height: 12),
+                                      if (x['party_diesel_balance'] is num)
+                                        PartyDieselBalance(x['party_diesel_balance'] as num),
                                       PartyPaymentActions(
                                         repository: widget.r,
                                         userId: widget.userId,
@@ -10773,7 +10786,8 @@ class _PartnersState extends State<PartnersPage> {
 
   Future<void> load() async {
     final generation = ++_searchGeneration;
-    final x = await widget.r.partners(search: q);
+    final x = await PartyDieselBalance.loadRows(widget.r, 'partner',
+        await widget.r.partners(search: q));
     if (mounted && generation == _searchGeneration) setState(() => rows = x);
   }
 
@@ -11341,6 +11355,8 @@ style: TextStyle(
 ),
                                           ),
                                           const SizedBox(height: 12),
+                                      if (x['party_diesel_balance'] is num)
+                                        PartyDieselBalance(x['party_diesel_balance'] as num),
                                       PartyPaymentActions(
                                         repository: widget.r,
                                         userId: widget.userId,
