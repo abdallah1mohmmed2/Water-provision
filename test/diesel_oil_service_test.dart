@@ -237,8 +237,15 @@ void main() {
       await waitFor('متبقي 1.50 ساعة سقاية لتغيير الزيت');
       expect(alerts.where((a) => a.title == 'تنبيه تغيير الزيت'), hasLength(2));
       await tester.pump(const Duration(seconds: 30));
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
-      await tester.pump();
+      // The periodic read starts in Flutter's fake-async zone. Alternate real
+      // SQLite progress with frames before awaiting the next write; otherwise
+      // that write can wait on a read whose continuation needs another frame.
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
       expect(alerts.where((a) => a.title == 'تنبيه تغيير الزيت'), hasLength(2));
       await tester.runAsync(() => irrigation(clock, clock.add(const Duration(hours: 2))));
       await waitFor('تأخر تغيير الزيت بمقدار 0.50 ساعة سقاية');
