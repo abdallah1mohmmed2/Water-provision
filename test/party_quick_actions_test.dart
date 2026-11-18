@@ -81,7 +81,7 @@ void main() {
   for (final share in [false, true]) {
     for (final irrigations in [false, true]) {
       testWidgets('PDF choice irrigation=$irrigations share=$share uses same callback', (tester) async {
-        final calls = <(bool, bool)>[];
+        final calls = <(String, bool)>[];
         await tester.pumpWidget(MaterialApp(home: Scaffold(body: Builder(builder: (context) => TextButton(
           onPressed: () => showPartyPdfChoices(context, name: 'الشخص المحدد', generate: (water) async {
             calls.add((water, ReportPdfPreviewService.sharingFromLongPress));
@@ -100,7 +100,7 @@ void main() {
           await tester.tap(button);
         }
         await tester.pumpAndSettle();
-        expect(calls, [(irrigations, share)]);
+        expect(calls, [(irrigations ? 'irrigations' : 'statement', share)]);
         expect(find.text('الشخص المحدد'), findsNothing);
         expect(tester.takeException(), isNull);
       });
@@ -203,8 +203,8 @@ void main() {
           final form = tester.widget<NewIrrigationPage>(find.byType(NewIrrigationPage));
           expect(form.initialPartyType, kind);
           expect(form.initialPartyId, targets[kind]);
-          expect(form.compactOnly, kind == 'beneficiary');
-          if (kind == 'beneficiary') {
+          expect(form.compactOnly, isTrue);
+          {
             await waitFor(tester, () => find.text('بطاقة وقت التشغيل').evaluate().isNotEmpty);
             await tester.pumpAndSettle();
             expect(find.byType(AlertDialog), findsOneWidget);
@@ -229,7 +229,7 @@ void main() {
         final before = await tester.runAsync(counts);
         await tester.pumpWidget(MaterialApp(home: NewIrrigationPage(repo,
           manager: true, initialPartyType: kind, initialPartyId: 999999,
-          compactOnly: kind == 'beneficiary')));
+          compactOnly: true)));
         await waitFor(tester, () => find.textContaining('هذا الشخص غير متاح').evaluate().isNotEmpty);
         expect(find.text('حفظ السقاية'), findsNothing);
         expect(await tester.runAsync(counts), before);
