@@ -250,6 +250,7 @@ void main() {
         await tester.pump();
         await waitFor(tester, () =>
             find.text('بطاقة وقت التشغيل').evaluate().isNotEmpty);
+        await tester.pumpAndSettle();
         await tester.tap(find.textContaining('بداية التشغيل:'));
         await tester.pumpAndSettle();
         final startPicker = find.byKey(const ValueKey('quick-time-picker-start'));
