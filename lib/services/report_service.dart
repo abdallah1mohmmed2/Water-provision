@@ -265,6 +265,42 @@ class ReportService {
     final debtTotals = (key == 'debts' || key == 'all_party_debts')
         ? DebtReportTotals.fromRows(rows)
         : null;
+
+    // The partner report contains informational irrigation rows and a profit
+    // summary. Neither is a second financial movement. Derive totals from the
+    // original partner ledger, not from those synthesized display rows.
+    num partnerLah = 0, partnerAlayh = 0;
+    num? partnerClosing;
+    if (key == 'partner_accounts' && partnerId != null) {
+      final transactions = await repo.partnerTransactions(partnerId);
+      for (final row in transactions) {
+        if (const {'opening_balance', 'carried_balance', 'current_balance'}
+            .contains(row['type'])) continue;
+        final date = DateTime.tryParse('${row['date'] ?? ''}');
+        if (from != null &&
+            (date == null || date.isBefore(DateTime(from.year, from.month, from.day)))) continue;
+        if (to != null &&
+            (date == null || !date.isBefore(DateTime(to.year, to.month, to.day + 1)))) continue;
+        final amount = row['signed_amount'] is num
+            ? row['signed_amount'] as num
+            : (row['lah'] as num? ?? 0) - (row['alayh'] as num? ?? 0);
+        if (amount > 0) partnerLah += amount;
+        if (amount < 0) partnerAlayh -= amount;
+      }
+      for (final row in rows) {
+        if (row['type'] == 'partner_profit_total' && row['balance'] is num) {
+          partnerClosing = row['balance'] as num;
+          break;
+        }
+      }
+      partnerClosing ??= rows.isEmpty
+          ? 0
+          : (rows.firstWhere((row) => row['balance'] is num,
+              orElse: () => <String,Object?>{'balance': 0})['balance'] as num);
+    }
+    String partnerClosingLabel(num balance) => balance > 0
+        ? 'له ${money(balance)} ريال'
+        : balance < 0 ? 'عليه ${money(balance.abs())} ريال' : 'متوازن (0 ريال)';
     final summaryBoxes = <StatBoxData>[
       StatBoxData(
         number: '1',
@@ -337,6 +373,11 @@ class ReportService {
           value: '${money(sumOf('net_amount'))} ريال',
           isBlueTint: true,
         ),
+      if (partnerClosing != null) ...[
+        StatBoxData(number: 'P1', title: 'إجمالي له', value: '${money(partnerLah)} ريال'),
+        StatBoxData(number: 'P2', title: 'إجمالي عليه', value: '${money(partnerAlayh)} ريال', isBlueTint: true),
+        StatBoxData(number: 'P3', title: 'المتبقي له أو عليه', value: partnerClosingLabel(partnerClosing), isLarge: true),
+      ],
       if (debtTotals != null) ...[
         StatBoxData(
           number: '10',
@@ -388,6 +429,16 @@ class ReportService {
       summaryBoxes: summaryBoxes,
       columns: headers,
       rows: tableRows,
+      footerTotalRow: partnerClosing == null ? null : [
+        for (final field in sourceHeaders)
+          switch (field) {
+            'date' => 'الإجمالي',
+            'lah' => money(partnerLah),
+            'alayh' => money(partnerAlayh),
+            'balance' => partnerClosingLabel(partnerClosing),
+            _ => '',
+          },
+      ],
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
       fileName: _pdfFileName(reportTitle),
       minTableRows: 7,
