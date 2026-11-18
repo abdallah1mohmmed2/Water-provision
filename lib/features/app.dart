@@ -3944,13 +3944,17 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 tooltip: 'تقارير PDF',
                 onPressed: () => showPartyPdfChoices(context,
                   name: widget.title,
-                  generate: (irrigations) => irrigations
-                    ? ReportService(widget.r).printPdf('irrigations',
-                        beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
-                        workerId: widget.kind == 'worker' ? widget.id : null,
-                        partnerId: widget.kind == 'partner' ? widget.id : null,
-                        from: filterFrom, to: filterTo, systemType: 'all')
-                    : printPersonReport(),
+                  generate: (report) => report == 'diesel'
+                    ? ReportService(widget.r).printPartyDieselPdf(
+                        partyType: widget.kind, partyId: widget.id,
+                        from: filterFrom, to: filterTo)
+                    : report == 'irrigations'
+                      ? ReportService(widget.r).printPdf('irrigations',
+                          beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
+                          workerId: widget.kind == 'worker' ? widget.id : null,
+                          partnerId: widget.kind == 'partner' ? widget.id : null,
+                          from: filterFrom, to: filterTo, systemType: 'all')
+                      : printPersonReport(),
                 ),
                 icon: const Icon(Icons.picture_as_pdf_rounded),
               ),
