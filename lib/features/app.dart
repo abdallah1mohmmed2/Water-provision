@@ -4863,6 +4863,8 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   );
 }
 
+enum _QuickIrrigationTimeTone { start, end, cloud }
+
 class NewIrrigationPage extends StatefulWidget {
   final StationRepository r;
   final bool manager;
@@ -5311,7 +5313,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   }
 
   Future<void> addCloudPeriod({int? editingIndex}) async {
-    if (type != 'solar') return;
+    if (type == 'diesel') return;
     final existing = editingIndex == null ? null : cloudPeriods[editingIndex];
     final initialStart = existing?['start'] ?? start;
     final initialEnd =
@@ -5326,7 +5328,9 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, dialogSetState) => AlertDialog(
-          title: const Text('إضافة غيم / حساب وقت التوقف'),
+          backgroundColor: const Color(0xFFF2EAFB),
+          title: const Text('إضافة غيم / حساب وقت التوقف',
+              style: TextStyle(color: Color(0xFF71369B), fontWeight: FontWeight.w900)),
           content: SingleChildScrollView(
             child: SizedBox(
               width: 380,
@@ -5380,7 +5384,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                       Expanded(child: TextField(controller: startController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'بداية الغيم (ساعة:دقيقة)', hintText: '13:10'))),
                       IconButton(tooltip: 'لاقط وقت هجين لبداية الغيم', icon: const Icon(Icons.schedule), onPressed: () async {
                         final initial = _parseCloudClock(startController.text) ?? start;
-                        final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار بداية الغيم', use24Hour: true);
+                        final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار بداية الغيم', use24Hour: true, tone: _QuickIrrigationTimeTone.cloud);
                         if (selected != null) { startController.text = '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}'; dialogSetState(() {}); }
                       }),
                     ]),
@@ -5389,7 +5393,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                       Expanded(child: TextField(controller: endController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'نهاية الغيم (ساعة:دقيقة)', hintText: '13:20'))),
                       IconButton(tooltip: 'لاقط وقت هجين لنهاية الغيم', icon: const Icon(Icons.schedule), onPressed: () async {
                         final initial = _parseCloudClock(endController.text) ?? start.add(const Duration(minutes: 15));
-                        final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار نهاية الغيم', use24Hour: true);
+                        final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار نهاية الغيم', use24Hour: true, tone: _QuickIrrigationTimeTone.cloud);
                         if (selected != null) { endController.text = '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}'; dialogSetState(() {}); }
                       }),
                     ]),
@@ -5517,7 +5521,27 @@ int? parseClock(String raw) {
     });
   }
 
-  Future<TimeOfDay?> _showHybridTimePicker({required DateTime initial, required String title, bool use24Hour = false, bool confirmPeriod = false, String? initialPeriod}) async {
+  Future<TimeOfDay?> _showHybridTimePicker({
+    required DateTime initial,
+    required String title,
+    bool use24Hour = false,
+    bool confirmPeriod = false,
+    String? initialPeriod,
+    _QuickIrrigationTimeTone? tone,
+    VoidCallback? onCloudConfirmed,
+  }) async {
+    final dialogBackground = switch (tone) {
+      _QuickIrrigationTimeTone.start => const Color(0xFFE8F3FF),
+      _QuickIrrigationTimeTone.end => const Color(0xFFE6F5EB),
+      _QuickIrrigationTimeTone.cloud => const Color(0xFFF2EAFB),
+      null => null,
+    };
+    final headingColor = switch (tone) {
+      _QuickIrrigationTimeTone.start => const Color(0xFF185BA0),
+      _QuickIrrigationTimeTone.end => const Color(0xFF246B43),
+      _QuickIrrigationTimeTone.cloud => const Color(0xFF71369B),
+      null => null,
+    };
     var hour = use24Hour ? initial.hour : (initial.hour % 12 == 0 ? 12 : initial.hour % 12);
     var minute = initial.minute;
     String? period = confirmPeriod ? initialPeriod : (initial.hour < 12 ? 'am' : 'pm');
@@ -5526,9 +5550,36 @@ int? parseClock(String raw) {
     final mc = TextEditingController(text: minute.toString().padLeft(2, '0'));
     final hw = FixedExtentScrollController(initialItem: hour - (use24Hour ? 0 : 1));
     final mw = FixedExtentScrollController(initialItem: minute);
+    void confirmTime({bool openCloud = false}) {
+      if (confirmPeriod && period == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('اختر صباحاً أو مساءً أولاً')));
+        return;
+      }
+      if (inputMode) {
+        final ih = int.tryParse(hc.text.trim());
+        final im = int.tryParse(mc.text.trim());
+        if (ih == null || ih < (use24Hour ? 0 : 1) ||
+            ih > (use24Hour ? 23 : 12) || im == null || im < 0 || im > 59) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+            use24Hour ? 'أدخل ساعة 00–23 ودقيقة 00–59'
+                      : 'أدخل ساعة 01–12 ودقيقة 00–59')));
+          return;
+        }
+        hour = ih;
+        minute = im;
+      }
+      if (openCloud) onCloudConfirmed?.call();
+      Navigator.of(context).pop(TimeOfDay(
+        hour: use24Hour ? hour : (hour % 12) + (period == 'pm' ? 12 : 0),
+        minute: minute));
+    }
     final result = await showDialog<TimeOfDay>(context: context, builder: (dc) =>
       StatefulBuilder(builder: (context, ds) => AlertDialog(
-        title: Text(title),
+        key: tone == null ? null : ValueKey('quick-time-picker-${tone.name}'),
+        backgroundColor: dialogBackground,
+        title: Text(title, style: TextStyle(
+          color: headingColor, fontWeight: FontWeight.w900)),
         content: SizedBox(width: 340, child: Column(mainAxisSize: MainAxisSize.min, children: [
           SegmentedButton<bool>(
             segments: const [
@@ -5596,21 +5647,18 @@ int? parseClock(String raw) {
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dc), child: const Text('إلغاء')),
-          FilledButton.icon(onPressed: () {
-            if (confirmPeriod && period == null) {
-              ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(content: Text('اختر صباحاً أو مساءً أولاً')));
-              return;
-            }
-            if (inputMode) {
-              final ih = int.tryParse(hc.text.trim()), im = int.tryParse(mc.text.trim());
-              if (ih == null || ih < (use24Hour ? 0 : 1) || ih > (use24Hour ? 23 : 12) || im == null || im < 0 || im > 59) {
-                ScaffoldMessenger.of(dc).showSnackBar(SnackBar(content: Text(use24Hour ? 'أدخل ساعة 00–23 ودقيقة 00–59' : 'أدخل ساعة 01–12 ودقيقة 00–59')));
-                return;
-              }
-              hour = ih; minute = im;
-            }
-            Navigator.pop(dc, TimeOfDay(hour: use24Hour ? hour : (hour % 12) + (period == 'pm' ? 12 : 0), minute: minute));
-          }, icon: const Icon(Icons.check), label: const Text('تأكيد الوقت')),
+          if (onCloudConfirmed != null)
+            OutlinedButton.icon(
+              key: const ValueKey('quick-end-cloud-button'),
+              onPressed: () => confirmTime(openCloud: true),
+              icon: const Icon(Icons.cloud_outlined),
+              label: const Text('الغيم'),
+            ),
+          FilledButton.icon(
+            onPressed: confirmTime,
+            icon: const Icon(Icons.check),
+            label: const Text('تأكيد الوقت'),
+          ),
         ],
       )),
     );
@@ -5860,18 +5908,26 @@ int? parseClock(String raw) {
             return _matchesSearch(row['name'], search);
           }).toList();
           Future<void> chooseTime(bool isStart) async {
+            var openCloudAfterEnd = false;
             final picked = await _showHybridTimePicker(
               initial: isStart ? start : end,
-              title: isStart ? 'ساعة دورة وقت البداية' : 'ساعة دوارة وقت النهاية',
+              title: isStart ? 'اختيار وقت البداية' : 'اختيار وقت النهاية',
               confirmPeriod: true,
+              tone: isStart
+                  ? _QuickIrrigationTimeTone.start
+                  : _QuickIrrigationTimeTone.end,
               initialPeriod: (isStart ? start.hour : end.hour) < 12 ? 'am' : 'pm',
+              onCloudConfirmed: !isStart && type != 'diesel'
+                  ? () => openCloudAfterEnd = true
+                  : null,
             );
-            if (picked == null || !mounted) return;
+            if (picked == null || !mounted || !dialogContext.mounted) return;
             setState(() {
               if (isStart) {
                 start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, picked.hour, picked.minute);
                 startTimeController.text = _hm12(start);
                 if (!end.isAfter(start)) end = start.add(const Duration(hours: 1));
+                endTimeController.text = _hm12(end);
               } else {
                 end = DateTime(start.year, start.month, start.day, picked.hour, picked.minute);
                 if (!end.isAfter(start)) end = DateTime(start.year, start.month, start.day + 1, picked.hour, picked.minute);
@@ -5881,6 +5937,14 @@ int? parseClock(String raw) {
               cloudPeriods.removeWhere((p) => p['start']!.isBefore(start) || p['end']!.isAfter(end));
             });
             dialogSetState(() {});
+            if (isStart) {
+              // Keep the quick form open and continue immediately to its existing end picker.
+              await chooseTime(false);
+            } else if (openCloudAfterEnd && mounted && dialogContext.mounted) {
+              // Open the same cloud form, after accepting the selected end time.
+              await addCloudPeriod();
+              if (mounted && dialogContext.mounted) dialogSetState(() {});
+            }
           }
           return AlertDialog(
             title: const Text('سقاية جديدة'),
@@ -6009,7 +6073,7 @@ int? parseClock(String raw) {
                       icon: const Icon(Icons.av_timer),
                       label: Text('نهاية التشغيل: ${_hm12Label(end)}'),
                     ),
-                    if (type == 'solar') ...[
+                    if (type != 'diesel') ...[
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
                         onPressed: () async {
@@ -6120,7 +6184,7 @@ int? parseClock(String raw) {
       msg('وقت النهاية يجب أن يكون بعد وقت البداية');
       return;
     }
-    if (type == 'solar' &&
+    if (type != 'diesel' &&
         (cloudMin < 0 || cloudMin > minutes ||
             (quickCloudMode && cloudQuickController.text.trim().isEmpty))) {
       msg('أدخل دقائق غيم صحيحة لا تتجاوز مدة السقاية');
