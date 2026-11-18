@@ -229,6 +229,59 @@ void main() {
       }
     }
 
+    for (final system in ['diesel', 'solar', 'equivalent_hybrid']) {
+      testWidgets('quick time picker chains start to end and guards cloud in $system',
+          (tester) async {
+        tester.view.physicalSize = const Size(1200, 2000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.runAsync(() => repo.setSetting('system_type', system));
+        final before = await tester.runAsync(counts);
+        await tester.pumpWidget(MaterialApp(home: NewIrrigationPage(
+          repo, manager: true, compactOnly: true)));
+        await waitFor(tester, () =>
+            find.text('بطاقة وقت التشغيل').evaluate().isNotEmpty);
+        await tester.tap(find.textContaining('بداية التشغيل:'));
+        await tester.pumpAndSettle();
+        final startPicker = find.byKey(const ValueKey('quick-time-picker-start'));
+        expect(startPicker, findsOneWidget);
+        expect(tester.widget<AlertDialog>(startPicker).backgroundColor,
+            const Color(0xFFE8F3FF));
+        await tester.tap(find.descendant(
+          of: startPicker, matching: find.text('تأكيد الوقت')));
+        await tester.pumpAndSettle();
+
+        final endPicker = find.byKey(const ValueKey('quick-time-picker-end'));
+        expect(endPicker, findsOneWidget);
+        expect(tester.widget<AlertDialog>(endPicker).backgroundColor,
+            const Color(0xFFE6F5EB));
+        final cloudShortcut = find.byKey(const ValueKey('quick-end-cloud-button'));
+        if (system == 'diesel') {
+          expect(cloudShortcut, findsNothing);
+          await tester.tap(find.descendant(
+            of: endPicker, matching: find.text('تأكيد الوقت')));
+          await tester.pumpAndSettle();
+        } else {
+          expect(cloudShortcut, findsOneWidget);
+          await tester.tap(cloudShortcut);
+          await tester.pumpAndSettle();
+          expect(find.text('إضافة غيم / حساب وقت التوقف'), findsOneWidget);
+          final dialogs = tester.widgetList<AlertDialog>(find.byType(AlertDialog));
+          expect(dialogs.last.backgroundColor, const Color(0xFFF2EAFB));
+          await tester.tap(find.text('إلغاء'));
+          await tester.pumpAndSettle();
+        }
+        expect(find.text('بطاقة وقت التشغيل'), findsOneWidget);
+        expect(find.text('حفظ سقاية'), findsOneWidget);
+        await tester.tap(find.text('إغلاق'));
+        await tester.pumpAndSettle();
+        expect(await tester.runAsync(counts), before);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+
     for (final kind in ['beneficiary', 'worker', 'partner']) {
       testWidgets('missing $kind fails closed without selecting another party', (tester) async {
         final before = await tester.runAsync(counts);
