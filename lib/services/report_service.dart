@@ -409,8 +409,12 @@ class ReportService {
         final amount = row['signed_amount'] is num
             ? row['signed_amount'] as num
             : (row['lah'] as num? ?? 0) - (row['alayh'] as num? ?? 0);
-        if (amount > 0) partnerLah += amount;
-        if (amount < 0) partnerAlayh -= amount;
+        if (amount > 0) {
+          partnerLah += amount;
+        }
+        if (amount < 0) {
+          partnerAlayh -= amount;
+        }
       }
       for (final row in rows) {
         if (row['type'] == 'partner_profit_total' && row['balance'] is num) {
