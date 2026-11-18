@@ -11,7 +11,7 @@ String _error(Object e) => e is StateError
 
 Future<bool> showBeneficiaryIrrigationMenu(
   BuildContext context,
-  BeneficiaryIrrigationActions actions, {
+  PartyIrrigationActions actions, {
   Future<void> Function()? onResend,
 }) async {
   final row = await actions.record();
@@ -62,8 +62,8 @@ Future<bool> showBeneficiaryIrrigationMenu(
       SnackBar(
         content: Text(
           paid > total
-              ? 'تم التعديل. المدفوع يتجاوز القيمة الجديدة؛ راجع رصيد المستفيد.'
-              : 'تم تعديل السقاية وتحديث حساب المستفيد',
+              ? 'تم التعديل. المدفوع يتجاوز القيمة الجديدة؛ راجع رصيد صاحب السقاية.'
+              : 'تم تعديل السقاية وتحديث حساب صاحب السقاية',
         ),
       ),
     );
@@ -78,7 +78,7 @@ Future<bool> showBeneficiaryIrrigationMenu(
 }
 
 class _EditIrrigationDialog extends StatefulWidget {
-  final BeneficiaryIrrigationActions actions;
+  final PartyIrrigationActions actions;
   final Map<String, Object?> row;
   const _EditIrrigationDialog(this.actions, this.row);
   @override
@@ -230,7 +230,7 @@ class _EditIrrigationDialogState extends State<_EditIrrigationDialog> {
 }
 
 class _CancelIrrigationDialog extends StatefulWidget {
-  final BeneficiaryIrrigationActions actions;
+  final PartyIrrigationActions actions;
   const _CancelIrrigationDialog(this.actions);
   @override
   State<_CancelIrrigationDialog> createState() =>
