@@ -1,4 +1,6 @@
 import '../core/diesel_quantity.dart';
+import '../domain/accounting/party_diesel_statement.dart';
+import '../domain/maintenance/diesel_delivery_service.dart';
 import 'diesel_report_columns.dart';
 import '../domain/accounting/report_minute_pricing.dart';
 import '../core/app_clock.dart';
@@ -115,6 +117,123 @@ class ReportService {
   'ledger': ['date', 'account_name', 'journal_entry_id', 'description', 'alayh', 'lah', 'balance'],
 };
 
+
+  /// A third per-person PDF: liters issued, consumed and the exact signed
+  /// balance, including reversals. No money or stock is posted by this reader.
+  Future<void> printPartyDieselPdf({
+    required String partyType,
+    required int partyId,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    const tables = <String, String>{
+      'beneficiary': 'beneficiaries',
+      'worker': 'workers',
+      'partner': 'partners',
+    };
+    const labels = <String, String>{
+      'beneficiary': 'المستفيد',
+      'worker': 'العامل',
+      'partner': 'الشريك',
+    };
+    final table = tables[partyType];
+    if (table == null || partyId <= 0) {
+      throw ArgumentError('نوع الطرف أو رقمه غير صالح');
+    }
+    if (from != null && to != null &&
+        DateTime(from.year, from.month, from.day)
+            .isAfter(DateTime(to.year, to.month, to.day))) {
+      throw ArgumentError('بداية الفترة بعد نهايتها');
+    }
+    final station = await repo.accounting.currentStationId();
+    final people = await repo.db.rawQuery(
+      'SELECT * FROM $table WHERE id=? AND station_id=?',
+      [partyId, station],
+    );
+    if (people.length != 1) throw StateError('صاحب التقرير لا يتبع المحطة الحالية');
+    final person = people.single;
+    final opening = partyType == 'beneficiary'
+        ? ((person['opening_diesel_liters'] as num?)?.toDouble() ?? 0) +
+          ((person['carried_diesel_liters'] as num?)?.toDouble() ?? 0)
+        : 0.0;
+    final column = '${partyType}_id';
+    final movements = await repo.db.rawQuery(
+      """SELECT dm.id,dm.date,dm.kind,dm.liters,dm.party_receipt,
+                dm.irrigation_id,dm.reversal_of,dm.notes
+         FROM diesel_movements dm
+         LEFT JOIN irrigations i ON i.id=dm.irrigation_id
+         WHERE dm.station_id=? AND
+               (dm.$column=? OR (dm.$column IS NULL AND i.$column=?))
+         ORDER BY dm.date ASC,dm.id ASC""",
+      [station, partyId, partyId],
+    );
+    final statement = PartyDieselStatement.fromMovements(
+      opening: opening, movements: movements, from: from, to: to);
+    if (from == null && to == null) {
+      final ledgerBalance = await DieselDeliveryService(repo.db)
+          .balance(station, partyType, partyId);
+      if ((ledgerBalance - statement.closing).abs() > 0.01) {
+        throw StateError('تقرير الديزل لا يطابق رصيد الديزل المحفوظ؛ راجع سجل الحركات');
+      }
+    }
+
+    String liters(num value) => DieselQuantity.format(value);
+    String balanceLabel(num value) => DieselQuantity.balanceLabel(value);
+    String movementLabel(PartyDieselStatementEntry entry) {
+      final kind = switch (entry.kind) {
+        'delivery' => 'تسليم ديزل',
+        'receipt' => 'استلام ديزل',
+        'advance' => 'سلفة ديزل مستقلة',
+        'consumption' => 'استهلاك ديزل',
+        _ => 'حركة ديزل',
+      };
+      return '${entry.reversal ? 'عكس ' : ''}$kind'
+          '${entry.notes.trim().isEmpty ? '' : ' — ${entry.notes.trim()}'}';
+    }
+    final now = AppClock.now();
+    final settings = await repo.settings();
+    final name = '${person['name'] ?? labels[partyType]}';
+    final title = 'كشف تسليم واستهلاك الديزل — ${labels[partyType]} $name';
+    await OfficialReportTemplate.preview(
+      rightHeader1: settings['station_name'] ?? 'منظومة السقاية',
+      rightHeader2: settings['organization_name'] ?? 'الإدارة المالية',
+      rightHeader3: 'الجمهورية اليمنية',
+      date: DateFormat('yyyy/MM/dd').format(now),
+      refNumber: 'DSL-${DateFormat('yyMMdd-HHmm').format(now)}',
+      attachments: 'الفترة: ${from == null ? 'من البداية' : DateFormat('yyyy/MM/dd').format(from)}'
+          ' إلى ${to == null ? 'الآن' : DateFormat('yyyy/MM/dd').format(to)}',
+      fileName: _pdfFileName(title),
+      reportTitle: title,
+      summaryBoxes: [
+        StatBoxData(number: '1', title: 'رصيد أول الفترة (لتر)',
+          value: balanceLabel(statement.opening)),
+        StatBoxData(number: '2', title: 'إجمالي المسلم (لتر)',
+          value: liters(statement.delivered), isBlueTint: true),
+        StatBoxData(number: '3', title: 'إجمالي المستهلك (لتر)',
+          value: liters(statement.consumed)),
+        StatBoxData(number: '4', title: 'المتبقي له أو عليه (لتر)',
+          value: balanceLabel(statement.closing), isLarge: true),
+      ],
+      columns: const ['التاريخ', 'البيان', 'المسلّم (لتر)', 'المستهلك (لتر)', 'الرصيد له/عليه'],
+      rows: [
+        for (final entry in statement.entries)
+          [
+            DateFormat('yyyy/MM/dd').format(entry.date),
+            movementLabel(entry),
+            entry.delivered == 0 ? '—' : liters(entry.delivered),
+            entry.consumed == 0 ? '—' : liters(entry.consumed),
+            balanceLabel(entry.balance),
+          ],
+      ],
+      footerTotalRow: [
+        'الإجمالي', '', liters(statement.delivered),
+        liters(statement.consumed), balanceLabel(statement.closing),
+      ],
+      minTableRows: 1,
+      thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
+      preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
+    );
+  }
 
   Future<Uint8List> pdf(
     String key, {
