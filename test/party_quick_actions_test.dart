@@ -79,8 +79,8 @@ void main() {
   }
 
   for (final share in [false, true]) {
-    for (final irrigations in [false, true]) {
-      testWidgets('PDF choice irrigation=$irrigations share=$share uses same callback', (tester) async {
+    for (final report in const ['irrigations', 'statement', 'diesel']) {
+      testWidgets('PDF choice report=$report share=$share uses same callback', (tester) async {
         final calls = <(String, bool)>[];
         await tester.pumpWidget(MaterialApp(home: Scaffold(body: Builder(builder: (context) => TextButton(
           onPressed: () => showPartyPdfChoices(context, name: 'الشخص المحدد', generate: (water) async {
@@ -92,15 +92,20 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('سقايات هذا الشخص'), findsOneWidget);
         expect(find.text('كشف حساب هذا الشخص'), findsOneWidget);
+        expect(find.text('المسلّم والمستهلك والمتبقي من الديزل'), findsOneWidget);
         expect(calls, isEmpty);
-        final button = find.text(irrigations ? 'سقايات هذا الشخص' : 'كشف حساب هذا الشخص');
+        final button = find.text(switch (report) {
+          'irrigations' => 'سقايات هذا الشخص',
+          'diesel' => 'المسلّم والمستهلك والمتبقي من الديزل',
+          _ => 'كشف حساب هذا الشخص',
+        });
         if (share) {
           await tester.longPress(button);
         } else {
           await tester.tap(button);
         }
         await tester.pumpAndSettle();
-        expect(calls, [(irrigations ? 'irrigations' : 'statement', share)]);
+        expect(calls, [(report, share)]);
         expect(find.text('الشخص المحدد'), findsNothing);
         expect(tester.takeException(), isNull);
       });
