@@ -2787,16 +2787,27 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     );
   }
 
+  Future<bool> _mayManagePartyIrrigations() async {
+    const tables = {'beneficiary': 'beneficiaries', 'worker': 'workers', 'partner': 'partners'};
+    final table = tables[widget.kind];
+    if (table == null || widget.userId == null) return false;
+    final rows = await widget.r.db.rawQuery(
+      "SELECT 1 FROM app_users u JOIN $table party ON party.station_id=u.station_id "
+      "WHERE u.id=? AND party.id=? AND u.active=1 "
+      "AND u.role IN ('manager','accountant') LIMIT 1",
+      [widget.userId, widget.id],
+    );
+    return rows.isNotEmpty;
+  }
+
   Future<void> load() async {
     if (loadError != null && mounted) setState(() => loadError = null);
     try {
       late Map<String, Object?> d;
       List<Map<String, Object?>> h = [];
+      canManageIrrigations = await _mayManagePartyIrrigations();
       switch (widget.kind) {
         case 'beneficiary':
-          final permission = widget.userId == null ? <Map<String,Object?>>[] : await widget.r.db.query("SELECT 1 FROM app_users u JOIN beneficiaries b ON b.station_id=u.station_id WHERE u.id=? AND b.id=? AND u.active=1 AND u.role IN ('manager','accountant')",args:[widget.userId,widget.id]);
-          canManageIrrigations = permission.isNotEmpty;
-
           d = await widget.r.beneficiaryDetails(widget.id);
           // الكشف تصاعدي لحساب الرصيد الجاري؛ نعرضه الأحدث أولًا.
           h = (await widget.r.beneficiaryStatement(widget.id)).reversed.toList();
@@ -3321,15 +3332,46 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     }
   }
 
+  bool _canOpenIrrigationActions(Map<String, Object?> irrigation) =>
+      canManageIrrigations &&
+      widget.userId != null &&
+      !_irrigationActionBusy &&
+      irrigation['status'] == 'posted' &&
+      irrigation['party_type'] == widget.kind;
+
+  int? _ownedHistoryIrrigationId(Map<String, Object?> row) {
+    Object? candidate;
+    if (widget.kind == 'beneficiary' && row['type'] == 's' &&
+        row['status'] == 'posted') {
+      candidate = row['id'];
+    } else if (widget.kind == 'worker' &&
+        row['type'] == 'worker_irrigation_info') {
+      candidate = row['irrigation_id'];
+    } else if (widget.kind == 'partner' &&
+        row['type'] == 'partner_irrigation_info') {
+      candidate = row['reference_id'];
+    } else if ((widget.kind == 'worker' || widget.kind == 'partner') &&
+        row['reference_type'] == 'irrigation') {
+      candidate = row['reference_id'];
+    }
+    final id = (candidate as num?)?.toInt();
+    if (id == null) return null;
+    return irrigations.any((irr) =>
+      (irr['id'] as num?)?.toInt() == id && _canOpenIrrigationActions(irr))
+      ? id : null;
+  }
+
   Future<void> irrigationActions(int id) async {
     if (_irrigationActionBusy || !canManageIrrigations || widget.userId == null) return;
     setState(() => _irrigationActionBusy = true);
     try {
-      final changed = await showBeneficiaryIrrigationMenu(context,
-        BeneficiaryIrrigationActions(widget.r.db, userId: widget.userId!, beneficiaryId: widget.id, irrigationId: id),
+      final actions = PartyIrrigationActions(widget.r.db,
+        userId: widget.userId!, partyType: widget.kind, partyId: widget.id, irrigationId: id);
+      final changed = await showBeneficiaryIrrigationMenu(context, actions,
         onResend: () async {
-          final message = await BeneficiaryIrrigationMessageService(widget.r).prepare(
-            userId: widget.userId!, beneficiaryId: widget.id, irrigationId: id);
+          final message = await BeneficiaryIrrigationMessageService(widget.r).prepareForParty(
+            userId: widget.userId!, partyType: widget.kind,
+            partyId: widget.id, irrigationId: id);
           if (!mounted) return;
           await ManualMessageService.offerChoices(context,
             title: 'إعادة إرسال رسالة السقاية', recipientName: message.name,
@@ -3373,7 +3415,9 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   key: ValueKey('beneficiary-irrigation-history-${history[i]['type']}-${history[i]['id']}'),
-                  onLongPress: widget.kind == 'beneficiary' && canManageIrrigations && !_irrigationActionBusy && history[i]['type'] == 's' && history[i]['status'] == 'posted' ? () => irrigationActions((history[i]['id'] as num).toInt()) : null,
+                  onLongPress: _ownedHistoryIrrigationId(history[i]) == null
+                      ? null
+                      : () => irrigationActions(_ownedHistoryIrrigationId(history[i])!),
                   child: _TimelineItem(
                   first: i == 0,
                   last: i == shown - 1,
@@ -3719,7 +3763,9 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                   for (final x in rows)
                     DataRow(
                       key: ValueKey('beneficiary-irrigation-${x['id']}'),
-                      onLongPress: widget.kind == 'beneficiary' && canManageIrrigations && !_irrigationActionBusy && x['status'] == 'posted' ? () => irrigationActions((x['id'] as num).toInt()) : null,
+                      onLongPress: _canOpenIrrigationActions(x)
+                          ? () => irrigationActions((x['id'] as num).toInt())
+                          : null,
                       cells: [
                         DataCell(
                           Text(
