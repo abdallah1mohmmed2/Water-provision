@@ -10795,6 +10795,7 @@ class _WorkersState extends State<WorkersPage> {
                                         widget.r,
                                         kind: 'worker',
                                         id: x['id'] as int,
+                                        userId: widget.userId,
                                         title: 'تفاصيل العامل',
                                       ),
                                     ),
@@ -10819,6 +10820,7 @@ class _WorkersState extends State<WorkersPage> {
                                                   manager: widget.manager,
                                                   initialPartyType: 'worker',
                                                   initialPartyId: x['id'] as int,
+                                                  compactOnly: true,
                                                 ),
                                               ));
                                               if (mounted) await load();
@@ -11463,6 +11465,7 @@ class _PartnersState extends State<PartnersPage> {
                                         widget.r,
                                         kind: 'partner',
                                         id: x['id'] as int,
+                                        userId: widget.userId,
                                         title: 'تفاصيل الشريك',
                                       ),
                                     ),
@@ -11487,6 +11490,7 @@ class _PartnersState extends State<PartnersPage> {
                                                   manager: widget.manager,
                                                   initialPartyType: 'partner',
                                                   initialPartyId: x['id'] as int,
+                                                  compactOnly: true,
                                                 ),
                                               ));
                                               if (mounted) await load();
