@@ -3345,7 +3345,9 @@ class AccountingService {
         'start_datetime': start.toIso8601String(),
         'end_datetime': end.toIso8601String(),
         'minutes': result.minutes,
-        'cloud_minutes': result.cloudMinutes,
+        // Keep third-type cloud notes when the irrigation time is edited.
+        // The equivalent-system tariff still uses un-discounted duration.
+        'cloud_minutes': type == 'equivalent_hybrid' ? cloud : result.cloudMinutes,
         'chargeable_minutes': result.chargeableMinutes,
         'water_amount': editedBilledWater,
         'work_price_enabled_snapshot': oldWorkPriceEnabled ? 1 : 0,
