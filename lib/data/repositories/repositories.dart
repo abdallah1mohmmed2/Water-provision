@@ -1,3 +1,8 @@
+import '../../core/party_diesel_rate.dart';
+import '../../domain/accounting/report_minute_pricing.dart';
+import 'dart:async';
+
+import '../../api/api_client.dart';
 import '../../core/app_clock.dart';
 import '../../core/app_prefs.dart';
 import 'package:sqflite/sqflite.dart';
@@ -6,10 +11,14 @@ import '../local/queue_rotation.dart';
 import '../../domain/accounting/accounting_service.dart';
 import '../../domain/accounting/balance_sql.dart';
 import '../../domain/accounting/calculations.dart';
+import '../../services/sync_coordinator.dart';
 
 class StationRepository {
   final AppDatabase db;
   late final AccountingService accounting;
+  bool beneficiariesFromServer = false;
+  bool get serverSessionActive => SyncCoordinator.instance.apiClient != null;
+
   StationRepository([AppDatabase? database])
     : db = database ?? AppDatabase.instance {
     accounting = AccountingService(db);
@@ -30,29 +39,177 @@ class StationRepository {
 
   // البحث الجزئي يحافظ على مطابقة أي جزء من الاسم والهاتف ورقم الجربة والموقع.
   // عند خلو النص نتجنب شروط LIKE المتعددة غير الضرورية.
+  bool _matchesBeneficiary(Map<String, Object?> row, String term) {
+    if (term.isEmpty) return true;
+    final needle = term.toLowerCase();
+    return ['name', 'phone', 'jerba_number', 'location'].any(
+      (key) => '${row[key] ?? ''}'.toLowerCase().contains(needle),
+    );
+  }
+
+  Future<List<Map<String, Object?>>> _localBeneficiaries(String term) async {
+    final balance = BalanceSql.beneficiary('b');
+    final args = <Object?>[];
+    var where = "b.status='active'";
+    if (term.isNotEmpty) {
+      final pattern = '%$term%';
+      where += " AND (b.name LIKE ? OR COALESCE(b.phone,'') LIKE ?"
+          " OR COALESCE(b.jerba_number,'') LIKE ? OR COALESCE(b.location,'') LIKE ?)";
+      args.addAll([pattern, pattern, pattern, pattern]);
+    }
+    return db.rawQuery(
+      'SELECT b.*, ($balance) balance FROM beneficiaries b WHERE $where ORDER BY b.name',
+      args,
+    );
+  }
+
+  Future<List<Map<String, Object?>>> _cacheServerBeneficiaries(
+    List<dynamic> records,
+    String term,
+  ) async {
+    final database = await db.db;
+    final remoteIds = <String>{};
+    final results = <Map<String, Object?>>[];
+    await database.transaction((tx) async {
+      for (final item in records) {
+        if (item is! Map) {
+          throw StateError('استجابة المستفيدين من الخادم تحتوي سجلاً غير صالح.');
+        }
+        final remote = Map<String, Object?>.from(item);
+        final globalId = '${remote['_global_id'] ?? ''}'.trim();
+        if (globalId.isEmpty || !remoteIds.add(globalId)) {
+          throw StateError('الخادم أعاد هوية عالمية مفقودة أو مكررة لمستفيد.');
+        }
+        final identity = await tx.query(
+          'sync_global_identities',
+          columns: ['local_id'],
+          where: "table_name='beneficiaries' AND global_id=?",
+          whereArgs: [globalId],
+          limit: 1,
+        );
+        final now = DateTime.now().toUtc().toIso8601String();
+        final values = <String, Object?>{
+          for (final key in const [
+            'name', 'phone', 'address', 'location', 'jerba_number', 'area',
+            'is_needy', 'opening_balance', 'carried_balance',
+            'opening_diesel_liters', 'notes', 'status', 'created_at', 'updated_at',
+          ])
+            if (remote.containsKey(key) && remote[key] != null) key: remote[key],
+          if (remote.containsKey('diesel_liters_per_hour'))
+            'diesel_liters_per_hour': remote['diesel_liters_per_hour'],
+          'created_at': remote['created_at'] ?? now,
+          'updated_at': remote['updated_at'] ?? now,
+        };
+        final int localId;
+        var hasPendingLocalWrite = false;
+        if (identity.isEmpty) {
+          localId = await tx.insert('beneficiaries', {
+            ...values,
+            'status': values['status'] ?? 'active',
+          });
+          await tx.insert('sync_global_identities', {
+            'table_name': 'beneficiaries',
+            'local_id': localId,
+            'global_id': globalId,
+            'created_at': DateTime.now().toUtc().toIso8601String(),
+          });
+        } else {
+          localId = (identity.single['local_id'] as num).toInt();
+          final pending = await tx.query(
+            'sync_queue',
+            columns: ['id'],
+            where: "table_name='beneficiaries' AND record_id=? AND status IN ('pending','sending','conflict')",
+            whereArgs: [localId],
+            limit: 1,
+          );
+          hasPendingLocalWrite = pending.isNotEmpty;
+          if (!hasPendingLocalWrite) {
+            await tx.update(
+              'beneficiaries',
+              values,
+              where: 'id=?',
+              whereArgs: [localId],
+            );
+          }
+        }
+        // Cache writes must not be re-captured as new business events.
+        await tx.delete(
+          'sync_change_log',
+          where: "table_name='beneficiaries' AND record_id=?",
+          whereArgs: [localId],
+        );
+        final localRows = await tx.query(
+          'beneficiaries',
+          where: 'id=?',
+          whereArgs: [localId],
+          limit: 1,
+        );
+        if (localRows.isEmpty) {
+          throw StateError('تعذر تثبيت نسخة المستفيد المحلية.');
+        }
+        final localBalanceRows = hasPendingLocalWrite
+            ? await tx.rawQuery(
+                "SELECT ${BalanceSql.beneficiary('b')} AS balance FROM beneficiaries b WHERE b.id=?",
+                [localId],
+              )
+            : const <Map<String, Object?>>[];
+        final result = <String, Object?>{
+          ...localRows.single,
+          'id': localId,
+          'balance': hasPendingLocalWrite
+              ? (localBalanceRows.first['balance'] as num?)?.round() ?? 0
+              : (remote['balance'] as num?)?.round() ?? 0,
+          '_global_id': globalId,
+          '_source': hasPendingLocalWrite ? 'local_pending' : 'server',
+        };
+        if (_matchesBeneficiary(result, term)) results.add(result);
+      }
+
+      // Preserve optimistic local creates that have not reached Shelf yet.
+      final pendingRows = await tx.rawQuery("""
+        SELECT b.*,g.global_id AS _global_id
+        FROM beneficiaries b
+        JOIN sync_global_identities g
+          ON g.table_name='beneficiaries' AND g.local_id=b.id
+        WHERE b.status='active'
+          AND EXISTS (
+            SELECT 1 FROM sync_queue q
+            WHERE q.table_name='beneficiaries' AND q.record_id=b.id
+              AND q.status IN ('pending','sending','conflict')
+          )
+      """);
+      for (final row in pendingRows) {
+        final globalId = '${row['_global_id']}';
+        if (remoteIds.contains(globalId)) continue;
+        final result = Map<String, Object?>.from(row)
+          ..['_source'] = 'local_pending';
+        if (_matchesBeneficiary(result, term)) results.add(result);
+      }
+    });
+    results.sort((a, b) => '${a['name']}'.compareTo('${b['name']}'));
+    return results;
+  }
+
   Future<List<Map<String, Object?>>> beneficiaries([String q = '']) async {
     final term = q.trim();
-    final balance = BalanceSql.beneficiary('b');
-    if (term.isEmpty) {
-      return db.rawQuery(
-        '''SELECT b.*, ($balance) balance
-        FROM beneficiaries b
-        WHERE b.status='active'
-        ORDER BY b.name''',
-      );
+    final api = SyncCoordinator.instance.apiClient;
+    if (api != null) {
+      try {
+        final response = await api.get('/beneficiaries${term.isEmpty ? '' : '?q=${Uri.encodeQueryComponent(term)}'}');
+        if (response is! List) {
+          throw StateError('استجابة قائمة المستفيدين من الخادم غير صالحة.');
+        }
+        final rows = await _cacheServerBeneficiaries(response, term);
+        beneficiariesFromServer = true;
+        return rows;
+      } on ApiConnectionException {
+        // Only transport failures may fall back to the local offline cache.
+        beneficiariesFromServer = false;
+        return _localBeneficiaries(term);
+      }
     }
-    final pattern = '%$term%';
-    return db.rawQuery(
-      '''SELECT b.*, ($balance) balance
-      FROM beneficiaries b
-      WHERE b.status='active'
-        AND (b.name LIKE ?
-          OR COALESCE(b.phone,'') LIKE ?
-          OR COALESCE(b.jerba_number,'') LIKE ?
-          OR COALESCE(b.location,'') LIKE ?)
-      ORDER BY b.name''',
-      [pattern, pattern, pattern, pattern],
-    );
+    beneficiariesFromServer = false;
+    return _localBeneficiaries(term);
   }
 
   Future<int> createBeneficiary({
@@ -68,12 +225,21 @@ class StationRepository {
     double openingDiesel = 0,
     String? notes,
     int? userId,
+    double? dieselLitersPerHour,
   }) async {
+    PartyDieselRate.validate(dieselLitersPerHour);
     if (name.trim().isEmpty) throw ArgumentError('اسم المستفيد مطلوب');
+    if (serverSessionActive &&
+        (opening != 0 || carried != 0 || openingDiesel != 0)) {
+      throw StateError(
+        'إضافة الأرصدة الافتتاحية للمستفيد عبر الاتصال بالخادم متوقفة مؤقتاً حتى تفعيل المعالج المحاسبي المركزي.',
+      );
+    }
     final now = AppClock.now().toIso8601String();
     final id = await db.transaction((tx) async {
       final newId = await tx.insert('beneficiaries', {
         'name': name.trim(),
+        'diesel_liters_per_hour': dieselLitersPerHour,
         'phone': phone,
         'address': address,
         'location': location,
@@ -113,10 +279,12 @@ class StationRepository {
         'opening_diesel_liters': openingDiesel,
       },
     );
+    if (serverSessionActive) SyncCoordinator.instance.requestSync();
     return id;
   }
 
   static const Set<String> _beneficiaryEditable = {
+    'diesel_liters_per_hour',
     'name',
     'phone',
     'address',
@@ -134,12 +302,35 @@ class StationRepository {
     Map<String, Object?> values,
     int? userId,
   ) async {
+    if (values.containsKey('diesel_liters_per_hour')) {
+      PartyDieselRate.validate(values['diesel_liters_per_hour']);
+    }
     final unknown = values.keys.where((k) => k != 'updated_at' && !_beneficiaryEditable.contains(k));
     if (unknown.isNotEmpty) {
       throw ArgumentError('حقول غير قابلة للتعديل: ${unknown.join('، ')}');
     }
     if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
       throw ArgumentError('اسم المستفيد مطلوب');
+    }
+    if (serverSessionActive &&
+        (values.containsKey('opening_balance') || values.containsKey('carried_balance'))) {
+      final currentRows = await db.query(
+        'SELECT opening_balance,carried_balance FROM beneficiaries WHERE id=? LIMIT 1',
+        args: [id],
+      );
+      if (currentRows.isEmpty) throw StateError('المستفيد غير موجود');
+      for (final key in const ['opening_balance', 'carried_balance']) {
+        if (values.containsKey(key) &&
+            (values[key] as num?)?.round() !=
+                (currentRows.first[key] as num?)?.round()) {
+          throw StateError(
+            'تعديل الأرصدة الافتتاحية عبر الاتصال بالخادم متوقف حتى تفعيل المعالج المحاسبي المركزي.',
+          );
+        }
+      }
+      values = Map<String, Object?>.from(values)
+        ..remove('opening_balance')
+        ..remove('carried_balance');
     }
     final now = AppClock.now().toIso8601String();
     int balanceValue(Object? value, String label) {
@@ -189,6 +380,7 @@ class StationRepository {
         newValues: newValues,
       );
     });
+    if (serverSessionActive) SyncCoordinator.instance.requestSync();
   }
 
   Future<void> deleteBeneficiary(int id, int? userId, String reason) async {
@@ -216,7 +408,7 @@ class StationRepository {
         );
       }
       final dieselRows = await tx.rawQuery(
-        "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)+COALESCE((SELECT carried_diesel_liters FROM beneficiaries WHERE id=?),0)+COALESCE((SELECT SUM(CASE WHEN kind IN ('delivery','advance') THEN liters WHEN kind='consumption' THEN -liters ELSE 0 END) FROM diesel_movements WHERE beneficiary_id=?),0) stock",
+        "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)+COALESCE((SELECT carried_diesel_liters FROM beneficiaries WHERE id=?),0)+COALESCE((SELECT SUM(CASE WHEN (kind='delivery' OR (kind='receipt' AND party_receipt=1)) THEN liters WHEN kind='advance' AND irrigation_id IS NULL THEN liters WHEN kind='consumption' THEN -liters ELSE 0 END) FROM diesel_movements WHERE beneficiary_id=?),0) stock",
         [id, id, id],
       );
       final dieselBalance = (dieselRows.first['stock'] as num?)?.toDouble() ?? 0;
@@ -263,13 +455,40 @@ class StationRepository {
         reason: reason,
       );
     });
+    if (serverSessionActive) SyncCoordinator.instance.requestSync();
   }
   Future<Map<String, Object?>> beneficiaryDetails(int id) async {
-    final b = (await db.rawQuery(
+    final api = SyncCoordinator.instance.apiClient;
+    if (api != null) {
+      final identities = await db.query(
+        "SELECT global_id FROM sync_global_identities WHERE table_name='beneficiaries' AND local_id=? LIMIT 1",
+        args: [id],
+      );
+      // A local optimistic create has no server identity yet; retain its local
+      // details until the Outbox has been accepted by Shelf.
+      if (identities.isNotEmpty) {
+        final globalId = Uri.encodeComponent('${identities.first['global_id']}');
+        try {
+          final remote = await api.get('/beneficiaries/$globalId');
+          if (remote is! Map) {
+            throw StateError('استجابة تفاصيل المستفيد من الخادم غير صالحة.');
+          }
+          return Map<String, Object?>.from(remote)
+            ..['id'] = id
+            ..['_source'] = 'server';
+        } on ApiConnectionException {
+          // A transport outage may use the last local snapshot. HTTP errors
+          // (including 401/403/404/500) must remain visible to the caller.
+        }
+      }
+    }
+    final rows = await db.rawQuery(
       'SELECT * FROM beneficiaries WHERE id=?',
       [id],
-    )).first;
-    return {...b, 'balance': await accounting.beneficiaryBalance(id)};
+    );
+    if (rows.isEmpty) throw StateError('المستفيد غير موجود محلياً.');
+    final b = rows.first;
+    return {...b, 'balance': await accounting.beneficiaryBalance(id), '_source': 'local'};
   }
 
   Future<List<Map<String, Object?>>> beneficiaryStatement(
@@ -277,6 +496,36 @@ class StationRepository {
     DateTime? from,
     DateTime? to,
   }) async {
+    final api = SyncCoordinator.instance.apiClient;
+    if (api != null) {
+      final identities = await db.query(
+        "SELECT global_id FROM sync_global_identities WHERE table_name='beneficiaries' AND local_id=? LIMIT 1",
+        args: [id],
+      );
+      if (identities.isNotEmpty) {
+        final globalId = Uri.encodeComponent('${identities.first['global_id']}');
+        final query = <String,String>{
+          if (from != null) 'from': from.toIso8601String(),
+          if (to != null) 'to': to.toIso8601String(),
+        };
+        final suffix = query.isEmpty ? '' : '?${Uri(queryParameters: query).query}';
+        try {
+          final remote = await api.get(
+            '/beneficiaries/$globalId/statement$suffix',
+          );
+          if (remote is! List) {
+            throw StateError('استجابة كشف حساب المستفيد من الخادم غير صالحة.');
+          }
+          return remote
+              .map((row) => Map<String,Object?>.from(row as Map)
+                ..['_source'] = 'server')
+              .toList();
+        } on ApiConnectionException {
+          // Use the local ledger only for a transport outage. HTTP failures
+          // remain visible so stale balances are never presented as current.
+        }
+      }
+    }
     final baseRows = await db.rawQuery(
       'SELECT opening_balance,carried_balance FROM beneficiaries WHERE id=?',
       [id],
@@ -287,6 +536,31 @@ class StationRepository {
     final initialBalance = opening + carried;
     final creditDelivery =
         (await settings())['diesel_delivery_financial_credit'] == 'true';
+    // Display-only values. A beneficiary's statement always uses the
+    // immutable special minute-rate snapshot where one exists, regardless
+    // of the optional "فارق العمل" invoices switch.
+    final irrigationPrices = await db.rawQuery(
+      "SELECT id,COALESCE(chargeable_minutes,minutes,0) chargeable_minutes,"
+      "COALESCE(work_minute_rate_snapshot,0) minute_rate,"
+      "COALESCE(diesel_amount,0) diesel_amount,"
+      "COALESCE(total_amount,0) saved_total, "
+      "(SELECT COALESCE(SUM(dm.liters),0) FROM diesel_movements dm WHERE dm.irrigation_id=i.id AND dm.station_id=i.station_id AND dm.kind='consumption') diesel_consumption_liters "
+      "FROM irrigations i WHERE beneficiary_id=? AND status!='cancelled'",
+      [id],
+    );
+    final irrigationFuel = <int, Object?>{
+      for (final row in irrigationPrices) (row['id'] as num).toInt(): row['diesel_consumption_liters'],
+    };
+    final displayedIrrigationTotals = <int,int>{
+      for (final irrigation in irrigationPrices)
+        (irrigation['id'] as num).toInt():
+          ((irrigation['minute_rate'] as num).toInt() > 0
+            ? ReportMinutePricing.amountAtMinuteRate(
+                (irrigation['chargeable_minutes'] as num).toInt(),
+                (irrigation['minute_rate'] as num).toInt(),
+              ) + (irrigation['diesel_amount'] as num).toInt()
+            : (irrigation['saved_total'] as num).toInt()),
+    };
     final events = await db.rawQuery(
       "SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.cloud_minutes,i.chargeable_minutes,i.total_amount,i.paid_amount,'s' type,i.total_amount debit,0 credit,0 lah,i.total_amount alayh,'سقاية' description,'posted' status,i.notes notes FROM irrigations i WHERE i.beneficiary_id=? AND i.status!='cancelled' "
       "UNION ALL SELECT p.id,p.date,p.date,p.date,'payment',0,0,0,0,-p.amount,'p',0,p.amount,p.amount,0,'قبض','posted',p.notes FROM payments p WHERE p.beneficiary_id=? AND p.status='posted' "
@@ -309,7 +583,11 @@ class StationRepository {
     final result = <Map<String, Object?>>[];
 
     for (final raw in events) {
-      final debit = (raw['debit'] as num?)?.round() ?? 0;
+      final isIrrigation = raw['type'] == 's';
+      final savedDebit = (raw['debit'] as num?)?.round() ?? 0;
+      final debit = isIrrigation
+          ? displayedIrrigationTotals[(raw['id'] as num).toInt()] ?? savedDebit
+          : savedDebit;
       final credit = (raw['credit'] as num?)?.round() ?? 0;
       running += debit - credit;
       final date = DateTime.tryParse('${raw['date'] ?? ''}');
@@ -327,6 +605,10 @@ class StationRepository {
       final description = '${raw['description'] ?? ''}'.trim();
       result.add({
         ...raw,
+        if (isIrrigation) 'diesel_consumption_liters': irrigationFuel[(raw['id'] as num).toInt()] ?? 0,
+        if (isIrrigation) 'total_amount': debit,
+        if (isIrrigation) 'debit': debit,
+        if (isIrrigation) 'alayh': debit,
         'description': note.isEmpty || description.isEmpty ? description : '$description - $note',
         'balance': running,
       });
@@ -914,10 +1196,7 @@ class StationRepository {
     final set = await settings();
     final warning =
         double.tryParse(set['diesel_warning_percent'] ?? '20') ?? 20;
-    final r = await db.rawQuery(
-      "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
-    );
-    final stock = (r.first['stock'] as num?)?.toDouble() ?? 0;
+    final stock = await accounting.dieselStock();
     final capacity =
         double.tryParse(set['diesel_tank_capacity_liters'] ?? '0') ?? 0;
     final percent = capacity > 0 ? stock / capacity * 100 : 100;
@@ -931,17 +1210,21 @@ class StationRepository {
   }
 
   Future<double> dieselStock() => accounting.dieselStock();
-  Future<List<Map<String, Object?>>> diesel({String search = ''}) {
-    final args = <Object?>[];
+  Future<List<Map<String, Object?>>> diesel({String search = ''}) async {
+    final stationId = await accounting.currentStationId();
+    final searchArgs = <Object?>[];
     final clause = _partialSearchClause(
-      search,
-      ['b.name', 'dm.kind', 'dm.notes'],
-      args,
+      search, ['b.name', 'w.name', 'p.name', 'dm.kind', 'dm.notes'], searchArgs,
     );
-    final where = clause.isEmpty ? '' : ' WHERE $clause';
+    // Legacy null-station movements may only be displayed when there is
+    // exactly one station; never attribute ambiguous old rows in multi-station DBs.
+    const stationFilter = "(dm.station_id=? OR (dm.station_id IS NULL AND (SELECT COUNT(*) FROM stations)=1))";
+    final where = clause.isEmpty
+        ? ' WHERE $stationFilter'
+        : ' WHERE $stationFilter AND ($clause)';
     return db.rawQuery(
-      'SELECT dm.*,b.name beneficiary_name FROM diesel_movements dm LEFT JOIN beneficiaries b ON b.id=dm.beneficiary_id$where ORDER BY dm.date DESC',
-      args,
+      "SELECT dm.*,COALESCE(b.name,w.name,p.name) beneficiary_name,EXISTS(SELECT 1 FROM diesel_movements r WHERE r.reversal_of=dm.id) cancelled FROM diesel_movements dm LEFT JOIN beneficiaries b ON b.id=dm.beneficiary_id LEFT JOIN workers w ON w.id=dm.worker_id LEFT JOIN partners p ON p.id=dm.partner_id$where ORDER BY dm.date DESC,dm.id DESC",
+      [stationId, ...searchArgs],
     );
   }
   Future<List<Map<String, Object?>>> payments() => db.rawQuery(
@@ -1113,7 +1396,7 @@ class StationRepository {
     };
     return db.rawQuery('''
       SELECT i.id,i.date,i.start_datetime,i.end_datetime,i.minutes,i.cloud_minutes,
-             i.chargeable_minutes,i.total_amount,i.paid_amount,i.system_type,
+             i.chargeable_minutes,i.total_amount,i.paid_amount,i.system_type,i.party_type,i.status,
              COALESCE(b.name,w.name,p.name) party_name,
              COALESCE(i.notes,'') notes
       FROM irrigations i
@@ -1132,19 +1415,35 @@ class StationRepository {
       legacyAccountCode: '2100',
     );
     if (ledgerRows.isNotEmpty) {
+      final debtRows = await db.query('worker_transactions',
+        columns: ['id','reference_id','amount','notes'],
+        where: "worker_id=? AND reference_type='previous_debt' AND type='previous_receivable'",
+        whereArgs: [id]);
+      final activeDebts = <int, Map<String,Object?>>{
+        for (final debt in debtRows)
+          if (debt['reference_id'] is num)
+            (debt['reference_id'] as num).toInt(): debt,
+      };
       return ledgerRows.map((row) {
+        final currentDebt = activeDebts[(row['journal_entry_id'] as num?)?.toInt()];
+        final detail = <String,Object?>{
+          ...row,
+          if (currentDebt != null) 'previous_debt_transaction_id': currentDebt['id'],
+          if (currentDebt != null) 'previous_debt_amount': currentDebt['amount'],
+          if (currentDebt != null) 'previous_debt_notes': currentDebt['notes'],
+        };
         final note = '${row['transaction_notes'] ?? row['notes'] ?? row['memo'] ?? ''}'.trim();
         final isPayment = row['type'] == 'payment' || row['type'] == 'worker_payment';
-        if (!isPayment) return row;
+        if (!isPayment) return detail;
         if (note.isNotEmpty) {
           return {
-            ...row,
+            ...detail,
             'type': 'payment_note',
             'notes': note,
             'description': 'صرف - $note',
           };
         }
-        return {...row, 'type': 'payment', 'description': 'صرف'};
+        return {...detail, 'type': 'payment', 'description': 'صرف'};
       }).toList();
     }
 
@@ -1162,6 +1461,7 @@ class StationRepository {
       final notes = '${row['notes'] ?? ''}';
       final signed = switch (type) {
         'accrual' || 'salary' || 'worker_entitlement' || 'opening_balance' => amount,
+        'previous_receivable' => -amount,
         'payment' => -amount,
         'payment_reversal' => amount,
         'irrigation' => notes.startsWith('خصم قيمة سقاية')
@@ -1182,9 +1482,13 @@ class StationRepository {
         'type': type == 'payment' && notes.trim().isNotEmpty
             ? 'payment_note'
             : type,
-        'description': type == 'payment'
-            ? (notes.trim().isNotEmpty ? 'صرف - ${notes.trim()}' : 'صرف')
-            : notes.trim().isNotEmpty
+        'description': type == 'previous_receivable'
+            ? (notes.trim().isEmpty
+                ? 'إضافة مديونية سابقة'
+                : 'إضافة مديونية سابقة - ${notes.trim()}')
+            : type == 'payment'
+                ? (notes.trim().isNotEmpty ? 'صرف - ${notes.trim()}' : 'صرف')
+                : notes.trim().isNotEmpty
                 ? notes.trim()
                 : switch (type) {
                 'accrual' || 'salary' || 'worker_entitlement' => 'استحقاق عامل',
@@ -1217,10 +1521,26 @@ class StationRepository {
     // ترحيلها إلى الأستاذ. لا نخلط المصدرين إذا كان الأستاذ يحتوي حركات؛
     // نستخدم السجل التشغيلي فقط كمسار استعادة عندما يكون كشف الأستاذ فارغًا.
     if (ledgerRows.isNotEmpty) {
+      final debtRows = await db.query('partner_transactions',
+        columns: ['id','reference_id','amount','notes'],
+        where: "partner_id=? AND reference_type='previous_debt' AND type='previous_receivable'",
+        whereArgs: [id]);
+      final activeDebts = <int, Map<String,Object?>>{
+        for (final debt in debtRows)
+          if (debt['reference_id'] is num)
+            (debt['reference_id'] as num).toInt(): debt,
+      };
       return ledgerRows.map((row) {
-        if (row['type'] != 'payment') return row;
+        final currentDebt = activeDebts[(row['journal_entry_id'] as num?)?.toInt()];
+        final detail = <String,Object?>{
+          ...row,
+          if (currentDebt != null) 'previous_debt_transaction_id': currentDebt['id'],
+          if (currentDebt != null) 'previous_debt_amount': currentDebt['amount'],
+          if (currentDebt != null) 'previous_debt_notes': currentDebt['notes'],
+        };
+        if (row['type'] != 'payment') return detail;
         final note = '${row['memo'] ?? row['notes'] ?? ''}'.trim();
-        return {...row, 'description': note.isEmpty ? 'صرف' : 'صرف - $note'};
+        return {...detail, 'description': note.isEmpty ? 'صرف' : 'صرف - $note'};
       }).toList();
     }
 
@@ -1241,6 +1561,7 @@ class StationRepository {
       final amount = (row['amount'] as num?)?.round() ?? 0;
       final signed = switch (type) {
         'share_accrual' || 'opening_balance' || 'contribution' || 'share_adjustment_reversal' => amount,
+        'previous_receivable' => -amount,
         'payment' || 'irrigation' || 'share_adjustment' => -amount,
         'irrigation_reversal' =>
           (row['reversal_of_direct_irrigation'] as num?)?.toInt() == 1
@@ -1254,9 +1575,13 @@ class StationRepository {
         ...row,
         'journal_entry_id': null,
         'journal_line_id': null,
-        'description': type == 'payment'
-            ? (note.isEmpty ? 'صرف' : 'صرف - $note')
-            : note.isNotEmpty ? note : switch (type) {
+        'description': type == 'previous_receivable'
+            ? (note.isEmpty
+                ? 'إضافة مديونية سابقة'
+                : 'إضافة مديونية سابقة - $note')
+            : type == 'payment'
+                ? (note.isEmpty ? 'صرف' : 'صرف - $note')
+                : note.isNotEmpty ? note : switch (type) {
           'share_accrual' => 'استحقاق أرباح',
           'payment' => 'صرف',
           'irrigation' => 'سقاية على حساب الشريك',
@@ -1288,8 +1613,16 @@ class StationRepository {
     for (final row in rows) {
       final debit=(row['debit'] as num?)?.round() ?? 0, credit=(row['credit'] as num?)?.round() ?? 0, signed=credit-debit;
       running += signed; final ref='${row['reference_type']}';
-      final type=switch(ref){'payment'=>'payment','worker_payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=>'opening_balance',_=>ref};
-      out.add({...row,'type':type,'amount':signed.abs(),'signed_amount':signed,'description':row['memo'] ?? row['description'],'balance':running,'lah':signed>0?signed:0,'alayh':signed<0?-signed:0});
+      final originalDescription = '${row['description'] ?? ''}';
+      final correctedDebt = originalDescription.startsWith('مديونية مصححة على ');
+      final priorDebt = originalDescription.startsWith('مديونية سابقة على ') ||
+          correctedDebt;
+      final type=switch(ref){'payment'=>'payment','worker_payment'=>'payment','worker'=>'accrual','partner'=>'share_accrual','worker_opening'||'partner_opening'=> priorDebt ? 'previous_receivable' : 'opening_balance',_=>ref};
+      final memo = '${row['memo'] ?? ''}'.trim();
+      final description = type == 'previous_receivable'
+          ? '${correctedDebt ? 'تصحيح مديونية سابقة' : 'إضافة مديونية سابقة'}${memo.isEmpty ? '' : ' - $memo'}'
+          : row['memo'] ?? row['description'];
+      out.add({...row,'type':type,'amount':signed.abs(),'signed_amount':signed,'description':description,'notes':memo,'balance':running,'lah':signed>0?signed:0,'alayh':signed<0?-signed:0});
     }
     return out.reversed.toList();
   }
@@ -1304,7 +1637,9 @@ class StationRepository {
     String? title,
     int opening = 0,
     int? userId,
+    double? dieselLitersPerHour,
   }) async {
+    PartyDieselRate.validate(dieselLitersPerHour);
     if (name.trim().isEmpty) throw ArgumentError('اسم العامل مطلوب');
     if (!{'fixed', 'hourly', 'percentage'}.contains(payType)) {
       throw ArgumentError('نوع أجر العامل غير صالح');
@@ -1320,6 +1655,7 @@ class StationRepository {
       final newId = await tx.insert('workers', {
         'station_id': stationId,
         'name': name.trim(),
+        'diesel_liters_per_hour': dieselLitersPerHour,
         'phone': phone,
         'job_title': title,
         'pay_type': payType,
@@ -1350,15 +1686,20 @@ class StationRepository {
   }
 
   static const Set<String> _workerEditable = {
+    'diesel_liters_per_hour',
     'name', 'phone', 'job_title', 'pay_type', 'fixed_salary', 'hourly_rate',
     'percentage_rate', 'notes',
   };
   static const Set<String> _partnerEditable = {
+    'diesel_liters_per_hour',
     'name', 'phone', 'ownership_mode', 'shares_count', 'ownership_percentage',
     'notes',
   };
 
   Future<void> updateWorker(int id, Map<String,Object?> values, int? userId) async {
+    if (values.containsKey('diesel_liters_per_hour')) {
+      PartyDieselRate.validate(values['diesel_liters_per_hour']);
+    }
     final unknown = values.keys.where((k) => !_workerEditable.contains(k));
     if (unknown.isNotEmpty) throw ArgumentError('حقول غير قابلة للتعديل: ${unknown.join('، ')}');
     if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
@@ -1416,6 +1757,7 @@ class StationRepository {
           final notes = '${row['notes'] ?? ''}';
           bal += switch (type) {
             'accrual' || 'salary' || 'worker_entitlement' || 'opening_balance' => amount,
+            'previous_receivable' => -amount,
             'payment' => -amount,
             'payment_reversal' => amount,
             'irrigation' => notes.startsWith('خصم قيمة سقاية')
@@ -1509,7 +1851,9 @@ class StationRepository {
     String? phone,
     int opening = 0,
     int? userId,
+    double? dieselLitersPerHour,
   }) async {
+    PartyDieselRate.validate(dieselLitersPerHour);
     if (name.trim().isEmpty) throw ArgumentError('اسم الشريك مطلوب');
     if (!{'shares','percentage'}.contains(mode)) throw ArgumentError('طريقة توزيع الشريك غير صالحة');
     if (mode == 'shares' &&
@@ -1532,6 +1876,7 @@ class StationRepository {
       final newId = await tx.insert('partners', {
         'station_id': stationId,
         'name': name.trim(),
+        'diesel_liters_per_hour': dieselLitersPerHour,
         'phone': phone,
         'ownership_mode': mode,
         'shares_count': mode == 'shares' ? shares : 0,
@@ -1560,6 +1905,9 @@ class StationRepository {
   }
 
   Future<void> updatePartner(int id, Map<String,Object?> values, int? userId) async {
+    if (values.containsKey('diesel_liters_per_hour')) {
+      PartyDieselRate.validate(values['diesel_liters_per_hour']);
+    }
     final unknown = values.keys.where((k) => !_partnerEditable.contains(k));
     if (unknown.isNotEmpty) throw ArgumentError('حقول غير قابلة للتعديل: ${unknown.join('، ')}');
     if (values.containsKey('name') && '${values['name']}'.trim().isEmpty) {
@@ -1630,6 +1978,7 @@ class StationRepository {
           final notes = '${row['notes'] ?? ''}';
           bal += switch (type) {
             'share_accrual' || 'opening_balance' || 'contribution' => amount,
+            'previous_receivable' => -amount,
             'payment' || 'irrigation' || 'share_adjustment' => -amount,
             'payment_reversal' => amount,
             'irrigation_reversal' => notes.startsWith('عكس سقاية الشريك')
@@ -2217,12 +2566,83 @@ class StationRepository {
     });
   }
 
+  /// One user-facing work-difference switch updates the operational mode
+  /// and its default invoices display mode in the same local transaction.
+  /// It never changes any historical irrigation, journal, or balance.
+  Future<void> setWorkDifferenceEnabled(bool enabled) async {
+    final config = await settings();
+    final rate = int.tryParse(config['work_minute_rate'] ?? '0') ?? 0;
+    if (enabled && (rate <= 0 || rate > 1000000)) {
+      throw StateError('يجب ضبط سعر الدقيقة الخاص قبل تفعيل فارق العمل');
+    }
+    // The server is authoritative for financial commands when connected.
+    // Push the station tariff first; on failure do not enable a divergent
+    // local operational mode that could create an unpostable invoice.
+    final api = SyncCoordinator.instance.apiClient;
+    if (api != null) {
+      await api.put('/settings', {
+        'work_minute_rate': '$rate',
+        'work_price_difference_enabled': enabled ? 'true' : 'false',
+        'work_price_report_display_special_rate': enabled ? 'true' : 'false',
+      });
+    }
+    final now = AppClock.now().toIso8601String();
+    await db.transaction((tx) async {
+      for (final key in const [
+        'work_price_difference_enabled',
+        'work_price_report_display_special_rate',
+      ]) {
+        await tx.insert('settings', {
+          'key': key,
+          'value': enabled ? 'true' : 'false',
+          'updated_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
   Future<void> setSetting(String key, String value) async {
+    if (key == 'work_minute_rate') {
+      final rate = int.tryParse(value);
+      if (rate == null || rate < 0 || rate > 1000000) {
+        throw ArgumentError('سعر الدقيقة الخاص يجب أن يكون رقماً من صفر إلى مليون');
+      }
+      if (rate == 0 &&
+          (await settings())['work_price_difference_enabled'] == 'true') {
+        throw StateError('أوقف فارق العمل قبل حذف سعر الدقيقة الخاص');
+      }
+    }
+    if (key == 'work_price_difference_enabled') {
+      if (value != 'true' && value != 'false') {
+        throw ArgumentError('حالة فارق العمل غير صحيحة');
+      }
+      if (value == 'true') {
+        final config = await settings();
+        final rate = int.tryParse(config['work_minute_rate'] ?? '0') ?? 0;
+        if (rate <= 0) {
+          throw StateError('اضبط سعر الدقيقة الخاص أولًا');
+        }
+      }
+    }
+    if (key == 'work_price_report_display_special_rate' && value == 'true') {
+      final values = await settings();
+      final rate = int.tryParse(values['work_minute_rate'] ?? '0') ?? 0;
+      if (rate <= 0) {
+        throw StateError('حدد سعر الدقيقة الخاص أولاً قبل تفعيل فارق العمل في الفواتير');
+      }
+    }
     if (key == 'system_type') {
       final set = await settings();
       if (set['initial_setup_completed'] == 'true' && set['system_type'] != value) {
         throw StateError('نوع المنظومة ثابت منذ الإعداد الأولي ولا يمكن تغييره');
       }
+    }
+    final api = SyncCoordinator.instance.apiClient;
+    if (api != null && const {
+      'work_minute_rate',
+      'work_price_difference_enabled',
+    }.contains(key)) {
+      await api.put('/settings', {key: value});
     }
     await db.insert('settings', {
       'key': key,
@@ -2386,15 +2806,23 @@ class StationRepository {
       [stationId, code, code],
     )).first['n'] as num?)?.round() ?? 0;
     final revenue = await value("SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
+    final recordedDifference = await value(
+      "SELECT COALESCE(SUM(work_difference_snapshot),0) n "
+      "FROM irrigations WHERE station_id=? AND status!='cancelled' "
+      "AND start_datetime>=? AND start_datetime<?",
+    );
+    final hourlyBaseRevenue = revenue - recordedDifference;
     final expenses = await value("SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
     final workers = await value("SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
     return {
       'revenue': revenue,
+      'work_difference': recordedDifference,
+      'hourly_base_revenue': hourlyBaseRevenue,
       'expenses': expenses,
       'workers': workers,
       'worker_due': await currentLiability('2100'),
       'partner_due': await currentLiability('2200'),
-      'distributable': AccountingCalculations.distributableProfit(totalRevenue: revenue, generalExpenses: expenses, workerEntitlements: workers),
+      'distributable': AccountingCalculations.distributableProfit(totalRevenue: hourlyBaseRevenue, generalExpenses: expenses, workerEntitlements: workers),
     };
   }
 
@@ -2467,6 +2895,7 @@ class StationRepository {
           }
           return db.rawQuery(
             '''SELECT i.id invoice_id,
+                      (SELECT COALESCE(SUM(dm.liters),0) FROM diesel_movements dm WHERE dm.irrigation_id=i.id AND dm.station_id=i.station_id AND dm.kind='consumption') diesel_consumption_liters,
                       i.beneficiary_id,i.worker_id,i.partner_id,
                       COALESCE(NULLIF(TRIM(b.name),''),NULLIF(TRIM(wk.name),''),NULLIF(TRIM(pt.name),''),'غير محدد') party_name,
                       i.start_datetime,i.end_datetime,
@@ -2475,6 +2904,13 @@ class StationRepository {
                       COALESCE(i.chargeable_minutes,i.minutes,0) chargeable_minutes,
                       i.system_type,
                       COALESCE(i.solar_hourly_rate_snapshot,0) solar_hourly_rate_snapshot,
+                      COALESCE(i.water_hourly_rate_snapshot,0) water_hourly_rate_snapshot,
+                      COALESCE(i.third_type_hourly_rate_snapshot,0) third_type_hourly_rate_snapshot,
+                      COALESCE(i.work_minute_rate_snapshot,0) work_minute_rate_snapshot,
+                      COALESCE(i.work_price_enabled_snapshot,0) work_price_enabled_snapshot,
+                      COALESCE(i.work_base_water_amount_snapshot,0) work_base_water_amount_snapshot,
+                      COALESCE(i.work_difference_snapshot,0) work_difference_snapshot,
+                      COALESCE(i.diesel_amount,0) diesel_amount,
                       COALESCE(i.total_amount,0) total_amount,
                       COALESCE(i.paid_amount,0) paid_amount,
                       COALESCE(i.notes,'') notes
@@ -2502,12 +2938,16 @@ class StationRepository {
             a.add(to.toIso8601String());
           }
           if (beneficiaryId != null) { w += ' AND i.beneficiary_id=?'; a.add(beneficiaryId); }
-          if (workerId != null) { w += ' AND i.worker_id=?'; a.add(workerId); }
+          if (workerId != null) {
+            w += " AND (i.worker_id=? OR i.operator_worker_id=? OR EXISTS (SELECT 1 FROM worker_transactions wt WHERE wt.worker_id=? AND wt.reference_type='irrigation' AND wt.reference_id=i.id AND wt.type='irrigation'))";
+            a.addAll([workerId, workerId, workerId]);
+          }
           if (partnerId != null) { w += ' AND i.partner_id=?'; a.add(partnerId); }
           if (systemType != 'all') { w += ' AND i.system_type=?'; a.add(systemType); }
           return db.rawQuery(
             '''SELECT i.id irrigation_id,i.beneficiary_id,COALESCE(b.name,wk.name,pt.name,'غير محدد') party_name,
-                      i.start_datetime,i.end_datetime,i.minutes,i.paid_amount,i.total_amount,
+                      i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.paid_amount,i.total_amount,
+                      (SELECT COALESCE(SUM(dm.liters),0) FROM diesel_movements dm WHERE dm.irrigation_id=i.id AND dm.station_id=i.station_id AND dm.kind='consumption') diesel_consumption_liters,
                       COALESCE(i.cloud_minutes,0) cloud_minutes,
                       CASE WHEN COALESCE(i.cloud_minutes,0)>0 THEN 'discounted' ELSE 'none' END cloud_status
                FROM irrigations i
@@ -2686,6 +3126,9 @@ class StationRepository {
             for (final row in statement) {
               combined.add({
                 ...row,
+                // Movement IDs repeat across beneficiaries; use the party ID
+                // to aggregate one closing balance per beneficiary.
+                'beneficiary_id': id,
                 'beneficiary_name': name,
                 'description': '$name - ${row['description'] ?? ''}',
               });
@@ -2717,9 +3160,79 @@ class StationRepository {
         return db.rawQuery(
           "SELECT category,SUM(amount) total FROM expenses WHERE status='posted' AND category IN ('oil','grease') GROUP BY category",
         );
+      case 'all_party_debts':
+        {
+          // Beneficiary debt keeps its existing display-only minute-rate rule.
+          // This new combined view never feeds the profit/distribution summaries.
+          final beneficiaryRows = await report('debts', to: to);
+          final combined = <Map<String, Object?>>[
+            for (final row in beneficiaryRows)
+              {...row, 'party_type': 'beneficiary', 'party_id': row['id']},
+          ];
+          // Personal ledger convention: positive = owed TO worker/partner,
+          // negative = owed BY them. In this unified debts report, positive
+          // always means owed BY the person, just like beneficiary balances.
+          final cutoff = to == null
+              ? null
+              : DateTime(to.year, to.month, to.day + 1);
+          Future<int> asOfBalance(String kind, int id, int current) async {
+            if (cutoff == null) return current;
+            final history = kind == 'worker'
+                ? await workerTransactions(id)
+                : await partnerTransactions(id);
+            var balance = 0;
+            for (final movement in history) {
+              final when = DateTime.tryParse('${movement['date'] ?? ''}');
+              if (when == null || !when.isBefore(cutoff)) continue;
+              balance += (movement['signed_amount'] as num?)?.round() ?? 0;
+            }
+            return balance;
+          }
+
+          for (final person in await workers()) {
+            final id = (person['id'] as num).toInt();
+            final actual = await asOfBalance(
+              'worker', id, (person['balance'] as num?)?.round() ?? 0,
+            );
+            combined.add({
+              'id': id,
+              'party_id': id,
+              'party_type': 'worker',
+              'name': person['name'],
+              'phone': person['phone'],
+              'balance': -actual,
+            });
+          }
+          for (final person in await partners()) {
+            final id = (person['id'] as num).toInt();
+            final actual = await asOfBalance(
+              'partner', id, (person['balance'] as num?)?.round() ?? 0,
+            );
+            combined.add({
+              'id': id,
+              'party_id': id,
+              'party_type': 'partner',
+              'name': person['name'],
+              'phone': person['phone'],
+              'balance': -actual,
+            });
+          }
+          combined.sort((a, b) {
+            final first = ((a['balance'] as num?) ?? 0);
+            final second = ((b['balance'] as num?) ?? 0);
+            final byBalance = second.compareTo(first);
+            if (byBalance != 0) return byBalance;
+            final byKind = '${a['party_type']}'.compareTo('${b['party_type']}');
+            if (byKind != 0) return byKind;
+            return '${a['name'] ?? ''}'.compareTo('${b['name'] ?? ''}');
+          });
+          return combined;
+        }
       case 'debts':
         {
-          // Snapshot of the outstanding beneficiary balance at the selected month end.
+          // The beneficiary statement/debts always display their saved
+          // special-minute-rate snapshots. "فارق العمل" affects invoices only;
+          // the posted journal, partner profit and stored amounts remain intact.
           final cutoff = to?.add(const Duration(days: 1)).toIso8601String();
           final balanceExpression = cutoff == null
               ? await _balanceSql()
@@ -2743,10 +3256,61 @@ class StationRepository {
           final debtArgs = cutoff == null
               ? <Object?>[]
               : <Object?>[cutoff, cutoff, cutoff, cutoff, cutoff];
-          return db.rawQuery(
+          final debtRows = await db.rawQuery(
             "SELECT b.id,b.name,b.phone,$balanceExpression balance FROM beneficiaries b WHERE b.status='active' ORDER BY balance DESC,b.name",
             debtArgs,
           );
+          if (debtRows.isEmpty) return debtRows;
+
+          final beneficiaryIds = debtRows
+              .map((row) => (row['id'] as num).toInt())
+              .toList();
+          final placeholders = List.filled(beneficiaryIds.length, '?').join(',');
+          final irrigationArgs = <Object?>[...beneficiaryIds];
+          final dateFilter = cutoff == null ? '' : ' AND i.date<?';
+          if (cutoff != null) irrigationArgs.add(cutoff);
+          final irrigationRows = await db.rawQuery(
+            """SELECT i.beneficiary_id,i.minutes,i.chargeable_minutes,i.system_type,
+                      i.work_minute_rate_snapshot,i.water_hourly_rate_snapshot,
+                      i.solar_hourly_rate_snapshot,i.third_type_hourly_rate_snapshot,
+                      i.diesel_amount,i.total_amount
+               FROM irrigations i
+               WHERE i.beneficiary_id IN ($placeholders)
+                 AND i.status!='cancelled'$dateFilter""",
+            irrigationArgs,
+          );
+          final adjustments = <int, int>{};
+          for (final irrigation in irrigationRows) {
+            final id = (irrigation['beneficiary_id'] as num?)?.toInt();
+            if (id == null) continue;
+            final minutes = (irrigation['chargeable_minutes'] as num?)?.round()
+                ?? (irrigation['minutes'] as num?)?.round() ?? 0;
+            final diesel = (irrigation['diesel_amount'] as num?)?.round() ?? 0;
+            final savedAmount = (irrigation['total_amount'] as num?)?.round() ?? 0;
+            final minuteSnapshot =
+                (irrigation['work_minute_rate_snapshot'] as num?)?.round() ?? 0;
+            final minuteRate = minuteSnapshot;
+            final displayedWater = minuteRate > 0
+                ? ReportMinutePricing.amountAtMinuteRate(minutes, minuteRate)
+                : savedAmount - diesel;
+            final displayedAmount = displayedWater + diesel;
+            adjustments[id] = (adjustments[id] ?? 0) + displayedAmount - savedAmount;
+          }
+          final adjustedRows = debtRows.map((row) {
+            final id = (row['id'] as num).toInt();
+            return <String, Object?>{
+              ...row,
+              'balance': ((row['balance'] as num?)?.round() ?? 0) +
+                  (adjustments[id] ?? 0),
+            };
+          }).toList();
+          adjustedRows.sort((a, b) {
+            final byBalance = ((b['balance'] as num?) ?? 0)
+                .compareTo((a['balance'] as num?) ?? 0);
+            if (byBalance != 0) return byBalance;
+            return '${a['name'] ?? ''}'.compareTo('${b['name'] ?? ''}');
+          });
+          return adjustedRows;
         }
       case 'beneficiary_list':
         return beneficiaries();

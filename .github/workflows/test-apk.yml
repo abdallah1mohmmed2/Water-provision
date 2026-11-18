@@ -15,6 +15,11 @@ jobs:
     steps:
       - name: Checkout integration branch
         uses: actions/checkout@v4
+      - name: Install Linux SQLite development library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev
+
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -23,10 +28,14 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      - name: Cache Gradle wrapper and dependencies
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
 
       - name: Install Flutter dependencies
@@ -50,6 +59,9 @@ jobs:
 
       - name: Analyze project
         run: flutter analyze .
+
+      - name: Prepare SHA3-verified Android SQLite source
+        run: python3 tooling/prepare_android_sqlite.py
 
       - name: Build release APK
         run: flutter build apk --release

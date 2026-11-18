@@ -1,10 +1,28 @@
+import '../services/beneficiary_irrigation_message_service.dart';
+import 'party_quick_actions.dart';
+import '../core/message_time.dart';
+import '../services/irrigation_message_fuel_service.dart';
+import '../core/party_diesel_rate.dart';
+import 'party_diesel_rate_field.dart';
+import '../services/diesel_report_columns.dart';
+import 'party_diesel_balance.dart';
+import '../core/diesel_quantity.dart';
+import 'beneficiary_irrigation_menu.dart';
+import '../domain/accounting/beneficiary_irrigation_actions.dart';
+import 'diesel_delivery_page.dart';
+import 'diesel_oil_page.dart';
+import 'beneficiary_statement_card.dart';
+import '../services/party_statement_balance_display.dart';
+import '../domain/accounting/beneficiary_statement_totals.dart';
+import '../domain/accounting/debt_report_totals.dart';
+import '../domain/accounting/report_minute_pricing.dart';
 import 'dart:async';
+import 'auth/firebase_access_gate.dart';
 import '../core/app_clock.dart';
 import '../core/app_prefs.dart';
 import '../core/period_ranges.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' hide TextDirection;
-import 'package:printing/printing.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -17,9 +35,15 @@ import '../services/admin_service.dart';
 import '../services/local_security_service.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
+import '../services/automatic_irrigation_period.dart';
+import '../services/report_file_name_service.dart';
+import '../services/report_pdf_preview_service.dart';
 import '../services/official_report_template.dart';
 import '../services/device_notification_settings.dart';
 import '../services/manual_message_service.dart';
+import 'contact_phone_field.dart';
+import '../services/sync_coordinator.dart';
+import 'sync_connection_panel.dart';
 import '../services/message_template_service.dart';
 import 'general_accounts_page.dart';
 import 'reconciliation_page.dart';
@@ -68,7 +92,7 @@ Future<String> _renderSavedMessageTemplate(
   Map<String, Object?> values,
 ) async {
   final savedSettings = await repository.settings();
-  return MessageTemplateService.render(savedSettings[key], key, values);
+  return MessageTemplateService.render(savedSettings[key], key, values, systemType: savedSettings['system_type']);
 }
 
 String friendlyError(Object e) {
@@ -392,6 +416,7 @@ class _SaqiaAppState extends State<SaqiaApp> {
   Widget build(BuildContext context) => ValueListenableBuilder<AppPrefsData>(
     valueListenable: AppPrefs.notifier,
     builder: (_, p, __) => MaterialApp(
+      navigatorKey: ReportFileNameService.navigatorKey,
       debugShowCheckedModeBanner: false,
       locale: const Locale('ar'),
       supportedLocales: const [Locale('ar')],
@@ -406,7 +431,7 @@ class _SaqiaAppState extends State<SaqiaApp> {
       },
       builder: (ctx, child) => MediaQuery(
         data: MediaQuery.of(ctx).copyWith(disableAnimations: p.reducedMotion),
-        child: child ?? const SizedBox.shrink(),
+        child: FirebaseAccessGate(child: child ?? const SizedBox.shrink()),
       ),
       home: const AdminLoginPage(),
     ),
@@ -477,6 +502,11 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
   }
 
   Future<void> _unlocked() async {
+    try {
+      await SyncCoordinator.instance.resume();
+    } catch (_) {
+      // A sync outage must never block local station access.
+    }
     if (user == null) {
       setState(() => error = 'تعذر تحديد مستخدم نشط لفتح المحطة.');
       return;
@@ -885,6 +915,7 @@ class _ShellState extends State<AdminShell> {
   }
 
   StreamSubscription<AppAlert>? _alertSub;
+  StreamSubscription<void>? _oilSub;
 
   @override
   void initState() {
@@ -900,6 +931,7 @@ class _ShellState extends State<AdminShell> {
       _consumePendingFloatingAction();
     });
     refreshCounts();
+    _oilSub = watchDieselOilAlerts(repo);
     // النافذة المنبثقة (إن كان إعدادها مفعّلًا؛ الصوت يُشغَّل داخل AppAlerts نفسه).
     _alertSub = AppAlerts.stream.listen((a) {
       if (!mounted) return;
@@ -915,6 +947,7 @@ class _ShellState extends State<AdminShell> {
   @override
   void dispose() {
     _alertSub?.cancel();
+    _oilSub?.cancel();
     _floatingBubbleChannel.setMethodCallHandler(null);
     menuSearch.dispose();
     super.dispose();
@@ -1389,7 +1422,7 @@ class _ShellState extends State<AdminShell> {
   ][i];
   Widget _page(int i, {Key? key}) {
     final w = switch (i) {
-      0 => DashboardPage(repo, onOpen: go, availableMenu: visible.toList()),
+      0 => DashboardPage(repo, userId: widget.userId, role: widget.role, onOpen: go, availableMenu: visible.toList()),
       1 => BeneficiariesPage(
         repo,
         key: _beneficiariesKey,
@@ -1462,7 +1495,7 @@ class _ShellState extends State<AdminShell> {
       18 => PerformancePage(repo),
       19 => GeneralAccountsPage(repo, userId: widget.userId),
       20 => ReconciliationPage(repo, userId: widget.userId),
-      _ => DashboardPage(repo, onOpen: go, availableMenu: visible.toList()),
+      _ => DashboardPage(repo, userId: widget.userId, role: widget.role, onOpen: go, availableMenu: visible.toList()),
     };
     return KeyedSubtree(key: key, child: w);
   }
@@ -1897,10 +1930,12 @@ class ErrorBox extends StatelessWidget {
 }
 
 class DashboardPage extends StatefulWidget {
+  final int userId;
+  final String role;
   final StationRepository r;
   final void Function(int) onOpen;
   final List<int> availableMenu;
-  const DashboardPage(this.r, {required this.onOpen, this.availableMenu = const [1, 2, 3, 5, 7, 9, 10, 11, 8, 14, 16, 17], super.key});
+  const DashboardPage(this.r, {this.userId = 0, this.role = 'operations', required this.onOpen, this.availableMenu = const [1, 2, 3, 5, 7, 9, 10, 11, 8, 14, 16, 17], super.key});
   @override
   State<DashboardPage> createState() => _DashboardState();
 }
@@ -1911,6 +1946,7 @@ class _DashboardState extends State<DashboardPage> {
   double diesel = 0;
   Map<String, Object?>? warning;
   String systemType = 'diesel';
+  String stationName = '';
   bool loading = true;
   late final PageController _statsController = PageController(viewportFraction: .78);
   late final PageController _menuReportsController = PageController();
@@ -1919,7 +1955,8 @@ class _DashboardState extends State<DashboardPage> {
     try {
       final a = await widget.r.dashboard(),
           c = await widget.r.currentSession(),
-          cfg = await SystemConfig.load(widget.r);
+          cfg = await SystemConfig.load(widget.r),
+          settings = await widget.r.settings();
       final b = cfg.isDiesel ? await widget.r.dieselStock() : 0.0;
       final w = cfg.isDiesel
           ? await widget.r.dieselWarning()
@@ -1931,6 +1968,7 @@ class _DashboardState extends State<DashboardPage> {
           session = c;
           warning = w;
           systemType = cfg.type;
+          stationName = (settings['station_name'] ?? '').trim();
           loading = false;
         });
       }
@@ -2244,6 +2282,7 @@ class _DashboardState extends State<DashboardPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
               children: [
+                if (systemType == 'diesel') DieselOilCard(widget.r, userId: widget.userId, role: widget.role),
                 Container(
                   padding: const EdgeInsets.all(19),
                   decoration: BoxDecoration(
@@ -2264,6 +2303,13 @@ class _DashboardState extends State<DashboardPage> {
                       const Text('لوحة التحكم', style: TextStyle(color: neon, fontSize: 12, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 7),
                       const Text('مرحباً بك في منظومة', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 7),
+                      Text(
+                        stationName.isNotEmpty ? stationName : SystemConfig.displayNameFor(systemType),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: neon, fontSize: 16, fontWeight: FontWeight.w800),
+                      ),
                       const SizedBox(height: 7),
                       Text('ملخص التشغيل والعمليات اليومية في مكان واحد',
                         style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 11, height: 1.5)),
@@ -2426,11 +2472,13 @@ class RecordDetailsPage extends StatefulWidget {
   final String kind;
   final int id;
   final String title;
+  final int? userId;
   const RecordDetailsPage(
     this.r, {
     required this.kind,
     required this.id,
     required this.title,
+    this.userId,
     super.key,
   });
   @override
@@ -2443,8 +2491,11 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
   List<Map<String, Object?>> irrigations = [];
   Map<String, Object?> financial = {};
   bool loading = true;
+  bool canManageIrrigations = false;
+  bool _irrigationActionBusy = false;
   String? loadError;
   DateTime? filterFrom, filterTo;
+  bool _detailPeriodEdited = false;
   String paymentMovementFilter = 'all';
   DateTime? paymentFrom, paymentTo;
   List<Map<String, Object?>> paymentReceipts = [], paymentDisbursements = [];
@@ -2453,7 +2504,29 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
   @override
   void initState() {
     super.initState();
-    load();
+    if (const ['beneficiary', 'worker', 'partner'].contains(widget.kind)) {
+      _initializeIrrigationDetailPeriod();
+    } else {
+      load();
+    }
+  }
+
+  Future<void> _initializeIrrigationDetailPeriod() async {
+    try {
+      final period = await AutomaticIrrigationPeriod.forRepository(
+        widget.r,
+        beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
+        workerId: widget.kind == 'worker' ? widget.id : null,
+        partnerId: widget.kind == 'partner' ? widget.id : null,
+      );
+      if (!mounted) return;
+      if (!_detailPeriodEdited) {
+        setState(() { filterFrom = period.from; filterTo = period.to; });
+      }
+    } catch (_) {
+      // Keep the preexisting unfiltered view if the default probe fails.
+    }
+    if (mounted) await load();
   }
 
   @override
@@ -2714,11 +2787,25 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     );
   }
 
+  Future<bool> _mayManagePartyIrrigations() async {
+    const tables = {'beneficiary': 'beneficiaries', 'worker': 'workers', 'partner': 'partners'};
+    final table = tables[widget.kind];
+    if (table == null || widget.userId == null) return false;
+    final rows = await widget.r.db.rawQuery(
+      "SELECT 1 FROM app_users u JOIN $table party ON party.station_id=u.station_id "
+      "WHERE u.id=? AND party.id=? AND u.active=1 "
+      "AND u.role IN ('manager','accountant') LIMIT 1",
+      [widget.userId, widget.id],
+    );
+    return rows.isNotEmpty;
+  }
+
   Future<void> load() async {
     if (loadError != null && mounted) setState(() => loadError = null);
     try {
       late Map<String, Object?> d;
       List<Map<String, Object?>> h = [];
+      canManageIrrigations = await _mayManagePartyIrrigations();
       switch (widget.kind) {
         case 'beneficiary':
           d = await widget.r.beneficiaryDetails(widget.id);
@@ -2728,6 +2815,18 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             'beneficiary',
             widget.id,
           );
+          // Match the beneficiary's always-special-rate statement in this
+          // screen only; do not change the accounting/settlement balance.
+          if (h.isNotEmpty) {
+            final shownIrrigationTotal = h.where((row) => row['type'] == 's')
+                .fold<int>(0, (sum, row) =>
+                    sum + ((row['alayh'] as num?)?.round() ?? 0));
+            financial = {
+              ...financial,
+              'irrigation_total': shownIrrigationTotal,
+              'balance': h.first['balance'] ?? financial['balance'],
+            };
+          }
           irrigations = await widget.r.partyIrrigations(
             'beneficiary',
             widget.id,
@@ -2861,6 +2960,9 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
           break;
         default:
           d = {};
+      }
+      if (const ['beneficiary', 'worker', 'partner'].contains(widget.kind)) {
+        d = (await PartyDieselBalance.loadRows(widget.r, widget.kind, [d])).first;
       }
       if (mounted) {
         setState(() {
@@ -3158,6 +3260,132 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     }
   }
 
+
+  /// Editing posts an audited reversal plus a new balanced journal entry.
+  /// The party and original date stay immutable; use cancellation and a new
+  /// voucher to correct a mistaken party selection.
+  Future<void> editPriorDebt(Map<String,Object?> row) async {
+    final beneficiary = widget.kind == 'beneficiary';
+    final voucherId = (beneficiary
+        ? row['id'] : row['previous_debt_transaction_id']) as num?;
+    if (voucherId == null) return;
+    final oldAmount = (beneficiary
+        ? row['debit'] : row['previous_debt_amount']) as num?;
+    final oldNotes = beneficiary ? row['notes'] : row['previous_debt_notes'];
+    final amount = TextEditingController(text: (oldAmount ?? 0).toInt().toString());
+    final notes = TextEditingController(text: '${oldNotes ?? ''}');
+    final ok = await showDialog<bool>(
+      context:context,
+      builder:(dialogContext)=>FormDialog(
+        title:'تعديل المديونية السابقة',
+        children:[
+          const Text('سيُعكس القيد السابق ويُنشأ قيد مصحح. لا يمكن تغيير الطرف أو التاريخ؛ لإصلاح طرف خاطئ ألغِ السند ثم أضف سنداً جديداً للطرف الصحيح.'),
+          TextField(
+            controller:amount,keyboardType:TextInputType.number,
+            decoration:const InputDecoration(labelText:'مبلغ المديونية الجديد *'),
+          ),
+          TextField(
+            controller:notes,minLines:2,maxLines:3,
+            decoration:const InputDecoration(labelText:'البيان الجديد *'),
+          ),
+        ],
+        onSave:()=>Navigator.pop(dialogContext,
+          (int.tryParse(amount.text) ?? 0)>0 && notes.text.trim().isNotEmpty),
+      ),
+    );
+    if(ok!=true || !mounted) return;
+    final success = await runGuarded(context,()=>beneficiary
+      ? widget.r.accounting.reviseBeneficiaryDebt(
+          debtId:voucherId.toInt(),amount:int.parse(amount.text),
+          notes:notes.text.trim())
+      : widget.r.accounting.revisePreviousPartyDebt(
+          partyType:widget.kind,transactionId:voucherId.toInt(),
+          amount:int.parse(amount.text),notes:notes.text.trim()));
+    if(!success || !mounted) return;
+    await load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم تصحيح المديونية بقيد عكسي وقيد جديد')),
+      );
+    }
+  }
+
+  Future<void> cancelPriorDebt(Map<String,Object?> row) async {
+    if(widget.kind=='beneficiary') {
+      await cancelManualDebt(row);
+      return;
+    }
+    final voucherId=(row['previous_debt_transaction_id'] as num?)?.toInt();
+    if(voucherId==null) return;
+    final reason=await askReason(context,'إلغاء مديونية سابقة',
+      message:'سيُعكس القيد المالي، ويبقى السند في سجل التدقيق. لا تُمس حركة الصندوق.');
+    if(reason==null || !mounted) return;
+    final success=await runGuarded(context,()=>widget.r.accounting.revisePreviousPartyDebt(
+      partyType:widget.kind,transactionId:voucherId,
+      cancellationReason:reason));
+    if(!success || !mounted) return;
+    await load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم إلغاء المديونية بقيد عكسي موثق')),
+      );
+    }
+  }
+
+  bool _canOpenIrrigationActions(Map<String, Object?> irrigation) =>
+      canManageIrrigations &&
+      widget.userId != null &&
+      !_irrigationActionBusy &&
+      irrigation['status'] == 'posted' &&
+      irrigation['party_type'] == widget.kind;
+
+  int? _ownedHistoryIrrigationId(Map<String, Object?> row) {
+    Object? candidate;
+    if (widget.kind == 'beneficiary' && row['type'] == 's' &&
+        row['status'] == 'posted') {
+      candidate = row['id'];
+    } else if (widget.kind == 'worker' &&
+        row['type'] == 'worker_irrigation_info') {
+      candidate = row['irrigation_id'];
+    } else if (widget.kind == 'partner' &&
+        row['type'] == 'partner_irrigation_info') {
+      candidate = row['reference_id'];
+    } else if ((widget.kind == 'worker' || widget.kind == 'partner') &&
+        row['reference_type'] == 'irrigation') {
+      candidate = row['reference_id'];
+    }
+    final id = (candidate as num?)?.toInt();
+    if (id == null) return null;
+    return irrigations.any((irr) =>
+      (irr['id'] as num?)?.toInt() == id && _canOpenIrrigationActions(irr))
+      ? id : null;
+  }
+
+  Future<void> irrigationActions(int id) async {
+    if (_irrigationActionBusy || !canManageIrrigations || widget.userId == null) return;
+    setState(() => _irrigationActionBusy = true);
+    try {
+      final actions = PartyIrrigationActions(widget.r.db,
+        userId: widget.userId!, partyType: widget.kind, partyId: widget.id, irrigationId: id);
+      final changed = await showBeneficiaryIrrigationMenu(context, actions,
+        onResend: () async {
+          final message = await BeneficiaryIrrigationMessageService(widget.r).prepareForParty(
+            userId: widget.userId!, partyType: widget.kind,
+            partyId: widget.id, irrigationId: id);
+          if (!mounted) return;
+          await ManualMessageService.offerChoices(context,
+            title: 'إعادة إرسال رسالة السقاية', recipientName: message.name,
+            phone: message.phone, message: message.text,
+            notice: 'البيانات من السقاية المحفوظة، والرصيد الحالي وقت التجهيز. الرصيد السابق الأصلي غير محفوظ.',
+          );
+        },
+      );
+      if (changed && mounted) await load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));
+    } finally { if (mounted) setState(() => _irrigationActionBusy = false); }
+  }
+
   Widget historyView(BuildContext c) {
     if (history.isEmpty) {
       return Container(
@@ -3184,20 +3412,37 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: _TimelineItem(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  key: ValueKey('beneficiary-irrigation-history-${history[i]['type']}-${history[i]['id']}'),
+                  onLongPress: _ownedHistoryIrrigationId(history[i]) == null
+                      ? null
+                      : () => irrigationActions(_ownedHistoryIrrigationId(history[i])!),
+                  child: _TimelineItem(
                   first: i == 0,
                   last: i == shown - 1,
                   title: _historyTitle(history[i]),
                   subtitle: _historySub(history[i]),
                   amount: _historyAmount(history[i]),
+                  ),
                 ),
               ),
-              if (widget.kind == 'beneficiary' && history[i]['type'] == 'manual_debt' && history[i]['status'] == 'posted')
+              if ((widget.kind == 'beneficiary' &&
+                  history[i]['type'] == 'manual_debt' &&
+                  history[i]['status'] == 'posted') ||
+                  ((widget.kind == 'worker' || widget.kind == 'partner') &&
+                   history[i]['previous_debt_transaction_id'] != null)) ...[
+                IconButton(
+                  tooltip: 'تعديل المديونية بقيد تصحيحي',
+                  onPressed: () => editPriorDebt(history[i]),
+                  icon: const Icon(Icons.edit_outlined),
+                ),
                 IconButton(
                   tooltip: 'إلغاء المديونية بعكس القيد',
-                  onPressed: () => cancelManualDebt(history[i]),
+                  onPressed: () => cancelPriorDebt(history[i]),
                   icon: const Icon(Icons.undo_rounded, color: Colors.red),
                 ),
+              ],
             ],
           ),
         if (history.length > maxItems)
@@ -3239,6 +3484,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     );
     if (!mounted || picked == null) return;
     setState(() {
+      _detailPeriodEdited = true;
       if (fromDate) {
         filterFrom = picked;
       } else {
@@ -3487,6 +3733,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
               if (filterFrom != null || filterTo != null)
                 TextButton(
                   onPressed: () => setState(() {
+                    _detailPeriodEdited = true;
                     filterFrom = null;
                     filterTo = null;
                   }),
@@ -3515,6 +3762,10 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 rows: [
                   for (final x in rows)
                     DataRow(
+                      key: ValueKey('beneficiary-irrigation-${x['id']}'),
+                      onLongPress: _canOpenIrrigationActions(x)
+                          ? () => irrigationActions((x['id'] as num).toInt())
+                          : null,
                       cells: [
                         DataCell(
                           Text(
@@ -3528,6 +3779,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                         DataCell(
                           Text(
                             '${systemName('${x['system_type']}')} • ${x['notes'] ?? 'جلسة سقي'}',
+                            key: ValueKey('beneficiary-irrigation-table-${x['id']}'),
                           ),
                         ),
                         DataCell(Text('${x['minutes'] ?? 0} دقيقة')),
@@ -3539,6 +3791,56 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  /// Keep the existing worker/partner irrigation PDF action at the top
+  /// of the record details, rather than buried below the timeline.
+  Widget _irrigationPdfShortcut() {
+    final worker = widget.kind == 'worker';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() =>
+  ReportService(widget.r).printPdf(
+    'irrigations',
+    workerId: widget.kind == 'worker' ? widget.id : null,
+    partnerId: widget.kind == 'partner' ? widget.id : null,
+    from: filterFrom,
+    to: filterTo,
+    systemType: 'all',
+  )),
+  child: OutlinedButton.icon(
+          icon: const Icon(Icons.picture_as_pdf_rounded),
+          label: Text(
+            worker
+                ? 'PDF التسقيات المرتبطة بالعامل'
+                : 'PDF التسقيات المرتبطة بالشريك',
+          ),
+          onPressed: () async {
+            try {
+              await ReportService(widget.r).printPdf(
+                'irrigations',
+                workerId: worker ? widget.id : null,
+                partnerId: worker ? null : widget.id,
+                from: filterFrom,
+                to: filterTo,
+                systemType: 'all',
+              );
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(friendlyError(e))),
+                );
+              }
+            }
+          },
+        ),
+),
       ),
     );
   }
@@ -3639,8 +3941,21 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
           actions: [
             if (['beneficiary', 'worker', 'partner'].contains(widget.kind))
               IconButton(
-                onPressed: printPersonReport,
-                tooltip: 'تصدير التقرير',
+                tooltip: 'تقارير PDF',
+                onPressed: () => showPartyPdfChoices(context,
+                  name: widget.title,
+                  generate: (report) => report == 'diesel'
+                    ? ReportService(widget.r).printPartyDieselPdf(
+                        partyType: widget.kind, partyId: widget.id,
+                        from: filterFrom, to: filterTo)
+                    : report == 'irrigations'
+                      ? ReportService(widget.r).printPdf('irrigations',
+                          beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
+                          workerId: widget.kind == 'worker' ? widget.id : null,
+                          partnerId: widget.kind == 'partner' ? widget.id : null,
+                          from: filterFrom, to: filterTo, systemType: 'all')
+                      : printPersonReport(),
+                ),
                 icon: const Icon(Icons.picture_as_pdf_rounded),
               ),
             IconButton(
@@ -3653,6 +3968,10 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
         body: ListView(
           padding: const EdgeInsets.fromLTRB(22, 12, 22, 32),
           children: [
+            // Primary irrigation export action stays visible without scrolling
+            // through the financial metrics and the timeline.
+            if (widget.kind == 'worker' || widget.kind == 'partner')
+              _irrigationPdfShortcut(),
             financialPanel(c),
             if (['beneficiary', 'worker', 'partner'].contains(widget.kind))
               irrigationTable(c),
@@ -3719,7 +4038,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                     );
                   }
                   return Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       for (int i = 0; i < items.length; i++) ...[
                         if (i > 0) const SizedBox(width: 10),
@@ -3735,6 +4054,8 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
               section(c, 'الأرصدة والاستحقاقات', Icons.account_balance_rounded, accounting),
               section(c, 'معلومات السجل', Icons.info_outline_rounded, meta),
             ],
+            if (data['party_diesel_balance'] is num)
+              PartyDieselBalance(data['party_diesel_balance'] as num),
             paymentMethodMovements(c),
             Container(
               padding: const EdgeInsets.all(20),
@@ -3774,6 +4095,47 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                       ),
                     ],
                   ),
+                  if (widget.kind == 'beneficiary') ...[
+                    const SizedBox(height: 12),
+                                            ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() =>
+  ReportService(widget.r).printPdf('beneficiary_statement', beneficiaryId: widget.id)),
+  child: OutlinedButton.icon(
+                                              onPressed: () async {
+                                                try {
+                                                  final beneficiaryId = widget.id;
+                                                  final rows = await widget.r.report(
+                                                    'beneficiary_statement',
+                                                    beneficiaryId: beneficiaryId,
+                                                  );
+                                                  if (!mounted) return;
+                                                  await Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (_) => ReportPreviewPage(
+                                                        widget.r,
+                                                        keyName: 'beneficiary_statement',
+                                                        rows: rows,
+                                                        filters: 'المستفيد: ${primaryName()}',
+                                                        beneficiaryId: beneficiaryId,
+                                                      ),
+                                                    ),
+                                                  );
+                                                } catch (e) {
+                                                  if (mounted) {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      SnackBar(content: Text(friendlyError(e))),
+                                                    );
+                                                  }
+                                                }
+                                              },
+                                              icon: const Icon(Icons.picture_as_pdf_rounded),
+                                              label: const Text('كشف الحساب'),
+                                            ),
+),
+
+                  ],
                   const SizedBox(height: 16),
                   historyView(c),
                 ],
@@ -3949,15 +4311,33 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   final q = TextEditingController();
   List<Map<String, Object?>> rows = [];
   bool loading = true;
+  bool sourceFromServer = false;
+  bool dieselSystem = false;
+  String? loadError;
   Timer? _debounce;
   int _seq = 0;
   Future<void> load() async {
     // رقم تسلسلي: نتيجة استعلام أقدم لا تكتب فوق نتيجة أحدث.
     final seq = ++_seq;
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      loadError = null;
+    });
     try {
-      final x = await widget.r.beneficiaries(q.text.trim());
-      if (mounted && seq == _seq) setState(() => rows = x);
+      final x = await PartyDieselBalance.loadRows(widget.r, 'beneficiary',
+          await widget.r.beneficiaries(q.text.trim()));
+      final settings = await widget.r.settings();
+      if (mounted && seq == _seq) {
+        setState(() {
+          rows = x;
+          dieselSystem = settings['system_type'] == 'diesel';
+          sourceFromServer = widget.r.beneficiariesFromServer;
+        });
+      }
+    } catch (error) {
+      if (mounted && seq == _seq) {
+        setState(() => loadError = friendlyError(error));
+      }
     } finally {
       if (mounted && seq == _seq) setState(() => loading = false);
     }
@@ -3993,6 +4373,11 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   }
 
   Future<void> add() async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: '');
     final n = TextEditingController(),
         p = TextEditingController(),
         j = TextEditingController(),
@@ -4013,20 +4398,19 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
               hintText: 'الاسم الكامل',
             ),
           ),
-          TextField(
+          ContactPhoneField(
             controller: p,
-            decoration: const InputDecoration(
-              labelText: 'رقم الهاتف',
-              hintText: 'رقم التواصل',
-            ),
+            labelText: 'رقم الهاتف',
+            hintText: 'رقم التواصل',
           ),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
           TextField(
             controller: j,
             decoration: const InputDecoration(labelText: 'رقم الجربة'),
           ),
           TextField(
             controller: a,
-            decoration: const InputDecoration(labelText: 'العنوان'),
+            decoration: const InputDecoration(labelText: 'المنطقة'),
           ),
           TextField(
             controller: l,
@@ -4058,6 +4442,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
       if (!await runGuarded(
         context,
         () => widget.r.createBeneficiary(
+          dieselLitersPerHour: dieselEnabled ? PartyDieselRate.parseOptional(fuelRate.text) : null,
           name: n.text,
           phone: p.text,
           jerba: j.text,
@@ -4076,6 +4461,11 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   }
 
   Future<void> edit(Map<String, Object?> x) async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: x['diesel_liters_per_hour'] == null ? '' : DieselQuantity.format(x['diesel_liters_per_hour'] as num));
     final n = TextEditingController(text: '${x['name']}'),
         p = TextEditingController(text: '${x['phone'] ?? ''}'),
         j = TextEditingController(text: '${x['jerba_number'] ?? ''}'),
@@ -4093,17 +4483,15 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             controller: n,
             decoration: const InputDecoration(labelText: 'الاسم'),
           ),
-          TextField(
-            controller: p,
-            decoration: const InputDecoration(labelText: 'الهاتف'),
-          ),
+          ContactPhoneField(controller: p, labelText: 'الهاتف'),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
           TextField(
             controller: j,
             decoration: const InputDecoration(labelText: 'رقم الجربة'),
           ),
           TextField(
             controller: a,
-            decoration: const InputDecoration(labelText: 'العنوان'),
+            decoration: const InputDecoration(labelText: 'المنطقة'),
           ),
           TextField(
             controller: l,
@@ -4135,6 +4523,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
       if (!await runGuarded(
         context,
         () => widget.r.updateBeneficiary(x['id'] as int, {
+          if (dieselEnabled) 'diesel_liters_per_hour': PartyDieselRate.parseOptional(fuelRate.text),
           'name': n.text.trim(),
           'phone': p.text,
           'jerba_number': j.text,
@@ -4196,6 +4585,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
         builder: (_) => RecordDetailsPage(
           widget.r,
           kind: 'beneficiary',
+          userId: widget.userId,
           id: x['id'] as int,
           title: 'تفاصيل المستفيد',
         ),
@@ -4259,6 +4649,28 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             hintText: 'اكتب جزءًا من الاسم أو الرقم',
           ),
         ),
+        const SizedBox(height: 8),
+        if (sourceFromServer)
+          const Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'القائمة والرصيد من خادم Shelf؛ التفاصيل وكشوف الحركات ما زالت تعتمد على بيانات الجهاز حتى ترحيلها.',
+              style: TextStyle(fontSize: 12, color: Colors.green),
+            ),
+          )
+        else if (widget.r.serverSessionActive)
+          const Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              'الخادم غير متاح حالياً؛ تُعرض آخر بيانات محلية محفوظة. قد لا تشمل تغييرات الأجهزة الأخرى.',
+              style: TextStyle(fontSize: 12, color: Colors.orange),
+            ),
+          ),
+        if (loadError != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(loadError!, style: const TextStyle(color: Colors.red)),
+          ),
         const SizedBox(height: 10),
         if (loading) const LinearProgressIndicator(),
         Expanded(
@@ -4327,6 +4739,23 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
+                                      PartyQuickActions(
+                                        repository: widget.r,
+                                        partyType: 'beneficiary',
+                                        partyId: x['id'] as int,
+                                        name: '${x['name']}',
+                                        onNewIrrigation: () async {
+                                          await Navigator.push(context, MaterialPageRoute<void>(
+                                            builder: (_) => NewIrrigationPage(widget.r,
+                                              manager: widget.manager,
+                                              initialPartyType: 'beneficiary',
+                                              initialPartyId: x['id'] as int,
+                                              compactOnly: true,
+                                            ),
+                                          ));
+                                          if (mounted) await load();
+                                        },
+                                      ),
                                       Row(
                                         children: [
                                           const CircleAvatar(
@@ -4378,48 +4807,36 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                         ),
                                       ),
                                       const SizedBox(height: 10),
+                                      if (x['party_diesel_balance'] is num)
+                                        PartyDieselBalance(x['party_diesel_balance'] as num),
+                                      PartyPaymentActions(
+                                        repository: widget.r,
+                                        userId: widget.userId,
+                                        partyType: 'beneficiary',
+                                        partyId: x['id'] as int,
+                                        onChanged: load,
+                                      ),
+                                      const SizedBox(height: 8),
                                       Align(
                                         alignment: Alignment.centerLeft,
                                         child: Wrap(
                                           spacing: 8,
                                           runSpacing: 8,
                                           children: [
+                                            if (dieselSystem)
+                                              OutlinedButton.icon(
+                                                key: ValueKey('beneficiary-diesel-${x['id']}'),
+                                                onPressed: () async {
+                                                  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselDeliveryPage(widget.r, userId: widget.userId, initialBeneficiaryId: x['id'] as int)));
+                                                  if (mounted) await load();
+                                                },
+                                                icon: const Icon(Icons.local_gas_station_outlined),
+                                                label: const Text('إضافة تسليم ديزل'),
+                                              ),
                                             OutlinedButton.icon(
                                               onPressed: () => details(x),
                                               icon: const Icon(Icons.open_in_new),
                                               label: const Text('التفاصيل'),
-                                            ),
-                                            OutlinedButton.icon(
-                                              onPressed: () async {
-                                                try {
-                                                  final beneficiaryId = x['id'] as int;
-                                                  final rows = await widget.r.report(
-                                                    'beneficiary_statement',
-                                                    beneficiaryId: beneficiaryId,
-                                                  );
-                                                  if (!mounted) return;
-                                                  await Navigator.push(
-                                                    context,
-                                                    MaterialPageRoute(
-                                                      builder: (_) => ReportPreviewPage(
-                                                        widget.r,
-                                                        keyName: 'beneficiary_statement',
-                                                        rows: rows,
-                                                        filters: 'المستفيد: ${x['name'] ?? ''}',
-                                                        beneficiaryId: beneficiaryId,
-                                                      ),
-                                                    ),
-                                                  );
-                                                } catch (e) {
-                                                  if (mounted) {
-                                                    ScaffoldMessenger.of(context).showSnackBar(
-                                                      SnackBar(content: Text(friendlyError(e))),
-                                                    );
-                                                  }
-                                                }
-                                              },
-                                              icon: const Icon(Icons.picture_as_pdf_rounded),
-                                              label: const Text('كشف الحساب'),
                                             ),
                                             OutlinedButton.icon(
                                               onPressed: () => sendAccountSummary(x),
@@ -4446,10 +4863,21 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   );
 }
 
+enum _QuickIrrigationTimeTone { start, end, cloud }
+
 class NewIrrigationPage extends StatefulWidget {
   final StationRepository r;
   final bool manager;
-  const NewIrrigationPage(this.r, {required this.manager, super.key});
+  final String? initialPartyType;
+  final int? initialPartyId;
+  final bool compactOnly;
+  const NewIrrigationPage(this.r, {
+    required this.manager,
+    this.initialPartyType,
+    this.initialPartyId,
+    this.compactOnly = false,
+    super.key,
+  });
   @override
   State<NewIrrigationPage> createState() => _NewIrrigationState();
 }
@@ -4503,6 +4931,27 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   List<Map<String, Object?>> methods = [];
   int? payMethod;
   late Future<void> _initialLoadFuture;
+  String? _initialPartyError;
+
+  Future<void> _loadInitialParty() async {
+    await load();
+    if (!mounted) return;
+    final kind = widget.initialPartyType;
+    final id = widget.initialPartyId;
+    if (kind == null && id == null) return;
+    final people = switch (kind) {
+      'beneficiary' => beneficiaries,
+      'worker' => workers,
+      'partner' => partners,
+      _ => <Map<String, Object?>>[],
+    };
+    if (id == null || !people.any((x) => x['id'] == id)) {
+      setState(() => _initialPartyError = 'هذا الشخص غير متاح للسقاية في المنظومة الحالية. ارجع إلى قائمته وحدّث البيانات.');
+      return;
+    }
+    await selectParty(kind!, id);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -4513,7 +4962,15 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     startTimeController.text = _hm12(start);
     endTimeController.text = _hm12(end);
     // احتفظ بمهمة التحميل الأولى حتى ينتظرها النموذج السريع قبل فتح الحوار.
-    _initialLoadFuture = load();
+    _initialLoadFuture = _loadInitialParty();
+    if (widget.compactOnly) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await openQuickForm();
+        if (mounted && _initialPartyError == null) {
+          Navigator.of(context).pop();
+        }
+      });
+    }
   }
 
   @override
@@ -4598,7 +5055,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   Future<void> selectBeneficiary(int id) async {
     final h = await widget.r.irrigations(beneficiaryId: id);
     final d = await widget.r.db.query(
-      "SELECT COALESCE(b.opening_diesel_liters, 0)+COALESCE(b.carried_diesel_liters,0)+COALESCE((SELECT SUM(liters) FROM diesel_movements WHERE beneficiary_id=? AND kind IN ('delivery','advance')),0)-COALESCE((SELECT SUM(liters) FROM diesel_movements WHERE beneficiary_id=? AND kind='consumption'),0) stock FROM beneficiaries b WHERE b.id=?",
+      "SELECT COALESCE(b.opening_diesel_liters, 0)+COALESCE(b.carried_diesel_liters,0)+COALESCE((SELECT SUM(liters) FROM diesel_movements WHERE beneficiary_id=? AND ((kind='delivery' OR (kind='receipt' AND party_receipt=1)) OR (kind='advance' AND irrigation_id IS NULL))),0)-COALESCE((SELECT SUM(liters) FROM diesel_movements WHERE beneficiary_id=? AND kind='consumption'),0) stock FROM beneficiaries b WHERE b.id=?",
       args: [id, id, id],
     );
     final bal = await widget.r.accounting.beneficiaryBalance(id);
@@ -4709,8 +5166,13 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         );
   int get waterRate =>
       int.tryParse(settings['diesel_hourly_water_rate'] ?? '0') ?? 0;
-  double get liters =>
-      double.tryParse(settings['diesel_liters_per_hour'] ?? '0') ?? 0;
+  double get liters {
+    final list = partyType == 'beneficiary' ? beneficiaries : partyType == 'worker' ? workers : partners;
+    final id = partyType == 'beneficiary' ? bid : partyType == 'worker' ? workerId : partnerId;
+    final owner = list.where((row) => row['id'] == id);
+    return PartyDieselRate.resolve(owner.isEmpty ? null : owner.first['diesel_liters_per_hour'],
+        double.tryParse(settings['diesel_liters_per_hour'] ?? '0') ?? 0);
+  }
   int get dieselPrice =>
       int.tryParse(settings['diesel_price_per_liter'] ?? '0') ?? 0;
   int get solarRate => int.tryParse(settings['solar_hourly_rate'] ?? '0') ?? 0;
@@ -4729,6 +5191,9 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         'الإجمالي': 0,
         'المياه': 0,
         'الديزل': 0,
+        'ديزل مستهلك': 0,
+        'ديزل من الرصيد': 0,
+        'ديزل سلفة': 0,
         'القابل للمحاسبة': 0,
         'المدفوع': 0,
         'الرصيد الحالي': partyBalance,
@@ -4769,22 +5234,22 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             partialHour: settings['partial_hour'] != 'false',
           );
     final isBeneficiary = partyType == 'beneficiary';
-    // نفس سياسة recordIrrigation: يُحمَّل ثمن العجز فقط ما لم يكن تسليم الديزل رصيدًا ماليًا.
-    var diesel = c.dieselAmount;
-    if (isBeneficiary &&
-        type == 'diesel' &&
-        c.dieselLiters > 0 &&
-        (settings['diesel_delivery_financial_credit'] ?? '').toLowerCase() !=
-            'true') {
-      final shortage = c.dieselLiters > beneficiaryDiesel
-          ? c.dieselLiters - beneficiaryDiesel
-          : 0.0;
-      diesel = AccountingCalculations.roundAmount(
-        shortage * dieselPrice,
-        settings['rounding'] ?? 'nearest',
-      );
-    }
-    final total = c.waterAmount + diesel;
+    final usedFuel = type == 'diesel' ? c.dieselLiters : 0.0;
+    final coveredFuel = isBeneficiary && type == 'diesel'
+        ? beneficiaryDiesel.clamp(0.0, usedFuel).toDouble()
+        : 0.0;
+    final borrowedFuel = isBeneficiary && type == 'diesel'
+        ? usedFuel - coveredFuel : 0.0;
+    // Match recordIrrigation's active work-minute tariff in the preview.
+    // Only the beneficiary sees the special price; worker and partner
+    // accruals continue using the ordinary hourly basis.
+    final specialPricing = isBeneficiary &&
+        settings['work_price_difference_enabled'] == 'true';
+    final workMinuteRate = int.tryParse(settings['work_minute_rate'] ?? '0') ?? 0;
+    final billedWater = specialPricing && workMinuteRate > 0
+        ? c.chargeableMinutes * workMinuteRate
+        : c.waterAmount;
+    final total = billedWater;
     // الدفعة المرافقة للمستفيد فقط (الخدمة ترفضها لغيره).
     final paidValue = isBeneficiary ? (int.tryParse(paid.text) ?? 0) : 0;
     // المستفيد: رصيده + المستحق − المدفوع (الموجب عليه).
@@ -4794,8 +5259,11 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
         : partyBalance - total;
     return {
       'الإجمالي': total,
-      'المياه': c.waterAmount,
-      'الديزل': diesel,
+      'المياه': billedWater,
+      'الديزل': 0,
+      'ديزل مستهلك': usedFuel,
+      'ديزل من الرصيد': coveredFuel,
+      'ديزل سلفة': borrowedFuel,
       'القابل للمحاسبة': c.chargeableMinutes,
       'المدفوع': paidValue,
       'الرصيد الحالي': partyBalance,
@@ -4845,7 +5313,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   }
 
   Future<void> addCloudPeriod({int? editingIndex}) async {
-    if (type != 'solar') return;
+    if (type == 'diesel') return;
     final existing = editingIndex == null ? null : cloudPeriods[editingIndex];
     final initialStart = existing?['start'] ?? start;
     final initialEnd =
@@ -4860,7 +5328,9 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, dialogSetState) => AlertDialog(
-          title: const Text('إضافة غيم / حساب وقت التوقف'),
+          backgroundColor: const Color(0xFFF2EAFB),
+          title: const Text('إضافة غيم / حساب وقت التوقف',
+              style: TextStyle(color: Color(0xFF71369B), fontWeight: FontWeight.w900)),
           content: SingleChildScrollView(
             child: SizedBox(
               width: 380,
@@ -4914,7 +5384,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                       Expanded(child: TextField(controller: startController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'بداية الغيم (ساعة:دقيقة)', hintText: '13:10'))),
                       IconButton(tooltip: 'لاقط وقت هجين لبداية الغيم', icon: const Icon(Icons.schedule), onPressed: () async {
                         final initial = _parseCloudClock(startController.text) ?? start;
-                        final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار بداية الغيم', use24Hour: true);
+                        final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار بداية الغيم', use24Hour: true, tone: _QuickIrrigationTimeTone.cloud);
                         if (selected != null) { startController.text = '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}'; dialogSetState(() {}); }
                       }),
                     ]),
@@ -4923,7 +5393,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                       Expanded(child: TextField(controller: endController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'نهاية الغيم (ساعة:دقيقة)', hintText: '13:20'))),
                       IconButton(tooltip: 'لاقط وقت هجين لنهاية الغيم', icon: const Icon(Icons.schedule), onPressed: () async {
                         final initial = _parseCloudClock(endController.text) ?? start.add(const Duration(minutes: 15));
-                        final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار نهاية الغيم', use24Hour: true);
+                        final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار نهاية الغيم', use24Hour: true, tone: _QuickIrrigationTimeTone.cloud);
                         if (selected != null) { endController.text = '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}'; dialogSetState(() {}); }
                       }),
                     ]),
@@ -5051,7 +5521,27 @@ int? parseClock(String raw) {
     });
   }
 
-  Future<TimeOfDay?> _showHybridTimePicker({required DateTime initial, required String title, bool use24Hour = false, bool confirmPeriod = false, String? initialPeriod}) async {
+  Future<TimeOfDay?> _showHybridTimePicker({
+    required DateTime initial,
+    required String title,
+    bool use24Hour = false,
+    bool confirmPeriod = false,
+    String? initialPeriod,
+    _QuickIrrigationTimeTone? tone,
+    VoidCallback? onCloudConfirmed,
+  }) async {
+    final dialogBackground = switch (tone) {
+      _QuickIrrigationTimeTone.start => const Color(0xFFE8F3FF),
+      _QuickIrrigationTimeTone.end => const Color(0xFFE6F5EB),
+      _QuickIrrigationTimeTone.cloud => const Color(0xFFF2EAFB),
+      null => null,
+    };
+    final headingColor = switch (tone) {
+      _QuickIrrigationTimeTone.start => const Color(0xFF185BA0),
+      _QuickIrrigationTimeTone.end => const Color(0xFF246B43),
+      _QuickIrrigationTimeTone.cloud => const Color(0xFF71369B),
+      null => null,
+    };
     var hour = use24Hour ? initial.hour : (initial.hour % 12 == 0 ? 12 : initial.hour % 12);
     var minute = initial.minute;
     String? period = confirmPeriod ? initialPeriod : (initial.hour < 12 ? 'am' : 'pm');
@@ -5060,9 +5550,36 @@ int? parseClock(String raw) {
     final mc = TextEditingController(text: minute.toString().padLeft(2, '0'));
     final hw = FixedExtentScrollController(initialItem: hour - (use24Hour ? 0 : 1));
     final mw = FixedExtentScrollController(initialItem: minute);
+    void confirmTime({bool openCloud = false}) {
+      if (confirmPeriod && period == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('اختر صباحاً أو مساءً أولاً')));
+        return;
+      }
+      if (inputMode) {
+        final ih = int.tryParse(hc.text.trim());
+        final im = int.tryParse(mc.text.trim());
+        if (ih == null || ih < (use24Hour ? 0 : 1) ||
+            ih > (use24Hour ? 23 : 12) || im == null || im < 0 || im > 59) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+            use24Hour ? 'أدخل ساعة 00–23 ودقيقة 00–59'
+                      : 'أدخل ساعة 01–12 ودقيقة 00–59')));
+          return;
+        }
+        hour = ih;
+        minute = im;
+      }
+      if (openCloud) onCloudConfirmed?.call();
+      Navigator.of(context).pop(TimeOfDay(
+        hour: use24Hour ? hour : (hour % 12) + (period == 'pm' ? 12 : 0),
+        minute: minute));
+    }
     final result = await showDialog<TimeOfDay>(context: context, builder: (dc) =>
       StatefulBuilder(builder: (context, ds) => AlertDialog(
-        title: Text(title),
+        key: tone == null ? null : ValueKey('quick-time-picker-${tone.name}'),
+        backgroundColor: dialogBackground,
+        title: Text(title, style: TextStyle(
+          color: headingColor, fontWeight: FontWeight.w900)),
         content: SizedBox(width: 340, child: Column(mainAxisSize: MainAxisSize.min, children: [
           SegmentedButton<bool>(
             segments: const [
@@ -5130,21 +5647,18 @@ int? parseClock(String raw) {
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dc), child: const Text('إلغاء')),
-          FilledButton.icon(onPressed: () {
-            if (confirmPeriod && period == null) {
-              ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(content: Text('اختر صباحاً أو مساءً أولاً')));
-              return;
-            }
-            if (inputMode) {
-              final ih = int.tryParse(hc.text.trim()), im = int.tryParse(mc.text.trim());
-              if (ih == null || ih < (use24Hour ? 0 : 1) || ih > (use24Hour ? 23 : 12) || im == null || im < 0 || im > 59) {
-                ScaffoldMessenger.of(dc).showSnackBar(SnackBar(content: Text(use24Hour ? 'أدخل ساعة 00–23 ودقيقة 00–59' : 'أدخل ساعة 01–12 ودقيقة 00–59')));
-                return;
-              }
-              hour = ih; minute = im;
-            }
-            Navigator.pop(dc, TimeOfDay(hour: use24Hour ? hour : (hour % 12) + (period == 'pm' ? 12 : 0), minute: minute));
-          }, icon: const Icon(Icons.check), label: const Text('تأكيد الوقت')),
+          if (onCloudConfirmed != null)
+            OutlinedButton.icon(
+              key: const ValueKey('quick-end-cloud-button'),
+              onPressed: () => confirmTime(openCloud: true),
+              icon: const Icon(Icons.cloud_outlined),
+              label: const Text('الغيم'),
+            ),
+          FilledButton.icon(
+            onPressed: confirmTime,
+            icon: const Icon(Icons.check),
+            label: const Text('تأكيد الوقت'),
+          ),
         ],
       )),
     );
@@ -5378,7 +5892,7 @@ int? parseClock(String raw) {
       if (mounted) msg('تعذر تحميل بيانات السقاية: ${friendlyError(e)}');
       return;
     }
-    if (!mounted || loading || saved) return;
+    if (!mounted || loading || saved || _initialPartyError != null) return;
 
     await showDialog<void>(
       context: context,
@@ -5394,18 +5908,26 @@ int? parseClock(String raw) {
             return _matchesSearch(row['name'], search);
           }).toList();
           Future<void> chooseTime(bool isStart) async {
+            var openCloudAfterEnd = false;
             final picked = await _showHybridTimePicker(
               initial: isStart ? start : end,
-              title: isStart ? 'ساعة دورة وقت البداية' : 'ساعة دوارة وقت النهاية',
+              title: isStart ? 'اختيار وقت البداية' : 'اختيار وقت النهاية',
               confirmPeriod: true,
+              tone: isStart
+                  ? _QuickIrrigationTimeTone.start
+                  : _QuickIrrigationTimeTone.end,
               initialPeriod: (isStart ? start.hour : end.hour) < 12 ? 'am' : 'pm',
+              onCloudConfirmed: !isStart && type != 'diesel'
+                  ? () => openCloudAfterEnd = true
+                  : null,
             );
-            if (picked == null || !mounted) return;
+            if (picked == null || !mounted || !dialogContext.mounted) return;
             setState(() {
               if (isStart) {
                 start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, picked.hour, picked.minute);
                 startTimeController.text = _hm12(start);
                 if (!end.isAfter(start)) end = start.add(const Duration(hours: 1));
+                endTimeController.text = _hm12(end);
               } else {
                 end = DateTime(start.year, start.month, start.day, picked.hour, picked.minute);
                 if (!end.isAfter(start)) end = DateTime(start.year, start.month, start.day + 1, picked.hour, picked.minute);
@@ -5415,6 +5937,14 @@ int? parseClock(String raw) {
               cloudPeriods.removeWhere((p) => p['start']!.isBefore(start) || p['end']!.isAfter(end));
             });
             dialogSetState(() {});
+            if (isStart) {
+              // Keep the quick form open and continue immediately to its existing end picker.
+              await chooseTime(false);
+            } else if (openCloudAfterEnd && mounted && dialogContext.mounted) {
+              // Open the same cloud form, after accepting the selected end time.
+              await addCloudPeriod();
+              if (mounted && dialogContext.mounted) dialogSetState(() {});
+            }
           }
           return AlertDialog(
             title: const Text('سقاية جديدة'),
@@ -5543,7 +6073,7 @@ int? parseClock(String raw) {
                       icon: const Icon(Icons.av_timer),
                       label: Text('نهاية التشغيل: ${_hm12Label(end)}'),
                     ),
-                    if (type == 'solar') ...[
+                    if (type != 'diesel') ...[
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
                         onPressed: () async {
@@ -5635,6 +6165,10 @@ int? parseClock(String raw) {
   }
 
   Future<void> save({bool keepQuickForm = false}) async {
+    if (_initialPartyError != null) {
+      msg(_initialPartyError!);
+      return;
+    }
     if (timeStep != 2) {
       msg('أكمل تحديد وقت البداية والنهاية بالضغط على التالي أولاً');
       return;
@@ -5650,7 +6184,7 @@ int? parseClock(String raw) {
       msg('وقت النهاية يجب أن يكون بعد وقت البداية');
       return;
     }
-    if (type == 'solar' &&
+    if (type != 'diesel' &&
         (cloudMin < 0 || cloudMin > minutes ||
             (quickCloudMode && cloudQuickController.text.trim().isEmpty))) {
       msg('أدخل دقائق غيم صحيحة لا تتجاوز مدة السقاية');
@@ -5751,6 +6285,8 @@ int? parseClock(String raw) {
             [irrigationId],
           );
           final row = irrigationRows.isEmpty ? <String, Object?>{} : irrigationRows.first;
+          final messageStart = DateTime.tryParse('${row['start_datetime']}') ?? start;
+          final messageEnd = DateTime.tryParse('${row['end_datetime']}') ?? end;
           final currentBalance = (await widget.r.accounting.beneficiaryBalance(bid!))['balance'] ?? 0;
           String balanceText(int value) => value > 0
               ? 'عليه $value ريال'
@@ -5765,7 +6301,12 @@ int? parseClock(String raw) {
           };
           final total = (row['total_amount'] as num?)?.round() ?? 0;
           final water = (row['water_amount'] as num?)?.round() ?? 0;
-          final diesel = (row['diesel_amount'] as num?)?.round() ?? 0;
+          final dieselMovements = await widget.r.db.rawQuery(
+            "SELECT kind,COALESCE(SUM(liters),0) liters FROM diesel_movements WHERE irrigation_id=? AND kind IN ('consumption','advance') GROUP BY kind", [irrigationId],
+          );
+          double dieselLiters(String kind) => dieselMovements
+              .where((movement) => movement['kind'] == kind)
+              .fold<double>(0, (sum, movement) => sum + ((movement['liters'] as num?)?.toDouble() ?? 0));
           final paidAmount = (row['paid_amount'] as num?)?.round() ?? 0;
           final cloud = (row['cloud_minutes'] as num?)?.round() ?? 0;
           await widget.r.notify(
@@ -5776,10 +6317,16 @@ int? parseClock(String raw) {
               'المستفيد: ${row['beneficiary_name'] ?? recipient?['name'] ?? 'غير محدد'}',
               'المضخة: ${row['pump_name'] ?? 'غير محددة'}',
               'نوع المنظومة: $systemName',
-              'وقت السقاية: ${DateFormat('yyyy/MM/dd HH:mm').format(start)} إلى ${DateFormat('yyyy/MM/dd HH:mm').format(end)}',
-              'مدة السقاية: $minutes دقيقة (خصم الغيم: $cloud دقيقة)',
+              'وقت السقاية: ${MessageTime.dateTime(messageStart)} إلى ${MessageTime.dateTime(messageEnd)}',
+              if (systemName == 'شمسي')
+                'مدة السقاية: $minutes دقيقة (خصم الغيم: $cloud دقيقة)'
+              else
+                'مدة السقاية: $minutes دقيقة',
               'قيمة المياه: $water ريال',
-              if (systemName == 'ديزل') 'قيمة الديزل المحتسبة: $diesel ريال',
+              if (systemName == 'ديزل') ...[
+                'الديزل المستهلك: ${DieselQuantity.format(dieselLiters('consumption'))} لتر',
+                'سلفة ديزل عينية: ${DieselQuantity.format(dieselLiters('advance'))} لتر',
+              ],
               'الرصيد السابق: ${balanceText(previousBalance)}',
               'قيمة السقاية الحالية: $total ريال',
               'المدفوع: $paidAmount ريال',
@@ -5802,6 +6349,8 @@ int? parseClock(String raw) {
         final irrigationRow = irrigationRows.isEmpty
             ? <String, Object?>{}
             : irrigationRows.first;
+        final messageStart = DateTime.tryParse('${irrigationRow['start_datetime']}') ?? start;
+        final messageEnd = DateTime.tryParse('${irrigationRow['end_datetime']}') ?? end;
         final currentBalance = await _messageBalanceForParty(
           widget.r,
           partyType,
@@ -5811,21 +6360,23 @@ int? parseClock(String raw) {
             (irrigationRow['total_amount'] as num?)?.round() ?? 0;
         final paidAmount =
             (irrigationRow['paid_amount'] as num?)?.round() ?? 0;
+        final fuelFields = await IrrigationMessageFuelService(widget.r).forIrrigation(irrigationId);
         final message = await _renderSavedMessageTemplate(
           widget.r,
           MessageTemplateService.irrigationKey,
           {
             'اسم العميل': recipientName,
-            'تاريخ السقاية': DateFormat('yyyy/MM/dd').format(start),
-            'وقت البداية': DateFormat('HH:mm').format(start),
-            'وقت النهاية': DateFormat('HH:mm').format(end),
-            'إجمالي الدقائق': '$minutes',
+            'تاريخ السقاية': DateFormat('yyyy/MM/dd').format(messageStart),
+            'وقت البداية': MessageTime.time(messageStart),
+            'وقت النهاية': MessageTime.time(messageEnd),
+            'إجمالي الدقائق': '${irrigationRow['minutes'] ?? minutes}',
             'قيمة السقاية': money(totalAmount),
             'المبلغ المدفوع': money(paidAmount),
             'المتبقي من السقاية': money(totalAmount - paidAmount),
             'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: partyType),
             'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: partyType),
             'رقم العملية': '$irrigationId',
+            ...fuelFields,
           },
         );
         if (!mounted) return;
@@ -5893,6 +6444,21 @@ int? parseClock(String raw) {
 
   @override
   Widget build(c) {
+    if (_initialPartyError != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('سقاية جديدة')),
+        body: Center(child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(_initialPartyError!),
+        )),
+      );
+    }
+    if (widget.compactOnly) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('سقاية جديدة')),
+        body: loading ? const LoadingView() : const SizedBox.shrink(),
+      );
+    }
     if (loading && beneficiaries.isEmpty) return const LoadingView();
     final p = preview();
     bool keepSelected(Map<String, Object?> x, int? selected) =>
@@ -6059,7 +6625,7 @@ int? parseClock(String raw) {
                     );
                   }),
                 const SizedBox(height: 18),
-                const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت السقاية وفترات الغيم', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                Align(alignment: AlignmentDirectional.centerStart, child: Text(type == 'solar' ? 'وقت السقاية وفترات الغيم' : 'وقت السقاية', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
                 const SizedBox(height: 10),
 
                 OutlinedButton.icon(
@@ -6191,7 +6757,13 @@ int? parseClock(String raw) {
                   _cyan,
                 ),
                 Metric(type == 'diesel' ? 'قيمة المياه' : 'قيمة السقي', money(p['المياه']), _blue),
-                if (type == 'diesel') Metric('قيمة الديزل', money(p['الديزل']), _purple),
+                if (type == 'diesel') ...[
+                  Metric('الديزل المستهلك', "${DieselQuantity.format(p['ديزل مستهلك']!)} لتر", _purple),
+                  if (partyType == 'beneficiary') ...[
+                    Metric('من رصيد المستفيد', "${DieselQuantity.format(p['ديزل من الرصيد']!)} لتر", _cyan),
+                    Metric('سلفة ديزل عينية', "${DieselQuantity.format(p['ديزل سلفة']!)} لتر", Colors.orange),
+                  ],
+                ],
                 if (type == 'solar' && cloudMin > 0) Metric('خصم الغيم', '$cloudMin دقيقة', _cyan),
                 Metric('الإجمالي المستحق', money(p['الإجمالي']), _green),
                 if (partyType == 'beneficiary')
@@ -6236,6 +6808,15 @@ int? parseClock(String raw) {
   ) => SizedBox(
     width: 270,
     child: DropdownButtonFormField<T>(
+      isExpanded: true,
+      selectedItemBuilder: (context) => items.map((item) => Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: DefaultTextStyle.merge(
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          child: item.child,
+        ),
+      )).toList(),
       // Flutter يرمي assertion إن لم تطابق القيمة عنصرًا واحدًا بالضبط.
       initialValue: items.where((i) => i.value == value).length == 1 ? value : null,
       items: items,
@@ -6376,6 +6957,9 @@ class _IrrigationsState extends State<IrrigationsPage> {
   bool loading = true;
   String systemTypeFilter = 'current';
   DateTimeRange? customRange;
+  DateTimeRange? _automaticRange;
+  bool _dateFilterEdited = false;
+  String _weekStartSetting = 'saturday';
   int _loadGeneration = 0;
   final TextEditingController reportPeriodController =
       TextEditingController(text: 'كل الفترة');
@@ -6391,6 +6975,10 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final today = DateTime(now.year, now.month, now.day);
     if (const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}.contains(value)) return null;
     if (const {'يوم', 'اليوم', '1 يوم', 'يوم واحد'}.contains(value)) return today;
+    if (const {'هذا الأسبوع', 'هذا الاسبوع'}.contains(value)) {
+      return PeriodRanges.weekStart(today, _weekStartSetting);
+    }
+    if (value == 'هذا الشهر') return DateTime(today.year, today.month, 1);
     if (const {'يومان', 'يومين', 'آخر يومين', '2 يوم', '2 أيام'}.contains(value)) {
       return today.subtract(const Duration(days: 1));
     }
@@ -6518,9 +7106,9 @@ class _IrrigationsState extends State<IrrigationsPage> {
         sourceRows: outputRows,
       );
       if (bytes.isEmpty) throw StateError('ملف PDF الناتج فارغ.');
-      await Printing.sharePdf(
+      await ReportPdfPreviewService.open(
         bytes: bytes,
-        filename: 'تقرير_السقايات_${DateFormat('yyyyMMdd_HHmm').format(now)}.pdf',
+        suggestedName: 'تقرير السقايات التفصيلي ${DateFormat('yyyyMMdd_HHmm').format(now)}',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -6537,12 +7125,14 @@ class _IrrigationsState extends State<IrrigationsPage> {
 
   DateTime? get _activeFrom {
     if (customRange != null) return DateTime(customRange!.start.year, customRange!.start.month, customRange!.start.day);
+    if (_automaticRange != null) return _automaticRange!.start;
     final now = AppClock.now();
     final all = const {'كل الفترة', 'كل السجلات', 'الكل', 'تاريخ كامل'}.contains(reportPeriodController.text.trim().toLowerCase());
     return all ? null : _reportStart(reportPeriodController.text, now);
   }
   DateTime? get _activeTo {
     if (customRange != null) return DateTime(customRange!.end.year, customRange!.end.month, customRange!.end.day);
+    if (_automaticRange != null) return _automaticRange!.end;
     final now = AppClock.now();
     return DateTime(now.year, now.month, now.day);
   }
@@ -6557,7 +7147,12 @@ class _IrrigationsState extends State<IrrigationsPage> {
     final now = AppClock.now();
     final picked = await showDateRangePicker(context: context, firstDate: DateTime(2000), lastDate: DateTime(now.year, now.month, now.day), initialDateRange: customRange, helpText: 'اختر فترة السقايات', saveText: 'تطبيق');
     if (picked == null || !mounted) return;
-    setState(() { customRange = picked; reportPeriodController.text = 'فترة مخصصة'; });
+    setState(() {
+      _dateFilterEdited = true;
+      _automaticRange = null;
+      customRange = picked;
+      reportPeriodController.text = 'فترة مخصصة';
+    });
     await load();
   }
   Future<void> load() async {
@@ -6571,13 +7166,43 @@ class _IrrigationsState extends State<IrrigationsPage> {
       if (mounted && generation == _loadGeneration) setState(() => loading = false);
     }
   }
+  /// Set the initial period only once. Manual date choices must win if
+  /// the database lookup completes after a user edits the dropdown.
+  Future<void> _loadInitialAutomaticPeriod() async {
+    try {
+      final selection = await AutomaticIrrigationPeriod.forRepository(
+        widget.r,
+        systemType: _activeSystemType,
+      );
+      final config = await widget.r.settings();
+      if (!mounted) return;
+      if (!_dateFilterEdited) {
+        setState(() {
+          _weekStartSetting = config['week_start'] ?? 'saturday';
+          _automaticRange = DateTimeRange(
+            start: selection.from,
+            end: selection.to,
+          );
+          reportPeriodController.text = switch (selection.key) {
+            'today' => 'يوم',
+            'week' => 'هذا الأسبوع',
+            _ => 'هذا الشهر',
+          };
+        });
+      }
+    } catch (_) {
+      // Preserve the old readable list if the new optional lookup fails.
+    }
+    if (mounted) await load();
+  }
+
   @override
   void initState() {
     super.initState();
     widget.r.beneficiaries().then((x) {
       if (mounted) setState(() => bs = x);
     });
-    load();
+    _loadInitialAutomaticPeriod();
   }
 
   String _timeOf(Object? value) {
@@ -6679,11 +7304,22 @@ class _IrrigationsState extends State<IrrigationsPage> {
                   enableFilter: true,
                   enableSearch: true,
                   expandedInsets: EdgeInsets.zero,
-                  onSelected: (value) { if (value != null) { setState(() => customRange = null); load(); } },
+                  onSelected: (value) {
+                    if (value != null) {
+                      setState(() {
+                        _dateFilterEdited = true;
+                        customRange = null;
+                        _automaticRange = null;
+                      });
+                      load();
+                    }
+                  },
                   dropdownMenuEntries: const [
                     DropdownMenuEntry(value: 'كل الفترة', label: 'كل الفترة'),
                     DropdownMenuEntry(value: 'يوم', label: 'اليوم'),
                     DropdownMenuEntry(value: 'يومان', label: 'آخر يومين'),
+                    DropdownMenuEntry(value: 'هذا الأسبوع', label: 'هذا الأسبوع'),
+                    DropdownMenuEntry(value: 'هذا الشهر', label: 'هذا الشهر'),
                     DropdownMenuEntry(value: 'أسبوع', label: 'آخر أسبوع'),
                     DropdownMenuEntry(value: 'شهر', label: 'آخر شهر'),
                   ],
@@ -6702,16 +7338,24 @@ class _IrrigationsState extends State<IrrigationsPage> {
                 onChanged: (value) { if (value != null) { setState(() => systemTypeFilter = value); load(); } },
               )),
               OutlinedButton.icon(onPressed: loading ? null : chooseCustomRange, icon: const Icon(Icons.date_range), label: const Text('فترة مخصصة')),
-              FilledButton.icon(
+              ReportPdfLongPress(
+  enabled: !loading,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(printIrrigationsReport),
+  child: FilledButton.icon(
                 onPressed: loading ? null : printIrrigationsReport,
                 icon: const Icon(Icons.print_rounded),
                 label: const Text('طباعة تقرير السقايات'),
               ),
-              OutlinedButton.icon(
+),
+              ReportPdfLongPress(
+  enabled: !loading,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(createIrrigationsPdf),
+  child: OutlinedButton.icon(
                 onPressed: loading ? null : createIrrigationsPdf,
                 icon: const Icon(Icons.picture_as_pdf_rounded),
                 label: const Text('إنشاء PDF'),
               ),
+),
             ],
           ),
           const SizedBox(height: 10),
@@ -7829,10 +8473,6 @@ class _DieselState extends State<DieselPage> {
                       child: Text('شراء وإضافة للمخزون'),
                     ),
                     DropdownMenuItem(
-                      value: 'delivery',
-                      child: Text('تسليم لمستفيد'),
-                    ),
-                    DropdownMenuItem(
                       value: 'advance',
                       child: Text('سلفة ديزل'),
                     ),
@@ -7930,7 +8570,7 @@ class _DieselState extends State<DieselPage> {
       context,
       'إلغاء حركة الديزل',
       message:
-          'ستُعكس قيودها ويُردّ أثرها على المخزون والصندوق. ${statusName(x['kind'])} — ${x['liters']} لتر',
+          'ستُعكس قيودها ويُردّ أثرها على المخزون والصندوق. ${x['party_receipt'] == 1 ? ((x['liters'] as num) < 0 ? 'عكس تسليم ديزل' : (x['cancelled'] == 1 ? 'تسليم ديزل ملغى' : 'تسليم ديزل للمنظومة')) : statusName(x['kind'])} — ${x['liters']} لتر',
     );
     if (reason == null || !mounted) return;
     if (!await runGuarded(
@@ -7988,6 +8628,7 @@ class _DieselState extends State<DieselPage> {
           title: 'الديزل',
           subtitle: 'المخزون والحركات والتنبيه والسلف والتسليم',
           actions: [
+            FilledButton.icon(onPressed: () async { await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselDeliveryPage(widget.r, userId: widget.userId))); await load(); }, icon: const Icon(Icons.add), label: const Text('إضافة تسليم ديزل')),
             if (warning?['warning'] == true)
               OutlinedButton.icon(
                 onPressed: () async {
@@ -8053,7 +8694,7 @@ class _DieselState extends State<DieselPage> {
                     return Card(
                       child: ListTile(
                         title: Text(
-                          '${x['beneficiary_name'] ?? 'المخزون'} • ${statusName(x['kind'])}',
+                          '${x['beneficiary_name'] ?? 'المخزون'} • ${x['party_receipt'] == 1 ? ((x['liters'] as num) < 0 ? 'عكس تسليم ديزل' : (x['cancelled'] == 1 ? 'تسليم ديزل ملغى' : 'تسليم ديزل للمنظومة')) : statusName(x['kind'])}',
                         ),
                         subtitle: Text(
                           '${x['liters']} لتر • ${x['date']}${(x['notes'] ?? '').toString().isEmpty ? '' : ' • ${x['notes']}'}',
@@ -8087,14 +8728,68 @@ class _DieselState extends State<DieselPage> {
       : const Center(child: Text('عناصر الديزل غير متاحة لأن المنظومة شمسية.'));
 }
 
+class PartyPaymentActions extends StatelessWidget {
+  final StationRepository repository;
+  final int userId;
+  final String partyType;
+  final int partyId;
+  final Future<void> Function() onChanged;
+  const PartyPaymentActions({
+    required this.repository,
+    required this.userId,
+    required this.partyType,
+    required this.partyId,
+    required this.onChanged,
+    super.key,
+  });
+
+  Future<void> _open(BuildContext context, {required bool debt}) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => PaymentsPage(
+        repository,
+        userId: userId,
+        compactOnly: true,
+        initialTarget: partyType,
+        initialPartyId: partyId,
+        openDebt: debt,
+      ),
+    ));
+    if (context.mounted) await onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+    spacing: 8,
+    runSpacing: 8,
+    children: [
+      OutlinedButton.icon(
+        onPressed: () => _open(context, debt: true),
+        icon: const Icon(Icons.note_add_outlined),
+        label: const Text('إضافة دين سابق'),
+      ),
+      FilledButton.icon(
+        onPressed: () => _open(context, debt: false),
+        icon: const Icon(Icons.add_card),
+        label: Text(partyType == 'beneficiary' ? 'قبض نقود' : 'صرف نقود'),
+      ),
+    ],
+  );
+}
+
 class PaymentsPage extends StatefulWidget {
   final StationRepository r;
   final int userId;
   final bool compactOnly;
+  final String initialTarget;
+  final int? initialPartyId;
+  final bool openDebt;
   const PaymentsPage(
     this.r, {
     required this.userId,
     this.compactOnly = false,
+    this.initialTarget = 'beneficiary',
+    this.initialPartyId,
+    this.openDebt = false,
     super.key,
   });
   @override
@@ -8138,13 +8833,26 @@ class _PaymentsState extends State<PaymentsPage> {
   @override
   void initState() {
     super.initState();
+    target = widget.initialTarget;
     if (widget.compactOnly) {
       // حمّل خيارات المستفيدين والعمال والشركاء والصناديق قبل فتح نموذج الدفع.
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
-        await load();
-        if (!mounted) return;
-        await add();
+        try {
+          await load();
+          if (!mounted) return;
+          final parties = target == 'beneficiary' ? bs : target == 'worker' ? ws : ps;
+          if (widget.initialPartyId != null &&
+              !parties.any((p) => p['id'] == widget.initialPartyId)) {
+            msg('الطرف المحدد غير متاح؛ لم تُسجّل أي حركة.');
+          } else if (widget.openDebt) {
+            await addPreviousDebt();
+          } else {
+            await add();
+          }
+        } catch (error) {
+          msg(friendlyError(error));
+        }
         if (mounted) Navigator.of(context).maybePop();
       });
     } else {
@@ -8166,7 +8874,7 @@ class _PaymentsState extends State<PaymentsPage> {
         ? ws
         : ps;
     final initialPartyId = existing == null
-        ? null
+        ? widget.initialPartyId
         : (existing['beneficiary_id'] ?? existing['worker_id'] ?? existing['partner_id']) as int?;
     if (existing != null && initialPartyId != null &&
         !list.any((x) => x['id'] == initialPartyId)) {
@@ -8186,6 +8894,7 @@ class _PaymentsState extends State<PaymentsPage> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (c, s) => AlertDialog(
+          scrollable: true,
           title: Text(existing == null ? 'تسجيل دفعة' : 'تعديل سند قبض/صرف'),
           content: SizedBox(
             width: 480,
@@ -8285,8 +8994,12 @@ class _PaymentsState extends State<PaymentsPage> {
     if (ok == true) {
       if (!mounted) return;
       try {
+        final descriptionOnly = existing != null &&
+            (existing['amount'] as num?)?.toInt() == int.tryParse(amount.text) &&
+            existing['${target}_id'] == party &&
+            existing['payment_method_id'] == method && existing['cashbox_id'] == cb;
         String? editReason;
-        if (existing != null) {
+        if (existing != null && !descriptionOnly) {
           // Recheck immediately before using State.context after the dialog await.
           if (!mounted) return;
           editReason = await askReason(
@@ -8316,7 +9029,11 @@ class _PaymentsState extends State<PaymentsPage> {
           }
         }
         int paymentId;
-        if (existing != null) {
+        if (existing != null && descriptionOnly) {
+          paymentId = existing['id'] as int;
+          await widget.r.accounting.updatePaymentDetails(id: paymentId,
+            userId: widget.userId, referenceNumber: reference.text, notes: note.text);
+        } else if (existing != null) {
           paymentId = await widget.r.accounting.replacePayment(
             id: existing['id'] as int,
             userId: widget.userId,
@@ -8389,7 +9106,7 @@ class _PaymentsState extends State<PaymentsPage> {
           templateKey,
           {
             'اسم العميل': recipientName,
-            'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+            'التاريخ': MessageTime.dateTime(transactionAt),
             'رقم السند': reference.text.trim().isNotEmpty
                 ? reference.text.trim()
                 : '$paymentId',
@@ -8430,7 +9147,8 @@ class _PaymentsState extends State<PaymentsPage> {
       msg('لا يوجد ${targetName(target)} متاحون لإضافة مديونية سابقة');
       return;
     }
-    int? partyId = parties.first['id'] as int;
+    // A list-card action is an explicit selection; the general form stays unselected.
+    int? partyId = widget.initialPartyId;
     final amount = TextEditingController();
     final notes = TextEditingController();
     final partyLabel = target == 'beneficiary'
@@ -8438,9 +9156,7 @@ class _PaymentsState extends State<PaymentsPage> {
         : target == 'worker'
             ? 'العامل'
             : 'الشريك';
-    final balanceMeaning = target == 'beneficiary'
-        ? 'سيُضاف المبلغ على المستفيد لصالح المحطة.'
-        : 'سيُضاف المبلغ كمستحق سابق للطرف على المحطة.';
+    final balanceMeaning = 'سيُسجّل المبلغ على $partyLabel لصالح المحطة، دون قبض أو صرف.';
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -8457,7 +9173,7 @@ class _PaymentsState extends State<PaymentsPage> {
                   ),
               ],
               onChanged: (v) => setDialogState(() => partyId = v),
-              decoration: InputDecoration(labelText: partyLabel),
+              decoration: InputDecoration(labelText: 'اختر $partyLabel *'),
             ),
             TextField(
               controller: amount,
@@ -8473,7 +9189,7 @@ class _PaymentsState extends State<PaymentsPage> {
               maxLines: 3,
               decoration: const InputDecoration(
                 labelText: 'البيان / سبب المديونية *',
-                hintText: 'مثال: رصيد مستحق من فترة سابقة',
+                hintText: 'مثال: دين سابق على الطرف لصالح المحطة',
               ),
             ),
             Text(balanceMeaning),
@@ -8541,7 +9257,7 @@ class _PaymentsState extends State<PaymentsPage> {
       OutlinedButton.icon(
         onPressed: addPreviousDebt,
         icon: const Icon(Icons.note_add_outlined),
-        label: const Text('إضافة مديونية سابقة'),
+        label: const Text('إضافة دين سابق'),
       ),
       FilledButton.icon(
         onPressed: add,
@@ -8636,8 +9352,11 @@ class _PaymentsState extends State<PaymentsPage> {
                               color: Colors.red,
                             ),
                           ),
-                        IconButton(
-                          tooltip: 'إيصال',
+                        ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() =>
+  ReportService(widget.r).printPaymentReceipt(x['id'] as int)),
+  child: IconButton(
                           onPressed: () async {
                             try {
                               await ReportService(
@@ -8649,6 +9368,7 @@ class _PaymentsState extends State<PaymentsPage> {
                           },
                           icon: const Icon(Icons.receipt_long),
                         ),
+),
                       ],
                     ),
                   ),
@@ -9502,7 +10222,8 @@ class _WorkersState extends State<WorkersPage> {
 
   Future<void> load() async {
     final generation = ++_searchGeneration;
-    final x = await widget.r.workers(search: q);
+    final x = await PartyDieselBalance.loadRows(widget.r, 'worker',
+        await widget.r.workers(search: q));
     if (mounted && generation == _searchGeneration) setState(() => rows = x);
   }
 
@@ -9520,6 +10241,11 @@ class _WorkersState extends State<WorkersPage> {
   }
 
   Future<void> add() async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: '');
     final n = TextEditingController(), phone = TextEditingController();
     final open = TextEditingController(text: '0');
     final rate = TextEditingController(),
@@ -9539,10 +10265,8 @@ class _WorkersState extends State<WorkersPage> {
                 controller: n,
                 decoration: const InputDecoration(labelText: 'اسم العامل'),
               ),
-              TextField(
-                controller: phone,
-                decoration: const InputDecoration(labelText: 'الهاتف'),
-              ),
+              ContactPhoneField(controller: phone, labelText: 'الهاتف'),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
               TextField(
                 controller: open,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -9610,6 +10334,7 @@ class _WorkersState extends State<WorkersPage> {
       if (!await runGuarded(
         context,
         () => widget.r.createWorker(
+          dieselLitersPerHour: dieselEnabled ? PartyDieselRate.parseOptional(fuelRate.text) : null,
           name: n.text,
           phone: phone.text,
           opening: int.tryParse(open.text.trim()) ?? 0,
@@ -9739,7 +10464,7 @@ class _WorkersState extends State<WorkersPage> {
         MessageTemplateService.paymentKey,
         {
           'اسم العميل': recipientName,
-          'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+          'التاريخ': MessageTime.dateTime(transactionAt),
           'رقم السند': paymentId == null ? '—' : '$paymentId',
           'المبلغ': money(amountValue),
           'طريقة الدفع': paymentMethodName,
@@ -9759,6 +10484,11 @@ class _WorkersState extends State<WorkersPage> {
   }
 
   Future<void> editWorker(Map<String, Object?> x) async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: x['diesel_liters_per_hour'] == null ? '' : DieselQuantity.format(x['diesel_liters_per_hour'] as num));
     final n = TextEditingController(text: '${x['name'] ?? ''}'),
         phone = TextEditingController(text: '${x['phone'] ?? ''}');
     String type = '${x['pay_type'] ?? 'hourly'}';
@@ -9769,6 +10499,7 @@ class _WorkersState extends State<WorkersPage> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (c, s) => AlertDialog(
+          scrollable: true,
           title: const Text('تعديل معلومات العامل'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -9777,10 +10508,8 @@ class _WorkersState extends State<WorkersPage> {
                 controller: n,
                 decoration: const InputDecoration(labelText: 'الاسم'),
               ),
-              TextField(
-                controller: phone,
-                decoration: const InputDecoration(labelText: 'الهاتف'),
-              ),
+              ContactPhoneField(controller: phone, labelText: 'الهاتف'),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
               DropdownButtonFormField<String>(
                 initialValue: type,
                 items: const [
@@ -9835,6 +10564,7 @@ class _WorkersState extends State<WorkersPage> {
     if (ok == true) {
       if (!mounted) return;
       if (!await runGuarded(context, () => widget.r.updateWorker(x['id'] as int, {
+        if (dieselEnabled) 'diesel_liters_per_hour': PartyDieselRate.parseOptional(fuelRate.text),
         'name': n.text.trim(),
         'phone': phone.text,
         'pay_type': type,
@@ -10118,12 +10848,17 @@ class _WorkersState extends State<WorkersPage> {
       title: 'العمال',
       subtitle: 'الأجر بالساعة أو النسبة أو الراتب الثابت مع الاستحقاق والدفع',
       actions: [
-        OutlinedButton.icon(
+        ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() =>
+  ReportService(widget.r).printPdf('worker_transactions')),
+  child: OutlinedButton.icon(
           onPressed: () =>
               ReportService(widget.r).printPdf('worker_transactions'),
           icon: const Icon(Icons.picture_as_pdf_rounded),
           label: const Text('تقرير العمال'),
         ),
+),
         if (widget.manager)
           OutlinedButton.icon(
             onPressed: accrueMonthlySalary,
@@ -10156,21 +10891,10 @@ class _WorkersState extends State<WorkersPage> {
                 ? const EmptyView('لا يوجد عمال مطابقون')
                 : LayoutBuilder(
                     builder: (_, box) {
-                      final cols = box.maxWidth >= 1100
-                          ? 3
-                          : box.maxWidth >= 720
-                          ? 2
-                          : 1;
-                      const gap = 12.0;
-                      final w = (box.maxWidth - gap * (cols - 1)) / cols;
-                      return GridView.builder(
+                      final w = box.maxWidth;
+                      return ListView.separated(
                         padding: EdgeInsets.zero,
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: cols,
-                          crossAxisSpacing: gap,
-                          mainAxisSpacing: gap,
-                          childAspectRatio: cols == 1 ? 1.1 : 0.85,
-                        ),
+                        separatorBuilder: (_, index) => const SizedBox(height: 12),
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final x = filtered[index];
@@ -10185,6 +10909,7 @@ class _WorkersState extends State<WorkersPage> {
                                         widget.r,
                                         kind: 'worker',
                                         id: x['id'] as int,
+                                        userId: widget.userId,
                                         title: 'تفاصيل العامل',
                                       ),
                                     ),
@@ -10198,6 +10923,23 @@ class _WorkersState extends State<WorkersPage> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
+                                          PartyQuickActions(
+                                            repository: widget.r,
+                                            partyType: 'worker',
+                                            partyId: x['id'] as int,
+                                            name: '${x['name']}',
+                                            onNewIrrigation: () async {
+                                              await Navigator.push(context, MaterialPageRoute<void>(
+                                                builder: (_) => NewIrrigationPage(widget.r,
+                                                  manager: widget.manager,
+                                                  initialPartyType: 'worker',
+                                                  initialPartyId: x['id'] as int,
+                                                  compactOnly: true,
+                                                ),
+                                              ));
+                                              if (mounted) await load();
+                                            },
+                                          ),
                                           Row(
                                             children: [
                                               const CircleAvatar(
@@ -10254,6 +10996,16 @@ style: TextStyle(
 ),
                                           ),
                                           const SizedBox(height: 12),
+                                      if (x['party_diesel_balance'] is num)
+                                        PartyDieselBalance(x['party_diesel_balance'] as num),
+                                      PartyPaymentActions(
+                                        repository: widget.r,
+                                        userId: widget.userId,
+                                        partyType: 'worker',
+                                        partyId: x['id'] as int,
+                                        onChanged: load,
+                                      ),
+                                      const SizedBox(height: 8),
                                           Align(
                                             alignment: Alignment.centerLeft,
                                             child: Wrap(
@@ -10314,7 +11066,8 @@ class _PartnersState extends State<PartnersPage> {
 
   Future<void> load() async {
     final generation = ++_searchGeneration;
-    final x = await widget.r.partners(search: q);
+    final x = await PartyDieselBalance.loadRows(widget.r, 'partner',
+        await widget.r.partners(search: q));
     if (mounted && generation == _searchGeneration) setState(() => rows = x);
   }
 
@@ -10332,6 +11085,11 @@ class _PartnersState extends State<PartnersPage> {
   }
 
   Future<void> add() async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: '');
     final n = TextEditingController(), phone = TextEditingController();
     final open = TextEditingController(text: '0');
     final sh = TextEditingController(), pc = TextEditingController();
@@ -10349,10 +11107,8 @@ class _PartnersState extends State<PartnersPage> {
                 controller: n,
                 decoration: const InputDecoration(labelText: 'اسم الشريك'),
               ),
-              TextField(
-                controller: phone,
-                decoration: const InputDecoration(labelText: 'الهاتف'),
-              ),
+              ContactPhoneField(controller: phone, labelText: 'الهاتف'),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
               TextField(
                 controller: open,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -10416,6 +11172,7 @@ class _PartnersState extends State<PartnersPage> {
       if (!await runGuarded(
         context,
         () => widget.r.createPartner(
+          dieselLitersPerHour: dieselEnabled ? PartyDieselRate.parseOptional(fuelRate.text) : null,
           name: n.text,
           mode: mode,
           shares: double.tryParse(sh.text.trim().replaceAll(',', '.')) ?? 0,
@@ -10582,7 +11339,7 @@ class _PartnersState extends State<PartnersPage> {
           MessageTemplateService.paymentKey,
           {
             'اسم العميل': recipientName,
-            'التاريخ': DateFormat('yyyy/MM/dd HH:mm').format(transactionAt),
+            'التاريخ': MessageTime.dateTime(transactionAt),
             'رقم السند': '$paymentId',
             'المبلغ': money(amountValue),
             'طريقة الدفع': paymentMethodName,
@@ -10606,6 +11363,11 @@ class _PartnersState extends State<PartnersPage> {
   }
 
   Future<void> editPartner(Map<String, Object?> x) async {
+    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    if (!mounted) {
+      return;
+    }
+    final fuelRate = TextEditingController(text: x['diesel_liters_per_hour'] == null ? '' : DieselQuantity.format(x['diesel_liters_per_hour'] as num));
     final n = TextEditingController(text: '${x['name'] ?? ''}'),
         phone = TextEditingController(text: '${x['phone'] ?? ''}'),
         pct = TextEditingController(text: '${x['ownership_percentage'] ?? 0}'),
@@ -10615,6 +11377,7 @@ class _PartnersState extends State<PartnersPage> {
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (c, s) => AlertDialog(
+          scrollable: true,
           title: const Text('تعديل معلومات الشريك'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -10623,10 +11386,8 @@ class _PartnersState extends State<PartnersPage> {
                 controller: n,
                 decoration: const InputDecoration(labelText: 'الاسم'),
               ),
-              TextField(
-                controller: phone,
-                decoration: const InputDecoration(labelText: 'الهاتف'),
-              ),
+              ContactPhoneField(controller: phone, labelText: 'الهاتف'),
+              if (dieselEnabled) PartyDieselRateField(fuelRate),
               DropdownButtonFormField<String>(
                 initialValue: mode,
                 items: const [
@@ -10675,6 +11436,7 @@ class _PartnersState extends State<PartnersPage> {
     if (ok == true) {
       if (!mounted) return;
       if (!await runGuarded(context, () => widget.r.updatePartner(x['id'] as int, {
+        if (dieselEnabled) 'diesel_liters_per_hour': PartyDieselRate.parseOptional(fuelRate.text),
         'name': n.text.trim(),
         'phone': phone.text,
         'ownership_mode': mode,
@@ -10763,11 +11525,16 @@ class _PartnersState extends State<PartnersPage> {
       title: 'الشركاء',
       subtitle: 'ملكية الشركاء وحصصهم واستحقاقاتهم ومدفوعاتهم',
       actions: [
-        OutlinedButton.icon(
+        ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() =>
+  ReportService(widget.r).printPdf('partner_accounts')),
+  child: OutlinedButton.icon(
           onPressed: () => ReportService(widget.r).printPdf('partner_accounts'),
           icon: const Icon(Icons.picture_as_pdf_rounded),
           label: const Text('تقرير الشركاء'),
         ),
+),
         FilledButton.icon(
           onPressed: add,
           icon: const Icon(Icons.group_add),
@@ -10794,21 +11561,10 @@ class _PartnersState extends State<PartnersPage> {
                 ? const EmptyView('لا يوجد شركاء مطابقون')
                 : LayoutBuilder(
                     builder: (_, box) {
-                      final cols = box.maxWidth >= 1100
-                          ? 3
-                          : box.maxWidth >= 720
-                          ? 2
-                          : 1;
-                      const gap = 12.0;
-                      final w = (box.maxWidth - gap * (cols - 1)) / cols;
-                      return GridView.builder(
+                      final w = box.maxWidth;
+                      return ListView.separated(
                         padding: EdgeInsets.zero,
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: cols,
-                          crossAxisSpacing: gap,
-                          mainAxisSpacing: gap,
-                          childAspectRatio: cols == 1 ? 1.1 : 0.85,
-                        ),
+                        separatorBuilder: (_, index) => const SizedBox(height: 12),
                         itemCount: filtered.length,
                         itemBuilder: (context, index) {
                           final x = filtered[index];
@@ -10823,6 +11579,7 @@ class _PartnersState extends State<PartnersPage> {
                                         widget.r,
                                         kind: 'partner',
                                         id: x['id'] as int,
+                                        userId: widget.userId,
                                         title: 'تفاصيل الشريك',
                                       ),
                                     ),
@@ -10836,6 +11593,23 @@ class _PartnersState extends State<PartnersPage> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
+                                          PartyQuickActions(
+                                            repository: widget.r,
+                                            partyType: 'partner',
+                                            partyId: x['id'] as int,
+                                            name: '${x['name']}',
+                                            onNewIrrigation: () async {
+                                              await Navigator.push(context, MaterialPageRoute<void>(
+                                                builder: (_) => NewIrrigationPage(widget.r,
+                                                  manager: widget.manager,
+                                                  initialPartyType: 'partner',
+                                                  initialPartyId: x['id'] as int,
+                                                  compactOnly: true,
+                                                ),
+                                              ));
+                                              if (mounted) await load();
+                                            },
+                                          ),
                                           Row(
                                             children: [
                                               const CircleAvatar(
@@ -10894,6 +11668,16 @@ style: TextStyle(
 ),
                                           ),
                                           const SizedBox(height: 12),
+                                      if (x['party_diesel_balance'] is num)
+                                        PartyDieselBalance(x['party_diesel_balance'] as num),
+                                      PartyPaymentActions(
+                                        repository: widget.r,
+                                        userId: widget.userId,
+                                        partyType: 'partner',
+                                        partyId: x['id'] as int,
+                                        onChanged: load,
+                                      ),
+                                      const SizedBox(height: 8),
                                           Row(
                                             children: [
                                               Expanded(
@@ -11490,11 +12274,15 @@ class _LedgerState extends State<LedgerPage> {
       title: 'الأستاذ العام',
       subtitle: 'حساب مستقل لكل رمز مع له وعليه والرصيد الجاري',
       actions: [
-        OutlinedButton.icon(
+        ReportPdfLongPress(
+  enabled: !loading,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_printLedger),
+  child: OutlinedButton.icon(
           onPressed: loading ? null : _printLedger,
           icon: const Icon(Icons.print_rounded),
           label: const Text('طباعة كشف الحساب'),
         ),
+),
         OutlinedButton.icon(
           onPressed: loading ? null : _init,
           icon: const Icon(Icons.refresh),
@@ -11745,6 +12533,8 @@ class ReportsPage extends StatefulWidget {
 class _ReportsState extends State<ReportsPage> {
   List<Map<String,Object?>> bs=[],ws=[],ps=[],cs=[],ms=[];
   DateTime? from,to;
+  bool _dateFilterEdited = false;
+  bool _defaultPeriodLoaded = false;
   String? type,category,status;
   int? bid,wid,pid,cid,mid;
   String currentType='diesel'; Map<String,String> _cfg={};
@@ -11756,8 +12546,27 @@ class _ReportsState extends State<ReportsPage> {
   }
   Future<void> load() async {
     final b=await widget.r.workers(),p=await widget.r.partners(),c=await widget.r.cashboxes(),m=await widget.r.paymentMethods(),cfg=await widget.r.settings();
+    IrrigationPeriodSelection? defaultPeriod;
+    if (!_defaultPeriodLoaded && !_dateFilterEdited && from == null && to == null) {
+      try {
+        defaultPeriod = await AutomaticIrrigationPeriod.forRepository(
+          widget.r,
+          systemType: cfg['system_type'],
+        );
+      } catch (_) {
+        // Existing report filters remain usable if the optional lookup fails.
+      }
+    }
     if(!mounted)return;
-    setState((){_cfg=cfg;ws=b;ps=p;cs=c;ms=m;bid=null;wid=null;pid=null;cid=cid??(c.isEmpty?null:c.first['id'] as int?);mid=null;currentType=cfg['system_type']??'diesel';type = currentType;});
+    setState((){
+      if (!_defaultPeriodLoaded && !_dateFilterEdited &&
+          from == null && to == null && defaultPeriod != null) {
+        from = defaultPeriod.from;
+        to = defaultPeriod.to;
+      }
+      _defaultPeriodLoaded = true;
+      _cfg=cfg;ws=b;ps=p;cs=c;ms=m;bid=null;wid=null;pid=null;cid=cid??(c.isEmpty?null:c.first['id'] as int?);mid=null;currentType=cfg['system_type']??'diesel';type = currentType;
+    });
     final initialKey = widget.initialReportKey;
     if (!_initialReportOpened && initialKey != null && ReportService.titles.containsKey(initialKey)) {
       _initialReportOpened = true;
@@ -11773,17 +12582,17 @@ class _ReportsState extends State<ReportsPage> {
     if (currentType == 'solar' && k == 'diesel_inventory') return;
     if (k == 'time_comparison') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueComparisonsPage(widget.r, initialFrom: from, initialTo: to)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueComparisonsPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
     if (k == 'monthly_financial') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => MonthlyFinancialReportPage(widget.r, initialFrom: from, initialTo: to)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => MonthlyFinancialReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
     if (k == 'cashboxes') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => CashboxesTransfersReportPage(widget.r, initialFrom: from, initialTo: to)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => CashboxesTransfersReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
     if (k == 'debts') {
@@ -11793,33 +12602,33 @@ class _ReportsState extends State<ReportsPage> {
     }
     if (k == 'income') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueCollectionsReportPage(widget.r, initialFrom: from, initialTo: to, initialSystemType: type)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueCollectionsReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to, initialSystemType: type)));
       return;
     }
     if (k == 'diesel_inventory') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => InventoryMovementReportPage(widget.r, initialFrom: from, initialTo: to)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => InventoryMovementReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
     if (k == 'expenses') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => ExpensesDetailedReportPage(widget.r, initialFrom: from, initialTo: to, initialCategory: category, initialStatus: status)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => ExpensesDetailedReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to, initialCategory: category, initialStatus: status)));
       return;
     }
     if (k == 'invoices') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => InvoicesReportPage(widget.r, initialFrom: from, initialTo: to)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => InvoicesReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
     if (k == 'irrigations') {
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => IrrigationDetailedReportPage(widget.r, initialBeneficiaryId: bid, initialFrom: from, initialTo: to, initialSystemType: type)));
+      Navigator.push(context, MaterialPageRoute(builder: (_) => IrrigationDetailedReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialBeneficiaryId: bid, initialFrom: from, initialTo: to, initialSystemType: type)));
       return;
     }
     if (k == 'partner_accounts') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => PartnerAccountsReportPage(
-        widget.r,
+        widget.r, autoSelectPeriod: !_dateFilterEdited,
         initialPartnerId: pid,
         initialFrom: from,
         initialTo: to,
@@ -11830,7 +12639,7 @@ class _ReportsState extends State<ReportsPage> {
     if (k == 'worker_transactions') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => WorkerTransactionsOverviewPage(
-        widget.r,
+        widget.r, autoSelectPeriod: !_dateFilterEdited,
         initialWorkerId: null,
         initialFrom: from,
         initialTo: to,
@@ -11845,7 +12654,7 @@ class _ReportsState extends State<ReportsPage> {
     if (k == 'ledger') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => LedgerStatementsPage(
-        widget.r,
+        widget.r, autoSelectPeriod: !_dateFilterEdited,
         initialFrom: from,
         initialTo: to,
       )));
@@ -11899,8 +12708,12 @@ class _ReportsState extends State<ReportsPage> {
     _=>'معاينة البيانات والفلاتر والطباعة',
   };
   bool _allowedReport(String k) => currentType == 'diesel' || (k != 'diesel_inventory' && k != 'oil_status');
-  Widget _reportCard(String k){final title=ReportService.titles[k]??'تقرير';return Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .08),blurRadius:18,offset:const Offset(0,7))]),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(_icon(k),color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Text(title,softWrap:true,style:const TextStyle(fontWeight:FontWeight.w900,fontSize:16,color:_reportInk))),const Icon(Icons.swipe_rounded,size:20,color:_reportOlive)]),const SizedBox(height:14),Expanded(child:Align(alignment:Alignment.topRight,child:Text(_description(k),softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha: .72),fontSize:13,height:1.5)))),const SizedBox(height:10),Row(children:[Expanded(child:OutlinedButton.icon(onPressed:()=>previewR(k),style:OutlinedButton.styleFrom(foregroundColor:_reportOliveDark,side:const BorderSide(color:_reportLine),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.visibility_outlined,size:18),label:const Text('معاينة كاملة'))),const SizedBox(width:10),FilledButton.tonalIcon(onPressed:()=>printR(k),style:FilledButton.styleFrom(foregroundColor:_reportOliveDark,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.print_rounded,size:18),label:const Text('PDF'))])]));}
-  @override Widget build(BuildContext c)=>Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مركز التقارير',style:TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded)))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,32),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(28)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('تقاريرك المالية والتشغيلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:13)),const SizedBox(height:7),const Text('كل الأرقام في نظرة واضحة',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:23)),const SizedBox(height:10),Text('اختر فترة ثم افتح التقرير أو اطبعه PDF',style:TextStyle(color:Colors.white.withValues(alpha: .78),fontSize:12))]),),Container(width:68,height:68,decoration:BoxDecoration(color:Colors.white.withValues(alpha: .15),shape:BoxShape.circle),child:const Icon(Icons.insights_rounded,color:Colors.white,size:35))])),const SizedBox(height:16),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[const Icon(Icons.tune_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('نطاق التقرير',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),const Spacer(),TextButton(onPressed:()=>setState((){from=null;to=null;bid=null;wid=pid=cid=mid=null;category=status=null;type = currentType;}),child:const Text('مسح الكل'))]),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[for(final qr in _quickRanges())ChoiceChip(label:Text(qr.$1),selected:from==qr.$2&&to==qr.$3,onSelected:(_)=>setState((){from=qr.$2;to=qr.$3;}),selectedColor:_reportOliveDark, labelStyle:TextStyle(color:from==qr.$2&&to==qr.$3?Colors.white:_reportInk)),OutlinedButton.icon(onPressed:()async{from=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:from??AppClock.now(),locale:const Locale('ar'));setState((){});},icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.year}/${from!.month}/${from!.day}')),OutlinedButton.icon(onPressed:()async{to=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:to??AppClock.now(),locale:const Locale('ar'));setState((){});},icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.year}/${to!.month}/${to!.day}'))]),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[sel<int>('الصندوق',cid,[const DropdownMenuItem(value:null,child:Text('كل الصناديق')),for(final x in cs)DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']}'))],(v)=>setState(()=>cid=v))])])),const SizedBox(height:22),for(final group in ['السقايات والإيرادات','المالية والحركة','كشوف الحساب','دفتر الأستاذ','التشغيل والمتابعة']) _reportGroup(group)])));
+  Widget _reportCard(String k){final title=ReportService.titles[k]??'تقرير';return Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .08),blurRadius:18,offset:const Offset(0,7))]),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(_icon(k),color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Text(title,softWrap:true,style:const TextStyle(fontWeight:FontWeight.w900,fontSize:16,color:_reportInk))),const Icon(Icons.swipe_rounded,size:20,color:_reportOlive)]),const SizedBox(height:14),Expanded(child:Align(alignment:Alignment.topRight,child:Text(_description(k),softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha: .72),fontSize:13,height:1.5)))),const SizedBox(height:10),Row(children:[Expanded(child:OutlinedButton.icon(onPressed:()=>previewR(k),style:OutlinedButton.styleFrom(foregroundColor:_reportOliveDark,side:const BorderSide(color:_reportLine),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.visibility_outlined,size:18),label:const Text('معاينة كاملة'))),const SizedBox(width:10),ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => printR(k)),
+  child: FilledButton.tonalIcon(onPressed:()=>printR(k),style:FilledButton.styleFrom(foregroundColor:_reportOliveDark,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.print_rounded,size:18),label:const Text('PDF')),
+)])]));}
+  @override Widget build(BuildContext c)=>Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مركز التقارير',style:TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded)))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,32),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(28)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('تقاريرك المالية والتشغيلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:13)),const SizedBox(height:7),const Text('كل الأرقام في نظرة واضحة',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:23)),const SizedBox(height:10),Text('اختر فترة ثم افتح التقرير أو اطبعه PDF',style:TextStyle(color:Colors.white.withValues(alpha: .78),fontSize:12))]),),Container(width:68,height:68,decoration:BoxDecoration(color:Colors.white.withValues(alpha: .15),shape:BoxShape.circle),child:const Icon(Icons.insights_rounded,color:Colors.white,size:35))])),const SizedBox(height:16),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[const Icon(Icons.tune_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('نطاق التقرير',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),const Spacer(),TextButton(onPressed:()=>setState((){_dateFilterEdited=true;from=null;to=null;bid=null;wid=pid=cid=mid=null;category=status=null;type = currentType;}),child:const Text('مسح الكل'))]),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[for(final qr in _quickRanges())ChoiceChip(label:Text(qr.$1),selected:from==qr.$2&&to==qr.$3,onSelected:(_)=>setState((){_dateFilterEdited=true;from=qr.$2;to=qr.$3;}),selectedColor:_reportOliveDark, labelStyle:TextStyle(color:from==qr.$2&&to==qr.$3?Colors.white:_reportInk)),OutlinedButton.icon(onPressed:()async{final value=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:from??AppClock.now(),locale:const Locale('ar'));if(value!=null&&mounted)setState((){_dateFilterEdited=true;from=value;});},icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.year}/${from!.month}/${from!.day}')),OutlinedButton.icon(onPressed:()async{final value=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:to??AppClock.now(),locale:const Locale('ar'));if(value!=null&&mounted)setState((){_dateFilterEdited=true;to=value;});},icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.year}/${to!.month}/${to!.day}'))]),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[sel<int>('الصندوق',cid,[const DropdownMenuItem(value:null,child:Text('كل الصناديق')),for(final x in cs)DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']}'))],(v)=>setState(()=>cid=v))])])),const SizedBox(height:22),for(final group in ['السقايات والإيرادات','المالية والحركة','كشوف الحساب','دفتر الأستاذ','التشغيل والمتابعة']) _reportGroup(group)])));
   Widget _reportGroup(String group){final items=ReportsPage.keys.where((k)=>_group(k)==group&&_allowedReport(k)).toList();return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:6,height:24,decoration:BoxDecoration(color:_reportOliveDark,borderRadius:BorderRadius.circular(5))),const SizedBox(width:9),Expanded(child:Text(group,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,color:_reportInk))),Text('${items.length} تقارير',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:12))]),const SizedBox(height:11),if(items.isNotEmpty)SizedBox(height:228,child:PageView.builder(scrollDirection:Axis.horizontal,physics:const PageScrollPhysics(),padEnds:true,itemCount:items.length,controller:(_reportControllers[group]??=PageController(viewportFraction:.91)),itemBuilder:(context,index)=>Padding(padding:const EdgeInsetsDirectional.only(end:10,bottom:4),child:_reportCard(items[index])))),if(items.length>1)Padding(padding:const EdgeInsets.only(top:7),child:Center(child:Text('اسحب أفقيًا لاستعراض البطاقات • ${items.length} تقارير',style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:11)))),const SizedBox(height:25)]);}
 }
 
@@ -12014,7 +12827,27 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
   }
   String _title()=>ReportService.titles[widget.keyName]??'تقرير';
   Color _valueColor(String k,Object? v){if(k=='lah'||k=='credit')return _reportGreen;if(k=='alayh'||k=='debit')return _reportOrange;return _reportInk;}
-  String _value(String k,Object? v){if(v==null)return '-';if(k=='date'||k.endsWith('_datetime')){final d=DateTime.tryParse('$v');if(d!=null)return '${d.day}/${d.month}/${d.year}';}if(k=='system_type')return systemName('$v');if(k=='status')return statusName(v);if(k=='kind')return movementName('$v');if(k=='ownership_mode')return v=='percentage'?'نسبة ملكية':'عدد حصص';return '$v';}
+  String _value(String k, Object? v) {
+    if (v == null) return '-';
+    if (k == 'date' || k.endsWith('_datetime')) {
+      final raw = '$v';
+      final d = DateTime.tryParse(raw);
+      if (d != null) {
+        // Only the private partner statement changes its previous presentation:
+        // preserve the actual clock when the saved row contains a timestamp.
+        final partnerTimestamp = widget.keyName == 'partner_accounts' &&
+            (raw.contains('T') || raw.contains(':'));
+        return DateFormat(
+          partnerTimestamp ? 'yyyy/MM/dd HH:mm' : 'yyyy/MM/dd',
+        ).format(d);
+      }
+    }
+    if (k == 'system_type') return systemName('$v');
+    if (k == 'status') return statusName(v);
+    if (k == 'kind') return movementName('$v');
+    if (k == 'ownership_mode') return v == 'percentage' ? 'نسبة ملكية' : 'عدد حصص';
+    return '$v';
+  }
   List<MapEntry<String,Object?>> _visible(Map<String,Object?> row)=>row.entries.where((e)=>reportFieldArabic(e.key)!=null&&e.key!='id'&&e.key!='created_at'&&e.key!='updated_at'&&e.key!='journal_entry_id').toList();
   Widget _metric(String label, String value, IconData icon, Color color) =>
       Expanded(
@@ -12052,6 +12885,9 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         ),
       );
   Widget _rowCard(Map<String,Object?> row,int index){
+    if (widget.keyName == 'beneficiary_statement' && widget.beneficiaryId != null) {
+      return BeneficiaryStatementCard(row: row);
+    }
     final entries=_visible(row);
     return Container(
       margin:const EdgeInsetsDirectional.only(start:5,end:5,bottom:8),
@@ -12069,7 +12905,16 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
             Row(children:[
               Container(width:30,height:30,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${index+1}',style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900)))),
               const SizedBox(width:10),
-              Expanded(child:Text(_value(entries.isNotEmpty?entries.first.key:'description',entries.isNotEmpty?entries.first.value:null),softWrap:true,style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk))),
+              Expanded(child:Text(
+                _value(entries.isNotEmpty?entries.first.key:'description', entries.isNotEmpty?entries.first.value:null),
+                textDirection: widget.keyName == 'partner_accounts' &&
+                        entries.isNotEmpty &&
+                        (entries.first.key == 'date' || entries.first.key.endsWith('_datetime'))
+                    ? TextDirection.ltr
+                    : null,
+                softWrap:true,
+                style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk),
+              )),
               if(row['lah']!=null&&((row['lah'] as num?)?.abs()??0)>0)_badge('له','${row['lah']}',_reportGreen),
               if(row['alayh']!=null&&((row['alayh'] as num?)?.abs()??0)>0)_badge('عليه','${row['alayh']}',_reportOrange),
             ]),
@@ -12087,7 +12932,15 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
                       children:[
                         Text(reportFieldArabic(e.key)??e.key,softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:10)),
                         const SizedBox(height:3),
-                        Text(_value(e.key,e.value),softWrap:true,style:TextStyle(color:_valueColor(e.key,e.value),fontWeight:FontWeight.w700,fontSize:12,height:1.35)),
+                        Text(
+                          _value(e.key,e.value),
+                          textDirection: widget.keyName == 'partner_accounts' &&
+                                  (e.key == 'date' || e.key.endsWith('_datetime'))
+                              ? TextDirection.ltr
+                              : null,
+                          softWrap:true,
+                          style:TextStyle(color:_valueColor(e.key,e.value),fontWeight:FontWeight.w700,fontSize:12,height:1.35),
+                        ),
                       ],
                     ),
                   ),
@@ -12161,6 +13014,8 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         0,
         (sum, row) => sum + amountOf(row, 'minutes'),
       );
+      final dieselStatement = DieselReportColumns.dieselOnly(reportRows, settings['system_type'] ?? 'diesel');
+      final totalFuel = reportRows.fold<num>(0, (sum, row) => sum + amountOf(row, 'diesel_consumption_liters'));
       final totalCloud = reportRows.fold<num>(
         0,
         (sum, row) => sum + amountOf(row, 'cloud_minutes'),
@@ -12173,9 +13028,10 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         0,
         (sum, row) => sum + amountOf(row, 'paid_amount'),
       );
-      final endingBalance = reportRows.isEmpty
-          ? 0
-          : amountOf(reportRows.last, 'balance');
+      final endingBalance = BeneficiaryStatementTotals.closingBalance(
+        reportRows,
+        collective: widget.beneficiaryId == null,
+      );
       final now = AppClock.now();
       final tableRows = reportRows.map((row) => <String>[
         cellDate(row['date']),
@@ -12196,7 +13052,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         summaryBoxes: [
           StatBoxData(number: '1', title: 'إجمالي عدد السقايات', value: amountText(reportRows.length)),
           StatBoxData(number: '2', title: 'إجمالي الدقائق', value: amountText(totalMinutes)),
-          StatBoxData(number: '3', title: 'إجمالي الغيم', value: amountText(totalCloud)),
+          StatBoxData(number: '3', title: dieselStatement ? 'استهلاك الديزل (لتر)' : 'إجمالي الغيم', value: dieselStatement ? DieselQuantity.format(totalFuel) : amountText(totalCloud)),
           StatBoxData(number: '4', title: 'إجمالي القيمة', value: amountText(totalValue), isBlueTint: true),
           StatBoxData(number: '5', title: 'إجمالي المدفوع', value: amountText(totalPaid)),
           StatBoxData(number: '6', title: 'إجمالي له أو عليه', value: 'له ${amountText(totalLah)} / عليه ${amountText(totalAlayh)}', isLarge: true),
@@ -12220,7 +13076,18 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
     }
   }
 
-  @override Widget build(BuildContext context){final net=visibleRows.isEmpty?'-':'${visibleRows.last['balance']??'-'}';return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(_title(),style:const TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:12),child:FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))),onPressed:_printReport,icon:const Icon(Icons.print_rounded),label:const Text('PDF')))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(26)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التقرير',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(_title(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(widget.filters.trim().isEmpty?'كل الفترات':widget.filters,style:TextStyle(color:Colors.white.withValues(alpha: .8),fontSize:11))]),),const Icon(Icons.assessment_rounded,color:Colors.white,size:48)])),const SizedBox(height:14),if(_hasBeneficiarySearch) ...[
+  @override
+  Widget build(BuildContext context) {
+    final net = widget.keyName == 'beneficiary_statement'
+        ? '${BeneficiaryStatementTotals.closingBalance(
+            visibleRows,
+            collective: widget.beneficiaryId == null,
+          )}'
+        : (visibleRows.isEmpty ? '-' : '${visibleRows.last['balance'] ?? '-'}');
+    return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(_title(),style:const TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:12),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_printReport),
+  child: FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))),onPressed:_printReport,icon:const Icon(Icons.print_rounded),label:const Text('PDF')),
+))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(26)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التقرير',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(_title(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(widget.filters.trim().isEmpty?'كل الفترات':widget.filters,style:TextStyle(color:Colors.white.withValues(alpha: .8),fontSize:11))]),),const Icon(Icons.assessment_rounded,color:Colors.white,size:48)])),const SizedBox(height:14),if(_hasBeneficiarySearch) ...[
   const SizedBox(height:14),
   TextField(
     onChanged:(value)=>setState(()=>search=value),
@@ -12232,7 +13099,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
     ),
   ),
 ],
-const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<int>(initialValue:_selectedPaymentMethodId,items:[const DropdownMenuItem<int>(value:null,child:Text('كل طرق الدفع')),for(final method in widget.paymentMethods)DropdownMenuItem<int>(value:method['id'] as int,child:Text('${method['name']}'))],onChanged:_applyPaymentMethod,decoration:const InputDecoration(labelText:'طريقة الدفع',border:OutlineInputBorder(),prefixIcon:Icon(Icons.payments_rounded)))),if(_hasQueueBookingStatusFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<String>(initialValue:_selectedQueueBookingStatus,items:[const DropdownMenuItem<String>(value:null,child:Text('كل حالات الطابور والحجز')),for(final value in _queueBookingStatuses)DropdownMenuItem<String>(value:value,child:Text(statusName(value)))],onChanged:_applyQueueBookingStatus,decoration:const InputDecoration(labelText:'حالة الطابور والحجز',border:OutlineInputBorder(),prefixIcon:Icon(Icons.event_available_rounded)))),Row(children:[_metric('عدد السجلات','${visibleRows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric('آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(visibleRows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[
+const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<int>(initialValue:_selectedPaymentMethodId,items:[const DropdownMenuItem<int>(value:null,child:Text('كل طرق الدفع')),for(final method in widget.paymentMethods)DropdownMenuItem<int>(value:method['id'] as int,child:Text('${method['name']}'))],onChanged:_applyPaymentMethod,decoration:const InputDecoration(labelText:'طريقة الدفع',border:OutlineInputBorder(),prefixIcon:Icon(Icons.payments_rounded)))),if(_hasQueueBookingStatusFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<String>(initialValue:_selectedQueueBookingStatus,items:[const DropdownMenuItem<String>(value:null,child:Text('كل حالات الطابور والحجز')),for(final value in _queueBookingStatuses)DropdownMenuItem<String>(value:value,child:Text(statusName(value)))],onChanged:_applyQueueBookingStatus,decoration:const InputDecoration(labelText:'حالة الطابور والحجز',border:OutlineInputBorder(),prefixIcon:Icon(Icons.event_available_rounded)))),Row(children:[_metric('عدد السجلات','${visibleRows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric(widget.keyName == 'beneficiary_statement' && widget.beneficiaryId == null ? 'إجمالي الرصيد الختامي' : 'آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(visibleRows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[
   Row(
     children: [
       const Icon(Icons.view_agenda_rounded, color: _reportOliveDark),
@@ -12280,14 +13147,62 @@ const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const Edge
 ]])));}
 }
 
+/// Resolve a display-only default before the initial report load.
+/// Explicitly supplied periods and date choices made while the async check
+/// runs always win. Report calculations and record queries are unchanged.
+Future<void> _initializeAutomaticReportRange({
+  required StationRepository repository,
+  required DateTime? initialFrom,
+  required DateTime? initialTo,
+  required bool Function() stillMounted,
+  required bool Function() maySetDefault,
+  required void Function(IrrigationPeriodSelection) apply,
+  required Future<void> Function() load,
+  String? systemType,
+  bool enableAutomatic = true,
+}) async {
+  if (enableAutomatic && initialFrom == null && initialTo == null) {
+    try {
+      final period = await AutomaticIrrigationPeriod.forRepository(
+        repository,
+        systemType: systemType,
+      );
+      if (!stillMounted()) return;
+      if (maySetDefault()) apply(period);
+    } catch (_) {
+      // Preserve previous report behavior if the optional date probe fails.
+    }
+  }
+  if (stillMounted()) await load();
+}
+
 class RevenueComparisonsPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;
-  const RevenueComparisonsPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;
+  const RevenueComparisonsPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<RevenueComparisonsPage> createState()=>_RevenueComparisonsState();
 }
 class _RevenueComparisonsState extends State<RevenueComparisonsPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: null,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('time_comparison',from:from,to:to,systemType:'all');if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -12299,7 +13214,10 @@ class _RevenueComparisonsState extends State<RevenueComparisonsPage>{
   String _month(Object? v){final s='$v';final p=s.split('-');const n=['','يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];final m=int.tryParse(p.length>1?p[1]:'')??0;return m>0&&m<13?'${n[m]} ${p.first}':s;}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(icon,color:color,size:21),const SizedBox(width:8),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15))]))])));
   Widget _monthCard(String m,Map<String,int> a,Map<String,int>? previous,int maxMonth,int index){final old=previous?['total']??0;final change=old<=0?0:((a['total']!-old)*100/old);final color=change>=0?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[const Icon(Icons.calendar_today_rounded,color:_reportOliveDark,size:20),const SizedBox(width:8),Expanded(child:Text(_month(m),style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk,fontSize:15))),Text(money(a['total']??0),style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:16))]),const SizedBox(height:10),ClipRRect(borderRadius:BorderRadius.circular(5),child:LinearProgressIndicator(value:maxMonth<=0?0:(a['total']??0)/maxMonth,minHeight:9,backgroundColor:_reportCream,color:_reportGreen)),const SizedBox(height:8),Row(children:[Text('${a['operations']} عملية • ${a['minutes']} دقيقة',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:10)),const Spacer(),Text(index==0?'بداية المقارنة':'${change>=0?'+':''}${change.toStringAsFixed(1)}% عن الشهر السابق',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:10))])]));}
-  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['total']));final ops=rows.fold<int>(0,(s,x)=>s+_n(x['operations']));final minutes=rows.fold<int>(0,(s,x)=>s+_n(x['minutes']));final months=<String,Map<String,int>>{};final systems=<String,Map<String,int>>{};for(final x in rows){final m='${x['month']}';final st='${x['system_type']}';final a=months.putIfAbsent(m,()=>{'total':0,'operations':0,'minutes':0});a['total']=(a['total']??0)+_n(x['total']);a['operations']=(a['operations']??0)+_n(x['operations']);a['minutes']=(a['minutes']??0)+_n(x['minutes']);final b=systems.putIfAbsent(st,()=>{'total':0,'operations':0,'minutes':0});b['total']=(b['total']??0)+_n(x['total']);b['operations']=(b['operations']??0)+_n(x['operations']);b['minutes']=(b['minutes']??0)+_n(x['minutes']);}final maxMonth=months.values.fold<int>(0,(m,x)=>(x['total']??0)>m?(x['total']??0):m);final maxSystem=systems.values.fold<int>(0,(m,x)=>(x['total']??0)>m?(x['total']??0):m);final monthKeys=months.keys.toList()..sort();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مقارنات الإيرادات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الاتجاهات المالية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('مقارنات الإيرادات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('قياس نمو الدخل بين الأشهر والمنظومات',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.compare_arrows_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.day}/${from!.month}/${from!.year}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.day}/${to!.month}/${to!.year}')),
+  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['total']));final ops=rows.fold<int>(0,(s,x)=>s+_n(x['operations']));final minutes=rows.fold<int>(0,(s,x)=>s+_n(x['minutes']));final months=<String,Map<String,int>>{};final systems=<String,Map<String,int>>{};for(final x in rows){final m='${x['month']}';final st='${x['system_type']}';final a=months.putIfAbsent(m,()=>{'total':0,'operations':0,'minutes':0});a['total']=(a['total']??0)+_n(x['total']);a['operations']=(a['operations']??0)+_n(x['operations']);a['minutes']=(a['minutes']??0)+_n(x['minutes']);final b=systems.putIfAbsent(st,()=>{'total':0,'operations':0,'minutes':0});b['total']=(b['total']??0)+_n(x['total']);b['operations']=(b['operations']??0)+_n(x['operations']);b['minutes']=(b['minutes']??0)+_n(x['minutes']);}final maxMonth=months.values.fold<int>(0,(m,x)=>(x['total']??0)>m?(x['total']??0):m);final maxSystem=systems.values.fold<int>(0,(m,x)=>(x['total']??0)>m?(x['total']??0):m);final monthKeys=months.keys.toList()..sort();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مقارنات الإيرادات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الاتجاهات المالية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('مقارنات الإيرادات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('قياس نمو الدخل بين الأشهر والمنظومات',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.compare_arrows_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.day}/${from!.month}/${from!.year}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.day}/${to!.month}/${to!.year}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -12310,13 +13228,32 @@ class _RevenueComparisonsState extends State<RevenueComparisonsPage>{
 }
 
 class MonthlyFinancialReportPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;
-  const MonthlyFinancialReportPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;
+  const MonthlyFinancialReportPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<MonthlyFinancialReportPage> createState()=>_MonthlyFinancialReportState();
 }
 class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: null,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('monthly_financial',from:from,to:to);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -12330,7 +13267,10 @@ class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
   Widget _monthCard(Map<String,Object?> x,int maxValue){final income=_n(x['income']);final expenses=_n(x['expenses']);final net=income-expenses;final margin=income<=0?0:net*100/income;final color=net>=0?_reportGreen:_reportOrange;final incomeWidth=maxValue<=0?0.0:income/maxValue;final expenseWidth=maxValue<=0?0.0:expenses/maxValue;return Container(margin:const EdgeInsets.only(bottom:12),padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:const Icon(Icons.calendar_month_rounded,color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Text(_month(x['month']),style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:17))),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text('صافي النتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),Text(money(net),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:17))])]),const SizedBox(height:14),_bar('الإيرادات',income,incomeWidth,_reportGreen),const SizedBox(height:8),_bar('المصروفات',expenses,expenseWidth,_reportOrange),const SizedBox(height:12),Row(children:[Text('الهامش ${margin.toStringAsFixed(1)}%',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:11)),const Spacer(),Text('إيرادات ${money(income)} • مصروفات ${money(expenses)}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))]) ]));}
   Widget _bar(String label,int value,double width,Color color)=>Row(children:[SizedBox(width:65,child:Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11))),Expanded(child:ClipRRect(borderRadius:BorderRadius.circular(5),child:LinearProgressIndicator(value:width,minHeight:9,backgroundColor:_reportCream,color:color))),const SizedBox(width:8),SizedBox(width:72,child:Text(money(value),textAlign:TextAlign.end,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:11))) ]);
-  @override Widget build(BuildContext context){final income=rows.fold<int>(0,(s,x)=>s+_n(x['income']));final expenses=rows.fold<int>(0,(s,x)=>s+_n(x['expenses']));final net=income-expenses;final maxValue=rows.fold<int>(0,(m,x){final a=_n(x['income']);final b=_n(x['expenses']);return a>b?(a>m?a:m):(b>m?b:m);});final margin=income<=0?0:net*100/income;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('التقرير المالي الشهري',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الأداء المالي',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('التقرير المالي الشهري',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مقارنة الإيرادات والمصروفات وصافي النتيجة لكل شهر',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.insights_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  @override Widget build(BuildContext context){final income=rows.fold<int>(0,(s,x)=>s+_n(x['income']));final expenses=rows.fold<int>(0,(s,x)=>s+_n(x['expenses']));final net=income-expenses;final maxValue=rows.fold<int>(0,(m,x){final a=_n(x['income']);final b=_n(x['expenses']);return a>b?(a>m?a:m):(b>m?b:m);});final margin=income<=0?0:net*100/income;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('التقرير المالي الشهري',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الأداء المالي',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('التقرير المالي الشهري',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مقارنة الإيرادات والمصروفات وصافي النتيجة لكل شهر',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.insights_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -12341,13 +13281,32 @@ class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
 }
 
 class CashboxesTransfersReportPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;
-  const CashboxesTransfersReportPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;
+  const CashboxesTransfersReportPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<CashboxesTransfersReportPage> createState()=>_CashboxesTransfersReportState();
 }
 class _CashboxesTransfersReportState extends State<CashboxesTransfersReportPage>{
   List<Map<String,Object?>> boxes=[],transfers=[],flow=[];DateTime? from,to;String search='';bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: null,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final b=await widget.r.cashboxes();final t=await widget.r.transfers();final f=await widget.r.report('cash_flow',from:from,to:to);if(mounted)setState((){boxes=b;transfers=t;flow=f;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -12364,7 +13323,13 @@ class _CashboxesTransfersReportState extends State<CashboxesTransfersReportPage>
   Widget _boxCard(Map<String,Object?> x){final balance=_n(x['current_balance']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:const Icon(Icons.account_balance_wallet_rounded,color:_reportOliveDark)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??'صندوق'}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),const SizedBox(height:4),Text('الحساب النقدي المرتبط بالصندوق',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text('الرصيد',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),Text(money(balance),style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:17))]) ]));}
   Widget _transferCard(Map<String,Object?> x){return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:_reportOlive.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:const Icon(Icons.swap_horiz_rounded,color:_reportOliveDark)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['from_cashbox']??'صندوق غير محدد'}  ←  ${x['to_cashbox']??'صندوق غير محدد'}',style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:4),Text('${_date(x['date'])} • ${x['notes']??'تحويل داخلي'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Text(money(_n(x['amount'])),style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900,fontSize:16))]));}
   Widget _flowCard(Map<String,Object?> x){final amount=_n(x['amount']);final positive=amount>=0;final color=positive?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Row(children:[Icon(positive?Icons.arrow_downward_rounded:Icons.arrow_upward_rounded,color:color),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['title']??'حركة نقدية'}',style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk)),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),Text(positive?'له ${money(amount)}':'عليه ${money(amount.abs())}',style:TextStyle(color:color,fontWeight:FontWeight.w900))]));}
-  @override Widget build(BuildContext context){final boxBalance=boxes.fold<int>(0,(s,x)=>s+_n(x['current_balance']));final transferIn=visibleTransfers.fold<int>(0,(s,x)=>s+_n(x['amount']));final flowIn=visibleFlow.where((x)=>_n(x['amount'])>=0).fold<int>(0,(s,x)=>s+_n(x['amount']));final flowOut=visibleFlow.where((x)=>_n(x['amount'])<0).fold<int>(0,(s,x)=>s+_n(x['amount']).abs());return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('الصناديق والتحويلات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),IconButton(onPressed:()=>_print('cash_flow'),tooltip:'PDF التدفق النقدي',icon:const Icon(Icons.picture_as_pdf_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:()=>_print('cashboxes'),style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.account_balance_wallet_rounded,size:18),label:const Text('PDF الصناديق')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة النقدية الداخلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('الصناديق والتحويلات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الأرصدة والتحصيلات والمصروفات والتحويلات بين الصناديق',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.swap_horiz_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في الصندوق أو البيان أو الملاحظات',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  @override Widget build(BuildContext context){final boxBalance=boxes.fold<int>(0,(s,x)=>s+_n(x['current_balance']));final transferIn=visibleTransfers.fold<int>(0,(s,x)=>s+_n(x['amount']));final flowIn=visibleFlow.where((x)=>_n(x['amount'])>=0).fold<int>(0,(s,x)=>s+_n(x['amount']));final flowOut=visibleFlow.where((x)=>_n(x['amount'])<0).fold<int>(0,(s,x)=>s+_n(x['amount']).abs());return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('الصناديق والتحويلات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print('cash_flow')),
+  child: IconButton(onPressed:()=>_print('cash_flow'),icon:const Icon(Icons.picture_as_pdf_rounded)),
+),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print('cashboxes')),
+  child: FilledButton.icon(onPressed:()=>_print('cashboxes'),style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.account_balance_wallet_rounded,size:18),label:const Text('PDF الصناديق')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة النقدية الداخلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('الصناديق والتحويلات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الأرصدة والتحصيلات والمصروفات والتحويلات بين الصناديق',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.swap_horiz_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في الصندوق أو البيان أو الملاحظات',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -12384,13 +13349,102 @@ class _DebtsReportState extends State<DebtsReportPage>{
   @override void initState(){super.initState();final now=AppClock.now();month=DateTime(now.year,now.month,1);_load();}
   Future<void> _setDebtMonth(DateTime value)async{setState(()=>month=DateTime(value.year,value.month,1));await _load();}
   Future<void> _pickDebtMonth()async{final picked=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:month,locale:const Locale('ar'),helpText:'اختر يوماً من الشهر المطلوب');if(picked!=null)await _setDebtMonth(picked);}
-  Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('debts',from:month,to:DateTime(month.year,month.month+1,0));if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
-  Future<void> _print()async{try{await ReportService(widget.r).printPdf('debts',from:month,to:DateTime(month.year,month.month+1,0),sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('all_party_debts',from:month,to:DateTime(month.year,month.month+1,0));if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
+  Future<void> _print()async{try{await ReportService(widget.r).printPdf('all_party_debts',from:month,to:DateTime(month.year,month.month+1,0),sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   int _n(Object? v)=>(v as num?)?.round()??0;
-  List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final b=_n(x['balance']);final okView=view=='all'||(view=='alayh'&&b>0)||(view=='lah'&&b<0)||(view=='balanced'&&b==0);final okSearch=q.isEmpty||'${x['name']??''} ${x['phone']??''}'.toLowerCase().contains(q);return okView&&okSearch;}).toList();}
+  List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final b=_n(x['balance']);final okView=view=='all'||(view=='alayh'&&b>0)||(view=='lah'&&b<0)||(view=='balanced'&&b==0);final okSearch=q.isEmpty||'${x['name']??''} ${x['phone']??''} ${x['party_type']??''}'.toLowerCase().contains(q);return okView&&okSearch;}).toList();}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
-  Widget _card(Map<String,Object?> x){final balance=_n(x['balance']);final positive=balance>0;final color=positive?_reportOrange:balance<0?_reportGreen:_reportOliveDark;final label=positive?'عليه':balance<0?'له':'متوازن';return InkWell(onTap:x['id'] is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'beneficiary',id:x['id'] as int,title:'تفاصيل الحساب'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(15)),child:Icon(positive?Icons.arrow_upward_rounded:balance<0?Icons.arrow_downward_rounded:Icons.check_circle_rounded,color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??'غير محدد'}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${x['phone']??'بدون هاتف'}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:8),const Text('فتح تفاصيل الحساب',style:TextStyle(color:_reportOliveDark,fontSize:10,fontWeight:FontWeight.w800))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(label,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:12)),const SizedBox(height:4),Text(money(balance.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:18))])])));}
-  @override Widget build(BuildContext context){final totalAlayh=visible.where((x)=>_n(x['balance'])>0).fold<int>(0,(s,x)=>s+_n(x['balance']));final totalLah=visible.where((x)=>_n(x['balance'])<0).fold<int>(0,(s,x)=>s+_n(x['balance']).abs());final onCount=visible.where((x)=>_n(x['balance'])>0).length;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير المديونيات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة أرصدة الأطراف',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المديونيات والحسابات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('ترتيب واضح للحسابات التي عليها أو لها مبالغ',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.account_balance_wallet_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[
+  Widget _card(Map<String,Object?> x) {
+    final balance = _n(x['balance']);
+    final positive = balance > 0;
+    final color = positive ? _reportOrange : balance < 0 ? _reportGreen : _reportOliveDark;
+    final label = positive ? 'عليه' : balance < 0 ? 'له' : 'متوازن';
+    final partyType = '${x['party_type'] ?? 'beneficiary'}';
+    final partyLabel = switch (partyType) {
+      'worker' => 'عامل',
+      'partner' => 'شريك',
+      _ => 'مستفيد',
+    };
+    final personId = (x['party_id'] as num?)?.toInt() ??
+        (x['id'] as num?)?.toInt();
+    return InkWell(
+      onTap: personId == null ? null : () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => RecordDetailsPage(
+            widget.r,
+            kind: partyType,
+            id: personId,
+            title: 'تفاصيل حساب $partyLabel',
+          ),
+        ),
+      ),
+      borderRadius: BorderRadius.circular(21),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 11),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(21),
+          border: Border.all(color: _reportLine),
+        ),
+        child: Row(children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .12),
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: Icon(
+              positive ? Icons.arrow_upward_rounded
+                  : balance < 0 ? Icons.arrow_downward_rounded
+                  : Icons.check_circle_rounded,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${x['name'] ?? 'غير محدد'}',
+                  style: const TextStyle(
+                    color: _reportInk, fontWeight: FontWeight.w900, fontSize: 16)),
+              const SizedBox(height: 4),
+              Text('$partyLabel — ${x['phone'] ?? 'بدون هاتف'}',
+                  style: TextStyle(
+                    color: _reportInk.withValues(alpha: .55), fontSize: 11)),
+              const SizedBox(height: 8),
+              const Text('فتح تفاصيل الحساب',
+                  style: TextStyle(
+                    color: _reportOliveDark, fontSize: 10, fontWeight: FontWeight.w800)),
+            ],
+          )),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(label, style: TextStyle(
+                  color: color, fontWeight: FontWeight.w900, fontSize: 12)),
+              const SizedBox(height: 4),
+              Text(money(balance.abs()), style: TextStyle(
+                  color: color, fontWeight: FontWeight.w900, fontSize: 18)),
+            ],
+          ),
+        ]),
+      ),
+    );
+  }
+  @override
+  Widget build(BuildContext context) {
+    // Use exactly the visible (searched/filtered) parties for all summary cards.
+    final totals = DebtReportTotals.fromRows(visible);
+    final totalAlayh = totals.totalAlayh;
+    final totalLah = totals.totalLah;
+    final onCount = visible.where((x) => _n(x['balance']) > 0).length;
+    return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير المديونيات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة أرصدة الأطراف',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المديونيات والحسابات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('ترتيب واضح للحسابات التي عليها أو لها مبالغ',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.account_balance_wallet_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[
         Row(children:[
           IconButton(onPressed:()=>_setDebtMonth(DateTime(month.year,month.month-1,1)),tooltip:'الشهر السابق',icon:const Icon(Icons.chevron_right_rounded)),
           Expanded(child:InkWell(onTap:_pickDebtMonth,child:Column(children:[
@@ -12399,17 +13453,47 @@ class _DebtsReportState extends State<DebtsReportPage>{
           ]))),
           IconButton(onPressed:()=>_setDebtMonth(DateTime(month.year,month.month+1,1)),tooltip:'الشهر التالي',icon:const Icon(Icons.chevron_left_rounded)),
         ]),
-        TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم الحساب أو الهاتف',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[ChoiceChip(label:const Text('الكل'),selected:view=='all',onSelected:(_)=>setState(()=>view='all')),ChoiceChip(label:const Text('عليه'),selected:view=='alayh',selectedColor:_reportOrange.withValues(alpha: .18),onSelected:(_)=>setState(()=>view='alayh')),ChoiceChip(label:const Text('له'),selected:view=='lah',selectedColor:_reportGreen.withValues(alpha: .18),onSelected:(_)=>setState(()=>view='lah')),ChoiceChip(label:const Text('متوازن'),selected:view=='balanced',onSelected:(_)=>setState(()=>view='balanced'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد الحسابات','${visible.length}',Icons.groups_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي عليه',money(totalAlayh),Icons.arrow_upward_rounded,_reportOrange),const SizedBox(width:8),_kpi('إجمالي له',money(totalLah),Icons.arrow_downward_rounded,_reportGreen)]),const SizedBox(height:10),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.warning_amber_rounded,color:_reportOrange),const SizedBox(width:8),const Text('حسابات عليها مبالغ',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('$onCount حساب',style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900))])),const SizedBox(height:18),Row(children:[const Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('كشف الحسابات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} نتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حسابات مطابقة للفلاتر')]))else ...[for(final x in visible.take(300))_card(x)]])));}
+        TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم الحساب أو الهاتف',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[ChoiceChip(label:const Text('الكل'),selected:view=='all',onSelected:(_)=>setState(()=>view='all')),ChoiceChip(label:const Text('عليه'),selected:view=='alayh',selectedColor:_reportOrange.withValues(alpha: .18),onSelected:(_)=>setState(()=>view='alayh')),ChoiceChip(label:const Text('له'),selected:view=='lah',selectedColor:_reportGreen.withValues(alpha: .18),onSelected:(_)=>setState(()=>view='lah')),ChoiceChip(label:const Text('متوازن'),selected:view=='balanced',onSelected:(_)=>setState(()=>view='balanced'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد الحسابات','${visible.length}',Icons.groups_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي عليه',money(totalAlayh),Icons.arrow_upward_rounded,_reportOrange),const SizedBox(width:8),_kpi('إجمالي له',money(totalLah),Icons.arrow_downward_rounded,_reportGreen)]),
+const SizedBox(height:10),
+Row(children:[
+  _kpi(
+    'صافي المتبقي (له / عليه)',
+    totals.netLabel((amount) => money(amount)),
+    Icons.account_balance_rounded,
+    totals.net > 0 ? _reportOrange
+        : totals.net < 0 ? _reportGreen : _reportOliveDark,
+  ),
+]),
+const SizedBox(height:10),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.warning_amber_rounded,color:_reportOrange),const SizedBox(width:8),const Text('حسابات عليها مبالغ',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('$onCount حساب',style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900))])),const SizedBox(height:18),Row(children:[const Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('كشف الحسابات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} نتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حسابات مطابقة للفلاتر')]))else ...[for(final x in visible.take(300))_card(x)]])));}
 }
 
 class RevenueCollectionsReportPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;final String? initialSystemType;
-  const RevenueCollectionsReportPage(this.r,{this.initialFrom,this.initialTo,this.initialSystemType,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;final String? initialSystemType;
+  const RevenueCollectionsReportPage(this.r,{this.initialFrom,this.initialTo,this.initialSystemType,this.autoSelectPeriod = true, super.key});
   @override State<RevenueCollectionsReportPage> createState()=>_RevenueCollectionsReportState();
 }
 class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>{
   List<Map<String,Object?>> income=[],payments=[];DateTime? from,to;String systemType='all',search='';bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;systemType=widget.initialSystemType??'all';_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    systemType=widget.initialSystemType??'all';
+    
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: systemType,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final a=await widget.r.report('income',from:from,to:to,systemType:systemType);final b=await widget.r.report('payment_log',from:from,to:to);if(mounted)setState((){income=a;payments=b;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -12423,7 +13507,13 @@ class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
   Widget _incomeCard(Map<String,Object?> x){final total=_n(x['total']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:const Icon(Icons.water_drop_rounded,color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_system(x['system_type']),style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk,fontSize:15)),const SizedBox(height:4),Text('${_n(x['operations'])} عملية • ${_n(x['minutes'])} دقيقة',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(money(total),style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:17)),Text('إيراد',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10))]) ]));}
   Widget _paymentCard(Map<String,Object?> x){final amount=_n(x['amount']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:_reportGreen.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:const Icon(Icons.payments_rounded,color:_reportGreen)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['party_name']??'تحصيل عام'}',style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:4),Text('${x['method_name']??'طريقة غير محددة'} • ${x['cashbox_name']??'صندوق غير محدد'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(money(amount),style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:16)),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10))]) ]));}
-  @override Widget build(BuildContext context){final revenue=income.where((x)=>'${x['system_type']}'!='الإجمالي العام').fold<int>(0,(s,x)=>s+_n(x['total']));final collected=payments.fold<int>(0,(s,x)=>s+_n(x['amount']));final due=revenue-collected;final rate=revenue<=0?0:collected*100/revenue;final q=search.trim().toLowerCase();final shownPayments=q.isEmpty?payments:payments.where((x)=>'${x['party_name']??''} ${x['method_name']??''} ${x['cashbox_name']??''}'.toLowerCase().contains(q)).toList();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('الإيرادات والتحصيلات المالية',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),IconButton(onPressed:()=>_print('payment_log'),tooltip:'PDF التحصيلات',icon:const Icon(Icons.receipt_long_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:()=>_print('income'),style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF الإيرادات')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الإيرادات والتحصيل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('من الدخل إلى الصندوق',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مقارنة الإيراد المسجل بالمبالغ المحصلة فعلياً',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.insights_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في المستفيد أو طريقة الدفع أو الصندوق',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  @override Widget build(BuildContext context){final revenue=income.where((x)=>'${x['system_type']}'!='الإجمالي العام').fold<int>(0,(s,x)=>s+_n(x['total']));final collected=payments.fold<int>(0,(s,x)=>s+_n(x['amount']));final due=revenue-collected;final rate=revenue<=0?0:collected*100/revenue;final q=search.trim().toLowerCase();final shownPayments=q.isEmpty?payments:payments.where((x)=>'${x['party_name']??''} ${x['method_name']??''} ${x['cashbox_name']??''}'.toLowerCase().contains(q)).toList();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('الإيرادات والتحصيلات المالية',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print('payment_log')),
+  child: IconButton(onPressed:()=>_print('payment_log'),icon:const Icon(Icons.receipt_long_rounded)),
+),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print('income')),
+  child: FilledButton.icon(onPressed:()=>_print('income'),style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF الإيرادات')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الإيرادات والتحصيل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('من الدخل إلى الصندوق',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مقارنة الإيراد المسجل بالمبالغ المحصلة فعلياً',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.insights_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في المستفيد أو طريقة الدفع أو الصندوق',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -12434,13 +13524,32 @@ class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>
 }
 
 class InventoryMovementReportPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;
-  const InventoryMovementReportPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;
+  const InventoryMovementReportPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<InventoryMovementReportPage> createState()=>_InventoryMovementReportState();
 }
 class _InventoryMovementReportState extends State<InventoryMovementReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;String? kind;String search='';double stock=0,capacity=0;bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: null,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.diesel();final s=await widget.r.dieselStock();final cfg=await widget.r.settings();if(mounted)setState((){rows=x;stock=s;capacity=double.tryParse('${cfg['diesel_tank_capacity_liters']??0}')??0;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -12459,7 +13568,10 @@ class _InventoryMovementReportState extends State<InventoryMovementReportPage>{
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
   Widget _card(Map<String,Object?> x){final v='${x['kind']}';final incoming=_in(v);final liters=_lit(x['liters']);final color=_color(v);return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_icon(v),color:color)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_kind(v),style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${_date(x['date'])} • ${x['beneficiary_name']??'المستودع الرئيسي'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Text('${liters.toStringAsFixed(2)} لتر',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:16))]),const SizedBox(height:11),Row(children:[_tag(Icons.scale_rounded,'${incoming?'وارد':'مصروف'} من المخزون'),_tag(Icons.payments_outlined,money(_n(x['amount']))),_tag(Icons.price_check_rounded,'سعر ${money(_n(x['unit_price']))}'),const Spacer(),const Icon(Icons.arrow_back_ios_new_rounded,size:14,color:_reportOlive)]),if('${x['notes']??''}'.trim().isNotEmpty)Padding(padding:const EdgeInsets.only(top:10),child:Align(alignment:Alignment.centerRight,child:Text('${x['notes']}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))))]));}
   Widget _tag(IconData icon,String text)=>Padding(padding:const EdgeInsetsDirectional.only(end:9),child:Row(mainAxisSize:MainAxisSize.min,children:[Icon(icon,size:14,color:_reportOlive),const SizedBox(width:4),Text(text,style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:10))]));
-  @override Widget build(BuildContext context){final v=visible;final incoming=v.where((x)=>_in('${x['kind']}')).fold<double>(0,(s,x)=>s+_lit(x['liters']));final outgoing=v.where((x)=>!_in('${x['kind']}')).fold<double>(0,(s,x)=>s+_lit(x['liters']));final amount=v.fold<int>(0,(s,x)=>s+_n(x['amount']));final fill=capacity<=0?0.0:(stock/capacity).clamp(0.0,1.0).toDouble();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('حركة المخزون والمستودعات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة المستودع الرئيسي',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('حركة مخزون الديزل',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('التوريد والاستهلاك والتسليم والسلف في سجل واحد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.inventory_2_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(x)=>setState(()=>search=x),decoration:const InputDecoration(labelText:'بحث في نوع الحركة أو المستفيد أو الملاحظات',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[DropdownButtonFormField<String>(initialValue:kind,items:[const DropdownMenuItem<String>(value:null,child:Text('كل أنواع الحركة')),for(final x in ['receipt','opening_balance','correction','delivery','advance','consumption'])DropdownMenuItem(value:x,child:Text(_kind(x)))],onChanged:(x)=>setState(()=>kind=x),decoration:const InputDecoration(labelText:'نوع الحركة',border:OutlineInputBorder())),OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  @override Widget build(BuildContext context){final v=visible;final incoming=v.where((x)=>_in('${x['kind']}')).fold<double>(0,(s,x)=>s+_lit(x['liters']));final outgoing=v.where((x)=>!_in('${x['kind']}')).fold<double>(0,(s,x)=>s+_lit(x['liters']));final amount=v.fold<int>(0,(s,x)=>s+_n(x['amount']));final fill=capacity<=0?0.0:(stock/capacity).clamp(0.0,1.0).toDouble();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('حركة المخزون والمستودعات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة المستودع الرئيسي',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('حركة مخزون الديزل',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('التوريد والاستهلاك والتسليم والسلف في سجل واحد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.inventory_2_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(x)=>setState(()=>search=x),decoration:const InputDecoration(labelText:'بحث في نوع الحركة أو المستفيد أو الملاحظات',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[DropdownButtonFormField<String>(initialValue:kind,items:[const DropdownMenuItem<String>(value:null,child:Text('كل أنواع الحركة')),for(final x in ['receipt','opening_balance','correction','delivery','advance','consumption'])DropdownMenuItem(value:x,child:Text(_kind(x)))],onChanged:(x)=>setState(()=>kind=x),decoration:const InputDecoration(labelText:'نوع الحركة',border:OutlineInputBorder())),OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -12470,13 +13582,32 @@ class _InventoryMovementReportState extends State<InventoryMovementReportPage>{
 }
 
 class ExpensesDetailedReportPage extends StatefulWidget {
-  final StationRepository r;final DateTime? initialFrom,initialTo;final String? initialCategory,initialStatus;
-  const ExpensesDetailedReportPage(this.r,{this.initialFrom,this.initialTo,this.initialCategory,this.initialStatus,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final DateTime? initialFrom,initialTo;final String? initialCategory,initialStatus;
+  const ExpensesDetailedReportPage(this.r,{this.initialFrom,this.initialTo,this.initialCategory,this.initialStatus,this.autoSelectPeriod = true, super.key});
   @override State<ExpensesDetailedReportPage> createState()=>_ExpensesDetailedReportState();
 }
 class _ExpensesDetailedReportState extends State<ExpensesDetailedReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;String? category,status;String search='';bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;category=widget.initialCategory;status=widget.initialStatus;_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    category=widget.initialCategory;status=widget.initialStatus;
+    
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: null,
+    );
+  }
   DateTime? get initialFrom=>widget.initialFrom;DateTime? get initialTo=>widget.initialTo;
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.expenseDetails(from:from,to:to,category:category,status:status);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
@@ -12494,7 +13625,10 @@ class _ExpensesDetailedReportState extends State<ExpensesDetailedReportPage>{
   Widget _card(Map<String,Object?> x){final id=x['id'];final color=_statusColor(x['status']);return InkWell(onTap:id is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'expense',id:id,title:'تفاصيل المصروف'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(_expenseIcon('${x['category']}'),color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['title']??'مصروف تشغيلي'}',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${categoryName('${x['category']}')} • ${_date(x['date'])} ${_time(x['date'])}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Text(money(_n(x['amount'])),style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:17))]),const SizedBox(height:11),Row(children:[_tag(Icons.category_outlined,categoryName('${x['category']}')),_tag(Icons.payments_outlined,'${x['method_name']??'طريقة غير محددة'}'),_tag(Icons.account_balance_wallet_outlined,'${x['cashbox_name']??'صندوق غير محدد'}'),const Spacer(),Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:5),decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(9)),child:Text(statusName(x['status']),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:10)))])])));}
   IconData _expenseIcon(String k)=>switch(k){'fuel'=>Icons.local_gas_station_rounded,'maintenance'=>Icons.build_rounded,'parts'=>Icons.settings_rounded,'oil'||'grease'=>Icons.opacity_rounded,'transport'=>Icons.local_shipping_rounded,'workers'||'partners'=>Icons.groups_rounded,_=>Icons.receipt_long_rounded};
   Widget _tag(IconData icon,String text)=>Padding(padding:const EdgeInsetsDirectional.only(end:9),child:Row(mainAxisSize:MainAxisSize.min,children:[Icon(icon,size:14,color:_reportOlive),const SizedBox(width:4),Text(text,style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:10))]));
-  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['amount']));final posted=rows.where((x)=>x['status']=='posted').fold<int>(0,(s,x)=>s+_n(x['amount']));final cancelled=rows.where((x)=>x['status']=='cancelled').length;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('المصروفات النثرية والتشغيلية',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة المصروفات',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('النثرية والتشغيلية',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('التصنيف والمبلغ والصندوق وطريقة الدفع لكل عملية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.receipt_long_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في البيان أو التصنيف أو الصندوق',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[DropdownButtonFormField<String>(initialValue:category,items:[const DropdownMenuItem<String>(value:null,child:Text('كل التصنيفات')),for(final v in ['workers','partners','fuel','oil','grease','maintenance','parts','transport','admin','other'])DropdownMenuItem(value:v,child:Text(categoryName(v)))],onChanged:(v){setState(()=>category=v);_load();},decoration:const InputDecoration(labelText:'التصنيف',border:OutlineInputBorder())),DropdownButtonFormField<String>(initialValue:status,items:[const DropdownMenuItem<String>(value:null,child:Text('كل الحالات')),for(final v in ['posted','cancelled','new','scheduled'])DropdownMenuItem(value:v,child:Text(statusName(v)))],onChanged:(v){setState(()=>status=v);_load();},decoration:const InputDecoration(labelText:'الحالة',border:OutlineInputBorder())),OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['amount']));final posted=rows.where((x)=>x['status']=='posted').fold<int>(0,(s,x)=>s+_n(x['amount']));final cancelled=rows.where((x)=>x['status']=='cancelled').length;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('المصروفات النثرية والتشغيلية',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة المصروفات',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('النثرية والتشغيلية',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('التصنيف والمبلغ والصندوق وطريقة الدفع لكل عملية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.receipt_long_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في البيان أو التصنيف أو الصندوق',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[DropdownButtonFormField<String>(initialValue:category,items:[const DropdownMenuItem<String>(value:null,child:Text('كل التصنيفات')),for(final v in ['workers','partners','fuel','oil','grease','maintenance','parts','transport','admin','other'])DropdownMenuItem(value:v,child:Text(categoryName(v)))],onChanged:(v){setState(()=>category=v);_load();},decoration:const InputDecoration(labelText:'التصنيف',border:OutlineInputBorder())),DropdownButtonFormField<String>(initialValue:status,items:[const DropdownMenuItem<String>(value:null,child:Text('كل الحالات')),for(final v in ['posted','cancelled','new','scheduled'])DropdownMenuItem(value:v,child:Text(statusName(v)))],onChanged:(v){setState(()=>status=v);_load();},decoration:const InputDecoration(labelText:'الحالة',border:OutlineInputBorder())),OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -12506,8 +13640,9 @@ class _ExpensesDetailedReportState extends State<ExpensesDetailedReportPage>{
 
 class InvoicesReportPage extends StatefulWidget {
   final StationRepository r;
+  final bool autoSelectPeriod;
   final DateTime? initialFrom, initialTo;
-  const InvoicesReportPage(this.r, {this.initialFrom, this.initialTo, super.key});
+  const InvoicesReportPage(this.r, {this.initialFrom, this.initialTo, this.autoSelectPeriod = true, super.key});
   @override
   State<InvoicesReportPage> createState() => _InvoicesReportPageState();
 }
@@ -12517,16 +13652,28 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   DateTime? from, to;
   String search = '';
   String sortKey = 'start_datetime';
+  String _reportSystemType = 'diesel';
   bool ascending = false, loading = true;
   bool partialHour = true;
+  bool useSpecialMinuteRateReports = false;
   String? error;
 
-  @override
+    @override
   void initState() {
     super.initState();
     from = widget.initialFrom;
     to = widget.initialTo;
-    _load();
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from = period.from; to = period.to; }),
+      load: _load,
+      systemType: 'all',
+    );
   }
 
   int _n(Object? value) => value is num ? value.round() : int.tryParse('$value') ?? 0;
@@ -12560,7 +13707,16 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     try {
       final settings = await widget.r.settings();
       final result = await widget.r.report('invoices', from: from, to: to, systemType: 'all');
-      if (mounted) setState(() { rows = result; partialHour = settings['partial_hour'] != 'false'; loading = false; });
+      if (mounted) {
+        setState(() {
+          rows = result;
+          _reportSystemType = settings['system_type'] ?? 'diesel';
+          partialHour = settings['partial_hour'] != 'false';
+          useSpecialMinuteRateReports =
+              settings['work_price_report_display_special_rate'] == 'true';
+          loading = false;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() { error = friendlyError(e); loading = false; });
     }
@@ -12634,18 +13790,62 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   int get totalMinutes => visible.fold<int>(0, (sum, row) => sum + _n(row['minutes']));
   int get totalCloudMinutes => visible.fold<int>(0, (sum, row) =>
       sum + ('${row['system_type'] ?? ''}' == 'solar' ? _n(row['cloud_minutes']) : 0));
-  int _amountBeforeCloud(Map<String, Object?> row) {
-    if ('${row['system_type'] ?? ''}' != 'solar' || _n(row['cloud_minutes']) <= 0) {
-      return _n(row['total_amount']);
+  int _hourlyAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+    final rate = switch ('${row['system_type'] ?? ''}') {
+      'solar' => _n(row['solar_hourly_rate_snapshot']),
+      'equivalent_hybrid' => _n(row['third_type_hourly_rate_snapshot']),
+      _ => _n(row['water_hourly_rate_snapshot']),
+    };
+    final minutes = beforeCloud
+        ? _n(row['minutes'])
+        : _n(row['chargeable_minutes'] ?? (_n(row['minutes']) - _n(row['cloud_minutes'])));
+    if (rate <= 0) {
+      final savedBase = _n(row['work_base_water_amount_snapshot']);
+      return (savedBase > 0 ? savedBase : _n(row['total_amount']) - _n(row['diesel_amount'])) +
+          _n(row['diesel_amount']);
     }
-    final rate = _n(row['solar_hourly_rate_snapshot']);
-    if (rate <= 0) return _n(row['total_amount']);
-    return AccountingCalculations.amountForMinutes(_n(row['minutes']), rate, 'up', partialHour);
+    return AccountingCalculations.amountForMinutes(
+          minutes.clamp(0, 100000000).toInt(), rate, 'up', partialHour,
+        ) +
+        _n(row['diesel_amount']);
   }
-  int get totalAmountBeforeCloud => visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
-  int get totalCloudDeduction => (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62).toInt();
-  int get totalAmount => visible.fold<int>(0, (sum, row) => sum + _n(row['total_amount']));
-  int get totalPaid => visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
+
+  int _reportAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+    final minutes = beforeCloud
+        ? _n(row['minutes'])
+        : _n(row['chargeable_minutes'] ?? (_n(row['minutes']) - _n(row['cloud_minutes'])));
+    final isBeneficiary = row['beneficiary_id'] != null;
+    if (useSpecialMinuteRateReports && isBeneficiary) {
+      final savedRate = _n(row['work_minute_rate_snapshot']);
+      final rate = savedRate;
+      if (rate > 0) {
+        return ReportMinutePricing.amountAtMinuteRate(
+              minutes.clamp(0, 100000000).toInt(), rate,
+            ) +
+            _n(row['diesel_amount']);
+      }
+    }
+    return _hourlyAmount(row, beforeCloud: beforeCloud);
+  }
+
+  int _amountBeforeCloud(Map<String, Object?> row) =>
+      _reportAmount(row, beforeCloud: true);
+  int _amountAfterCloud(Map<String, Object?> row) =>
+      _reportAmount(row, beforeCloud: false);
+  int get totalAmountBeforeCloud =>
+      visible.fold<int>(0, (sum, row) => sum + _amountBeforeCloud(row));
+  int get totalCloudDeduction =>
+      (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62).toInt();
+  int get totalAmount =>
+      visible.fold<int>(0, (sum, row) => sum + _amountAfterCloud(row));
+  int get totalPaid =>
+      visible.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
+  int get totalWorkBasis =>
+      visible.fold<int>(0, (sum, row) => sum + _hourlyAmount(row, beforeCloud: false));
+  // The operational surplus is an immutable historical invoice snapshot.
+  // A report display switch must never fabricate or erase that surplus.
+  int get totalWorkDifference => visible.fold<int>(
+      0, (sum, row) => sum + _n(row['work_difference_snapshot']));
 
   Future<List<Map<String, Object?>>> _pdfRows() async => visible;
 
@@ -12702,6 +13902,37 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       return;
     }
 
+    final isSolar = '${row['system_type']}' == 'solar';
+    int? cloudOverride;
+    if (isSolar) {
+      final input = TextEditingController(text: '${_n(row['cloud_minutes'])}');
+      final minutes = await showDialog<int>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('تعديل دقائق الغيم'),
+          content: TextField(
+            controller: input,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'إجمالي دقائق الغيم', helperText: 'سيحل الإجمالي الجديد محل فترات الغيم التفصيلية السابقة'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('إلغاء')),
+            FilledButton(onPressed: () {
+              final value = int.tryParse(input.text.trim());
+              if (value == null || value < 0 || value > end.difference(start).inMinutes) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(const SnackBar(content: Text('أدخل دقائق صحيحة لا تتجاوز مدة السقاية')));
+                return;
+              }
+              Navigator.pop(dialogContext, value);
+            }, child: const Text('متابعة')),
+          ],
+        ),
+      );
+      input.dispose();
+      if (minutes == null || !mounted) return;
+      if (minutes != _n(row['cloud_minutes'])) cloudOverride = minutes;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -12717,7 +13948,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
 
     try {
       final newTotal = await widget.r.accounting.updateIrrigationBasic(
-        id: id, start: start, end: end,
+        id: id, start: start, end: end, cloudMinutesOverride: cloudOverride,
       );
       if (!mounted) return;
       final paid = _n(row['paid_amount']);
@@ -12745,7 +13976,10 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     try {
       final bytes = await ReportService(widget.r).invoicesPdf(rows: await _pdfRows(), from: from, to: to);
       if (!mounted) return;
-      Navigator.push(context, MaterialPageRoute(builder: (_) => _InvoicesPdfPreviewPage(bytes: bytes)));
+      await ReportPdfPreviewService.open(
+        bytes: bytes,
+        suggestedName: 'تقرير الفواتير',
+      );
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
@@ -12790,8 +14024,15 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
         ]),
       );
 
+  bool get _showInvoiceCloud => DieselReportColumns.invoiceHasCloud(visible, _reportSystemType);
+  List<String> get _invoiceColumnKeys => [
+    'invoice_id', 'party_name', 'start_datetime', 'end_datetime', 'minutes',
+    if (_showInvoiceCloud) 'cloud_minutes',
+    'total_amount', 'paid_amount', 'notes',
+  ];
+
   void _sort(int column, bool ascendingValue) {
-    const keys = ['invoice_id', 'party_name', 'start_datetime', 'end_datetime', 'minutes', 'total_amount', 'paid_amount', 'notes'];
+    final keys = _invoiceColumnKeys;
     setState(() {
       sortKey = keys[column];
       ascending = ascendingValue;
@@ -12801,6 +14042,8 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   @override
   Widget build(BuildContext context) {
     final data = visible;
+    final showCloud = _showInvoiceCloud;
+    final sortIndex = _invoiceColumnKeys.indexOf(sortKey);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
@@ -12812,7 +14055,10 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
           title: const Text('تقرير الفواتير', style: TextStyle(fontWeight: FontWeight.w900)),
           actions: [
             IconButton(onPressed: _load, tooltip: 'تحديث', icon: const Icon(Icons.refresh_rounded)),
-            IconButton(onPressed: _previewPdf, tooltip: 'معاينة PDF', icon: const Icon(Icons.picture_as_pdf_rounded)),
+            ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_previewPdf),
+  child: IconButton(onPressed: _previewPdf, icon: const Icon(Icons.picture_as_pdf_rounded)),
+),
           ],
         ),
         body: loading
@@ -12840,6 +14086,16 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                         ]),
                       ),
                       const SizedBox(height: 14),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                        child: Text(
+                          useSpecialMinuteRateReports
+                              ? 'عرض التقرير: سعر الدقيقة الخاص'
+                              : 'عرض التقرير: سعر الساعة العام',
+                          style: const TextStyle(
+                            color: _reportOliveDark, fontWeight: FontWeight.w800),
+                        ),
+                      ),
                       LayoutBuilder(builder: (context, constraints) {
                         final compact = constraints.maxWidth < 650;
                         final cards = [
@@ -12848,7 +14104,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           _summaryCard('الإيرادات قبل خصم الغيم', '${_money(totalAmountBeforeCloud)} ريال', Icons.price_check_rounded, _reportGreen, 2),
                           _summaryCard('قيمة خصم الغيم', '${_money(totalCloudDeduction)} ريال', Icons.remove_circle_outline_rounded, _reportOrange, 3),
                           _summaryCard('الإيرادات بعد خصم الغيم', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 4),
-                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 5),
+                          _summaryCard('أساس العمل بسعر الساعة', '${_money(totalWorkBasis)} ريال', Icons.calculate_outlined, _reportOliveDark, 5),
+                          _summaryCard('صافي فارق العمل المسجل', '${_money(totalWorkDifference)} ريال', Icons.trending_up_rounded, _reportOrange, 6),
+                          _summaryCard('المسلّمة', '${_money(totalPaid)} ريال', Icons.payments_rounded, _reportOrange, 7),
                         ];
                         return Wrap(
                           spacing: 8,
@@ -12905,7 +14163,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                             scrollDirection: Axis.horizontal,
                             child: DataTable(
                               sortAscending: ascending,
-                              sortColumnIndex: const {'invoice_id': 0, 'party_name': 1, 'start_datetime': 2, 'end_datetime': 3, 'minutes': 4, 'total_amount': 5, 'paid_amount': 6, 'notes': 7}[sortKey],
+                              sortColumnIndex: sortIndex < 0 ? null : sortIndex,
                               headingRowColor: WidgetStateProperty.all(_reportCream),
                               dataRowMinHeight: 52,
                               dataRowMaxHeight: 70,
@@ -12915,6 +14173,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                 DataColumn(label: const Text('من'), onSort: _sort),
                                 DataColumn(label: const Text('إلى'), onSort: _sort),
                                 DataColumn(label: const Text('إجمالي الدقائق'), onSort: _sort),
+                                if (showCloud) DataColumn(label: const Text('الغيم (دقيقة)'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('القيمة الإجمالية'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('المسلّمة'), numeric: true, onSort: _sort),
                                 DataColumn(label: const Text('ملاحظات'), onSort: _sort),
@@ -12930,7 +14189,8 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text(_time(data[i]['start_datetime']))),
                                       DataCell(Text(_time(data[i]['end_datetime']))),
                                       DataCell(Text('${_invoiceNetMinutes(data[i])}')),
-                                      DataCell(Text(_money(data[i]['total_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
+                                      if (showCloud) DataCell(Text(data[i]['system_type'] == 'diesel' ? '—' : '${_n(data[i]['cloud_minutes'])}')),
+                                      DataCell(Text(_money(_amountAfterCloud(data[i])), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),
                                       DataCell(IconButton(tooltip: 'تعديل السقاية', icon: const Icon(Icons.edit_calendar_rounded, color: _reportOliveDark), onPressed: () => _editInvoice(data[i]))),
@@ -12942,9 +14202,18 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                         ),
                       const SizedBox(height: 14),
                       Wrap(spacing: 10, runSpacing: 10, children: [
-                        FilledButton.icon(onPressed: _previewPdf, icon: const Icon(Icons.preview_rounded), label: const Text('معاينة PDF')),
-                        FilledButton.icon(onPressed: _printPdf, icon: const Icon(Icons.print_rounded), label: const Text('طباعة مباشرة')),
-                        OutlinedButton.icon(onPressed: _sharePdf, icon: const Icon(Icons.share_rounded), label: const Text('مشاركة PDF')),
+                        ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_previewPdf),
+  child: FilledButton.icon(onPressed: _previewPdf, icon: const Icon(Icons.preview_rounded), label: const Text('معاينة PDF')),
+),
+                        ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_printPdf),
+  child: FilledButton.icon(onPressed: _printPdf, icon: const Icon(Icons.print_rounded), label: const Text('طباعة مباشرة')),
+),
+                        ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_sharePdf),
+  child: OutlinedButton.icon(onPressed: _sharePdf, icon: const Icon(Icons.share_rounded), label: const Text('مشاركة PDF')),
+),
                       ]),
                     ],
                   ),
@@ -12953,33 +14222,33 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   }
 }
 
-class _InvoicesPdfPreviewPage extends StatelessWidget {
-  final Uint8List bytes;
-  const _InvoicesPdfPreviewPage({required this.bytes});
-
-  @override
-  Widget build(BuildContext context) => Directionality(
-    textDirection: TextDirection.rtl,
-    child: Scaffold(
-      appBar: AppBar(title: const Text('معاينة PDF - تقرير الفواتير')),
-      body: PdfPreview(
-        build: (_) async => bytes,
-        canChangeOrientation: false,
-        canChangePageFormat: false,
-        useActions: true,
-      ),
-    ),
-  );
-}
-
 class IrrigationDetailedReportPage extends StatefulWidget {
-  final StationRepository r;final int? initialBeneficiaryId;final DateTime? initialFrom,initialTo;final String? initialSystemType;
-  const IrrigationDetailedReportPage(this.r,{this.initialBeneficiaryId,this.initialFrom,this.initialTo,this.initialSystemType,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod;final int? initialBeneficiaryId;final DateTime? initialFrom,initialTo;final String? initialSystemType;
+  const IrrigationDetailedReportPage(this.r,{this.initialBeneficiaryId,this.initialFrom,this.initialTo,this.initialSystemType,this.autoSelectPeriod = true, super.key});
   @override State<IrrigationDetailedReportPage> createState()=>_IrrigationDetailedReportState();
 }
 class _IrrigationDetailedReportState extends State<IrrigationDetailedReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;int? beneficiaryId;String systemType='all',search='';bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;beneficiaryId=widget.initialBeneficiaryId;systemType=widget.initialSystemType??'all';_load();}
+  @override void initState(){
+    super.initState();
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    
+    
+    beneficiaryId=widget.initialBeneficiaryId;systemType=widget.initialSystemType??'all';
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+      systemType: systemType,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('irrigations',from:from,to:to,systemType:systemType);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -12994,7 +14263,10 @@ class _IrrigationDetailedReportState extends State<IrrigationDetailedReportPage>
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
   Widget _card(Map<String,Object?> x){final total=_n(x['total_amount']);final paid=_n(x['paid_amount']);final due=total-paid;final cloud=_n(x['cloud_minutes'])>0;final id=x['irrigation_id'];return InkWell(onTap:id is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'irrigation',id:id,title:'تفاصيل السقاية'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.water_drop_rounded,color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['party_name']??'غير محدد'}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${_date(x['start_datetime'])} • ${_time(x['start_datetime'])}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),if(cloud)Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:6),decoration:BoxDecoration(color:_reportOrange.withValues(alpha: .12),borderRadius:BorderRadius.circular(10)),child:const Text('بسعر مخفض',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:10))),const Icon(Icons.arrow_back_ios_new_rounded,size:15,color:_reportOlive)]),const SizedBox(height:12),Row(children:[_mini('المدة','${_n(x['minutes'])} دقيقة',Icons.timer_outlined),const SizedBox(width:10),_mini('الإجمالي',money(total),Icons.receipt_long_rounded),const SizedBox(width:10),_mini('المدفوع',money(paid),Icons.payments_outlined)]),const SizedBox(height:12),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),decoration:BoxDecoration(color:due>0?_reportOrange.withValues(alpha: .08):_reportGreen.withValues(alpha: .08),borderRadius:BorderRadius.circular(13)),child:Row(children:[Icon(due>0?Icons.pending_actions_rounded:Icons.check_circle_rounded,color:due>0?_reportOrange:_reportGreen,size:18),const SizedBox(width:7),Text(due>0?'عليه ${money(due)}':'مكتملة السداد',style:TextStyle(color:due>0?_reportOrange:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),const Spacer(),if(id is int)const Text('فتح التفاصيل',style:TextStyle(color:_reportOliveDark,fontSize:11,fontWeight:FontWeight.w800))]))])));}
   Widget _mini(String label,String value,IconData icon)=>Expanded(child:Row(children:[Icon(icon,size:16,color:_reportOlive),const SizedBox(width:5),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:9)),Text(value,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w800,fontSize:11))]))]));
-  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['total_amount']));final paid=rows.fold<int>(0,(s,x)=>s+_n(x['paid_amount']));final minutes=rows.fold<int>(0,(s,x)=>s+_n(x['minutes']));final due=total-paid;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير السقايات التفصيلي',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التشغيل والتحصيل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('تفاصيل السقايات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('المدة والإجمالي والمدفوع والرصيد لكل عملية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.water_drop_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم المستفيد أو التاريخ',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['total_amount']));final paid=rows.fold<int>(0,(s,x)=>s+_n(x['paid_amount']));final minutes=rows.fold<int>(0,(s,x)=>s+_n(x['minutes']));final due=total-paid;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير السقايات التفصيلي',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التشغيل والتحصيل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('تفاصيل السقايات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('المدة والإجمالي والمدفوع والرصيد لكل عملية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.water_drop_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم المستفيد أو التاريخ',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -13441,7 +14713,10 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
       ]),
     );
   }
-  @override Widget build(BuildContext context){final revenue=_n(summary['revenue']);final expenses=_n(summary['expenses']);final workers=_n(summary['workers']);final workerDue=_n(summary['worker_due']);final partnerDue=_n(summary['partner_due']);final profit=_n(summary['distributable']);final totalShares=partners.where((p)=>(p['active'] as num?)?.toInt()==1).fold<double>(0.0,(sum,p)=>sum+((p['basis'] as num?)?.toDouble()??0.0));final q=partnerSearch.trim().toLowerCase();final visiblePartners=partners.where((p)=>q.isEmpty||'${p['name']??''}'.toLowerCase().contains(q)).toList();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('صافي الأرباح والتوزيعات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),FilledButton.icon(onPressed:loading ? null : _postDistribution,style:FilledButton.styleFrom(backgroundColor:_reportGreen,foregroundColor:Colors.white),icon:const Icon(Icons.account_balance_rounded,size:18),label:const Text('ترحيل التوزيع')),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الربح والتوزيع',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('صافي الأرباح القابل للتوزيع',style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الإيرادات − المصروفات العامة − مستحقات العمال',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.pie_chart_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text('من ${from.day}/${from.month}/${from.year}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text('إلى ${to.day}/${to.month}/${to.year}')),
+  @override Widget build(BuildContext context){final revenue=_n(summary['revenue']);final expenses=_n(summary['expenses']);final workers=_n(summary['workers']);final workerDue=_n(summary['worker_due']);final partnerDue=_n(summary['partner_due']);final profit=_n(summary['distributable']);final totalShares=partners.where((p)=>(p['active'] as num?)?.toInt()==1).fold<double>(0.0,(sum,p)=>sum+((p['basis'] as num?)?.toDouble()??0.0));final q=partnerSearch.trim().toLowerCase();final visiblePartners=partners.where((p)=>q.isEmpty||'${p['name']??''}'.toLowerCase().contains(q)).toList();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('صافي الأرباح والتوزيعات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),FilledButton.icon(onPressed:loading ? null : _postDistribution,style:FilledButton.styleFrom(backgroundColor:_reportGreen,foregroundColor:Colors.white),icon:const Icon(Icons.account_balance_rounded,size:18),label:const Text('ترحيل التوزيع')),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الربح والتوزيع',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('صافي الأرباح القابل للتوزيع',style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الإيرادات − المصروفات العامة − مستحقات العمال',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.pie_chart_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text('من ${from.day}/${from.month}/${from.year}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text('إلى ${to.day}/${to.month}/${to.year}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -13464,13 +14739,30 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
 
 class CentralLedgerReportPage extends StatefulWidget {
   final StationRepository r;
+  final bool autoSelectPeriod;
   final DateTime? initialFrom, initialTo;
-  const CentralLedgerReportPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  const CentralLedgerReportPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<CentralLedgerReportPage> createState()=>_CentralLedgerReportState();
 }
 class _CentralLedgerReportState extends State<CentralLedgerReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;String search='';bool loading=true;String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    
+    
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('ledger',from:from,to:to);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -13486,7 +14778,10 @@ class _CentralLedgerReportState extends State<CentralLedgerReportPage>{
   }return n;}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
   Widget _line(Map<String,Object?> x,int index){final debit=_n(x['debit']);final credit=_n(x['credit']);final running=_running(rows.indexOf(x));return InkWell(onTap:()=>_openJournalEntry(context,widget.r,x),borderRadius:BorderRadius.circular(19),child:Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(11)),child:Center(child:Text('${index+1}',style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900)))),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['description']??x['memo']??'حركة مالية'}',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:3),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),const Icon(Icons.open_in_new_rounded,size:17,color:_reportOlive)]),const SizedBox(height:10),Row(children:[if(credit>0)Text('له ${money(credit)}',style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),if(debit>0)Padding(padding:const EdgeInsetsDirectional.only(start:12),child:Text('عليه ${money(debit)}',style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:12))),const Spacer(),Text('الرصيد ${money(running)}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])])));}
-  @override Widget build(BuildContext context){final totalDebit=rows.fold<int>(0,(s,x)=>s+_n(x['debit']));final totalCredit=rows.fold<int>(0,(s,x)=>s+_n(x['credit']));final net=totalDebit-totalCredit;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('دفتر الأستاذ المركزي',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الحركات المالية المركزية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('دفتر الأستاذ العام',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مصدر موحد لكل القيود والحركات المالية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.account_balance_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في البيان أو الحساب أو المرجع',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  @override Widget build(BuildContext context){final totalDebit=rows.fold<int>(0,(s,x)=>s+_n(x['debit']));final totalCredit=rows.fold<int>(0,(s,x)=>s+_n(x['credit']));final net=totalDebit-totalCredit;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('دفتر الأستاذ المركزي',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الحركات المالية المركزية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('دفتر الأستاذ العام',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مصدر موحد لكل القيود والحركات المالية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.account_balance_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في البيان أو الحساب أو المرجع',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -13498,8 +14793,9 @@ class _CentralLedgerReportState extends State<CentralLedgerReportPage>{
 
 class LedgerStatementsPage extends StatefulWidget {
   final StationRepository r;
+  final bool autoSelectPeriod;
   final DateTime? initialFrom, initialTo;
-  const LedgerStatementsPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  const LedgerStatementsPage(this.r,{this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<LedgerStatementsPage> createState()=>_LedgerStatementsState();
 }
 
@@ -13508,7 +14804,23 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
   List<Map<String,Object?>> rows=[],beneficiaries=[],workers=[],partners=[],cashboxes=[]; Map<String,Object?> statementSummary={};
   bool loading=true; String? error;
   final labels=<String,String>{'beneficiary':'كشف المستفيد','worker':'كشف العامل','partner':'كشف الشريك','expenses':'كشف المصروفات','receipts':'كشف المقبوضات','payments':'كشف المدفوعات','cashbox':'كشف الصندوق'};
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_loadLists();}
+  @override void initState(){
+    super.initState();
+    
+    
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _loadLists,
+    );
+  }
   Future<void> _loadLists()async{try{final b=await widget.r.beneficiaries(),w=await widget.r.workers(),p=await widget.r.partners(),c=await widget.r.cashboxes();if(mounted)setState((){beneficiaries=b;workers=w;partners=p;cashboxes=c;selectedId=kind=='beneficiary'||b.isEmpty?null:b.first['id'] as int?;});await _load();}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _load()async{if((kind=='beneficiary'||kind=='worker'||kind=='partner'||kind=='cashbox')&&selectedId==null){if(mounted)setState((){rows=[];statementSummary={'opening_balance':0,'total_lah':0,'total_alayh':0,'net_movement':0,'closing_balance':0,'rows':<Map<String,Object?>>[]};loading=false;error=null;});return;}if(mounted)setState((){loading=true;error=null;});try{final data=await widget.r.partyLedgerStatementData(kind:kind,id:selectedId,from:from,to:to);final x=(data['rows'] as List).cast<Map<String,Object?>>();if(mounted)setState((){rows=x;statementSummary=data;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   int _n(Object? v)=>(v as num?)?.round()??0;
@@ -13634,13 +14946,30 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
 }
 
 class WorkerTransactionsOverviewPage extends StatefulWidget {
-  final StationRepository r; final int? initialWorkerId; final DateTime? initialFrom, initialTo;
-  const WorkerTransactionsOverviewPage(this.r,{this.initialWorkerId,this.initialFrom,this.initialTo,super.key});
+  final StationRepository r;
+  final bool autoSelectPeriod; final int? initialWorkerId; final DateTime? initialFrom, initialTo;
+  const WorkerTransactionsOverviewPage(this.r,{this.initialWorkerId,this.initialFrom,this.initialTo,this.autoSelectPeriod = true, super.key});
   @override State<WorkerTransactionsOverviewPage> createState()=>_WorkerTransactionsOverviewState();
 }
 class _WorkerTransactionsOverviewState extends State<WorkerTransactionsOverviewPage>{
   List<Map<String,Object?>> data=[]; DateTime? from,to; String search=''; bool loading=true; String? error;
-  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    
+    
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+    );
+  }
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final ws=await widget.r.workers();final out=<Map<String,Object?>>[];for(final w in ws){final tx=await widget.r.report('worker_transactions',workerId:w['id'] as int,from:from,to:to);final financial=tx.where((x)=>!const ['opening_balance','current_balance','worker_irrigation_info'].contains(x['type'])).toList();final openingRows=tx.where((x)=>x['type']=='opening_balance').toList();final lah=financial.fold<int>(0,(s,x)=>s+_n(x['lah']))+openingRows.fold<int>(0,(s,x)=>s+_n(x['lah']));final alayh=financial.fold<int>(0,(s,x)=>s+_n(x['alayh']))+openingRows.fold<int>(0,(s,x)=>s+_n(x['alayh']));out.add({...w,'lahTotal':lah,'alayhTotal':alayh,'movementCount':financial.where((x)=>x['type']!='worker_income_total').length});}if(mounted)setState((){data=out;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   int _n(Object? v)=>(v as num?)?.round()??0;
   String _date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
@@ -13653,7 +14982,10 @@ class _WorkerTransactionsOverviewState extends State<WorkerTransactionsOverviewP
   List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return q.isEmpty?data:data.where((x)=>'${x['name']??''} ${x['phone']??''}'.toLowerCase().contains(q)).toList();}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(icon,color:color,size:21),const SizedBox(width:8),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15))]))])));
   Widget _mini(String l,String v,Color c)=>Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(l,style:TextStyle(color:_reportInk.withValues(alpha: .52),fontSize:10)),const SizedBox(height:3),Text(v,style:TextStyle(color:c,fontWeight:FontWeight.w900,fontSize:14))]));
-  Widget _card(Map<String,Object?> x){final id=x['id'] as int;final lah=_n(x['lahTotal']);final alayh=_n(x['alayhTotal']);final opening=_n(x['opening_balance']);final balance=lah-alayh;final color=balance>=0?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.engineering_rounded,color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??''}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${payTypeName('${x['pay_type']}')} • ${x['phone']??'بدون هاتف'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),IconButton(onPressed:()=>_print(id),tooltip:'PDF العامل',icon:const Icon(Icons.picture_as_pdf_rounded,color:_reportOliveDark)),IconButton(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>WorkerAccountsReportPage(widget.r,initialWorkerId:id,initialFrom:from,initialTo:to))),tooltip:'فتح الكشف',icon:const Icon(Icons.open_in_new_rounded,color:_reportOliveDark))]),const SizedBox(height:11),Align(alignment:Alignment.centerRight,child:Text(opening>0?'الرصيد الافتتاحي له ${money(opening.abs())}':opening<0?'الرصيد الافتتاحي عليه ${money(opening.abs())}':'الرصيد الافتتاحي صفر',style:TextStyle(color:_reportInk.withValues(alpha:.7),fontSize:11,fontWeight:FontWeight.w700))),const SizedBox(height:8),Row(children:[_mini('له',money(lah),_reportGreen),const SizedBox(width:10),_mini('عليه',money(alayh),_reportOrange),const SizedBox(width:10),_mini('الحركات','${x['movementCount']??0}',_reportOliveDark)]),const SizedBox(height:10),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:9),decoration:BoxDecoration(color:color.withValues(alpha: .08),borderRadius:BorderRadius.circular(12)),child:Row(children:[Icon(balance>=0?Icons.account_balance_wallet_rounded:Icons.warning_amber_rounded,color:color,size:18),const SizedBox(width:7),Text(balance>=0?'صافي الحساب له ${money(balance.abs())}':'صافي الحساب عليه ${money(balance.abs())}',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:12)),const Spacer(),const Text('كشف تفصيلي',style:TextStyle(color:_reportOliveDark,fontSize:10,fontWeight:FontWeight.w800))]))]));}
+  Widget _card(Map<String,Object?> x){final id=x['id'] as int;final lah=_n(x['lahTotal']);final alayh=_n(x['alayhTotal']);final opening=_n(x['opening_balance']);final balance=lah-alayh;final color=balance>=0?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.engineering_rounded,color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??''}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${payTypeName('${x['pay_type']}')} • ${x['phone']??'بدون هاتف'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print(id)),
+  child: IconButton(onPressed:()=>_print(id),icon:const Icon(Icons.picture_as_pdf_rounded,color:_reportOliveDark)),
+),IconButton(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>WorkerAccountsReportPage(widget.r,initialWorkerId:id,initialFrom:from,initialTo:to,autoSelectPeriod:false))),tooltip:'فتح الكشف',icon:const Icon(Icons.open_in_new_rounded,color:_reportOliveDark))]),const SizedBox(height:11),Align(alignment:Alignment.centerRight,child:Text(opening>0?'الرصيد الافتتاحي له ${money(opening.abs())}':opening<0?'الرصيد الافتتاحي عليه ${money(opening.abs())}':'الرصيد الافتتاحي صفر',style:TextStyle(color:_reportInk.withValues(alpha:.7),fontSize:11,fontWeight:FontWeight.w700))),const SizedBox(height:8),Row(children:[_mini('له',money(lah),_reportGreen),const SizedBox(width:10),_mini('عليه',money(alayh),_reportOrange),const SizedBox(width:10),_mini('الحركات','${x['movementCount']??0}',_reportOliveDark)]),const SizedBox(height:10),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:9),decoration:BoxDecoration(color:color.withValues(alpha: .08),borderRadius:BorderRadius.circular(12)),child:Row(children:[Icon(balance>=0?Icons.account_balance_wallet_rounded:Icons.warning_amber_rounded,color:color,size:18),const SizedBox(width:7),Text(balance>=0?'صافي الحساب له ${money(balance.abs())}':'صافي الحساب عليه ${money(balance.abs())}',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:12)),const Spacer(),const Text('كشف تفصيلي',style:TextStyle(color:_reportOliveDark,fontSize:10,fontWeight:FontWeight.w800))]))]));}
   @override Widget build(BuildContext context){final lah=data.fold<int>(0,(s,x)=>s+_n(x['lahTotal']));final alayh=data.fold<int>(0,(s,x)=>s+_n(x['alayhTotal']));final movements=data.fold<int>(0,(s,x)=>s+_n(x['movementCount']));return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('معاملات العمال',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة استحقاقات العمال',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المعاملات والاستحقاقات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الدفعات والاستحقاقات والسلف من دفتر الأستاذ المركزي',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.engineering_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم العامل أو الهاتف',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
@@ -13666,9 +14998,10 @@ class _WorkerTransactionsOverviewState extends State<WorkerTransactionsOverviewP
 
 class WorkerAccountsReportPage extends StatefulWidget {
   final StationRepository r;
+  final bool autoSelectPeriod;
   final int? initialWorkerId;
   final DateTime? initialFrom, initialTo;
-  const WorkerAccountsReportPage(this.r, {this.initialWorkerId, this.initialFrom, this.initialTo, super.key});
+  const WorkerAccountsReportPage(this.r, {this.initialWorkerId, this.initialFrom, this.initialTo, this.autoSelectPeriod = true, super.key});
   @override State<WorkerAccountsReportPage> createState() => _WorkerAccountsReportState();
 }
 
@@ -13682,7 +15015,23 @@ class _WorkerAccountsReportState extends State<WorkerAccountsReportPage> {
   String workerSearch='';
   bool loading=true;
   String? error;
-  @override void initState(){super.initState();selectedId=widget.initialWorkerId;from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    selectedId=widget.initialWorkerId;
+    
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+    );
+  }
   @override void dispose(){workerSearchController.dispose();super.dispose();}
   Future<void> _load() async {
     if(mounted)setState((){loading=true;error=null;});
@@ -13701,7 +15050,10 @@ class _WorkerAccountsReportState extends State<WorkerAccountsReportPage> {
   IconData _typeIcon(Object? value)=>switch('$value'){'payment'=>Icons.payments_rounded,'payment_note'=>Icons.sticky_note_2_rounded,'accrual'||'worker_income_total'=>Icons.engineering_rounded,'opening_balance'=>Icons.flag_rounded,_=>Icons.water_drop_rounded};
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
   Widget _movement(Map<String,Object?> x){final kind='${x['type']??''}';final signed=_n(x['signed_amount']);final positive=signed>=0;final color=positive?_reportGreen:_reportOrange;final isIrrigationInfo=kind=='worker_irrigation_info';return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_typeIcon(x['type']),color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Expanded(child:Text('${x['description']??_type(x['type'])}',maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk))),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:11))]),const SizedBox(height:5),Text(_type(x['type']),style:TextStyle(color:color,fontSize:11,fontWeight:FontWeight.w800)),if(!isIrrigationInfo)...[const SizedBox(height:8),Row(children:[Text(positive?'له':'عليه',style:TextStyle(color:color,fontWeight:FontWeight.w900)),const SizedBox(width:6),Text(money(signed.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900)),const Spacer(),Text('الرصيد ${money(_n(x['balance']))}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])] else const Padding(padding:EdgeInsets.only(top:6),child:Text('معلومة عن السقاية فقط — لا تُحتسب هنا كدخل منفصل',style:TextStyle(fontSize:11,color:_reportInk))) ]))]));}
-  @override Widget build(BuildContext context){final w=worker;final bal=_n(summary['balance']);final openingRow=rows.where((x)=>x['type']=='opening_balance').firstOrNull;final opening=_n(openingRow?['signed_amount']??openingRow?['balance']);final financialRows=rows.where((x)=>!const ['opening_balance','carried_balance','current_balance','worker_irrigation_info','worker_income_total'].contains(x['type'])).toList();final lah=financialRows.fold<int>(0,(sum,x)=>sum+_n(x['lah']));final alayh=financialRows.fold<int>(0,(sum,x)=>sum+_n(x['alayh']));final pay=w==null?'':payTypeName('${w['pay_type']}');final payDetail=w==null?'':w['pay_type']=='hourly'?'${w['hourly_rate']??0} لكل ساعة':w['pay_type']=='percentage'?'${w['percentage_rate']??0}% من السقاية':'راتب ${w['fixed_salary']??0} شهرياً';return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تفاصيل حسابات العمال',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('كشف استحقاقات العامل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(w==null?'اختر عاملاً':w['name']?.toString()??'اختر عاملاً',style:const TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الساعات والاستحقاقات والدفعات من دفتر الأستاذ المركزي',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.engineering_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[TextField(controller:workerSearchController,onChanged:(v)=>setState(()=>workerSearch=v),decoration:InputDecoration(labelText:'اكتب اسم العامل للبحث',hintText:'اكتب اسم العامل',prefixIcon:const Icon(Icons.search_rounded),suffixIcon:workerSearch.isEmpty?null:IconButton(onPressed:(){workerSearchController.clear();setState(()=>workerSearch='');},icon:const Icon(Icons.close_rounded)),border:const OutlineInputBorder())),if(workerSearch.trim().isNotEmpty) ...[const SizedBox(height:8),...workers.where((x)=>'${x['name']??''}'.toLowerCase().contains(workerSearch.trim().toLowerCase())).take(8).map((x)=>ListTile(dense:true,leading:const Icon(Icons.engineering_rounded),title:Text('${x['name']??''}'),subtitle:Text('${x['phone']??'بدون هاتف'}'),onTap:(){final id=x['id'] as int;workerSearchController.text='${x['name']??''}';setState((){selectedId=id;workerSearch='${x['name']??''}';});_load();})),if(!workers.any((x)=>'${x['name']??''}'.toLowerCase().contains(workerSearch.trim().toLowerCase())))const Padding(padding:EdgeInsets.all(8),child:Text('لا يوجد عامل يطابق الاسم المكتوب'))]])),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pickDate(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pickDate(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  @override Widget build(BuildContext context){final w=worker;final bal=_n(summary['balance']);final openingRow=rows.where((x)=>x['type']=='opening_balance').firstOrNull;final opening=_n(openingRow?['signed_amount']??openingRow?['balance']);final financialRows=rows.where((x)=>!const ['opening_balance','carried_balance','current_balance','worker_irrigation_info','worker_income_total'].contains(x['type'])).toList();final lah=financialRows.fold<int>(0,(sum,x)=>sum+_n(x['lah']));final alayh=financialRows.fold<int>(0,(sum,x)=>sum+_n(x['alayh']));final pay=w==null?'':payTypeName('${w['pay_type']}');final payDetail=w==null?'':w['pay_type']=='hourly'?'${w['hourly_rate']??0} لكل ساعة':w['pay_type']=='percentage'?'${w['percentage_rate']??0}% من السقاية':'راتب ${w['fixed_salary']??0} شهرياً';return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تفاصيل حسابات العمال',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('كشف استحقاقات العامل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(w==null?'اختر عاملاً':w['name']?.toString()??'اختر عاملاً',style:const TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الساعات والاستحقاقات والدفعات من دفتر الأستاذ المركزي',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.engineering_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[TextField(controller:workerSearchController,onChanged:(v)=>setState(()=>workerSearch=v),decoration:InputDecoration(labelText:'اكتب اسم العامل للبحث',hintText:'اكتب اسم العامل',prefixIcon:const Icon(Icons.search_rounded),suffixIcon:workerSearch.isEmpty?null:IconButton(onPressed:(){workerSearchController.clear();setState(()=>workerSearch='');},icon:const Icon(Icons.close_rounded)),border:const OutlineInputBorder())),if(workerSearch.trim().isNotEmpty) ...[const SizedBox(height:8),...workers.where((x)=>'${x['name']??''}'.toLowerCase().contains(workerSearch.trim().toLowerCase())).take(8).map((x)=>ListTile(dense:true,leading:const Icon(Icons.engineering_rounded),title:Text('${x['name']??''}'),subtitle:Text('${x['phone']??'بدون هاتف'}'),onTap:(){final id=x['id'] as int;workerSearchController.text='${x['name']??''}';setState((){selectedId=id;workerSearch='${x['name']??''}';});_load();})),if(!workers.any((x)=>'${x['name']??''}'.toLowerCase().contains(workerSearch.trim().toLowerCase())))const Padding(padding:EdgeInsets.all(8),child:Text('لا يوجد عامل يطابق الاسم المكتوب'))]])),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pickDate(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pickDate(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -13713,10 +15065,11 @@ class _WorkerAccountsReportState extends State<WorkerAccountsReportPage> {
 
 class PartnerAccountsReportPage extends StatefulWidget {
   final StationRepository r;
+  final bool autoSelectPeriod;
   final int? initialPartnerId;
   final DateTime? initialFrom, initialTo;
   final int? userId;
-  const PartnerAccountsReportPage(this.r, {this.initialPartnerId, this.initialFrom, this.initialTo, this.userId, super.key});
+  const PartnerAccountsReportPage(this.r, {this.initialPartnerId, this.initialFrom, this.initialTo, this.userId, this.autoSelectPeriod = true, super.key});
   @override State<PartnerAccountsReportPage> createState() => _PartnerAccountsReportState();
 }
 
@@ -13730,7 +15083,23 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
   bool loading=true;
   String? error;
 
-  @override void initState(){super.initState();selectedId=widget.initialPartnerId;from=widget.initialFrom;to=widget.initialTo;_load();}
+  @override void initState(){
+    super.initState();
+    
+    selectedId=widget.initialPartnerId;
+    from=widget.initialFrom;
+    to=widget.initialTo;
+    _initializeAutomaticReportRange(
+      repository: widget.r,
+      enableAutomatic: widget.autoSelectPeriod,
+      initialFrom: widget.initialFrom,
+      initialTo: widget.initialTo,
+      stillMounted: () => mounted,
+      maySetDefault: () => from == null && to == null,
+      apply: (period) => setState(() { from=period.from; to=period.to; }),
+      load: _load,
+    );
+  }
   Future<void> _load() async {
     if (mounted) setState((){loading=true;error=null;});
     try {
@@ -13828,6 +15197,9 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
       final profitTotalRow = rows.where((x) => x['type'] == 'partner_profit_total').firstOrNull;
       final orderedRows = rows.where((x) => x['type'] != 'partner_profit_total').toList().reversed.toList();
       if (profitTotalRow != null) orderedRows.add(profitTotalRow);
+      // The PDF footer must also ignore informational rows with no balance.
+      final closingRow = profitTotalRow ??
+          orderedRows.where(PartyStatementBalanceDisplay.hasBalance).lastOrNull;
       final movementRows = <List<String>>[];
       for (final x in orderedRows) {
         final type = '${x['type'] ?? ''}';
@@ -13835,12 +15207,10 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
         final date = _date(x['date']);
         final credit = _n(x['lah']);
         final debit = _n(x['alayh']);
-        final balance = _n(x['balance']);
-        final balanceText = balance > 0
-            ? 'له ${NumberFormat('#,##0').format(balance)}'
-            : balance < 0
-                ? 'عليه ${NumberFormat('#,##0').format(balance.abs())}'
-                : 'صفر';
+        final balanceText = PartyStatementBalanceDisplay.format(
+          x,
+          money: (value) => NumberFormat('#,##0').format(value),
+        );
         movementRows.add([
           date,
           description,
@@ -13877,11 +15247,12 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
           '',
           amountText(rows.where((row) => row['type'] != 'partner_profit_total' && row['type'] != 'partner_irrigation_info').fold<int>(0, (sum, row) => sum + _n(row['lah']))),
           amountText(rows.where((row) => row['type'] != 'partner_profit_total' && row['type'] != 'partner_irrigation_info').fold<int>(0, (sum, row) => sum + _n(row['alayh']))),
-          (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) > 0
-              ? 'له ${amountText(orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance']))}'
-              : (orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])) < 0
-                  ? 'عليه ${amountText((orderedRows.isEmpty ? 0 : _n(orderedRows.last['balance'])).abs())}'
-                  : 'صفر',
+          closingRow == null
+              ? '—'
+              : PartyStatementBalanceDisplay.format(
+                  closingRow,
+                  money: (value) => NumberFormat('#,##0').format(value),
+                ),
         ],
         minTableRows: 8,
       );
@@ -13930,7 +15301,9 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
             ),
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 10),
-              child: FilledButton.icon(
+              child: ReportPdfLongPress(
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
+  child: FilledButton.icon(
                 onPressed: _print,
                 style: FilledButton.styleFrom(
                   backgroundColor: _reportOliveDark,
@@ -13942,6 +15315,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                 icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
                 label: const Text('PDF'),
               ),
+),
             ),
           ],
         ),
@@ -14504,7 +15878,7 @@ class _SettingsState extends State<SettingsPage> {
     final controllers = <String, TextEditingController>{
       for (final key in keys)
         key: TextEditingController(
-          text: s[key] ?? MessageTemplateService.defaults[key]!,
+          text: s[key] ?? MessageTemplateService.defaultFor(key, systemType: s['system_type']),
         ),
     };
     try {
@@ -14534,7 +15908,9 @@ class _SettingsState extends State<SettingsPage> {
                     ),
                     const SizedBox(height: 10),
                     TextField(
+                      key: ValueKey('message-template-$selected'),
                       controller: controllers[selected],
+                      onChanged: (_) => refresh(() {}),
                       minLines: 8,
                       maxLines: 14,
                       decoration: const InputDecoration(labelText: 'نص الرسالة', border: OutlineInputBorder(), alignLabelWithHint: true),
@@ -14546,7 +15922,7 @@ class _SettingsState extends State<SettingsPage> {
                       spacing: 6,
                       runSpacing: 6,
                       children: [
-                        for (final field in MessageTemplateService.fields[selected] ?? const <String>[])
+                        for (final field in MessageTemplateService.availableFields(selected, systemType: s['system_type']))
                           ActionChip(
                             label: Text(field),
                             onPressed: () {
@@ -14567,14 +15943,14 @@ class _SettingsState extends State<SettingsPage> {
                     ),
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
-                      onPressed: () => refresh(() => controllers[selected]!.text = MessageTemplateService.defaults[selected]!),
+                      onPressed: () => refresh(() => controllers[selected]!.text = MessageTemplateService.defaultFor(selected, systemType: s['system_type'])),
                       icon: const Icon(Icons.restore),
                       label: const Text('استعادة النص الافتراضي'),
                     ),
                     const Divider(),
                     const Text('معاينة تجريبية', style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 6),
-                    Text(MessageTemplateService.preview(controllers[selected]!.text)),
+                    Text(MessageTemplateService.preview(controllers[selected]!.text, key: selected, systemType: s['system_type'])),
                   ],
                 ),
               ),
@@ -15136,6 +16512,27 @@ class _SettingsState extends State<SettingsPage> {
     trailing: const Icon(Icons.edit),
     onTap: () => edit(k, label, numeric: n),
   );
+  Widget workDifferenceTile() {
+    const key = 'work_price_difference_enabled';
+    final enabled = (s[key] ?? 'false') == 'true';
+    return SwitchListTile.adaptive(
+      title: const Text('تفعيل فارق العمل'),
+      subtitle: Text(enabled
+          ? 'مفعّل — تحفظ فاتورة المستفيد بسعر الدقيقة الخاص، والشركاء والعاملون على السعر العام'
+          : 'متوقف — تحفظ السقايات الجديدة بسعر الساعة العام'),
+      value: enabled,
+      onChanged: (value) async {
+        if (!await runGuarded(context,
+            () => widget.r.setWorkDifferenceEnabled(value))) {
+          return;
+        }
+        await load();
+      },
+      secondary: Icon(enabled ? Icons.toggle_on_rounded : Icons.toggle_off_rounded),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+    );
+  }
+
   Widget boolTile(String k, String label) => SwitchListTile.adaptive(
     title: Text(label),
     value: (s[k] ?? 'false') == 'true',
@@ -15304,6 +16701,7 @@ class _SettingsState extends State<SettingsPage> {
                 trailing: const Icon(Icons.verified_rounded, color: _reportGreen),
               ),
               if ((s['system_type'] ?? 'diesel') == 'diesel') ...[
+                ListTile(leading: const Icon(Icons.oil_barrel_outlined), title: const Text('موعد تغيير الزيت وتكلفته'), subtitle: const Text('ساعات السقاية، التنبيه، وسجل المصروفات'), onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselOilPage(widget.r, userId: widget.userId, role: widget.manager ? 'manager' : 'operations')))),
                 setTile(
                   'diesel_hourly_water_rate',
                   'سعر مياه الديزل بالساعة',
@@ -15324,6 +16722,16 @@ class _SettingsState extends State<SettingsPage> {
                   'سعر النوع الثالث بالساعة',
                   true,
                 ),
+              if (widget.manager) ...[
+                const Divider(height: 8),
+                setTile('work_minute_rate', 'سعر الدقيقة الخاص للمستفيدين', true),
+                workDifferenceTile(),
+                boolTile('work_price_report_display_special_rate', 'عرض سعر الدقيقة الخاص في تقرير الفواتير وPDF'),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: Text('زر فارق العمل يحدّد سعر السقايات الجديدة فقط: عند التفعيل تُحفظ فاتورة المستفيد بسعر الدقيقة الخاص، بينما يبقى أساس أرباح الشركاء والعمال بسعر الساعة العام. عند الإيقاف تُحفظ الفاتورة بالسعر العام. خيار العرض الثاني مستقل للتقارير، وكشف المستفيد يعرض سعر الدقيقة الخاص دائمًا. السقايات السابقة لا يعاد تسعيرها أو تعديل قيودها.', style: TextStyle(fontSize: 12, height: 1.5)),
+                ),
+              ],
               boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
               dropdownTile('rounding', 'سياسة التقريب', const [
                 MapEntry('nearest', 'التقريب إلى أقرب عدد صحيح'),
@@ -15345,6 +16753,7 @@ class _SettingsState extends State<SettingsPage> {
               ]),
               if ((s['time_source'] ?? 'device') == 'server')
                 setTile('server_url', 'عنوان الخادم (لمزامنة الوقت)'),
+              SyncConnectionPanel(initialServerUrl: s['server_url'] ?? ''),
               dropdownTile('week_start', 'بداية الأسبوع', const [
                 MapEntry('saturday', 'السبت'),
                 MapEntry('sunday', 'الأحد'),

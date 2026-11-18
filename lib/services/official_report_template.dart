@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
+import 'report_pdf_preview_service.dart';
 
 /// نموذج بيانات البطاقة الإحصائية العلوية.
 class StatBoxData {
@@ -54,7 +54,7 @@ class OfficialReportTemplate {
     List<String>? footerTotalRow,
     Uint8List? emblemImageBytes,
     String thirdSignatureLabel = 'الاعتماد والختم: ....................',
-    String fileName = 'official_report.pdf',
+    String? fileName,
     int minTableRows = 7,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
     int preferredRowsPerPage = 30,
@@ -161,9 +161,12 @@ class OfficialReportTemplate {
 
     final bytes = await document.save();
     if (printAfterGenerate) {
-      await Printing.layoutPdf(
-        onLayout: (_) async => bytes,
-        name: fileName,
+      // The document bytes/layout are unchanged: only the UI opened after
+      // generation switches to the common pinch-zoom PDF reader.
+      await ReportPdfPreviewService.open(
+        bytes: bytes,
+        suggestedName:
+            fileName == null || fileName.trim().isEmpty ? reportTitle : fileName,
       );
     }
     return bytes;
@@ -358,6 +361,33 @@ class OfficialReportTemplate {
     );
   }
 
+  // RTL documents need LTR isolation for numeric dates and clocks.
+  static final RegExp _dateTimeCellPattern = RegExp(
+    r'^(?:[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}|[0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{4})(?:[ T][0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?)?$',
+  );
+
+  static bool isDateTimeCell(String value) =>
+      _dateTimeCellPattern.hasMatch(value.trim());
+
+  static pw.Widget _tableValueText(
+    String cell, {
+    required pw.Font font,
+    required double fontSize,
+  }) {
+    final text = pw.Text(
+      cell,
+      textAlign: pw.TextAlign.center,
+      style: pw.TextStyle(
+        fontFallback: [pw.Font.helvetica()],
+        font: font,
+        fontSize: fontSize,
+      ),
+    );
+    return isDateTimeCell(cell)
+        ? pw.Directionality(textDirection: pw.TextDirection.ltr, child: text)
+        : text;
+  }
+
   static pw.Widget _buildOfficialTable({
     required List<String> columns,
     required List<List<String>> rows,
@@ -415,11 +445,7 @@ class OfficialReportTemplate {
                       vertical: cellVerticalPadding,
                     ),
                     alignment: pw.Alignment.center,
-                    child: pw.Text(
-                      cell,
-                      textAlign: pw.TextAlign.center,
-                      style: pw.TextStyle(fontFallback: [pw.Font.helvetica()], font: font, fontSize: cellFontSize),
-                    ),
+                    child: _tableValueText(cell, font: font, fontSize: cellFontSize),
                   ),
                 )
                 .toList(),
@@ -437,16 +463,12 @@ class OfficialReportTemplate {
                   vertical: cellVerticalPadding,
                 ),
                 alignment: pw.Alignment.center,
-                child: pw.Text(
+                child: _tableValueText(
                   index < footerRow.length
                       ? footerRow[footerRow.length - 1 - index]
                       : '',
-                  textAlign: pw.TextAlign.center,
-                  style: pw.TextStyle(
-                    fontFallback: [pw.Font.helvetica()],
-                    font: boldFont,
-                    fontSize: cellFontSize,
-                  ),
+                  font: boldFont,
+                  fontSize: cellFontSize,
                 ),
               ),
             ),

@@ -1,15 +1,59 @@
+import '../core/diesel_quantity.dart';
+import '../domain/accounting/party_diesel_statement.dart';
+import '../domain/maintenance/diesel_delivery_service.dart';
+import 'diesel_report_columns.dart';
+import '../domain/accounting/report_minute_pricing.dart';
 import '../core/app_clock.dart';
 import 'package:intl/intl.dart';
 import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
-import 'package:printing/printing.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/calculations.dart';
+import '../domain/accounting/debt_report_totals.dart';
 import 'official_report_template.dart';
+import 'party_statement_balance_display.dart';
+import 'report_file_name_service.dart';
+import 'report_pdf_preview_service.dart';
 
 class ReportService {
   final StationRepository repo;
   ReportService([StationRepository? r]) : repo = r ?? StationRepository();
+
+  // The generic report families migrate to the common reader in groups of
+  // nine or fewer. Specialized receipt/statement/partner paths follow later.
+  static const previewReportKeys = <String>{
+    'irrigations',
+    'time_comparison',
+    'monthly_financial',
+    'income',
+    'revenue_comparison',
+    'system_comparison',
+    'activity_overview',
+    'expenses',
+    'cash_flow',
+    // Batch 2 (nine additional reports)
+    'cashboxes',
+    'payment_methods',
+    'payment_log',
+    'queue_bookings',
+    'diesel_inventory',
+    'oil_status',
+    'journal',
+    'ledger',
+    'debts',
+    // Batch 3 (nine additional reports)
+    'all_party_debts',
+    'beneficiary_detailed',
+    'beneficiary_stats',
+    'needy',
+    'beneficiary_list',
+    'partner_accounts',
+    'partner_profit_distribution',
+    'beneficiary_statement',
+    'invoices',
+    // Batch 4: the worker report takes the specialist official-template path.
+    'worker_transactions',
+  };
 
   static const titles = {
     'irrigations': 'تقرير السقايات التفصيلي',
@@ -30,7 +74,8 @@ class ReportService {
     'diesel_inventory': 'مخزون الديزل',
     'activity_overview': 'نظرة عامة على النشاط',
     'oil_status': 'حالة الزيت',
-    'debts': 'المديونيات',
+    'debts': 'مديونيات المستفيدين',
+    'all_party_debts': 'المديونيات — المستفيدون والعمال والشركاء',
     'beneficiary_list': 'قائمة المستفيدين',
     'revenue_comparison': 'مقارنة الإيرادات',
     'system_comparison': 'مقارنة منظومات الري',
@@ -64,6 +109,7 @@ class ReportService {
   'activity_overview': ['system_type', 'operations', 'minutes', 'total'],
   'oil_status': ['category', 'total'],
   'debts': ['id', 'name', 'balance'],
+  'all_party_debts': ['party_type', 'name', 'balance'],
   'beneficiary_list': ['name', 'phone', 'status'],
   'revenue_comparison': ['month', 'system_type', 'total'],
   'system_comparison': ['system_type', 'operations', 'minutes', 'total', 'diesel_cost'],
@@ -71,6 +117,123 @@ class ReportService {
   'ledger': ['date', 'account_name', 'journal_entry_id', 'description', 'alayh', 'lah', 'balance'],
 };
 
+
+  /// A third per-person PDF: liters issued, consumed and the exact signed
+  /// balance, including reversals. No money or stock is posted by this reader.
+  Future<void> printPartyDieselPdf({
+    required String partyType,
+    required int partyId,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    const tables = <String, String>{
+      'beneficiary': 'beneficiaries',
+      'worker': 'workers',
+      'partner': 'partners',
+    };
+    const labels = <String, String>{
+      'beneficiary': 'المستفيد',
+      'worker': 'العامل',
+      'partner': 'الشريك',
+    };
+    final table = tables[partyType];
+    if (table == null || partyId <= 0) {
+      throw ArgumentError('نوع الطرف أو رقمه غير صالح');
+    }
+    if (from != null && to != null &&
+        DateTime(from.year, from.month, from.day)
+            .isAfter(DateTime(to.year, to.month, to.day))) {
+      throw ArgumentError('بداية الفترة بعد نهايتها');
+    }
+    final station = await repo.accounting.currentStationId();
+    final people = await repo.db.rawQuery(
+      'SELECT * FROM $table WHERE id=? AND station_id=?',
+      [partyId, station],
+    );
+    if (people.length != 1) throw StateError('صاحب التقرير لا يتبع المحطة الحالية');
+    final person = people.single;
+    final opening = partyType == 'beneficiary'
+        ? ((person['opening_diesel_liters'] as num?)?.toDouble() ?? 0) +
+          ((person['carried_diesel_liters'] as num?)?.toDouble() ?? 0)
+        : 0.0;
+    final column = '${partyType}_id';
+    final movements = await repo.db.rawQuery(
+      """SELECT dm.id,dm.date,dm.kind,dm.liters,dm.party_receipt,
+                dm.irrigation_id,dm.reversal_of,dm.notes
+         FROM diesel_movements dm
+         LEFT JOIN irrigations i ON i.id=dm.irrigation_id
+         WHERE dm.station_id=? AND
+               (dm.$column=? OR (dm.$column IS NULL AND i.$column=?))
+         ORDER BY dm.date ASC,dm.id ASC""",
+      [station, partyId, partyId],
+    );
+    final statement = PartyDieselStatement.fromMovements(
+      opening: opening, movements: movements, from: from, to: to);
+    if (from == null && to == null) {
+      final ledgerBalance = await DieselDeliveryService(repo.db)
+          .balance(station, partyType, partyId);
+      if ((ledgerBalance - statement.closing).abs() > 0.01) {
+        throw StateError('تقرير الديزل لا يطابق رصيد الديزل المحفوظ؛ راجع سجل الحركات');
+      }
+    }
+
+    String liters(num value) => DieselQuantity.format(value);
+    String balanceLabel(num value) => DieselQuantity.balanceLabel(value);
+    String movementLabel(PartyDieselStatementEntry entry) {
+      final kind = switch (entry.kind) {
+        'delivery' => 'تسليم ديزل',
+        'receipt' => 'استلام ديزل',
+        'advance' => 'سلفة ديزل مستقلة',
+        'consumption' => 'استهلاك ديزل',
+        _ => 'حركة ديزل',
+      };
+      return '${entry.reversal ? 'عكس ' : ''}$kind'
+          '${entry.notes.trim().isEmpty ? '' : ' — ${entry.notes.trim()}'}';
+    }
+    final now = AppClock.now();
+    final settings = await repo.settings();
+    final name = '${person['name'] ?? labels[partyType]}';
+    final title = 'كشف تسليم واستهلاك الديزل — ${labels[partyType]} $name';
+    await OfficialReportTemplate.preview(
+      rightHeader1: settings['station_name'] ?? 'منظومة السقاية',
+      rightHeader2: settings['organization_name'] ?? 'الإدارة المالية',
+      rightHeader3: 'الجمهورية اليمنية',
+      date: DateFormat('yyyy/MM/dd').format(now),
+      refNumber: 'DSL-${DateFormat('yyMMdd-HHmm').format(now)}',
+      attachments: 'الفترة: ${from == null ? 'من البداية' : DateFormat('yyyy/MM/dd').format(from)}'
+          ' إلى ${to == null ? 'الآن' : DateFormat('yyyy/MM/dd').format(to)}',
+      fileName: _pdfFileName(title),
+      reportTitle: title,
+      summaryBoxes: [
+        StatBoxData(number: '1', title: 'رصيد أول الفترة (لتر)',
+          value: balanceLabel(statement.opening)),
+        StatBoxData(number: '2', title: 'إجمالي المسلم (لتر)',
+          value: liters(statement.delivered), isBlueTint: true),
+        StatBoxData(number: '3', title: 'إجمالي المستهلك (لتر)',
+          value: liters(statement.consumed)),
+        StatBoxData(number: '4', title: 'المتبقي له أو عليه (لتر)',
+          value: balanceLabel(statement.closing), isLarge: true),
+      ],
+      columns: const ['التاريخ', 'البيان', 'المسلّم (لتر)', 'المستهلك (لتر)', 'الرصيد له/عليه'],
+      rows: [
+        for (final entry in statement.entries)
+          [
+            DateFormat('yyyy/MM/dd').format(entry.date),
+            movementLabel(entry),
+            entry.delivered == 0 ? '—' : liters(entry.delivered),
+            entry.consumed == 0 ? '—' : liters(entry.consumed),
+            balanceLabel(entry.balance),
+          ],
+      ],
+      footerTotalRow: [
+        'الإجمالي', '', liters(statement.delivered),
+        liters(statement.consumed), balanceLabel(statement.closing),
+      ],
+      minTableRows: 1,
+      thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
+      preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
+    );
+  }
 
   Future<Uint8List> pdf(
     String key, {
@@ -142,7 +305,12 @@ class ReportService {
     final availableKeys = <String>{
       for (final row in rows) ...row.keys,
     };
-    final expectedHeaders = reportColumns[key] ?? <String>[];
+    final dieselOnly = DieselReportColumns.dieselOnly(rows, systemType);
+    final fuelReport = const ['irrigations', 'beneficiary_detailed'].contains(key);
+    final expectedHeaders = fuelReport
+        ? DieselReportColumns.select(reportColumns[key]!, dieselOnly: dieselOnly,
+            hasDiesel: rows.any((row) => row['system_type'] == 'diesel'))
+        : reportColumns[key] ?? <String>[];
     // Empty reports keep the configured columns so the official template can
     // render a useful empty-state table instead of failing on zero columns.
     final sourceHeaders = rows.isEmpty
@@ -194,7 +362,16 @@ class ReportService {
           ]
         : rows.map((row) {
             return sourceHeaders
-                .map((header) => _shapeArabic(_formatValue(header, row[header], key)))
+                .map((header) {
+                  // Informational irrigation rows have no running balance.
+                  // Preserve a real zero balance on financial rows.
+                  if (header == 'balance' &&
+                      (key == 'worker_transactions' || key == 'partner_accounts') &&
+                      !PartyStatementBalanceDisplay.hasBalance(row)) {
+                    return _shapeArabic('—');
+                  }
+                  return _shapeArabic(_formatValue(header, row[header], key));
+                })
                 .toList(growable: false);
           }).toList(growable: false);
 
@@ -204,6 +381,55 @@ class ReportService {
           return sum + (num.tryParse('${value ?? ''}') ?? 0);
         });
     String money(num value) => NumberFormat('#,##0.##').format(value);
+    final debtTotals = (key == 'debts' || key == 'all_party_debts')
+        ? DebtReportTotals.fromRows(rows)
+        : null;
+
+    // The partner report contains informational irrigation rows and a profit
+    // summary. Neither is a second financial movement. Derive totals from the
+    // original partner ledger, not from those synthesized display rows.
+    num partnerLah = 0, partnerAlayh = 0;
+    num? partnerClosing;
+    if (key == 'partner_accounts' && partnerId != null) {
+      final transactions = await repo.partnerTransactions(partnerId);
+      for (final row in transactions) {
+        if (const {'opening_balance', 'carried_balance', 'current_balance'}
+            .contains(row['type'])) {
+          continue;
+        }
+        final date = DateTime.tryParse('${row['date'] ?? ''}');
+        if (from != null &&
+            (date == null || date.isBefore(DateTime(from.year, from.month, from.day)))) {
+          continue;
+        }
+        if (to != null &&
+            (date == null || !date.isBefore(DateTime(to.year, to.month, to.day + 1)))) {
+          continue;
+        }
+        final amount = row['signed_amount'] is num
+            ? row['signed_amount'] as num
+            : (row['lah'] as num? ?? 0) - (row['alayh'] as num? ?? 0);
+        if (amount > 0) {
+          partnerLah += amount;
+        }
+        if (amount < 0) {
+          partnerAlayh -= amount;
+        }
+      }
+      for (final row in rows) {
+        if (row['type'] == 'partner_profit_total' && row['balance'] is num) {
+          partnerClosing = row['balance'] as num;
+          break;
+        }
+      }
+      partnerClosing ??= rows.isEmpty
+          ? 0
+          : (rows.firstWhere((row) => row['balance'] is num,
+              orElse: () => <String,Object?>{'balance': 0})['balance'] as num);
+    }
+    String partnerClosingLabel(num balance) => balance > 0
+        ? 'له ${money(balance)} ريال'
+        : balance < 0 ? 'عليه ${money(balance.abs())} ريال' : 'متوازن (0 ريال)';
     final summaryBoxes = <StatBoxData>[
       StatBoxData(
         number: '1',
@@ -219,7 +445,10 @@ class ReportService {
           title: 'إجمالي الدقائق',
           value: '${money(sumOf('minutes'))} د',
         ),
-      if (rows.any((row) => row.containsKey('cloud_minutes')))
+      if (fuelReport && (dieselOnly || rows.any((row) => row['system_type'] == 'diesel')))
+        StatBoxData(number: '3D', title: 'استهلاك الديزل (لتر)',
+          value: DieselQuantity.format(sumOf('diesel_consumption_liters'))),
+      if ((!fuelReport || !dieselOnly) && rows.any((row) => row.containsKey('cloud_minutes')))
         StatBoxData(
           number: '3',
           title: 'إجمالي الغيم',
@@ -273,25 +502,29 @@ class ReportService {
           value: '${money(sumOf('net_amount'))} ريال',
           isBlueTint: true,
         ),
-      if (key == 'debts') ...[
+      if (partnerClosing != null) ...[
+        StatBoxData(number: 'P1', title: 'إجمالي له', value: '${money(partnerLah)} ريال'),
+        StatBoxData(number: 'P2', title: 'إجمالي عليه', value: '${money(partnerAlayh)} ريال', isBlueTint: true),
+        StatBoxData(number: 'P3', title: 'المتبقي له أو عليه', value: partnerClosingLabel(partnerClosing), isLarge: true),
+      ],
+      if (debtTotals != null) ...[
         StatBoxData(
           number: '10',
           title: 'إجمالي المديونية (عليه)',
-          value: '${money(rows.fold<num>(0, (sum, row) {
-            final value = row['balance'];
-            final balance = value is num ? value : num.tryParse('${value ?? ''}') ?? 0;
-            return sum + (balance > 0 ? balance : 0);
-          }))} ريال',
+          value: '${money(debtTotals.totalAlayh)} ريال',
         ),
         StatBoxData(
           number: '11',
           title: 'إجمالي الرصيد الدائن (له)',
-          value: '${money(rows.fold<num>(0, (sum, row) {
-            final value = row['balance'];
-            final balance = value is num ? value : num.tryParse('${value ?? ''}') ?? 0;
-            return sum + (balance < 0 ? balance.abs() : 0);
-          }))} ريال',
+          value: '${money(debtTotals.totalLah)} ريال',
           isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '12',
+          title: 'صافي المتبقي (له / عليه)',
+          // Net is a summary difference, not an offset of any party's debt.
+          value: debtTotals.netLabel((amount) => '${money(amount)} ريال'),
+          isLarge: true,
         ),
       ],
     ];
@@ -325,6 +558,16 @@ class ReportService {
       summaryBoxes: summaryBoxes,
       columns: headers,
       rows: tableRows,
+      footerTotalRow: partnerClosing == null ? null : [
+        for (final field in sourceHeaders)
+          switch (field) {
+            'date' => 'الإجمالي',
+            'lah' => money(partnerLah),
+            'alayh' => money(partnerAlayh),
+            'balance' => partnerClosingLabel(partnerClosing),
+            _ => '',
+          },
+      ],
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
       fileName: _pdfFileName(reportTitle),
       minTableRows: 7,
@@ -388,7 +631,7 @@ class ReportService {
   }
 
   String _fieldName(String key) => {
-    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
+    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','party_type':'نوع الطرف','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','diesel_consumption_liters':'استهلاك الديزل (لتر)','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
   }[key] ?? 'بيان';
 
   String _categoryName(String v) => {
@@ -435,6 +678,17 @@ class ReportService {
           dateOnly ? 'yyyy/MM/dd' : 'yyyy/MM/dd HH:mm',
         ).format(d);
       }
+    }
+    if (key == 'diesel_consumption_liters' || key == 'liters') {
+      return value == null ? '—' : DieselQuantity.format(value is num ? value : num.tryParse('$value') ?? 0);
+    }
+    if (key == 'party_type') {
+      return switch ('$value') {
+        'beneficiary' => 'مستفيد',
+        'worker' => 'عامل',
+        'partner' => 'شريك',
+        _ => 'غير محدد',
+      };
     }
     if (key == 'cloud_status') {
       return '$value' == 'discounted' ? 'تم خصم الغيم' : 'لا يوجد خصم';
@@ -598,7 +852,10 @@ class ReportService {
     final isReceipt = rows.isNotEmpty && rows.first['beneficiary_id'] != null;
     final partyName = rows.isEmpty ? '' : '${rows.first['party_name'] ?? ''}'.trim();
     final baseName = '${isReceipt ? 'سند قبض' : 'سند صرف'}${partyName.isEmpty ? '' : ' $partyName'} رقم $paymentId';
-    await Printing.layoutPdf(name: _pdfFileName(baseName), onLayout: (_) async => bytes);
+    await ReportPdfPreviewService.open(
+      bytes: bytes,
+      suggestedName: baseName,
+    );
   }
 
   /// إنشاء PDF مخصص لتقرير الفواتير بأعمدته الثمانية وإجمالياته الرسمية.
@@ -714,27 +971,67 @@ class ReportService {
     }
     String money(Object? value) => NumberFormat('#,##0').format(n(value));
 
+    final dieselInvoices = DieselReportColumns.dieselOnly(data, settings['system_type'] ?? 'diesel');
+    final showInvoiceCloud = DieselReportColumns.invoiceHasCloud(data, settings['system_type'] ?? 'diesel');
+    final totalFuel = data.fold<num>(0, (sum, row) => sum + ((row['diesel_consumption_liters'] as num?) ?? 0));
     final totalMinutes =
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
     final totalCloudMinutes = data.fold<int>(0, (sum, row) =>
         sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
-    final totalAmount =
-        data.fold<int>(0, (sum, row) => sum + n(row['total_amount']));
+    final useSpecialMinuteRate =
+        settings['work_price_report_display_special_rate'] == 'true';
     final partialHour = settings['partial_hour'] != 'false';
-    int amountBeforeCloud(Map<String, Object?> row) {
-      if ('${row['system_type'] ?? ''}' != 'solar' || n(row['cloud_minutes']) <= 0) {
-        return n(row['total_amount']);
+    int hourlyRate(Map<String, Object?> row) => switch ('${row['system_type'] ?? ''}') {
+      'solar' => n(row['solar_hourly_rate_snapshot']),
+      'equivalent_hybrid' => n(row['third_type_hourly_rate_snapshot']),
+      _ => n(row['water_hourly_rate_snapshot']),
+    };
+    int reportAmount(Map<String, Object?> row, {required bool beforeCloud}) {
+      final minutes = n(beforeCloud
+          ? row['minutes']
+          : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))))
+          .clamp(0, 100000000)
+          .toInt();
+      if (useSpecialMinuteRate && row['beneficiary_id'] != null) {
+        final savedMinuteRate = n(row['work_minute_rate_snapshot']);
+        final minuteRate = savedMinuteRate;
+        if (minuteRate > 0) {
+          return ReportMinutePricing.amountAtMinuteRate(minutes, minuteRate) +
+              n(row['diesel_amount']);
+        }
       }
-      final rate = n(row['solar_hourly_rate_snapshot']);
+      final rate = hourlyRate(row);
       if (rate <= 0) return n(row['total_amount']);
-      return AccountingCalculations.amountForMinutes(
-        n(row['minutes']), rate, 'up', partialHour,
+      final waterAmount = AccountingCalculations.amountForMinutes(
+        minutes, rate, 'up', partialHour,
       );
+      return waterAmount + n(row['diesel_amount']);
+    }
+    int amountAtHourlyRate(Map<String, Object?> row, {required bool beforeCloud}) {
+      final rate = hourlyRate(row);
+      if (rate <= 0) return n(row['total_amount']);
+      final minutes = n(beforeCloud
+          ? row['minutes']
+          : (row['chargeable_minutes'] ?? (n(row['minutes']) - n(row['cloud_minutes']))));
+      return AccountingCalculations.amountForMinutes(
+            minutes.clamp(0, 100000000).toInt(), rate, 'up', partialHour,
+          ) +
+          n(row['diesel_amount']);
     }
     final totalAmountBeforeCloud = data.fold<int>(
-      0, (sum, row) => sum + amountBeforeCloud(row),
+      0, (sum, row) => sum + reportAmount(row, beforeCloud: true),
     );
-    final cloudDeductionAmount = (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
+    final totalAmount = data.fold<int>(
+      0, (sum, row) => sum + reportAmount(row, beforeCloud: false),
+    );
+    final totalWorkBasis = data.fold<int>(
+      0, (sum, row) => sum + amountAtHourlyRate(row, beforeCloud: false),
+    );
+    // The recorded operational difference does not depend on the display mode.
+    final totalWorkDifference =
+        data.fold<int>(0, (sum, row) => sum + n(row['work_difference_snapshot']));
+    final cloudDeductionAmount =
+        (totalAmountBeforeCloud - totalAmount).clamp(0, 1 << 62);
     final totalPaid =
         data.fold<int>(0, (sum, row) => sum + n(row['paid_amount']));
     final remaining = totalAmount - totalPaid;
@@ -751,8 +1048,10 @@ class ReportService {
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
           '${invoiceNetMinutes(data[i])}',
-          money(data[i]['total_amount']),
+          if (showInvoiceCloud) data[i]['system_type'] == 'diesel' ? '—' : '${n(data[i]['cloud_minutes'])}',
+          money(reportAmount(data[i], beforeCloud: false)),
           money(data[i]['paid_amount']),
+          if (dieselInvoices) DieselQuantity.format((data[i]['diesel_consumption_liters'] as num?) ?? 0),
           display(data[i]['notes']),
         ],
     ];
@@ -779,52 +1078,65 @@ class ReportService {
         ),
         StatBoxData(
           number: '3',
-          title: 'دقائق الغيم المخصومة',
-          value: duration(totalCloudMinutes),
+          title: dieselInvoices ? 'استهلاك الديزل (لتر)' : 'دقائق الغيم المخصومة',
+          value: dieselInvoices ? DieselQuantity.format(totalFuel) : duration(totalCloudMinutes),
           isBlueTint: true,
         ),
         StatBoxData(
           number: '4',
-          title: 'الإيرادات قبل خصم الغيم',
+          title: dieselInvoices ? 'إجمالي الإيرادات' : 'الإيرادات قبل خصم الغيم',
           value: '${money(totalAmountBeforeCloud)} ريال',
         ),
         StatBoxData(
           number: '5',
-          title: 'قيمة خصم الغيم',
-          value: '${money(cloudDeductionAmount)} ريال',
+          title: dieselInvoices ? 'عدد تسقيات الديزل' : 'قيمة خصم الغيم',
+          value: dieselInvoices ? '${data.length}' : '${money(cloudDeductionAmount)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
           number: '6',
-          title: 'الإيرادات بعد خصم الغيم',
+          title: dieselInvoices ? 'صافي الإيرادات' : 'الإيرادات بعد خصم الغيم',
           value: '${money(totalAmount)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
           number: '7',
+          title: 'أساس العمل بسعر الساعة',
+          value: '${money(totalWorkBasis)} ريال',
+        ),
+        StatBoxData(
+          number: '8',
+          title: 'صافي فارق العمل المسجل',
+          value: '${money(totalWorkDifference)} ريال',
+          isBlueTint: true,
+        ),
+        StatBoxData(
+          number: '9',
           title: 'إجمالي المدفوع',
           value: '${money(totalPaid)} ريال',
         ),
         StatBoxData(
-          number: '8',
+          number: '10',
           title: 'المتبقي',
           value: '${money(remaining)} ريال',
           isBlueTint: true,
         ),
         StatBoxData(
-          number: '9',
+          number: '11',
           title: 'الفترة',
           value: period,
         ),
       ],
-      columns: const [
+      columns: [
         'م',
         'المستفيد / العامل / الشريك',
         'من',
         'إلى',
         'إجمالي الدقائق',
+        if (showInvoiceCloud) 'الغيم (دقيقة)',
         'القيمة الإجمالية',
         'المسلّم',
+        if (dieselInvoices) 'استهلاك الديزل (لتر)',
         'ملاحظات',
       ],
       rows: tableRows,
@@ -834,8 +1146,11 @@ class ReportService {
         '',
         '',
         duration(data.fold<int>(0, (sum, row) => sum + invoiceNetMinutes(row))),
+        if (showInvoiceCloud) duration(data.fold<int>(0, (sum, row) =>
+            sum + (row['system_type'] == 'diesel' ? 0 : n(row['cloud_minutes'])))),
         money(totalAmount),
         money(totalPaid),
+        if (dieselInvoices) DieselQuantity.format(totalFuel),
         'المتبقي: ${money(remaining)}',
       ],
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
@@ -853,9 +1168,9 @@ class ReportService {
     DateTime? to,
   }) async {
     final bytes = await invoicesPdf(rows: rows, from: from, to: to);
-    await Printing.layoutPdf(
-      name: _pdfFileName('تقرير الفواتير'),
-      onLayout: (_) async => bytes,
+    await ReportPdfPreviewService.open(
+      bytes: bytes,
+      suggestedName: 'تقرير الفواتير',
     );
   }
 
@@ -865,7 +1180,10 @@ class ReportService {
     DateTime? to,
   }) async {
     final bytes = await invoicesPdf(rows: rows, from: from, to: to);
-    await Printing.sharePdf(bytes: bytes, filename: '${_pdfFileName('تقرير الفواتير')}.pdf');
+    await ReportPdfPreviewService.open(
+      bytes: bytes,
+      suggestedName: 'تقرير الفواتير',
+    );
   }
 
   num _workerNum(Object? value) {
@@ -1063,12 +1381,10 @@ class ReportService {
       ordered.removeWhere((row) => row['type'] == 'opening_balance');
       ordered.insertAll(0, openingRows);
       final movements = ordered.map((row) {
-        final balance = _workerNum(row['balance']);
-        final balanceText = balance > 0
-            ? 'له ${_workerMoney(balance)}'
-            : balance < 0
-                ? 'عليه ${_workerMoney(balance.abs())}'
-                : 'صفر';
+        final balanceText = PartyStatementBalanceDisplay.format(
+          row,
+          money: _workerMoney,
+        );
         return <String>[
           _workerDate(row['date']),
           '${row['description'] ?? ''}',
@@ -1079,12 +1395,10 @@ class ReportService {
       }).toList();
       final incomeSummary = statementRows.where((row) => row['type'] == 'worker_income_total').firstOrNull;
       if (incomeSummary != null) {
-        final balance = _workerNum(incomeSummary['balance']);
-        final balanceText = balance > 0
-            ? 'له ${_workerMoney(balance)}'
-            : balance < 0
-                ? 'عليه ${_workerMoney(balance.abs())}'
-                : 'صفر';
+        final balanceText = PartyStatementBalanceDisplay.format(
+          incomeSummary,
+          money: _workerMoney,
+        );
         movements.add([
           _workerDate(incomeSummary['date']),
           '${incomeSummary['description'] ?? 'إجمالي دخل العامل'}',
@@ -1267,14 +1581,8 @@ class ReportService {
 
   /// Removes characters rejected by Android's save/print filename field while
   /// preserving Arabic names and readable report titles.
-  String _pdfFileName(String value) {
-    final cleaned = value
-        .replaceAll(RegExp(r'[\\/:*?"<>|\u0000-\u001F]'), '-')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim()
-        .replaceAll(RegExp(r'[. ]+$'), '');
-    return cleaned.isEmpty ? 'تقرير' : cleaned;
-  }
+  String _pdfFileName(String value) =>
+      ReportFileNameService.normalizeBaseName(value);
 
   Future<String> _reportFileName(
     String key, {
@@ -1323,8 +1631,14 @@ class ReportService {
       await _printWorkerTransactionsOfficial(workerId: workerId, from: from, to: to);
       return;
     }
-    // Generate the document before opening Android's print UI so exceptions
-    // from fonts, data formatting, or PDF layout surface in the calling screen.
+    // The existing PDF generator keeps the report's data, totals, layout
+    // and filters unchanged. Only the presentation/export UI is unified.
+    final suggestedName = await _reportFileName(
+      key,
+      beneficiaryId: beneficiaryId,
+      workerId: workerId,
+      partnerId: partnerId,
+    );
     final bytes = await pdf(
       key,
       from: from,
@@ -1342,27 +1656,9 @@ class ReportService {
     if (bytes.isEmpty) {
       throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');
     }
-    try {
-      await Printing.layoutPdf(
-        // Give Android's print/save dialog the actual report name instead of
-        // its generic default filename, "document".
-        name: await _reportFileName(key, beneficiaryId: beneficiaryId, workerId: workerId, partnerId: partnerId),
-        onLayout: (_) async => bytes,
-      );
-    } catch (printError) {
-      // Keep a usable PDF delivery path if Android's native print dialog fails
-      // for any reason, not only the known "No value" bridge error.
-      try {
-        await Printing.sharePdf(
-          bytes: bytes,
-          filename: '${await _reportFileName(key, beneficiaryId: beneficiaryId, workerId: workerId, partnerId: partnerId)}.pdf',
-        );
-      } catch (shareError) {
-        throw StateError(
-          'تم إنشاء ملف PDF لكن تعذّر فتح الطباعة أو المشاركة. '
-          'خطأ الطباعة: $printError؛ خطأ المشاركة/الحفظ: $shareError',
-        );
-      }
-    }
+    await ReportPdfPreviewService.open(
+      bytes: bytes,
+      suggestedName: suggestedName,
+    );
   }
 }

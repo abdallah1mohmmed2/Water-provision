@@ -1,8 +1,20 @@
+import 'package:saqia_station/domain/accounting/report_minute_pricing.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saqia_station/domain/accounting/calculations.dart';
 
 void main() {
   group('حسابات السقي', () {
+    test('سعر الدقيقة الخاص للعرض لا يقرب سعر الدقيقة ولا يغيّر الأساس', () {
+      expect(ReportMinutePricing.amountAtMinuteRate(1, 120), 120);
+      expect(ReportMinutePricing.amountAtMinuteRate(30, 120), 3600);
+      expect(ReportMinutePricing.amountAtMinuteRate(60, 120), 7200);
+      expect(ReportMinutePricing.amountAtMinuteRate(90, 120), 10800);
+      expect(ReportMinutePricing.amountAtMinuteRate(0, 120), 0);
+      expect(ReportMinutePricing.amountAtMinuteRate(60, 0), 0);
+      // Distinct general hourly basis for worker and partner accounting.
+      expect(AccountingCalculations.amountForMinutes(60, 7000, 'up', true), 7000);
+    });
+
     final start = DateTime(2026, 1, 1, 8);
 
     test('ديزل: دقيقة واحدة = دقيقة محاسبية عند تفعيل المحاسبة الجزئية', () {
@@ -18,8 +30,8 @@ void main() {
       expect(x.chargeableMinutes, 90);
       expect(x.waterAmount, 9000);
       expect(x.dieselLiters, 6);
-      expect(x.dieselAmount, 6000);
-      expect(x.totalAmount, 15000);
+      expect(x.dieselAmount, 0);
+      expect(x.totalAmount, 9000);
     });
 
     test('شمسي: خصم الغيم لا يتجاوز مدة السقي', () {
@@ -191,17 +203,20 @@ void main() {
       }
     });
 
-    test('ديزل: ثمن الوقود بدقة 3 خانات للتر/ساعة', () {
+    test('ديزل: الاستهلاك باللترات فقط دون أي تسعير أو خصم غيم', () {
       final x = AccountingCalculations.diesel(
         start: start,
         end: start.add(const Duration(minutes: 45)),
         hourlyWaterRate: 0,
         litersPerHour: 2.5,
         dieselPrice: 1000,
-        cloudMinutes: 0,
+        cloudMinutes: 20,
       );
+      expect(x.cloudMinutes, 0);
+      expect(x.chargeableMinutes, 45);
       expect(x.dieselLiters, closeTo(1.875, 1e-9));
-      expect(x.dieselAmount, 1875);
+      expect(x.dieselAmount, 0);
+      expect(x.totalAmount, 0);
     });
   });
 }

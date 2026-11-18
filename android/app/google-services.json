@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "687317604254",
-    "project_id": "water-provision",
-    "storage_bucket": "water-provision.firebasestorage.app"
+    "project_number": "1004981299919",
+    "project_id": "manzoma-ststion",
+    "storage_bucket": "manzoma-ststion.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:687317604254:android:7e04c41f9678734f42a88f",
+        "mobilesdk_app_id": "1:1004981299919:android:5bb7d98823849b43e565ba",
         "android_client_info": {
           "package_name": "com.saqia.saqia_station"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAR7WKhsysYHXVWuG14ipnwp6YMnsmB02w"
+          "current_key": "AIzaSyAIweeiYVMfiFDMnKzVpMfaDS9r-09Xvx8"
         }
       ],
       "services": {

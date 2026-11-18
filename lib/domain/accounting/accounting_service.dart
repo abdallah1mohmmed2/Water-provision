@@ -1,9 +1,12 @@
+import '../../core/party_diesel_rate.dart';
+import '../maintenance/diesel_delivery_service.dart';
 import '../../core/app_clock.dart';
 import '../../core/app_prefs.dart';
 import '../../core/period_ranges.dart';
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'calculations.dart';
+import 'report_minute_pricing.dart';
 import '../../data/local/database.dart';
 import '../../data/local/queue_rotation.dart';
 import 'balance_sql.dart';
@@ -12,12 +15,12 @@ import 'balance_sql.dart';
 /// السلف داخلة في الرصيد حتى لا يبقى الرصيد سالبًا فتتضاعف السلفة التالية.
 /// مخزون المحطة (لترات).
 const String _stationDieselStockSql =
-    "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements";
+    "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements WHERE station_id=? OR (station_id IS NULL AND (SELECT COUNT(*) FROM stations)=1)";
 
 const String _beneficiaryDieselStockSql =
     "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)"
     "+COALESCE((SELECT carried_diesel_liters FROM beneficiaries WHERE id=?),0)"
-    "+COALESCE((SELECT SUM(CASE WHEN kind IN ('delivery','advance') THEN liters WHEN kind='consumption' THEN -liters ELSE 0 END) FROM diesel_movements WHERE beneficiary_id=?),0) stock";
+    "+COALESCE((SELECT SUM(CASE WHEN (kind='delivery' OR (kind='receipt' AND party_receipt=1)) THEN liters WHEN kind='advance' AND irrigation_id IS NULL THEN liters WHEN kind='consumption' THEN -liters ELSE 0 END) FROM diesel_movements WHERE beneficiary_id=?),0) stock";
 
 class AccountingService {
   final AppDatabase database;
@@ -1214,8 +1217,17 @@ class AccountingService {
 
     // الأسعار أيضًا تؤخذ من الإعدادات لحظة التسجيل حتى يكون السعر Snapshot موحدًا.
     final effectiveWaterRate = int.tryParse(set['diesel_hourly_water_rate'] ?? '0') ?? 0;
-    final effectiveLiters = double.tryParse(set['diesel_liters_per_hour'] ?? '0') ?? 0;
-    final effectiveDieselPrice = int.tryParse(set['diesel_price_per_liter'] ?? '0') ?? 0;
+    final partyTable = const {'beneficiary':'beneficiaries', 'worker':'workers', 'partner':'partners'}[partyType]!;
+    final ownerId = partyType == 'beneficiary' ? beneficiaryId : partyType == 'worker' ? workerId : partnerId;
+    final owner = await database.query('SELECT diesel_liters_per_hour FROM $partyTable WHERE id=? AND station_id=?', args: [ownerId, stationId]);
+    if (owner.isEmpty) {
+      throw StateError('صاحب السقاية لا يتبع المحطة');
+    }
+    final effectiveLiters = effectiveType == 'diesel'
+        ? PartyDieselRate.resolve(owner.first['diesel_liters_per_hour'], double.tryParse(set['diesel_liters_per_hour'] ?? '0') ?? 0)
+        : 0.0;
+    // Irrigation diesel is an in-kind quantity, not a billed fuel product.
+    const effectiveDieselPrice = 0;
     final effectiveSolarRate = int.tryParse(set['solar_hourly_rate'] ?? '0') ?? 0;
     final effectiveThirdRate = int.tryParse(set['third_type_hourly_rate'] ?? '0') ?? 0;
     final allowMidnight = set['allow_midnight_crossing'] == 'true';
@@ -1225,7 +1237,7 @@ class AccountingService {
         ? end.add(const Duration(days: 1))
         : end;
     final normalizedCloudPeriods = <Map<String, Object?>>[];
-    if (effectiveType == 'solar' && cloudPeriods.isNotEmpty) {
+    if (effectiveType != 'diesel' && cloudPeriods.isNotEmpty) {
       final parsed = <Map<String, Object?>>[];
       for (final period in cloudPeriods) {
         final ps = DateTime.tryParse(period['start'] ?? '');
@@ -1256,7 +1268,9 @@ class AccountingService {
         });
       }
     }
-    final effectiveCloud = effectiveType == 'solar'
+    // Cloud minutes are persisted for both non-diesel types, but only solar
+    // discounts chargeable minutes. The third type retains its existing pricing.
+    final effectiveCloud = effectiveType != 'diesel'
         ? (normalizedCloudPeriods.isNotEmpty
             ? normalizedCloudPeriods.fold<int>(0, (sum, x) => sum + (x['minutes'] as int))
             : cloudMinutes.clamp(0, AccountingCalculations.minutesBetween(start, endDt, allowMidnightCrossing: allowMidnight)))
@@ -1361,35 +1375,31 @@ class AccountingService {
               userId: userId,
             )
           : (overrideWaitingPeriod ? 1 : 0);
-      // ---- ديزل المستفيد: حساب العجز مرة واحدة قبل إنشاء الفاتورة ----
-      // سياسة منع الازدواج:
-      //  * إن كان تسليم الديزل رصيدًا ماليًا (له) يُحمَّل كامل ثمن الوقود ويُخصم الرصيد عند التسليم.
-      //  * وإلا يُحمَّل ثمن العجز فقط (الكمية التي لم يغطها ديزله العيني).
-      var chargedDiesel = calc.dieselAmount;
+      // In-kind diesel balance is measured only in liters.
+      // Shortages become a quantity-only advance without financial debt.
       var shortageLiters = 0.0;
       if (partyType == 'beneficiary' &&
-          effectiveType == 'diesel' &&
-          calc.dieselLiters > 0) {
+          effectiveType == 'diesel' && calc.dieselLiters > 0) {
         final br = await tx.rawQuery(_beneficiaryDieselStockSql, [
-          beneficiaryId,
-          beneficiaryId,
-          beneficiaryId,
+          beneficiaryId, beneficiaryId, beneficiaryId,
         ]);
         final available = (br.first['stock'] as num?)?.toDouble() ?? 0;
-        shortageLiters = calc.dieselLiters > available
-            ? calc.dieselLiters - available
-            : 0;
-        final financialCredit =
-            (set['diesel_delivery_financial_credit'] ?? '').toLowerCase() ==
-            'true';
-        if (!financialCredit) {
-          chargedDiesel = AccountingCalculations.roundAmount(
-            shortageLiters * effectiveDieselPrice,
-            rounding,
-          );
-        }
+        shortageLiters = (calc.dieselLiters - available)
+            .clamp(0.0, calc.dieselLiters).toDouble();
       }
-      final totalCharged = calc.waterAmount + chargedDiesel;
+      final workPriceEnabled = partyType == 'beneficiary' &&
+          set['work_price_difference_enabled'] == 'true';
+      final workMinuteRate = int.tryParse(set['work_minute_rate'] ?? '0') ?? 0;
+      if (workPriceEnabled && (workMinuteRate <= 0 || workMinuteRate > 1000000)) {
+        throw StateError('اضبط سعر الدقيقة الخاص قبل تفعيل فارق العمل');
+      }
+      final billedWater = workPriceEnabled
+          ? ReportMinutePricing.amountAtMinuteRate(
+              calc.chargeableMinutes, workMinuteRate)
+          : calc.waterAmount;
+      final workBaseTotal = calc.waterAmount;
+      final totalCharged = billedWater;
+      final workDifference = billedWater - calc.waterAmount;
       final now = AppClock.now().toIso8601String();
       final id = await tx.insert('irrigations', {
         'station_id': stationId,
@@ -1408,14 +1418,19 @@ class AccountingService {
         'minutes': calc.minutes,
         'system_type': effectiveType,
         'water_hourly_rate_snapshot': effectiveWaterRate,
+        'work_minute_rate_snapshot': partyType == 'beneficiary'
+            ? workMinuteRate.clamp(0, 1000000).toInt() : 0,
+        'work_price_enabled_snapshot': workPriceEnabled ? 1 : 0,
+        'work_base_water_amount_snapshot': calc.waterAmount,
+        'work_difference_snapshot': workPriceEnabled ? workDifference : 0,
         'diesel_liters_per_hour_snapshot': effectiveLiters,
         'diesel_price_snapshot': effectiveDieselPrice,
         'solar_hourly_rate_snapshot': effectiveSolarRate,
         'third_type_hourly_rate_snapshot': effectiveThirdRate,
-        'cloud_minutes': calc.cloudMinutes,
+        'cloud_minutes': effectiveType == 'equivalent_hybrid' ? effectiveCloud : calc.cloudMinutes,
         'chargeable_minutes': calc.chargeableMinutes,
-        'water_amount': calc.waterAmount,
-        'diesel_amount': chargedDiesel,
+        'water_amount': billedWater,
+        'diesel_amount': 0,
         'total_amount': totalCharged,
         'paid_amount': paidAmount,
         'status': 'posted',
@@ -1444,7 +1459,6 @@ class AccountingService {
           ? await _partnerAccountIdTx(tx, partnerId!)
           : await _accountIdTx(tx, '1200');
       final waterRevenue = await _accountIdTx(tx, '4000');
-      final fuelRevenue = await _accountIdTx(tx, '4010');
       final lines = <Map<String, Object?>>[
         {
           'account_id': receivable,
@@ -1456,20 +1470,12 @@ class AccountingService {
           'memo': partyType == 'beneficiary' ? 'استحقاق سقاية' : 'خصم سقاية من مستحقات الطرف',
         },
       ];
-      if (calc.waterAmount > 0) {
+      if (billedWater > 0) {
         lines.add({
           'account_id': waterRevenue,
           'debit': 0,
-          'credit': calc.waterAmount,
+          'credit': billedWater,
           'memo': 'إيراد السقي',
-        });
-      }
-      if (chargedDiesel > 0) {
-        lines.add({
-          'account_id': fuelRevenue,
-          'debit': 0,
-          'credit': chargedDiesel,
-          'memo': 'قيمة ديزل السقي',
         });
       }
       await _entry(
@@ -1499,7 +1505,7 @@ class AccountingService {
           tx,
           workerId: wageWorkerId,
           irrigationId: id,
-          amount: totalCharged,
+          amount: workBaseTotal,
           hours: calc.chargeableMinutes / 60.0,
           date: start,
           userId: userId,
@@ -1509,7 +1515,7 @@ class AccountingService {
       // الاستحقاقات المباشرة عند السقاية تكون بعد أجور العمال دائمًا،
       // بما فيها سقاية الشريك؛ ولا يجوز توزيع الإيراد الإجمالي قبل الأجور.
       final partnerPool =
-          (totalCharged - totalWorkerEntitlement).clamp(0, totalCharged).toInt();
+          (workBaseTotal - totalWorkerEntitlement).clamp(0, workBaseTotal).toInt();
       if (partnerPool > 0) {
         await _accruePartnersFromIrrigationTx(
           tx,
@@ -1544,38 +1550,26 @@ class AccountingService {
           'created_by': userId,
         });
       }
-      if (partyType == 'beneficiary' &&
-          effectiveType == 'diesel' &&
-          calc.dieselLiters > 0) {
-        if (shortageLiters > 0) {
-          // سلفة تلقائية: تُسجَّل كحركة كمية فقط. قيمتها محتسبة أصلًا ضمن إجمالي
-          // السقاية، فلا قيد ولا إضافة للرصيد (منعًا للازدواج وللخصم الوهمي من الصندوق).
+      if (effectiveType == 'diesel' && calc.dieselLiters > 0) {
+        if (partyType == 'beneficiary' && shortageLiters > 0) {
           await tx.insert('diesel_movements', {
-            'beneficiary_id': beneficiaryId,
-            'irrigation_id': id,
-            'kind': 'advance',
-            'liters': shortageLiters,
-            'unit_price': effectiveDieselPrice,
-            'amount': AccountingCalculations.roundAmount(
-              shortageLiters * effectiveDieselPrice,
-              rounding,
-            ),
-            'date': start.toIso8601String(),
-            'created_by': userId,
-            'notes': 'سلفة ديزل تلقائية (قيمتها ضمن إجمالي السقاية)',
+            'station_id': stationId,
+            'beneficiary_id': beneficiaryId, 'irrigation_id': id,
+            'kind': 'advance', 'liters': shortageLiters,
+            'unit_price': 0, 'amount': 0,
+            'date': start.toIso8601String(), 'created_by': userId,
+            'notes': 'سلفة ديزل عينية تلقائية للسقاية (لترات فقط)',
           });
         }
         await tx.insert('diesel_movements', {
-          'beneficiary_id': beneficiaryId,
-          'irrigation_id': id,
-          'kind': 'consumption',
-          'liters': calc.dieselLiters,
-          'unit_price': effectiveDieselPrice,
-          'amount': calc.dieselAmount,
-          'date': start.toIso8601String(),
-          'created_by': userId,
-          'notes': 'استهلاك جلسة السقي',
+          'station_id': stationId,
+          'beneficiary_id': beneficiaryId, 'irrigation_id': id,
+          'kind': 'consumption', 'liters': calc.dieselLiters,
+          'unit_price': 0, 'amount': 0,
+          'date': start.toIso8601String(), 'created_by': userId,
+          'notes': 'استهلاك ديزل عيني بالسقاية (لترات فقط)',
         });
+        // No fuel income, expense or receivable entry for irrigation diesel.
       }
       if (paidAmount > 0) {
         final src = await resolvePaymentSource(
@@ -1591,11 +1585,12 @@ class AccountingService {
           cashboxId: src['cashbox']!,
           userId: userId,
           referenceNumber: 'IRR-$id',
+          irrigationId: id,
         );
       }
       if (sessionId != null) {
         // إنهاء الجلسة داخل نفس المعاملة: إن فشل أي جزء تبقى الجلسة «تعمل» ويمكن إعادة المحاولة.
-        final st = await tx.rawQuery(_stationDieselStockSql);
+        final st = await tx.rawQuery(_stationDieselStockSql, [stationId]);
         await tx.update(
           'irrigation_sessions',
           {
@@ -1625,7 +1620,7 @@ class AccountingService {
         );
       }
       return id;
-    }));
+    }, captureSyncTables: const {'irrigations', 'payments'}));
   }
 
   Future<int> _paymentInTx(
@@ -1637,6 +1632,8 @@ class AccountingService {
     required int paymentMethodId,
     required int cashboxId,
     int? userId,
+    int? irrigationId,
+    int? replacesPaymentId,
     String? referenceNumber,
     String? notes,
     bool sendNotification = true,
@@ -1654,6 +1651,14 @@ class AccountingService {
     );
     paymentMethodId = src['method']!;
     cashboxId = src['cashbox']!;
+    final station = await _selectedStationIdTx(tx);
+    final partyIds = {'beneficiaries':beneficiaryId,'workers':workerId,'partners':partnerId};
+    if (partyIds.values.where((v)=>v!=null).length != 1) throw ArgumentError('يجب تحديد طرف واحد للسند');
+    for (final entry in {...partyIds,'cashboxes':cashboxId,'payment_methods':paymentMethodId}.entries) {
+      if (entry.value != null && (await tx.rawQuery('SELECT id FROM ${entry.key} WHERE id=? AND station_id=?',[entry.value,station])).isEmpty) throw StateError('مرجع السند لا يتبع المحطة');
+    }
+    final currency = (await tx.query('cashboxes',columns:['currency'],where:'id=?',whereArgs:[cashboxId])).single['currency'];
+    if (currency is! String || currency.trim().isEmpty) throw StateError('عملة الصندوق غير محددة');
     final isOutgoing = beneficiaryId == null;
     if (isOutgoing) {
       await _assertCashboxCanSpend(tx, cashboxId, amount);
@@ -1667,6 +1672,9 @@ class AccountingService {
       'payment_method_id': paymentMethodId,
       'cashbox_id': cashboxId,
       'reference_number': referenceNumber,
+      'irrigation_id': irrigationId,
+      'replaces_payment_id': replacesPaymentId,
+      'currency': currency,
       'notes': notes,
       'status': 'posted',
       'created_by': userId,
@@ -1754,6 +1762,9 @@ class AccountingService {
         referenceNumber: referenceNumber,
         notes: notes,
       ),
+      // قبض المستفيد هو أمر مالي واحد؛ الصندوق والقيود آثار مشتقة ينشئها
+      // الخادم عند تطبيق الأمر، فلا تُرسل كأحداث مستقلة.
+      captureSyncTables: const {'payments'},
     ),
   );
   Future<int> payWorker({
@@ -1787,7 +1798,7 @@ class AccountingService {
       'created_by': userId,
     });
     return id;
-  });
+  }, captureSyncTables: const {'payments'});
   Future<int> payPartner({
     required int partnerId,
     required int amount,
@@ -1818,7 +1829,92 @@ class AccountingService {
       'created_by': userId,
     });
     return id;
-  });
+  }, captureSyncTables: const {'payments'});
+
+  /// سلفة نقدية للعامل أو الشريك: تُصرف من الصندوق عبر أمر P2 المالي
+  /// المعتمد، وتُخصم من رصيد الطرف المستحق دون إنشاء قيد مكرر.
+  /// المبلغ الزائد عن المستحق يظهر رصيداً مديناً للطرف (سلفة مستردة لاحقاً).
+  Future<int> recordPartyCashAdvance({
+    required String partyType,
+    required int partyId,
+    required int amount,
+    required int paymentMethodId,
+    required int cashboxId,
+    int? userId,
+    String? referenceNumber,
+    String? notes,
+  }) {
+    if (amount <= 0) throw ArgumentError('مبلغ السلفة يجب أن يكون موجباً');
+    final memo = 'سلفة نقدية | ${(notes ?? '').trim()}'.trim();
+    if (partyType == 'worker') {
+      return payWorker(workerId: partyId, amount: amount,
+        paymentMethodId: paymentMethodId, cashboxId: cashboxId,
+        userId: userId, referenceNumber: referenceNumber, notes: memo);
+    }
+    if (partyType == 'partner') {
+      return payPartner(partnerId: partyId, amount: amount,
+        paymentMethodId: paymentMethodId, cashboxId: cashboxId,
+        userId: userId, referenceNumber: referenceNumber, notes: memo);
+    }
+    throw ArgumentError('السلفة النقدية متاحة للعامل أو الشريك فقط');
+  }
+
+  /// تسوية نقدية لمستحقات قائمة. لا تسمح بتجاوز المستحق؛ السلف
+  /// التي تتجاوز المستحق تُسجّل حصراً عبر recordPartyCashAdvance.
+  /// يستخدم نفس مسار سندات P2 الذري والعكس والاستبدال والمزامنة.
+  Future<int> settlePartyPayable({
+    required String partyType,
+    required int partyId,
+    required int amount,
+    required int paymentMethodId,
+    required int cashboxId,
+    int? userId,
+    String? referenceNumber,
+    String? notes,
+  }) async {
+    if (amount <= 0) throw ArgumentError('مبلغ التسوية يجب أن يكون موجباً');
+    if (partyType != 'worker' && partyType != 'partner') {
+      throw ArgumentError('التسوية النقدية متاحة للعامل أو الشريك فقط');
+    }
+    final balance = partyType == 'worker'
+        ? await workerBalance(partyId) : await partnerBalance(partyId);
+    if (amount > (balance['due'] ?? 0)) {
+      throw StateError('مبلغ التسوية يتجاوز المستحق؛ استخدم السلفة للمبلغ الزائد');
+    }
+    final memo = 'تسوية مستحقات | ${(notes ?? '').trim()}'.trim();
+    return partyType == 'worker'
+        ? payWorker(workerId: partyId, amount: amount,
+            paymentMethodId: paymentMethodId, cashboxId: cashboxId,
+            userId: userId, referenceNumber: referenceNumber, notes: memo)
+        : payPartner(partnerId: partyId, amount: amount,
+            paymentMethodId: paymentMethodId, cashboxId: cashboxId,
+            userId: userId, referenceNumber: referenceNumber, notes: memo);
+  }
+
+  /// عكس سلفة أو تسوية نقدية دون حذف سندها أو قيدها الأصلي.
+  /// ينفذ أمر الإلغاء P2 نفسه، بما فيه القيد العكسي ومزامنة خادم Shelf
+  /// ومنع تطبيق الحدث مرتين بواسطة معرف العملية العالمي.
+  Future<void> reversePartyCashMovement({
+    required int paymentId,
+    required int userId,
+    required String reason,
+  }) async {
+    if (reason.trim().isEmpty) throw ArgumentError('سبب العكس مطلوب');
+    final rows = await database.query(
+      'payments', where: 'id=?', whereArgs: [paymentId], limit: 1,
+    );
+    if (rows.isEmpty) throw StateError('سند السلفة أو التسوية غير موجود');
+    final payment = rows.single;
+    if (payment['worker_id'] == null && payment['partner_id'] == null) {
+      throw StateError('السند ليس سند عامل أو شريك');
+    }
+    final memo = '${payment['notes'] ?? ''}';
+    if (!memo.startsWith('سلفة نقدية |') &&
+        !memo.startsWith('تسوية مستحقات |')) {
+      throw StateError('السند ليس سلفة أو تسوية مسجلة عبر P3e');
+    }
+    await cancelPayment(paymentId, userId, reason.trim());
+  }
 
   Future<int> addExpense({
     required String category,
@@ -1833,6 +1929,7 @@ class AccountingService {
     int? userId,
     String? attachmentPath,
     String? notes,
+    Future<void> Function(Transaction tx, int expenseId)? afterPosting,
   }) async => database.transaction((tx) async {
     await _assertPeriodOpen(tx, date);
     if (amount <= 0) {
@@ -1894,8 +1991,9 @@ class AccountingService {
       userId: userId,
       date: date,
     );
+    if (afterPosting != null) await afterPosting(tx, id);
     return id;
-  });
+  }, captureSyncTables: const {'expenses'});
 
   String _expenseAccount(String category) => switch (category) {
     'workers' => '5000',
@@ -1907,9 +2005,10 @@ class AccountingService {
     _ => '5030',
   };
 
-  Future<void> cancelExpense(int id, int userId, String reason) async {
+  Future<void> cancelExpense(int id, int userId, String reason, {Future<void> Function(Transaction tx)? beforeCancellation}) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الإلغاء مطلوب');
     await database.transaction((tx) async {
+      if (beforeCancellation != null) await beforeCancellation(tx);
       final r = await tx.query(
         'expenses',
         where: 'id=?',
@@ -1924,6 +2023,8 @@ class AccountingService {
         'expenses',
         {
           'status': 'cancelled',
+          'cancel_reason': reason.trim(),
+          'cancelled_at': AppClock.now().toIso8601String(),
           'notes': '${r.first['notes'] ?? ''}\nإلغاء: $reason',
         },
         where: 'id=?',
@@ -1954,12 +2055,13 @@ class AccountingService {
         oldValues: r.first,
         reason: reason,
       );
-    });
+    }, captureSyncTables: const {'expenses'});
   }
 
   Future<void> addDieselMovement({
     int? beneficiaryId,
     int? irrigationId,
+    int? replacesPaymentId,
     required String kind,
     required double liters,
     required int unitPrice,
@@ -1984,15 +2086,26 @@ class AccountingService {
     final financialCredit = await _settingBool(
       'diesel_delivery_financial_credit',
     );
+    final stationId = await currentStationId();
     await database.transaction((tx) async {
-      await _assertPeriodOpen(tx, date);
+      await _assertPeriodOpen(tx, date, stationId: stationId);
+      if (beneficiaryId != null) {
+        final party = await tx.query('beneficiaries',
+            columns: ['id'], where: 'id=? AND station_id=?',
+            whereArgs: [beneficiaryId, stationId], limit: 1);
+        if (party.isEmpty) throw StateError('المستفيد لا يتبع المحطة الحالية');
+      }
+      if (cashboxId != null) {
+        final box = await tx.query('cashboxes', columns: ['id'],
+            where: 'id=? AND station_id=?',
+            whereArgs: [cashboxId, stationId], limit: 1);
+        if (box.isEmpty) throw StateError('الصندوق لا يتبع المحطة الحالية');
+      }
       final amount = (liters * unitPrice).round();
       if ((kind == 'correction' || kind == 'opening_balance') && amount <= 0) {
         throw ArgumentError('تصحيح المخزون والرصيد الافتتاحي يتطلبان قيمة مالية موجبة');
       }
-      final stock = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
-      );
+      final stock = await tx.rawQuery(_stationDieselStockSql, [stationId]);
       final current = (stock.first['stock'] as num?)?.toDouble() ?? 0;
       if ((kind == 'delivery' ||
               kind == 'consumption' ||
@@ -2007,6 +2120,7 @@ class AccountingService {
         await _assertCashboxCanSpend(tx, cashboxId, amount);
       }
       final id = await tx.insert('diesel_movements', {
+        'station_id': stationId,
         'beneficiary_id': beneficiaryId,
         'irrigation_id': irrigationId,
         'cashbox_id': cashboxId,
@@ -2134,13 +2248,12 @@ class AccountingService {
           date: date,
         );
       }
-    });
+    }, captureSyncTables: const {'diesel_movements'});
   }
 
   Future<double> dieselStock() async {
-    final r = await database.query(
-      "SELECT COALESCE(SUM(CASE WHEN kind='receipt' OR (kind IN ('opening_balance','correction') AND beneficiary_id IS NULL) THEN liters WHEN kind IN ('delivery','consumption') THEN -liters WHEN kind='advance' AND irrigation_id IS NULL THEN -liters ELSE 0 END),0) stock FROM diesel_movements",
-    );
+    final stationId = await currentStationId();
+    final r = await database.query(_stationDieselStockSql, args: [stationId]);
     return (r.first['stock'] as num?)?.toDouble() ?? 0;
   }
 
@@ -2277,7 +2390,7 @@ class AccountingService {
       if (r.isEmpty) throw StateError('صندوق المصدر غير موجود أو غير مفعّل');
     }
     final id = await tx.insert('cashbox_transfers', {
-      'from_cashbox_id': from,
+      'from_cashbox_id': opening ? null : from,
       'to_cashbox_id': to,
       'amount': amount,
       'date': date.toIso8601String(),
@@ -2314,7 +2427,7 @@ class AccountingService {
       userId: userId,
       date: date,
     );
-  });
+  }, captureSyncTables: const {'cashbox_transfers'});
 
   Future<int> _accrueWorkerIrrigationTx(Transaction tx, {required int workerId, required int irrigationId,
     required int amount, required double hours, required DateTime date, int? userId}) async {
@@ -2387,6 +2500,7 @@ class AccountingService {
     final accrualDate = month.year == now.year && month.month == now.month
         ? now
         : end.subtract(const Duration(seconds: 1));
+    final rootIds = <String, Set<int>>{'worker_transactions': <int>{}};
     return database.transaction((tx) async {
       final stationId = await _selectedStationIdTx(tx);
       await _assertPeriodOpen(tx, accrualDate, stationId: stationId);
@@ -2406,6 +2520,37 @@ class AccountingService {
           [wid, monthKey],
         );
         if (recorded.isNotEmpty) continue;
+        // Fixed-salary batches and monthly payroll are two UIs for the same
+        // worker entitlement; never accrue twice for overlapping periods.
+        final batches = await tx.rawQuery(
+          "SELECT date,notes,reference_type FROM worker_transactions WHERE worker_id=? AND (reference_type='fixed_salary_batch' OR notes LIKE '%استحقاق راتب ثابت للفترة%')",
+          [wid],
+        );
+        var alreadyInBatch = false;
+        for (final batch in batches) {
+          final notes = (batch['notes'] ?? '').toString();
+          const marker = ' | P3C_RANGE:';
+          final mark = notes.lastIndexOf(marker);
+          if (mark >= 0) {
+            final bounds = notes.substring(mark + marker.length).split(':');
+            if (bounds.length == 2) {
+              final from = DateTime.tryParse(bounds[0]);
+              final to = DateTime.tryParse(bounds[1]);
+              if (from != null && to != null &&
+                  from.isBefore(end) && to.isAfter(start)) {
+                alreadyInBatch = true;
+                break;
+              }
+            }
+          } else {
+            final posted = DateTime.tryParse((batch['date'] ?? '').toString());
+            if (posted != null && !posted.isBefore(start) && posted.isBefore(end)) {
+              alreadyInBatch = true;
+              break;
+            }
+          }
+        }
+        if (alreadyInBatch) continue;
         final exists = await tx.rawQuery("SELECT 1 FROM journal_entries je JOIN journal_lines jl ON jl.journal_entry_id=je.id WHERE je.station_id=? AND je.reference_type='worker' AND je.description='راتب العامل الشهري' AND jl.worker_id=? AND je.date>=? AND je.date<? LIMIT 1", [stationId, wid, start.toIso8601String(), end.toIso8601String()]);
         if (exists.isNotEmpty) continue;
         // حفظ نسخة الراتب وقت الاستحقاق؛ تعديل راتب العامل لاحقًا لا يغيّر التاريخ.
@@ -2421,18 +2566,23 @@ class AccountingService {
           'notes': 'راتب شهري مستحق لشهر ${month.year}/${month.month.toString().padLeft(2, '0')}؛ الراتب المحفوظ وقت الترحيل: $amount',
           'created_by': userId,
         });
+        if (rootIds['worker_transactions']!.isEmpty) {
+          rootIds['worker_transactions']!.add(id);
+        }
         final exp = await _accountIdTx(tx, '5000'), payable = await _workerAccountIdTx(tx, wid);
         await _entry(tx, description: 'راتب العامل الشهري', referenceType: 'worker', referenceId: id, userId: userId, date: accrualDate, stationId: stationId, lines: [{'account_id': exp, 'worker_id': wid, 'debit': amount, 'credit': 0}, {'account_id': payable, 'worker_id': wid, 'debit': 0, 'credit': amount}]);
         count++;
       }
       return count;
-    });
+    }, captureSyncTables: const {'worker_transactions'},
+       captureSyncRecordIds: rootIds);
   }
 
   Future<int> distributePartnerProfits({required DateTime from, required DateTime to, int? userId}) async {
     final start = DateTime(from.year, from.month, from.day);
     final endExclusive = DateTime(to.year, to.month, to.day + 1);
     if (!endExclusive.isAfter(start)) throw ArgumentError('نهاية فترة التوزيع يجب أن تكون بعد بدايتها');
+    final syncRootIds = <String, Set<int>>{'partner_transactions': <int>{}};
     return database.transaction((tx) async {
       final stationId = await _selectedStationIdTx(tx);
       await _assertPeriodRangeOpen(tx, start, endExclusive, stationId: stationId);
@@ -2449,8 +2599,21 @@ class AccountingService {
         "SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
         args,
       );
+      // The work-price surplus is real beneficiary income but NOT part of
+      // the general-hourly basis that partners are entitled to distribute.
+      // Only active irrigation snapshots in this period are excluded, so
+      // reversed/cancelled historical invoices never create another deduction.
+      final differenceRows = await tx.rawQuery(
+        "SELECT COALESCE(SUM(work_difference_snapshot),0) n "
+        "FROM irrigations WHERE station_id=? AND status!='cancelled' "
+        "AND start_datetime>=? AND start_datetime<?",
+        args,
+      );
+      final operatingDifference = (differenceRows.first['n'] as num).round();
+      final hourlyBaseRevenue =
+          (rev.first['n'] as num).round() - operatingDifference;
       final profit = AccountingCalculations.distributableProfit(
-        totalRevenue: (rev.first['n'] as num).round(),
+        totalRevenue: hourlyBaseRevenue,
         generalExpenses: (general.first['n'] as num).round(),
         workerEntitlements: (worker.first['n'] as num).round(),
       );
@@ -2491,9 +2654,12 @@ class AccountingService {
             'amount': correction,
             'reference_type': 'partner_profit_adjustment',
             'reference_id': (row['id'] as num).toInt(),
-            'notes': 'تسوية فائض استحقاق مباشر حتى لا يتجاوز صافي ربح الفترة',
+            'notes': 'تسوية فائض استحقاق مباشر حتى لا يتجاوز صافي ربح الفترة | P3D_RANGE:${start.toIso8601String().substring(0, 10)}:${endExclusive.toIso8601String().substring(0, 10)}',
             'created_by': userId,
           });
+          if (syncRootIds['partner_transactions']!.isEmpty) {
+            syncRootIds['partner_transactions']!.add(adjustmentId);
+          }
           final payable = await _partnerAccountIdTx(tx, partnerId);
           await _entry(
             tx,
@@ -2534,8 +2700,12 @@ class AccountingService {
               : p['shares_count'],
           'reference_type': 'profit_distribution',
           'reference_id': distributionRef,
+          'notes': 'P3D_RANGE:${start.toIso8601String().substring(0, 10)}:${endExclusive.toIso8601String().substring(0, 10)}',
           'created_by': userId,
         });
+        if (syncRootIds['partner_transactions']!.isEmpty) {
+          syncRootIds['partner_transactions']!.add(id);
+        }
         final eq = await _accountIdTx(tx, '3200');
         final payable = await _partnerAccountIdTx(tx, partnerId);
         await _entry(
@@ -2554,7 +2724,8 @@ class AccountingService {
         count++;
       }
       return count;
-    });
+    }, captureSyncTables: const {'partner_transactions'},
+       captureSyncRecordIds: syncRootIds);
   }
 
   /// يسجل استحقاقات العمال الثابتة دفعة واحدة داخل معاملة واحدة لمنع الترحيل الجزئي.
@@ -2573,6 +2744,12 @@ class AccountingService {
     if (endExclusive.isBefore(start) || !endExclusive.isAfter(start)) {
       throw ArgumentError('تاريخ بداية الفترة يجب ألا يتجاوز تاريخ نهايتها');
     }
+    if (periodKey.trim().isEmpty || periodKey.length > 120 ||
+        periodKey.contains('|') || periodKey.contains('%') ||
+        periodKey.contains('_') || periodLabel.trim().isEmpty ||
+        periodLabel.length > 120 || periodLabel.contains('|')) {
+      throw ArgumentError('مفتاح أو وصف فترة الاستحقاق غير صالح');
+    }
     if (amounts.values.any((amount) => amount < 0)) {
       throw ArgumentError('مبالغ الاستحقاق يجب ألا تكون سالبة');
     }
@@ -2580,9 +2757,13 @@ class AccountingService {
       amounts.entries.where((entry) => entry.value > 0),
     );
     if (positiveAmounts.isEmpty) return 0;
+    // The first movement is the only Outbox root; all others are derived
+    // children of the same all-or-nothing batch command.
+    final rootIds = <String, Set<int>>{'worker_transactions': <int>{}};
     return database.transaction((tx) async {
       final stationId = await _selectedStationIdTx(tx);
       await _assertPeriodRangeOpen(tx, start, endExclusive, stationId: stationId);
+      await _assertPeriodOpen(tx, accrualDate, stationId: stationId);
       final workerRows = await tx.query(
         'workers',
         where: "station_id=? AND active=1 AND pay_type='fixed'",
@@ -2596,30 +2777,56 @@ class AccountingService {
           throw StateError('أحد العمال المحددين غير نشط أو ليس من فئة الراتب الثابت؛ لم يتم ترحيل أي مبلغ.');
         }
         final duplicate = await tx.rawQuery(
-          "SELECT 1 FROM worker_transactions WHERE worker_id=? AND (notes LIKE ? OR (reference_type='monthly_salary' AND date>=? AND date<?)) LIMIT 1",
+          "SELECT 1 FROM worker_transactions WHERE worker_id=? AND (notes LIKE ? OR ((reference_type IN ('monthly_salary','fixed_salary_batch') OR notes LIKE '%استحقاق راتب ثابت للفترة%') AND date>=? AND date<?)) LIMIT 1",
           [entry.key, '%$periodKey%', start.toIso8601String(), endExclusive.toIso8601String()],
         );
         if (duplicate.isNotEmpty) {
           final name = workersById[entry.key]?['name'] ?? 'العامل';
           throw StateError('يوجد استحقاق مرحّل مسبقًا للعامل $name ضمن الفترة المحددة؛ لم يتم ترحيل أي مبالغ جديدة.');
         }
+        // An authorized posting date may differ from the entitlement period.
+        // Compare stored period ranges, not just a mutable batch label/date.
+        final earlier = await tx.rawQuery(
+          "SELECT notes FROM worker_transactions WHERE worker_id=? AND reference_type='fixed_salary_batch'",
+          [entry.key],
+        );
+        for (final row in earlier) {
+          final note = (row['notes'] ?? '').toString();
+          const marker = ' | P3C_RANGE:';
+          final at = note.lastIndexOf(marker);
+          if (at < 0) continue; // legacy rows still covered by period-key check
+          final bounds = note.substring(at + marker.length).split(':');
+          if (bounds.length != 2) continue;
+          final previousStart = DateTime.tryParse(bounds[0]);
+          final previousEnd = DateTime.tryParse(bounds[1]);
+          if (previousStart != null && previousEnd != null &&
+              previousStart.isBefore(endExclusive) &&
+              previousEnd.isAfter(start)) {
+            throw StateError('تتداخل فترة الاستحقاق مع دفعة عامل مرحّلة مسبقًا');
+          }
+        }
       }
       final expenseAccount = await _accountIdTx(tx, '5000');
+      final ordered = positiveAmounts.entries.toList()..sort((a,b) => a.key.compareTo(b.key));
       var count = 0;
-      for (final entry in positiveAmounts.entries) {
+      for (final entry in ordered) {
         final workerId = entry.key;
         final amount = entry.value;
         final id = await tx.insert('worker_transactions', {
           'worker_id': workerId,
           'date': accrualDate.toIso8601String(),
           'type': 'accrual',
+          'reference_type': 'fixed_salary_batch',
           'hours': 0,
           'rate_snapshot': amount,
           'percentage_snapshot': 0,
           'amount': amount,
-          'notes': '$periodKey | استحقاق راتب ثابت للفترة $periodLabel | العامل: ${workersById[workerId]?['name'] ?? ''}',
+          'notes': '$periodKey | استحقاق راتب ثابت للفترة $periodLabel | العامل: ${workersById[workerId]?['name'] ?? ''} | P3C_RANGE:${start.toIso8601String().substring(0, 10)}:${endExclusive.toIso8601String().substring(0, 10)}',
           'created_by': userId,
         });
+        if (rootIds['worker_transactions']!.isEmpty) {
+          rootIds['worker_transactions']!.add(id);
+        }
         final payableAccount = await _workerAccountIdTx(tx, workerId);
         await _entry(
           tx,
@@ -2637,7 +2844,8 @@ class AccountingService {
         count++;
       }
       return count;
-    });
+    }, captureSyncTables: const {'worker_transactions'},
+       captureSyncRecordIds: rootIds);
   }
 
   Future<void> createWorkerAccrual({
@@ -2653,19 +2861,26 @@ class AccountingService {
     if (amount <= 0) {
       throw ArgumentError('قيمة استحقاق العامل يجب أن تكون أكبر من صفر');
     }
-    await _assertPeriodOpen(tx, date);
+    if (hours < 0 || !hours.isFinite || rateSnapshot < 0 ||
+        !percentageSnapshot.isFinite || percentageSnapshot < 0 ||
+        percentageSnapshot > 100) {
+      throw ArgumentError('لقطات استحقاق العامل غير صالحة');
+    }
+    final stationId = await _selectedStationIdTx(tx);
+    await _assertPeriodOpen(tx, date, stationId: stationId);
     final worker = await tx.query(
       'workers',
       columns: ['id'],
-      where: 'id=?',
-      whereArgs: [workerId],
+      where: 'id=? AND station_id=? AND active=1',
+      whereArgs: [workerId, stationId],
       limit: 1,
     );
-    if (worker.isEmpty) throw StateError('العامل غير موجود');
+    if (worker.isEmpty) throw StateError('العامل غير نشط أو لا يتبع المحطة');
     final id = await tx.insert('worker_transactions', {
       'worker_id': workerId,
       'date': date.toIso8601String(),
       'type': 'accrual',
+      'reference_type': 'standalone_accrual',
       'hours': hours,
       'rate_snapshot': rateSnapshot,
       'percentage_snapshot': percentageSnapshot,
@@ -2697,7 +2912,7 @@ class AccountingService {
       userId: userId,
       date: date,
     );
-  });
+  }, captureSyncTables: const {'worker_transactions'});
 
   Future<void> createPartnerShare({
     required int partnerId,
@@ -2709,19 +2924,25 @@ class AccountingService {
     if (amount <= 0) {
       throw ArgumentError('قيمة حصة الشريك يجب أن تكون أكبر من صفر');
     }
-    await _assertPeriodOpen(tx, date);
+    if (percentage != null && (!percentage.isFinite || percentage < 0 ||
+        percentage > 100)) {
+      throw ArgumentError('لقطة نسبة الشريك غير صالحة');
+    }
+    final stationId = await _selectedStationIdTx(tx);
+    await _assertPeriodOpen(tx, date, stationId: stationId);
     final partner = await tx.query(
       'partners',
       columns: ['id'],
-      where: 'id=?',
-      whereArgs: [partnerId],
+      where: 'id=? AND station_id=? AND active=1',
+      whereArgs: [partnerId, stationId],
       limit: 1,
     );
-    if (partner.isEmpty) throw StateError('الشريك غير موجود');
+    if (partner.isEmpty) throw StateError('الشريك غير نشط أو لا يتبع المحطة');
     final id = await tx.insert('partner_transactions', {
       'partner_id': partnerId,
       'date': date.toIso8601String(),
       'type': 'share_accrual',
+      'reference_type': 'standalone_share',
       'amount': amount,
       'ownership_snapshot': percentage,
       'created_by': userId,
@@ -2751,7 +2972,7 @@ class AccountingService {
       userId: userId,
       date: date,
     );
-  });
+  }, captureSyncTables: const {'partner_transactions'});
 
   Future<Map<String, int>> beneficiaryBalance(int id) async {
     final r = await database.query(
@@ -2791,6 +3012,7 @@ class AccountingService {
         final notes = '${row['notes'] ?? ''}';
         final signed = switch (type) {
           'accrual' || 'salary' || 'worker_entitlement' || 'opening_balance' => amount,
+          'previous_receivable' => -amount,
           'payment' => -amount,
           'payment_reversal' => amount,
           'irrigation' => notes.startsWith('خصم قيمة سقاية')
@@ -2832,6 +3054,7 @@ class AccountingService {
         final notes = '${row['notes'] ?? ''}';
         final signed = switch (type) {
           'share_accrual' || 'opening_balance' || 'contribution' => amount,
+          'previous_receivable' => -amount,
           'payment' || 'irrigation' || 'share_adjustment' => -amount,
           'payment_reversal' || 'share_adjustment_reversal' => amount,
           'irrigation_reversal' => notes.startsWith('عكس سقاية الشريك')
@@ -2849,20 +3072,44 @@ class AccountingService {
 
   /// يعدّل السقاية ويعيد احتساب القيود والحركات التابعة داخل معاملة واحدة.
   /// الفترات المقفلة والتعارضات الزمنية تُرفض صراحةً لحماية الإقفال وسجل تشغيل المضخة.
+  Future<void> _reverseIrrigationDieselTx(Transaction tx, int irrigationId, int? userId, String reason) async {
+    final moves = await tx.rawQuery("SELECT d.* FROM diesel_movements d WHERE d.irrigation_id=? AND d.reversal_of IS NULL AND NOT EXISTS (SELECT 1 FROM diesel_movements r WHERE r.reversal_of=d.id) ORDER BY d.id", [irrigationId]);
+    for (final move in moves) {
+      final movementId = (move['id'] as num).toInt();
+      await _reverseEntriesTx(tx,
+        referenceType: move['kind'] == 'consumption'
+            ? 'diesel_consumption' : 'diesel_advance',
+        referenceId: movementId, reason: reason, userId: userId);
+      await tx.insert('diesel_movements', {
+        'station_id': move['station_id'], 'beneficiary_id': move['beneficiary_id'],
+        'irrigation_id': irrigationId, 'kind': move['kind'],
+        'liters': -(move['liters'] as num).toDouble(), 'unit_price': move['unit_price'],
+        'amount': -(move['amount'] as num).toInt(), 'date': AppClock.now().toIso8601String(),
+        'notes': 'عكس حركة ${move['id']}: $reason', 'created_by': userId, 'reversal_of': move['id'],
+      });
+    }
+  }
+
   Future<int> updateIrrigationBasic({
     required int id,
     required DateTime start,
     required DateTime end,
+    int? cloudMinutesOverride,
     int? userId,
+    Future<void> Function(Transaction tx)? beforeChange,
   }) async {
     if (!end.isAfter(start)) throw ArgumentError('وقت النهاية يجب أن يكون بعد البداية');
     return database.transaction((tx) async {
+      if (beforeChange != null) await beforeChange(tx);
       final rows = await tx.query('irrigations', where: 'id=?', whereArgs: [id], limit: 1);
       if (rows.isEmpty || rows.first['status'] != 'posted') {
         throw StateError('السقاية غير موجودة أو ملغاة/غير مرحّلة');
       }
       final old = rows.first;
       final type = '${old['system_type']}';
+      if (type == 'diesel' && ((old['diesel_amount'] as num?)?.round() ?? 0) != 0) {
+        throw StateError('السقاية القديمة تحمل قيمة مالية للديزل؛ لا يمكن إعادة تسعيرها ضمن سياسة اللترات فقط دون تسوية محاسبية موثقة. يمكن إلغاؤها بالقيد العكسي.');
+      }
       final oldStart = DateTime.parse('${old['start_datetime']}');
       final oldEnd = DateTime.parse('${old['end_datetime']}');
       try {
@@ -2914,6 +3161,13 @@ class AccountingService {
         // Clamp it to the edited duration just as recordIrrigation does.
         cloud = cloud.clamp(0, end.difference(start).inMinutes).toInt();
       }
+      if (cloudMinutesOverride != null) {
+        if (type != 'solar') throw ArgumentError('تعديل الغيم متاح للسقاية الشمسية فقط');
+        if (cloudMinutesOverride < 0 || cloudMinutesOverride > end.difference(start).inMinutes) {
+          throw ArgumentError('دقائق الغيم يجب أن تكون بين صفر ومدة السقاية');
+        }
+        cloud = cloudMinutesOverride;
+      }
       // Cloud stoppage is only billable for solar systems. Keep diesel and
       // equivalent-system recalculation consistent with recordIrrigation.
       final effectiveCloud = type == 'solar' ? cloud : 0;
@@ -2942,7 +3196,7 @@ class AccountingService {
                   allowMidnightCrossing: allowMidnight,
                   rounding: rounding, partialHour: partialHour,
                 );
-      var chargedDiesel = result.dieselAmount;
+      // Fuel remains a physical quantity with no price or journal.
       var shortageLiters = 0.0;
       final partyTypeForDiesel = '${old['party_type'] ?? 'beneficiary'}';
       final dieselBeneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
@@ -2959,17 +3213,6 @@ class AccountingService {
           if ('${move['kind']}' == 'consumption') stockWithoutThisIrrigation += liters;
         }
         shortageLiters = (result.dieselLiters - stockWithoutThisIrrigation).clamp(0, result.dieselLiters).toDouble();
-        final financialCredit = (cfg['diesel_delivery_financial_credit'] ?? '').toLowerCase() == 'true';
-        if (!financialCredit) {
-          chargedDiesel = AccountingCalculations.roundAmount(shortageLiters *
-            ((old['diesel_price_snapshot'] as num?)?.toDouble() ?? 0), rounding);
-        }
-        result = IrrigationResult(
-          minutes: result.minutes, cloudMinutes: result.cloudMinutes,
-          chargeableMinutes: result.chargeableMinutes, waterAmount: result.waterAmount,
-          dieselAmount: chargedDiesel, totalAmount: result.waterAmount + chargedDiesel,
-          dieselLiters: result.dieselLiters,
-        );
       }
       final partyType = '${old['party_type'] ?? 'beneficiary'}';
       final beneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
@@ -2983,6 +3226,25 @@ class AccountingService {
       if (!{'beneficiary', 'worker', 'partner'}.contains(partyType)) {
         throw StateError('نوع صاحب حساب السقاية غير مدعوم؛ لم تُغيّر أي بيانات');
       }
+
+      // Edits preserve the original price mode and minute rate, not the
+      // current switch setting. Financial journals are reversed below.
+      final oldWorkPriceEnabled =
+          (old['work_price_enabled_snapshot'] as num?)?.toInt() == 1;
+      final oldWorkMinuteRate =
+          (old['work_minute_rate_snapshot'] as num?)?.toInt() ?? 0;
+      if (oldWorkPriceEnabled &&
+          (partyType != 'beneficiary' ||
+           oldWorkMinuteRate <= 0 || oldWorkMinuteRate > 1000000)) {
+        throw StateError('لقطة فارق العمل غير صالحة؛ يلزم مراجعة السجل');
+      }
+      final editedWorkBase = result.waterAmount + result.dieselAmount;
+      final editedBilledWater = oldWorkPriceEnabled
+          ? ReportMinutePricing.amountAtMinuteRate(
+              result.chargeableMinutes, oldWorkMinuteRate)
+          : result.waterAmount;
+      final editedTotal = editedBilledWater + result.dieselAmount;
+      final editedDifference = editedBilledWater - result.waterAmount;
 
       // Reverse linked wage and partner accrual rows without deleting history.
       final workerRows = await tx.query(
@@ -3055,7 +3317,6 @@ class AccountingService {
         reason: 'تصحيح بيانات السقاية رقم $id', userId: userId, date: oldStart,
       );
       final waterRevenue = await _accountIdTx(tx, '4000');
-      final fuelRevenue = await _accountIdTx(tx, '4010');
       final receivable = partyType == 'worker'
           ? await _workerAccountIdTx(tx, workerId!)
           : partyType == 'partner'
@@ -3064,18 +3325,14 @@ class AccountingService {
       final lines = <Map<String, Object?>>[
         {'account_id': receivable, 'beneficiary_id': beneficiaryId,
          'worker_id': workerId, 'partner_id': partnerId,
-         'debit': result.totalAmount, 'credit': 0,
+         'debit': editedTotal, 'credit': 0,
          'memo': partyType == 'beneficiary' ? 'استحقاق سقاية بعد التعديل' : 'خصم سقاية من مستحقات الطرف بعد التعديل'},
       ];
-      if (result.waterAmount > 0) {
+      if (editedBilledWater > 0) {
         lines.add({'account_id': waterRevenue, 'debit': 0,
-          'credit': result.waterAmount, 'memo': 'إيراد السقي بعد التعديل'});
+          'credit': editedBilledWater, 'memo': 'إيراد السقي بعد التعديل'});
       }
-      if (result.dieselAmount > 0) {
-        lines.add({'account_id': fuelRevenue, 'debit': 0,
-          'credit': result.dieselAmount, 'memo': 'قيمة ديزل السقي بعد التعديل'});
-      }
-      if (result.totalAmount > 0) {
+      if (editedTotal > 0) {
         await _entry(tx,
           description: 'تعديل سقاية رقم $id',
           referenceType: 'irrigation', referenceId: id,
@@ -3088,20 +3345,32 @@ class AccountingService {
         'start_datetime': start.toIso8601String(),
         'end_datetime': end.toIso8601String(),
         'minutes': result.minutes,
-        'cloud_minutes': result.cloudMinutes,
+        // Keep third-type cloud notes when the irrigation time is edited.
+        // The equivalent-system tariff still uses un-discounted duration.
+        'cloud_minutes': type == 'equivalent_hybrid' ? cloud : result.cloudMinutes,
         'chargeable_minutes': result.chargeableMinutes,
-        'water_amount': result.waterAmount,
+        'water_amount': editedBilledWater,
+        'work_price_enabled_snapshot': oldWorkPriceEnabled ? 1 : 0,
+        'work_minute_rate_snapshot': oldWorkMinuteRate,
+        'work_base_water_amount_snapshot': result.waterAmount,
+        'work_difference_snapshot': oldWorkPriceEnabled ? editedDifference : 0,
         'diesel_amount': result.dieselAmount,
-        'total_amount': result.totalAmount,
+        'total_amount': editedTotal,
         'updated_at': now,
       };
       await tx.update('irrigations', values, where: 'id=?', whereArgs: [id]);
 
+      // An explicit total-minute override replaces the detailed intervals;
+      // otherwise their sum would disagree with the edited invoice.
+      if (cloudMinutesOverride != null) {
+        await tx.delete('cloud_periods', where: 'irrigation_id=?', whereArgs: [id]);
+      }
       // Keep detailed cloud intervals aligned with the edited irrigation window.
-      for (final period in shiftedCloudPeriods) {
+      for (final period in cloudMinutesOverride == null ? shiftedCloudPeriods : <Map<String, Object?>>[]) {
         final periodId = (period['id'] as num).toInt();
         if (period['delete'] == true) {
-          await tx.delete('cloud_periods', where: 'id=?', whereArgs: [periodId]);
+          await tx.update('cloud_periods', {'start_datetime': start.toIso8601String(),
+            'end_datetime': start.toIso8601String(), 'minutes': 0}, where: 'id=?', whereArgs: [periodId]);
         } else {
           await tx.update('cloud_periods', {
             'start_datetime': period['start_datetime'],
@@ -3111,54 +3380,29 @@ class AccountingService {
         }
       }
 
-      // Reconcile diesel movements with the newly calculated litres and shortage.
+      // Keep original stock movements and append signed, linked reversals.
       final oldDieselMoves = await tx.query('diesel_movements',
         where: 'irrigation_id=?', whereArgs: [id], orderBy: 'id');
-      if (type == 'diesel' && partyType == 'beneficiary' && result.dieselLiters > 0) {
-        final price = (old['diesel_price_snapshot'] as num?)?.toInt() ?? 0;
-        final advances = oldDieselMoves.where((m) => '${m['kind']}' == 'advance').toList();
-        final consumptions = oldDieselMoves.where((m) => '${m['kind']}' == 'consumption').toList();
-        if (shortageLiters > 0) {
-          final advanceValues = <String, Object?>{
-            'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'advance',
-            'liters': shortageLiters, 'unit_price': price,
-            'amount': AccountingCalculations.roundAmount(shortageLiters * price, rounding),
+      await _reverseIrrigationDieselTx(tx, id, userId, 'تعديل السقاية');
+      if (type == 'diesel' && result.dieselLiters > 0) {
+        if (partyType == 'beneficiary' && shortageLiters > 0) {
+          await tx.insert('diesel_movements', {
+            'station_id': old['station_id'],
+            'beneficiary_id': beneficiaryId, 'irrigation_id': id,
+            'kind': 'advance', 'liters': shortageLiters,
+            'unit_price': 0, 'amount': 0,
             'date': start.toIso8601String(), 'created_by': userId,
-            'notes': 'سلفة ديزل تلقائية (بعد تعديل السقاية)',
-          };
-          if (advances.isEmpty) {
-            await tx.insert('diesel_movements', advanceValues);
-          } else {
-            await tx.update('diesel_movements', advanceValues,
-              where: 'id=?', whereArgs: [advances.first['id']]);
-            for (final extra in advances.skip(1)) {
-              await tx.delete('diesel_movements', where: 'id=?', whereArgs: [extra['id']]);
-            }
-          }
-        } else {
-          for (final advance in advances) {
-            await tx.delete('diesel_movements', where: 'id=?', whereArgs: [advance['id']]);
-          }
+            'notes': 'سلفة ديزل عينية بعد تعديل السقاية (لترات فقط)',
+          });
         }
-        final consumptionValues = <String, Object?>{
-          'beneficiary_id': beneficiaryId, 'irrigation_id': id, 'kind': 'consumption',
-          'liters': result.dieselLiters, 'unit_price': price, 'amount': result.dieselAmount,
+        await tx.insert('diesel_movements', {
+          'station_id': old['station_id'],
+          'beneficiary_id': beneficiaryId, 'irrigation_id': id,
+          'kind': 'consumption', 'liters': result.dieselLiters,
+          'unit_price': 0, 'amount': 0,
           'date': start.toIso8601String(), 'created_by': userId,
-          'notes': 'استهلاك السقاية (بعد التعديل)',
-        };
-        if (consumptions.isEmpty) {
-          await tx.insert('diesel_movements', consumptionValues);
-        } else {
-          await tx.update('diesel_movements', consumptionValues,
-            where: 'id=?', whereArgs: [consumptions.first['id']]);
-          for (final extra in consumptions.skip(1)) {
-            await tx.delete('diesel_movements', where: 'id=?', whereArgs: [extra['id']]);
-          }
-        }
-      } else {
-        for (final move in oldDieselMoves) {
-          await tx.delete('diesel_movements', where: 'id=?', whereArgs: [move['id']]);
-        }
+          'notes': 'استهلاك ديزل عيني بعد التعديل (لترات فقط)',
+        });
       }
       // Capture the persisted post-recalculation state, not the planning list:
       // this makes deleted/updated/inserted records reviewable from the audit log.
@@ -3235,7 +3479,7 @@ class AccountingService {
       for (final wageWorker in wageWorkers) {
         totalWorkerEntitlement += await _accrueWorkerIrrigationTx(
           tx, workerId: (wageWorker['id'] as num).toInt(), irrigationId: id,
-          amount: result.totalAmount, hours: result.chargeableMinutes / 60.0,
+          amount: editedWorkBase, hours: result.chargeableMinutes / 60.0,
           date: start, userId: userId);
       }
       if (partyType == 'worker') {
@@ -3252,7 +3496,7 @@ class AccountingService {
           'notes': 'خصم قيمة سقاية من حساب الشريك', 'created_by': userId,
         });
       }
-      final partnerPool = (result.totalAmount - totalWorkerEntitlement).clamp(0, result.totalAmount).toInt();
+      final partnerPool = (editedWorkBase - totalWorkerEntitlement).clamp(0, editedWorkBase).toInt();
       if (partnerPool > 0) {
         await _accruePartnersFromIrrigationTx(tx,
           irrigationId: id, stationId: (old['station_id'] as num).toInt(),
@@ -3261,13 +3505,14 @@ class AccountingService {
       await database.auditTx(tx, userId: userId, operation: 'update',
         table: 'irrigations', recordId: id, oldValues: old,
         newValues: values, reason: 'تعديل وقت السقاية وإعادة ترحيل قيدها');
-      return result.totalAmount;
-    });
+      return editedTotal;
+    }, captureSyncTables: const {'irrigations'});
   }
 
-  Future<void> cancelIrrigation(int id, int userId, String reason) async {
+  Future<void> cancelIrrigation(int id, int userId, String reason, {Future<void> Function(Transaction tx)? beforeChange}) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب إلغاء السقاية مطلوب');
     await database.transaction((tx) async {
+      if (beforeChange != null) await beforeChange(tx);
       final rows = await tx.query(
         'irrigations',
         where: 'id=?',
@@ -3278,13 +3523,17 @@ class AccountingService {
         throw StateError('السقاية غير موجودة أو ملغاة مسبقًا');
       }
       final old = rows.first;
-      await _assertPeriodOpen(tx, DateTime.parse('${old['start_datetime']}'));
+      final cancelledAt = AppClock.now().toIso8601String();
+      await _assertPeriodRangeOpen(tx, DateTime.parse('${old['start_datetime']}'), DateTime.parse('${old['end_datetime']}'), stationId: (old['station_id'] as num).toInt());
+      await _assertPeriodOpen(tx, AppClock.now(), stationId: (old['station_id'] as num).toInt());
       await tx.update(
         'irrigations',
         {
           'status': 'cancelled',
+          'cancel_reason': reason.trim(),
+          'cancelled_at': cancelledAt,
           'notes': '${old['notes'] ?? ''}\nإلغاء: $reason',
-          'updated_at': AppClock.now().toIso8601String(),
+          'updated_at': cancelledAt,
         },
         where: 'id=?',
         whereArgs: [id],
@@ -3292,8 +3541,8 @@ class AccountingService {
       // 1) عكس الدفعات المرتبطة (إن وُجدت). يُسمح برصيد صندوق سالب
       final pays = await tx.query(
         'payments',
-        where: "reference_number=? AND status='posted'",
-        whereArgs: ['IRR-$id'],
+        where: "(irrigation_id=? OR (irrigation_id IS NULL AND reference_number=?)) AND status='posted'",
+        whereArgs: [id, 'IRR-$id'],
       );
       for (final pay in pays) {
         await _cancelPaymentRowTx(tx, pay, reason: reason, userId: userId);
@@ -3306,33 +3555,12 @@ class AccountingService {
         reason: reason,
         userId: userId,
       );
-      // 3) حركات الديزل المرتبطة: تُحذف وتُحفظ قيمها في سجل التدقيق
-      final moves = await tx.query(
-        'diesel_movements',
-        where: 'irrigation_id=?',
-        whereArgs: [id],
-      );
-      if (moves.isNotEmpty) {
-        await tx.delete(
-          'diesel_movements',
-          where: 'irrigation_id=?',
-          whereArgs: [id],
-        );
-        await database.auditTx(
-          tx,
-          userId: userId,
-          operation: 'delete',
-          table: 'diesel_movements',
-          recordId: id,
-          oldValues: moves,
-          reason: 'إلغاء السقاية: $reason',
-        );
-      }
+      await _reverseIrrigationDieselTx(tx, id, userId, reason);
       // 4) عكس كل استحقاقات الأطراف المرتبطة بالسقاية (العامل والشركاء).
       // لا نحذف الحركة الأصلية حتى يبقى كشف الحساب قابلاً للتدقيق.
       final workerAccruals = await tx.query(
         'worker_transactions',
-        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation'",
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation' AND NOT EXISTS (SELECT 1 FROM worker_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=worker_transactions.id AND rev.type='irrigation_reversal')",
         whereArgs: [id],
       );
       for (final item in workerAccruals) {
@@ -3360,7 +3588,7 @@ class AccountingService {
       }
       final directPartnerIrrigations = await tx.query(
         'partner_transactions',
-        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation'",
+        where: "reference_type='irrigation' AND reference_id=? AND type='irrigation' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=partner_transactions.id AND rev.type='irrigation_reversal')",
         whereArgs: [id],
       );
       for (final item in directPartnerIrrigations) {
@@ -3377,7 +3605,7 @@ class AccountingService {
       }
       final partnerAccruals = await tx.query(
         'partner_transactions',
-        where: "reference_type='irrigation_profit' AND reference_id=? AND type='share_accrual'",
+        where: "reference_type='irrigation_profit' AND reference_id=? AND type='share_accrual' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='irrigation_edit' AND rev.reference_id=partner_transactions.id AND rev.type='irrigation_reversal')",
         whereArgs: [id],
       );
       for (final item in partnerAccruals) {
@@ -3393,7 +3621,7 @@ class AccountingService {
         // حتى لا يبقى خصم من حساب الشريك بعد إلغاء السقاية الأصلية.
         final adjustments = await tx.query(
           'partner_transactions',
-          where: "reference_type='partner_profit_adjustment' AND reference_id=? AND type='share_adjustment'",
+          where: "reference_type='partner_profit_adjustment' AND reference_id=? AND type='share_adjustment' AND NOT EXISTS (SELECT 1 FROM partner_transactions rev WHERE rev.reference_type='partner_profit_adjustment_cancel' AND rev.reference_id=partner_transactions.id)",
           whereArgs: [accrualId],
         );
         for (final adjustment in adjustments) {
@@ -3436,7 +3664,7 @@ class AccountingService {
         oldValues: old,
         reason: reason,
       );
-    });
+    }, captureSyncTables: const {'irrigations'});
   }
 
   /// يلغي دفعة واحدة داخل معاملة قائمة: يغيّر حالتها، يعدّل رصيد الصندوق (ويُسمح بالسالب)،
@@ -3468,6 +3696,8 @@ class AccountingService {
       'payments',
       {
         'status': 'cancelled',
+        'cancel_reason': reason.trim(),
+        'cancelled_at': AppClock.now().toIso8601String(),
         'notes': '${pay['notes'] ?? ''}\nإلغاء: $reason',
       },
       where: 'id=?',
@@ -3581,17 +3811,22 @@ class AccountingService {
       }
       final old = rows.first;
       final oldReference = '${old['reference_number'] ?? ''}';
-      if (oldReference.startsWith('IRR-')) {
+      if (old['irrigation_id'] != null || oldReference.startsWith('IRR-')) {
         throw StateError('هذا السند مرتبط بسقاية؛ عدّل السقاية من شاشة فواتير السقايات حتى يبقى رصيدها صحيحًا.');
       }
       await _assertPeriodOpen(tx, DateTime.parse('${old['date']}'));
+      await _assertPeriodOpen(tx, AppClock.now());
+      if (old['currency']==null) throw StateError('عملة السند التاريخي غير مثبتة؛ يلزم مراجعة قبل الاستبدال');
+      final newBox = (await tx.query('cashboxes',where:'id=?',whereArgs:[cashboxId])).single;
+      final oldBox = (await tx.query('cashboxes',where:'id=?',whereArgs:[old['cashbox_id']])).single;
+      if (newBox['currency'] != (old['currency'] ?? oldBox['currency'])) throw StateError('لا يسمح بتغيير عملة السند عند الاستبدال');
       await _cancelPaymentRowTx(tx, old,
         reason: 'تعديل السند: ${reason.trim()}', userId: userId);
       final replacementId = await _paymentInTx(
         tx, beneficiaryId: beneficiaryId, partnerId: partnerId, workerId: workerId,
         amount: amount, paymentMethodId: paymentMethodId, cashboxId: cashboxId,
         userId: userId, referenceNumber: referenceNumber, notes: notes,
-        sendNotification: false,
+        sendNotification: false, replacesPaymentId: id,
         paymentDate: DateTime.parse('${old['date']}'),
       );
       // Keep the party-specific subledgers in sync just as payWorker/payPartner do.
@@ -3631,7 +3866,21 @@ class AccountingService {
         },
         reason: reason.trim());
       return replacementId;
-    });
+    }, captureSyncTables: const {'payments'}, captureSyncRecordIds: {'payments':{id}});
+  }
+
+  Future<void> updatePaymentDetails({required int id, required int userId, String? referenceNumber, String? notes}) async {
+    await database.transaction((tx) async {
+      final rows=await tx.query('payments',where:'id=?',whereArgs:[id]);
+      if(rows.length!=1 || rows.single['status']!='posted') throw StateError('السند غير موجود أو ملغى');
+      final old=rows.single;
+      if(old['irrigation_id']!=null && referenceNumber!=old['reference_number']) throw StateError('مرجع قبض السقاية ثابت');
+      await _assertPeriodOpen(tx,DateTime.parse('${old['date']}'));
+      await _assertPeriodOpen(tx,AppClock.now());
+      final values={'reference_number':referenceNumber,'notes':notes,'updated_at':AppClock.now().toIso8601String()};
+      await tx.update('payments',values,where:'id=?',whereArgs:[id]);
+      await database.auditTx(tx,userId:userId,operation:'update',table:'payments',recordId:id,oldValues:old,newValues:values);
+    },captureSyncTables:const {'payments'});
   }
 
   /// إلغاء دفعة (قبض من مستفيد أو دفع لعامل/شريك) مع عكس أثرها كاملًا.
@@ -3647,9 +3896,11 @@ class AccountingService {
       if (r.isEmpty || r.first['status'] != 'posted') {
         throw StateError('الدفعة غير موجودة أو ملغاة مسبقًا');
       }
+      if (r.first['irrigation_id']==null && '${r.first['reference_number']??''}'.startsWith('IRR-')) throw StateError('ربط القبض القديم غير مثبت؛ يلزم مراجعة صريحة');
       await _assertPeriodOpen(tx, DateTime.parse('${r.first['date']}'));
+      await _assertPeriodOpen(tx, AppClock.now());
       await _cancelPaymentRowTx(tx, r.first, reason: reason, userId: userId);
-    });
+    }, captureSyncTables: const {'payments'});
   }
 
   /// إلغاء حركة ديزل يدوية (شراء/تسليم/سلفة/استهلاك/تصحيح): تُعكس قيودها ويُردّ أثرها على
@@ -3669,8 +3920,14 @@ class AccountingService {
       if (m['irrigation_id'] != null) {
         throw StateError('هذه الحركة مرتبطة بسقاية؛ تُلغى بإلغاء السقاية');
       }
-      await _assertPeriodOpen(tx, DateTime.parse('${m['date']}'));
+      await _assertPeriodOpen(tx, DateTime.parse('${m['date']}'),
+          stationId: (m['station_id'] as num?)?.toInt());
       final kind = '${m['kind']}';
+      if (m['party_receipt'] == 1) {
+        await _assertPeriodOpen(tx, AppClock.now(), stationId: m['station_id'] as int);
+        await DieselDeliveryService(database).cancelOn(tx, m, userId, reason);
+        return;
+      }
       final liters = (m['liters'] as num).toDouble();
       // أثر الحركة على مخزون المحطة، وبعد إلغائها يجب ألا يصبح سالبًا.
       final delta = switch (kind) {
@@ -3681,7 +3938,11 @@ class AccountingService {
         'advance' => m['irrigation_id'] == null ? -liters : 0.0,
         _ => 0.0,
       };
-      final st = await tx.rawQuery(_stationDieselStockSql);
+      final stationId = (m['station_id'] as num?)?.toInt();
+      if (stationId == null) {
+        throw StateError('ملكية محطة حركة الديزل غير محددة؛ يلزم تدقيق السجل قبل الإلغاء');
+      }
+      final st = await tx.rawQuery(_stationDieselStockSql, [stationId]);
       final stock = (st.first['stock'] as num?)?.toDouble() ?? 0;
       if (delta > 0 && stock - delta < -0.0005) {
         throw StateError('لا يمكن الإلغاء: سيصبح مخزون الديزل سالبًا');
@@ -3756,12 +4017,13 @@ class AccountingService {
     if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
     if (notes.trim().isEmpty) throw ArgumentError('بيان المديونية مطلوب');
     return database.transaction((tx) async {
-      await _assertPeriodOpen(tx, date);
+      final stationId = await _selectedStationIdTx(tx);
+      await _assertPeriodOpen(tx, date, stationId: stationId);
       final rows = await tx.query(
         'beneficiaries',
-        columns: ['id', 'name', 'status'],
-        where: "id=? AND status='active'",
-        whereArgs: [beneficiaryId],
+        columns: ['id', 'name', 'status', 'station_id'],
+        where: "id=? AND station_id=? AND status='active'",
+        whereArgs: [beneficiaryId, stationId],
         limit: 1,
       );
       if (rows.isEmpty) throw StateError('المستفيد غير موجود أو غير نشط');
@@ -3783,6 +4045,7 @@ class AccountingService {
         referenceType: 'beneficiary_manual_debt',
         referenceId: debtId,
         date: date,
+        stationId: stationId,
         userId: userId,
         lines: [
           {'account_id': receivable, 'beneficiary_id': beneficiaryId, 'debit': amount, 'credit': 0, 'memo': notes.trim()},
@@ -3811,11 +4074,11 @@ class AccountingService {
         reason: 'مديونية سابقة مستحقة للمحطة، دون قبض نقدي أو إثبات إيراد جديد',
       );
       return debtId;
-    });
+    }, captureSyncTables: {'beneficiary_manual_debts'});
   }
 
   /// إضافة مديونية سابقة من مركز المدفوعات دون أي حركة صندوق.
-  /// للمستفيد: المبلغ عليه للمحطة؛ للعامل والشريك: المبلغ مستحق لهما على المحطة.
+  /// لجميع الأطراف: المبلغ عليهم للمحطة. الأرصدة التاريخية المستحقة للأطراف لا تُمس.
   Future<int> addPreviousPartyDebt({
     required String partyType,
     required int partyId,
@@ -3838,18 +4101,24 @@ class AccountingService {
     if (partyType != 'worker' && partyType != 'partner') {
       throw ArgumentError('نوع الطرف غير صالح لإضافة المديونية');
     }
+    final isWorker = partyType == 'worker';
+    final transactionTable = isWorker ? 'worker_transactions' : 'partner_transactions';
     return database.transaction((tx) async {
-      await _assertPeriodOpen(tx, date);
-      final isWorker = partyType == 'worker';
+      final stationId = await _selectedStationIdTx(tx);
+      await _assertPeriodOpen(tx, date, stationId: stationId);
       final table = isWorker ? 'workers' : 'partners';
       final partyRows = await tx.query(
         table,
-        columns: ['id', 'name'],
-        where: 'id=?',
-        whereArgs: [partyId],
+        columns: ['id', 'name', 'station_id', 'active'],
+        where: 'id=? AND station_id=?',
+        whereArgs: [partyId, stationId],
         limit: 1,
       );
-      if (partyRows.isEmpty) throw StateError('الطرف المحدد غير موجود');
+      if (partyRows.isEmpty ||
+          (partyRows.first['active'] != null &&
+              (partyRows.first['active'] as num).toInt() != 1)) {
+        throw StateError('الطرف المحدد غير موجود أو لا يتبع محطة العمل الحالية');
+      }
       final name = '${partyRows.first['name'] ?? ''}';
       final partyAccount = isWorker
           ? await _workerAccountIdTx(tx, partyId)
@@ -3857,32 +4126,34 @@ class AccountingService {
       final openingEquity = await _accountIdTx(tx, '3000');
       final entryId = await _entry(
         tx,
-        description: 'مديونية سابقة مستحقة لـ${isWorker ? 'العامل' : 'الشريك'} $name',
+        description: 'مديونية سابقة على ${isWorker ? 'العامل' : 'الشريك'} $name',
         referenceType: isWorker ? 'worker_opening' : 'partner_opening',
         referenceId: partyId,
         date: date,
+        stationId: stationId,
         userId: userId,
         lines: [
           {
             'account_id': partyAccount,
             if (isWorker) 'worker_id': partyId else 'partner_id': partyId,
-            'debit': 0,
-            'credit': amount,
+            'debit': amount,
+            'credit': 0,
             'memo': notes.trim(),
           },
           {
             'account_id': openingEquity,
-            'debit': amount,
-            'credit': 0,
-            'memo': 'مقابل مديونية سابقة',
+            'debit': 0,
+            'credit': amount,
+            'memo': 'مقابل مديونية سابقة على الطرف',
           },
         ],
       );
       if (isWorker) {
         await tx.insert('worker_transactions', {
           'worker_id': partyId,
+          'station_id': stationId,
           'date': date.toIso8601String(),
-          'type': 'opening_balance',
+          'type': 'previous_receivable',
           'hours': 0,
           'rate_snapshot': 0,
           'percentage_snapshot': 0,
@@ -3895,8 +4166,9 @@ class AccountingService {
       } else {
         await tx.insert('partner_transactions', {
           'partner_id': partyId,
+          'station_id': stationId,
           'date': date.toIso8601String(),
-          'type': 'opening_balance',
+          'type': 'previous_receivable',
           'amount': amount,
           'ownership_snapshot': null,
           'reference_type': 'previous_debt',
@@ -3919,10 +4191,212 @@ class AccountingService {
           'notes': notes.trim(),
           'reference_type': isWorker ? 'worker_opening' : 'partner_opening',
         },
-        reason: 'إضافة مديونية سابقة دون حركة نقدية',
+        reason: 'إضافة مديونية سابقة على الطرف دون حركة نقدية',
       );
       return entryId;
-    });
+    }, captureSyncTables: {transactionTable});
+  }
+
+
+  /// Corrects the beneficiary debt with an audited reversal and a fresh
+  /// posting in ONE transaction. The original journal remains immutable.
+  Future<void> reviseBeneficiaryDebt({
+    required int debtId,
+    required int amount,
+    required String notes,
+    int? userId,
+  }) async {
+    if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
+    if (notes.trim().isEmpty) throw ArgumentError('بيان المديونية مطلوب');
+    await database.transaction((tx) async {
+      final station = await _selectedStationIdTx(tx);
+      final now = AppClock.now();
+      await _assertPeriodOpen(tx, now, stationId: station);
+      final rows = await tx.rawQuery(
+        """SELECT md.*,b.name FROM beneficiary_manual_debts md
+           JOIN beneficiaries b ON b.id=md.beneficiary_id
+           WHERE md.id=? AND b.station_id=? AND md.status='posted' LIMIT 1""",
+        [debtId, station],
+      );
+      if (rows.isEmpty) throw StateError('المديونية غير موجودة أو ملغاة');
+      final original = rows.single;
+      final oldAmount = (original['amount'] as num).toInt();
+      final oldNotes = '${original['notes'] ?? ''}';
+      if (oldAmount == amount && oldNotes == notes.trim()) {
+        throw StateError('لم تتغير بيانات المديونية');
+      }
+      final originalJournal = (original['journal_entry_id'] as num?)?.toInt();
+      if (originalJournal == null) throw StateError('القيد المحاسبي للمديونية مفقود');
+      final journal = await tx.query('journal_entries',
+        where: 'id=? AND station_id=? AND reference_type=? AND reference_id=? AND status=?',
+        whereArgs: [originalJournal, station, 'beneficiary_manual_debt', debtId, 'posted'],
+        limit: 1);
+      if (journal.isEmpty) throw StateError('القيد المحاسبي غير مرتبط بالمديونية');
+      if ((await tx.query('journal_entries',
+        where: 'reference_type=? AND reference_id=?',
+        whereArgs: ['reversal', originalJournal],limit: 1)).isNotEmpty) {
+        throw StateError('القيد سبق عكسه');
+      }
+      final lines = await tx.query('journal_lines',
+        where: 'journal_entry_id=?',whereArgs: [originalJournal]);
+      if (lines.length != 2 ||
+          lines.fold<int>(0,(n,l)=>n+(l['debit'] as num).toInt()) != oldAmount ||
+          lines.fold<int>(0,(n,l)=>n+(l['credit'] as num).toInt()) != oldAmount) {
+        throw StateError('القيد الأصلي غير متوازن');
+      }
+      await _entry(tx, description: 'عكس المديونية رقم $debtId بغرض التصحيح',
+        referenceType: 'reversal', referenceId: originalJournal,
+        stationId: station, userId: userId, date: now,
+        lines: [
+          for (final line in lines)
+            {
+              'account_id': line['account_id'],
+              'beneficiary_id': line['beneficiary_id'],
+              'worker_id': line['worker_id'],
+              'partner_id': line['partner_id'],
+              'debit': line['credit'],
+              'credit': line['debit'],
+              'memo': 'تصحيح: ${line['memo'] ?? ''}',
+            },
+        ]);
+      final receivable = await _accountIdTx(tx, '1200');
+      final carried = await _accountIdTx(tx, '3100');
+      final correctedJournal = await _entry(tx,
+        description: 'مديونية مصححة للمستفيد: ${original['name']}',
+        referenceType: 'beneficiary_manual_debt',referenceId: debtId,
+        stationId: station,userId: userId,date: now,
+        lines: [
+          {'account_id': receivable, 'beneficiary_id': original['beneficiary_id'],
+            'debit': amount, 'credit': 0, 'memo': notes.trim()},
+          {'account_id': carried, 'debit': 0, 'credit': amount,
+            'memo': 'مقابل تصحيح مديونية سابقة'},
+        ]);
+      final changed = await tx.update('beneficiary_manual_debts',
+        {'amount': amount,'notes': notes.trim(),'journal_entry_id': correctedJournal},
+        where: 'id=? AND status=?',whereArgs: [debtId,'posted']);
+      if (changed != 1) throw StateError('تعذر حفظ تصحيح المديونية');
+      await database.auditTx(tx,userId: userId,operation: 'update',
+        table: 'beneficiary_manual_debts',recordId: debtId,
+        oldValues: original,
+        newValues: {'amount': amount,'notes': notes.trim(),
+          'journal_entry_id': correctedJournal},
+        reason: 'تصحيح مديونية مستفيد بقيد عكسي وقيد بديل');
+    }, captureSyncTables: {'beneficiary_manual_debts'});
+  }
+
+  /// Revises/cancels a worker or partner receivable. Only debts created by
+  /// the new "previous_receivable" flow may be changed; old payable opening
+  /// balances and all unrelated transactions remain untouched.
+  Future<void> revisePreviousPartyDebt({
+    required String partyType,
+    required int transactionId,
+    int? amount,
+    String? notes,
+    String? cancellationReason,
+    int? userId,
+  }) async {
+    if (partyType != 'worker' && partyType != 'partner') {
+      throw ArgumentError('نوع الطرف غير صالح');
+    }
+    final cancel = cancellationReason != null;
+    if (cancel) {
+      if (cancellationReason.trim().isEmpty) throw ArgumentError('سبب الإلغاء مطلوب');
+    } else {
+      if (amount == null || amount <= 0 || notes == null || notes.trim().isEmpty) {
+        throw ArgumentError('المبلغ والبيان مطلوبان للتعديل');
+      }
+    }
+    final isWorker = partyType == 'worker';
+    final table = isWorker ? 'worker_transactions' : 'partner_transactions';
+    final partyCol = isWorker ? 'worker_id' : 'partner_id';
+    final reference = isWorker ? 'worker_opening' : 'partner_opening';
+    await database.transaction((tx) async {
+      final station = await _selectedStationIdTx(tx);
+      final now = AppClock.now();
+      await _assertPeriodOpen(tx, now, stationId: station);
+      final found = await tx.rawQuery(
+        'SELECT t.* FROM $table t JOIN ${isWorker ? 'workers' : 'partners'} p '
+        'ON p.id=t.$partyCol AND p.station_id=t.station_id '
+        "WHERE t.id=? AND t.station_id=? AND t.reference_type='previous_debt' "
+        "AND t.type='previous_receivable' LIMIT 1",
+        [transactionId, station]);
+      if (found.isEmpty) throw StateError('المديونية غير موجودة أو معدلة/ملغاة مسبقاً');
+      final original = found.single;
+      final id = (original[partyCol] as num).toInt();
+      final oldAmount = (original['amount'] as num).toInt();
+      final oldNotes = '${original['notes'] ?? ''}';
+      if (!cancel && oldAmount == amount && oldNotes == notes!.trim()) {
+        throw StateError('لم تتغير بيانات المديونية');
+      }
+      final oldJournalId = (original['reference_id'] as num?)?.toInt();
+      if (oldJournalId == null) throw StateError('قيد المديونية مفقود');
+      final journal = await tx.query('journal_entries',
+        where:'id=? AND station_id=? AND reference_type=? AND reference_id=? AND status=?',
+        whereArgs:[oldJournalId,station,reference,id,'posted'],limit: 1);
+      if (journal.isEmpty ||
+          !'${journal.single['description']}'.startsWith('مديونية سابقة على ') &&
+          !'${journal.single['description']}'.startsWith('مديونية مصححة على ')) {
+        throw StateError('قيد المديونية الأصلي غير صالح');
+      }
+      if ((await tx.query('journal_entries',
+        where:'reference_type=? AND reference_id=?',
+        whereArgs:['reversal',oldJournalId],limit: 1)).isNotEmpty) {
+        throw StateError('القيد سبق عكسه');
+      }
+      final lines = await tx.query('journal_lines',
+        where:'journal_entry_id=?',whereArgs:[oldJournalId]);
+      if (lines.length != 2 ||
+          lines.fold<int>(0,(n,l)=>n+(l['debit'] as num).toInt())!=oldAmount ||
+          lines.fold<int>(0,(n,l)=>n+(l['credit'] as num).toInt())!=oldAmount) {
+        throw StateError('القيد غير متوازن أو لا يطابق المديونية');
+      }
+      await _entry(tx,description: cancel
+          ? 'إلغاء مديونية سابقة على $partyType رقم $transactionId: ${cancellationReason.trim()}'
+          : 'عكس مديونية سابقة على $partyType رقم $transactionId للتعديل',
+        referenceType:'reversal',referenceId:oldJournalId,
+        stationId:station,date:now,userId:userId,
+        lines: [
+          for(final line in lines)
+            {
+              'account_id':line['account_id'],
+              'beneficiary_id':line['beneficiary_id'],
+              'worker_id':line['worker_id'],
+              'partner_id':line['partner_id'],
+              'debit':line['credit'],'credit':line['debit'],
+              'memo':'عكس: ${line['memo'] ?? ''}',
+            },
+        ]);
+      if (cancel) {
+        final cancellationNote = 'إلغاء مديونية: ${cancellationReason.trim()} | البيان الأصلي: $oldNotes';
+        final changed = await tx.update(table,
+          {'type':'previous_receivable_cancelled','notes':cancellationNote},
+          where:"id=? AND type='previous_receivable'",whereArgs:[transactionId]);
+        if (changed!=1) throw StateError('تعذر إلغاء المديونية');
+      } else {
+        final account = isWorker
+            ? await _workerAccountIdTx(tx,id)
+            : await _partnerAccountIdTx(tx,id);
+        final equity = await _accountIdTx(tx,'3000');
+        final newJournal = await _entry(tx,
+          description:'مديونية مصححة على ${isWorker ? 'العامل' : 'الشريك'} رقم $id',
+          referenceType:reference,referenceId:id,
+          stationId:station,date:now,userId:userId,
+          lines:[
+            {'account_id':account,partyCol:id,'debit':amount!,'credit':0,'memo':notes!.trim()},
+            {'account_id':equity,'debit':0,'credit':amount,'memo':'مقابل تصحيح المديونية'},
+          ]);
+        final changed = await tx.update(table,
+          {'amount':amount,'notes':notes.trim(),'reference_id':newJournal},
+          where:"id=? AND type='previous_receivable'",whereArgs:[transactionId]);
+        if (changed!=1) throw StateError('تعذر حفظ تصحيح المديونية');
+      }
+      await database.auditTx(tx,userId:userId,operation:cancel?'cancel':'update',
+        table:table,recordId:transactionId,oldValues:original,
+        newValues:cancel
+          ? {'type':'previous_receivable_cancelled','cancel_reason':cancellationReason}
+          : {'amount':amount,'notes':notes},
+        reason:cancel?'إلغاء مديونية على الطرف بقيد عكسي':'تصحيح مديونية على الطرف بقيد عكسي وقيد بديل');
+    },captureSyncTables:{table});
   }
 
   /// يلغي سند مديونية سابقاً بعكس قيده مع إبقاء السند الأصلي للتدقيق.
@@ -3933,15 +4407,16 @@ class AccountingService {
   ) async {
     if (reason.trim().isEmpty) throw ArgumentError('سبب الإلغاء مطلوب');
     await database.transaction((tx) async {
-      final rows = await tx.query(
-        'beneficiary_manual_debts',
-        where: "id=? AND status='posted'",
-        whereArgs: [debtId],
-        limit: 1,
+      final stationId = await _selectedStationIdTx(tx);
+      final rows = await tx.rawQuery(
+        """SELECT md.* FROM beneficiary_manual_debts md
+           JOIN beneficiaries b ON b.id=md.beneficiary_id
+           WHERE md.id=? AND b.station_id=? AND md.status='posted' LIMIT 1""",
+        [debtId, stationId],
       );
       if (rows.isEmpty) throw StateError('سند المديونية غير موجود أو ملغى مسبقاً');
       final debt = rows.first;
-      await _assertPeriodOpen(tx, AppClock.now());
+      await _assertPeriodOpen(tx, AppClock.now(), stationId: stationId);
       final reversed = await _reverseEntriesTx(
         tx,
         referenceType: 'beneficiary_manual_debt',
@@ -3970,7 +4445,7 @@ class AccountingService {
         newValues: {'status': 'cancelled'},
         reason: reason.trim(),
       );
-    });
+    }, captureSyncTables: {'beneficiary_manual_debts'});
   }
 
   /// يقيّد الفرق بين الأرصدة الافتتاحية/المرحَّلة القديمة والجديدة للمستفيد في الأستاذ:
