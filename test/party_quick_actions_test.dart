@@ -238,8 +238,16 @@ void main() {
         addTearDown(tester.view.resetDevicePixelRatio);
         await tester.runAsync(() => repo.setSetting('system_type', system));
         final before = await tester.runAsync(counts);
-        await tester.pumpWidget(MaterialApp(home: NewIrrigationPage(
-          repo, manager: true, compactOnly: true)));
+        await tester.pumpWidget(MaterialApp(home: Scaffold(
+          body: Builder(builder: (context) => TextButton(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => NewIrrigationPage(
+                repo, manager: true, compactOnly: true))),
+            child: const Text('فتح السقاية السريعة'),
+          )),
+        )));
+        await tester.tap(find.text('فتح السقاية السريعة'));
+        await tester.pump();
         await waitFor(tester, () =>
             find.text('بطاقة وقت التشغيل').evaluate().isNotEmpty);
         await tester.tap(find.textContaining('بداية التشغيل:'));
