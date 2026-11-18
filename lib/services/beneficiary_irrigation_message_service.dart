@@ -20,21 +20,45 @@ class BeneficiaryIrrigationMessageService {
     required int userId,
     required int beneficiaryId,
     required int irrigationId,
+  }) => prepareForParty(
+        userId: userId,
+        partyType: 'beneficiary',
+        partyId: beneficiaryId,
+        irrigationId: irrigationId,
+      );
+
+  Future<PreparedIrrigationMessage> prepareForParty({
+    required int userId,
+    required String partyType,
+    required int partyId,
+    required int irrigationId,
   }) async {
-    final actions = BeneficiaryIrrigationActions(repo.db,
-      userId: userId, beneficiaryId: beneficiaryId, irrigationId: irrigationId);
+    const tables = {
+      'beneficiary': 'beneficiaries',
+      'worker': 'workers',
+      'partner': 'partners',
+    };
+    final table = tables[partyType];
+    if (table == null) throw ArgumentError('نوع صاحب السقاية غير صالح');
+    final actions = PartyIrrigationActions(repo.db,
+      userId: userId, partyType: partyType, partyId: partyId, irrigationId: irrigationId);
     final row = await actions.record();
     final owners = await repo.db.query(
-      'SELECT name,phone FROM beneficiaries WHERE id=? AND station_id=?',
-      args: [beneficiaryId, row['station_id']],
+      'SELECT name,phone FROM $table WHERE id=? AND station_id=?',
+      args: [partyId, row['station_id']],
     );
-    if (owners.length != 1) throw StateError('المستفيد غير متاح');
+    if (owners.length != 1) throw StateError('صاحب السقاية غير متاح');
     final owner = owners.single;
     final start = DateTime.parse('${row['start_datetime']}');
     final end = DateTime.parse('${row['end_datetime']}');
     final total = (row['total_amount'] as num).round();
     final paid = (row['paid_amount'] as num).round();
-    final balance = (await repo.accounting.beneficiaryBalance(beneficiaryId))['balance'] ?? 0;
+    final balanceData = switch (partyType) {
+      'worker' => await repo.accounting.workerBalance(partyId),
+      'partner' => await repo.accounting.partnerBalance(partyId),
+      _ => await repo.accounting.beneficiaryBalance(partyId),
+    };
+    final balance = (balanceData['balance'] as num?)?.round() ?? 0;
     final fuel = await IrrigationMessageFuelService(repo).forIrrigation(irrigationId);
     final settings = await repo.settings();
     String money(int amount) => '$amount ريال';
@@ -53,7 +77,7 @@ class BeneficiaryIrrigationMessageService {
         // No historical balance snapshot was stored by the old save path.
         'الرصيد السابق': 'غير محفوظ لهذه السقاية',
         'الرصيد الحالي': balance == 0 ? 'متوازن (0 ريال)'
-          : '${balance > 0 ? 'عليه' : 'له'} ${balance.abs()} ريال',
+          : '${balance > 0 ? (partyType == 'beneficiary' ? 'عليه' : 'له') : (partyType == 'beneficiary' ? 'له' : 'عليه')} ${balance.abs()} ريال',
         'رقم العملية': '$irrigationId',
         ...fuel,
       },
