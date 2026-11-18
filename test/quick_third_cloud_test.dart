@@ -73,5 +73,19 @@ void main() {
     );
     expect(periods.length, 1);
     expect(periods.single['minutes'], 15);
+
+    await AccountingService(db).updateIrrigationBasic(
+      id: id,
+      start: start,
+      end: start.add(const Duration(hours: 2)),
+      userId: 1,
+    );
+    final edited = (await db.query(
+      'SELECT cloud_minutes,chargeable_minutes,total_amount '
+      'FROM irrigations WHERE id=?', args: [id],
+    )).single;
+    expect(edited['cloud_minutes'], 15);
+    expect(edited['chargeable_minutes'], 120);
+    expect(edited['total_amount'], 12000);
   });
 }
