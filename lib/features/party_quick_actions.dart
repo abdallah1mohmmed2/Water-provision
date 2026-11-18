@@ -4,9 +4,9 @@ import '../data/repositories/repositories.dart';
 import '../services/report_service.dart';
 import '../services/report_pdf_preview_service.dart';
 
-typedef PartyReportCallback = Future<void> Function(bool irrigations);
+typedef PartyReportCallback = Future<void> Function(String report);
 
-/// Both buttons keep the existing PDF preview / long-press sharing behavior.
+/// The three PDF choices share preview and long-press-to-share behavior.
 Future<void> showPartyPdfChoices(
   BuildContext context, {
   required String name,
@@ -15,13 +15,13 @@ Future<void> showPartyPdfChoices(
   context: context,
   showDragHandle: true,
   builder: (sheetContext) {
-    Future<void> open(bool irrigations, {bool share = false}) async {
+    Future<void> open(String report, {bool share = false}) async {
       Navigator.pop(sheetContext);
       try {
         if (share) {
-          await ReportPdfPreviewService.shareOnLongPress(() => generate(irrigations));
+          await ReportPdfPreviewService.shareOnLongPress(() => generate(report));
         } else {
-          await generate(irrigations);
+          await generate(report);
         }
       } catch (_) {
         if (context.mounted) {
@@ -31,6 +31,7 @@ Future<void> showPartyPdfChoices(
         }
       }
     }
+
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -40,20 +41,29 @@ Future<void> showPartyPdfChoices(
           children: [
             Text(name, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            for (final irrigations in [true, false])
+            for (final report in const ['irrigations', 'statement', 'diesel'])
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: ReportPdfLongPress(
                   enabled: true,
-                  onLongPress: () => open(irrigations, share: true),
+                  onLongPress: () => open(report, share: true),
                   child: OutlinedButton.icon(
-                    onPressed: () => open(irrigations),
-                    icon: Icon(irrigations ? Icons.water_drop_outlined : Icons.receipt_long_outlined),
-                    label: Text(irrigations ? 'سقايات هذا الشخص' : 'كشف حساب هذا الشخص'),
+                    onPressed: () => open(report),
+                    icon: Icon(switch (report) {
+                      'irrigations' => Icons.water_drop_outlined,
+                      'diesel' => Icons.local_gas_station_outlined,
+                      _ => Icons.receipt_long_outlined,
+                    }),
+                    label: Text(switch (report) {
+                      'irrigations' => 'سقايات هذا الشخص',
+                      'diesel' => 'المسلّم والمستهلك والمتبقي من الديزل',
+                      _ => 'كشف حساب هذا الشخص',
+                    }),
                   ),
                 ),
               ),
-            const Text('اضغط للعرض، أو اضغط مطولًا للمشاركة', textAlign: TextAlign.center),
+            const Text('اضغط للعرض، أو اضغط مطولًا للمشاركة',
+                textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -69,7 +79,8 @@ class PartyQuickActions extends StatelessWidget {
     required this.name,
     required this.onNewIrrigation,
     super.key,
-  }) : assert(partyType == 'beneficiary' || partyType == 'worker' || partyType == 'partner');
+  }) : assert(partyType == 'beneficiary' ||
+             partyType == 'worker' || partyType == 'partner');
 
   final StationRepository repository;
   final String partyType;
@@ -77,17 +88,23 @@ class PartyQuickActions extends StatelessWidget {
   final String name;
   final VoidCallback onNewIrrigation;
 
-  Future<void> _report(bool irrigations) => ReportService(repository).printPdf(
-    irrigations ? 'irrigations' : switch (partyType) {
-      'worker' => 'worker_transactions',
-      'partner' => 'partner_accounts',
-      _ => 'beneficiary_statement',
-    },
-    beneficiaryId: partyType == 'beneficiary' ? partyId : null,
-    workerId: partyType == 'worker' ? partyId : null,
-    partnerId: partyType == 'partner' ? partyId : null,
-    systemType: 'all',
-  );
+  Future<void> _report(String report) {
+    if (report == 'diesel') {
+      return ReportService(repository).printPartyDieselPdf(
+        partyType: partyType, partyId: partyId);
+    }
+    return ReportService(repository).printPdf(
+      report == 'irrigations' ? 'irrigations' : switch (partyType) {
+        'worker' => 'worker_transactions',
+        'partner' => 'partner_accounts',
+        _ => 'beneficiary_statement',
+      },
+      beneficiaryId: partyType == 'beneficiary' ? partyId : null,
+      workerId: partyType == 'worker' ? partyId : null,
+      partnerId: partyType == 'partner' ? partyId : null,
+      systemType: 'all',
+    );
+  }
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -102,7 +119,8 @@ class PartyQuickActions extends StatelessWidget {
           label: const Text('سقاية جديدة'),
         ),
         OutlinedButton.icon(
-          onPressed: () => showPartyPdfChoices(context, name: name, generate: _report),
+          onPressed: () => showPartyPdfChoices(
+            context, name: name, generate: _report),
           icon: const Icon(Icons.picture_as_pdf_rounded),
           label: const Text('PDF'),
         ),
