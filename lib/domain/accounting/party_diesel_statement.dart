@@ -50,7 +50,7 @@ class PartyDieselStatement {
     final entries = <PartyDieselStatementEntry>[];
     for (final row in ordered) {
       final date = DateTime.tryParse('${row['date'] ?? ''}');
-      if (date == null) throw FormatException('Invalid diesel movement date');
+      if (date == null) throw const FormatException('Invalid diesel movement date');
       final kind = '${row['kind']}';
       final liters = (row['liters'] as num?)?.toDouble() ?? 0.0;
       final delivery = kind == 'delivery' ||
