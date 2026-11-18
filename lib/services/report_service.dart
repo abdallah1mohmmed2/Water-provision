@@ -394,12 +394,18 @@ class ReportService {
       final transactions = await repo.partnerTransactions(partnerId);
       for (final row in transactions) {
         if (const {'opening_balance', 'carried_balance', 'current_balance'}
-            .contains(row['type'])) continue;
+            .contains(row['type'])) {
+          continue;
+        }
         final date = DateTime.tryParse('${row['date'] ?? ''}');
         if (from != null &&
-            (date == null || date.isBefore(DateTime(from.year, from.month, from.day)))) continue;
+            (date == null || date.isBefore(DateTime(from.year, from.month, from.day)))) {
+          continue;
+        }
         if (to != null &&
-            (date == null || !date.isBefore(DateTime(to.year, to.month, to.day + 1)))) continue;
+            (date == null || !date.isBefore(DateTime(to.year, to.month, to.day + 1)))) {
+          continue;
+        }
         final amount = row['signed_amount'] is num
             ? row['signed_amount'] as num
             : (row['lah'] as num? ?? 0) - (row['alayh'] as num? ?? 0);
