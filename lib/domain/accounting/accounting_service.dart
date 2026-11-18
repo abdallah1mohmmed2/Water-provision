@@ -1237,7 +1237,7 @@ class AccountingService {
         ? end.add(const Duration(days: 1))
         : end;
     final normalizedCloudPeriods = <Map<String, Object?>>[];
-    if (effectiveType == 'solar' && cloudPeriods.isNotEmpty) {
+    if (effectiveType != 'diesel' && cloudPeriods.isNotEmpty) {
       final parsed = <Map<String, Object?>>[];
       for (final period in cloudPeriods) {
         final ps = DateTime.tryParse(period['start'] ?? '');
@@ -1268,7 +1268,9 @@ class AccountingService {
         });
       }
     }
-    final effectiveCloud = effectiveType == 'solar'
+    // Cloud minutes are persisted for both non-diesel types, but only solar
+    // discounts chargeable minutes. The third type retains its existing pricing.
+    final effectiveCloud = effectiveType != 'diesel'
         ? (normalizedCloudPeriods.isNotEmpty
             ? normalizedCloudPeriods.fold<int>(0, (sum, x) => sum + (x['minutes'] as int))
             : cloudMinutes.clamp(0, AccountingCalculations.minutesBetween(start, endDt, allowMidnightCrossing: allowMidnight)))
@@ -1425,7 +1427,7 @@ class AccountingService {
         'diesel_price_snapshot': effectiveDieselPrice,
         'solar_hourly_rate_snapshot': effectiveSolarRate,
         'third_type_hourly_rate_snapshot': effectiveThirdRate,
-        'cloud_minutes': calc.cloudMinutes,
+        'cloud_minutes': effectiveType == 'equivalent_hybrid' ? effectiveCloud : calc.cloudMinutes,
         'chargeable_minutes': calc.chargeableMinutes,
         'water_amount': billedWater,
         'diesel_amount': 0,
@@ -3343,7 +3345,9 @@ class AccountingService {
         'start_datetime': start.toIso8601String(),
         'end_datetime': end.toIso8601String(),
         'minutes': result.minutes,
-        'cloud_minutes': result.cloudMinutes,
+        // Keep third-type cloud notes when the irrigation time is edited.
+        // The equivalent-system tariff still uses un-discounted duration.
+        'cloud_minutes': type == 'equivalent_hybrid' ? cloud : result.cloudMinutes,
         'chargeable_minutes': result.chargeableMinutes,
         'water_amount': editedBilledWater,
         'work_price_enabled_snapshot': oldWorkPriceEnabled ? 1 : 0,
