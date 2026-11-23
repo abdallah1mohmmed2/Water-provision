@@ -4012,6 +4012,7 @@ class AccountingService {
     required int amount,
     required DateTime date,
     required String notes,
+    bool partyOwesStation = true,
     int? userId,
   }) async {
     if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
@@ -4124,9 +4125,12 @@ class AccountingService {
           ? await _workerAccountIdTx(tx, partyId)
           : await _partnerAccountIdTx(tx, partyId);
       final openingEquity = await _accountIdTx(tx, '3000');
+      final workerPayable = isWorker && !partyOwesStation;
       final entryId = await _entry(
         tx,
-        description: 'مديونية سابقة على ${isWorker ? 'العامل' : 'الشريك'} $name',
+        description: workerPayable
+            ? 'مستحقات سابقة للعامل $name'
+            : 'مديونية سابقة على ${isWorker ? 'العامل' : 'الشريك'} $name',
         referenceType: isWorker ? 'worker_opening' : 'partner_opening',
         referenceId: partyId,
         date: date,
@@ -4136,15 +4140,17 @@ class AccountingService {
           {
             'account_id': partyAccount,
             if (isWorker) 'worker_id': partyId else 'partner_id': partyId,
-            'debit': amount,
-            'credit': 0,
+            'debit': workerPayable ? 0 : amount,
+            'credit': workerPayable ? amount : 0,
             'memo': notes.trim(),
           },
           {
             'account_id': openingEquity,
-            'debit': 0,
-            'credit': amount,
-            'memo': 'مقابل مديونية سابقة على الطرف',
+            'debit': workerPayable ? amount : 0,
+            'credit': workerPayable ? 0 : amount,
+            'memo': workerPayable
+                ? 'مقابل مستحقات سابقة للعامل'
+                : 'مقابل مديونية سابقة على الطرف',
           },
         ],
       );
@@ -4153,7 +4159,7 @@ class AccountingService {
           'worker_id': partyId,
           'station_id': stationId,
           'date': date.toIso8601String(),
-          'type': 'previous_receivable',
+          'type': workerPayable ? 'opening_balance' : 'previous_receivable',
           'hours': 0,
           'rate_snapshot': 0,
           'percentage_snapshot': 0,
@@ -4191,7 +4197,9 @@ class AccountingService {
           'notes': notes.trim(),
           'reference_type': isWorker ? 'worker_opening' : 'partner_opening',
         },
-        reason: 'إضافة مديونية سابقة على الطرف دون حركة نقدية',
+        reason: workerPayable
+            ? 'إثبات مستحقات سابقة للعامل دون حركة نقدية'
+            : 'إضافة مديونية سابقة على الطرف دون حركة نقدية',
       );
       return entryId;
     }, captureSyncTables: {transactionTable});
