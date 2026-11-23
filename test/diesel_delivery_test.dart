@@ -1,7 +1,7 @@
 import 'package:saqia_station/services/irrigation_message_fuel_service.dart';
 import 'package:saqia_station/features/party_diesel_balance.dart';
 import 'package:saqia_station/core/diesel_quantity.dart';
-import 'package:saqia_station/features/app.dart' show BeneficiariesPage;
+import 'package:saqia_station/features/app.dart' show BeneficiariesPage, WorkersPage, PartnersPage;
 
 import 'dart:convert';
 import 'dart:io';
@@ -461,7 +461,7 @@ void main() {
           ),
         ),
       );
-      final button = find.byKey(ValueKey('beneficiary-diesel-$target'));
+      final button = find.byKey(ValueKey('party-diesel-delivery-beneficiary-$target'));
       await waitForUi(tester, () => button.evaluate().isNotEmpty);
       expect(button, findsOneWidget);
       await tester.ensureVisible(button);
@@ -505,6 +505,48 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+  for (final type in ['worker', 'partner']) {
+    testWidgets(
+      '$type card opens diesel delivery for the selected person',
+      (tester) async {
+        largeView(tester);
+        final target = ids[type]!;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: type == 'worker'
+                  ? WorkersPage(repo, userId: 1, manager: true)
+                  : PartnersPage(repo, userId: 1, manager: true),
+            ),
+          ),
+        );
+        final button = find.byKey(
+          ValueKey('party-diesel-delivery-$type-$target'),
+        );
+        await waitForUi(tester, () => button.evaluate().isNotEmpty);
+        expect(button, findsOneWidget);
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        await waitForUi(
+          tester,
+          () => find.text('الاسم').evaluate().isNotEmpty,
+        );
+        final typeSelector = tester.widget<DropdownButtonFormField<String>>(
+          find.byType(DropdownButtonFormField<String>),
+        );
+        expect(typeSelector.initialValue, type);
+        final personSelector = tester.widget<DropdownButtonFormField<int>>(
+          find.byType(DropdownButtonFormField<int>),
+        );
+        expect(personSelector.initialValue, target);
+        expect(find.text('إضافة تسليم ديزل'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
   for (final system in ['solar', 'equivalent_hybrid']) {
     testWidgets('beneficiary card hides diesel delivery for $system', (
       tester,
@@ -537,7 +579,8 @@ void main() {
           home: DieselDeliveryPage(
             repo,
             userId: 1,
-            initialBeneficiaryId: 999999,
+            initialPartyType: 'beneficiary',
+            initialPartyId: 999999,
           ),
         ),
       );
