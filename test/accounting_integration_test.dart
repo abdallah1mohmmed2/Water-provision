@@ -304,6 +304,42 @@ void main() {
     }
   });
 
+  test('الدين السابق للعامل يدعم الاتجاهين دون حركة صندوق', () async {
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(
+      name: 'عامل دين سابق بالاتجاهين',
+      payType: 'fixed',
+    );
+    final cashBefore = await cashboxBalance(1);
+    final date = DateTime(2026, 4, 12);
+    await svc.addPreviousPartyDebt(
+      partyType: 'worker',
+      partyId: worker,
+      amount: 50000,
+      date: date,
+      notes: 'دين سابق على العامل',
+      partyOwesStation: true,
+    );
+    expect((await svc.workerBalance(worker))['balance'], -50000);
+    await svc.addPreviousPartyDebt(
+      partyType: 'worker',
+      partyId: worker,
+      amount: 12000,
+      date: date,
+      notes: 'مستحق سابق للعامل',
+      partyOwesStation: false,
+    );
+    expect((await svc.workerBalance(worker))['balance'], -38000);
+    expect(await cashboxBalance(1), cashBefore);
+    final txs = await db.query(
+      "SELECT type,amount FROM worker_transactions WHERE worker_id=? AND reference_type='previous_debt' ORDER BY id",
+      args: [worker],
+    );
+    expect(txs.map((x) => x['type']).toList(),
+        ['previous_receivable', 'opening_balance']);
+    expect(txs.map((x) => x['amount']).toList(), [50000, 12000]);
+  });
+
   test('أرصدة الأطراف المنشأة عبر المستودع تظهر في الأستاذ والكشف', () async {
     final repo = StationRepository(db);
     final w = await repo.createWorker(name: 'عامل برصيد افتتاحي', payType: 'fixed', opening: 1200);
