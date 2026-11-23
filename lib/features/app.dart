@@ -2070,12 +2070,13 @@ class _DashboardState extends State<DashboardPage> {
     required bool selected,
     required VoidCallback onTap,
   }) {
-    const cyan = Color(0xFF00E5FF);
-    const neon = Color(0xFF39FFB6);
+    final scheme = Theme.of(context).colorScheme;
+    final cyan = scheme.secondary;
+    final neon = scheme.primary;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       decoration: BoxDecoration(
-        color: selected ? cyan.withValues(alpha: .14) : const Color(0xFF101E2E),
+        color: selected ? scheme.primaryContainer : scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: (selected ? neon : cyan).withValues(alpha: selected ? .8 : .3)),
       ),
@@ -2092,7 +2093,7 @@ class _DashboardState extends State<DashboardPage> {
             ),
             const SizedBox(width: 7),
             Text(label, style: TextStyle(
-              color: Colors.white,
+              color: scheme.onSurface,
               fontSize: 11,
               fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
             )),
@@ -2111,13 +2112,14 @@ class _DashboardState extends State<DashboardPage> {
       ('تقرير المستفيدين', 'beneficiary_statement', Icons.people_alt_rounded),
       ('تقرير المديونيات', 'debts', Icons.account_balance_wallet_rounded),
     ];
-    const cyan = Color(0xFF00E5FF);
-    const neon = Color(0xFF39FFB6);
+    final scheme = Theme.of(context).colorScheme;
+    final cyan = scheme.secondary;
+    final neon = scheme.primary;
     return Container(
       constraints: const BoxConstraints(minHeight: 320),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF101E2E),
+        color: scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: cyan.withValues(alpha: .30)),
         boxShadow: [
@@ -2128,12 +2130,12 @@ class _DashboardState extends State<DashboardPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(children: [
-            const Icon(Icons.assessment_rounded, color: neon),
+            Icon(Icons.assessment_rounded, color: neon),
             const SizedBox(width: 8),
             const Expanded(
               child: Text(
                 'التقارير المهمة',
-                style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900),
+                style: TextStyle(color: scheme.onSurface, fontSize: 17, fontWeight: FontWeight.w900),
               ),
             ),
             Text('6 تقارير', style: TextStyle(color: cyan.withValues(alpha: .8), fontSize: 10)),
@@ -2141,14 +2143,14 @@ class _DashboardState extends State<DashboardPage> {
           const SizedBox(height: 8),
           Text(
             'افتح التقرير المطلوب مباشرة أو اطبعه بصيغة PDF.',
-            style: TextStyle(color: Colors.white.withValues(alpha: .60), fontSize: 11),
+            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11),
           ),
           const SizedBox(height: 10),
           for (final item in items)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Material(
-                color: const Color(0xFF0B1725),
+                color: scheme.surface,
                 borderRadius: BorderRadius.circular(14),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
@@ -2161,10 +2163,10 @@ class _DashboardState extends State<DashboardPage> {
                       Expanded(
                         child: Text(
                           item.$1,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+                          style: TextStyle(color: scheme.onSurface, fontWeight: FontWeight.w700, fontSize: 12),
                         ),
                       ),
-                      Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withValues(alpha: .55), size: 15),
+                      Icon(Icons.arrow_forward_ios_rounded, color: scheme.onSurfaceVariant.withValues(alpha: .75), size: 15),
                     ]),
                   ),
                 ),
@@ -2202,18 +2204,19 @@ class _DashboardState extends State<DashboardPage> {
       );
   @override
   Widget build(BuildContext c) {
+    final scheme = Theme.of(c).colorScheme;
     if (loading) {
-      return const ColoredBox(
-        color: Color(0xFF080F1B),
-        child: Center(child: CircularProgressIndicator(color: Color(0xFF39FFB6))),
+      return ColoredBox(
+        color: scheme.surface,
+        child: Center(child: CircularProgressIndicator(color: scheme.primary)),
       );
     }
     final remaining = (d?['remaining'] as num?)?.round() ?? 0;
-    const bg = Color(0xFF080F1B);
-    const panel = Color(0xFF101E2E);
-    const cyan = Color(0xFF00E5FF);
-    const neon = Color(0xFF39FFB6);
-    const muted = Color(0xFF8CA3B8);
+    final bg = scheme.surface;
+    final panel = scheme.surfaceContainerHighest;
+    final cyan = scheme.secondary;
+    final neon = scheme.primary;
+    final muted = scheme.onSurfaceVariant;
 
     Widget statCard(String title, String value, IconData icon, Color color) {
       return Container(
