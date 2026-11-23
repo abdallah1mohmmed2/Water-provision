@@ -9149,6 +9149,7 @@ class _PaymentsState extends State<PaymentsPage> {
     final amount = TextEditingController();
     final notes = TextEditingController();
     var debtDate = AppClock.now();
+    var workerDebtDirection = 'worker_owes';
     final partyLabel = target == 'beneficiary'
         ? 'المستفيد'
         : target == 'worker'
@@ -9173,6 +9174,28 @@ class _PaymentsState extends State<PaymentsPage> {
               onChanged: (v) => setDialogState(() => partyId = v),
               decoration: InputDecoration(labelText: 'اختر $partyLabel *'),
             ),
+            if (target == 'worker')
+              DropdownButtonFormField<String>(
+                initialValue: workerDebtDirection,
+                decoration: const InputDecoration(
+                  labelText: 'اتجاه الرصيد *',
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'worker_owes',
+                    child: Text('عليه للمحطة — العامل مدين'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'station_owes',
+                    child: Text('له على المحطة — المحطة مدينة'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setDialogState(() => workerDebtDirection = value);
+                  }
+                },
+              ),
             if (target == 'worker')
               OutlinedButton.icon(
                 onPressed: () async {
@@ -9212,7 +9235,13 @@ class _PaymentsState extends State<PaymentsPage> {
                 hintText: 'مثال: دين سابق على الطرف لصالح المحطة',
               ),
             ),
-            Text(balanceMeaning),
+            Text(
+              target == 'worker'
+                  ? (workerDebtDirection == 'worker_owes'
+                      ? 'سيُضاف المبلغ إلى ما على العامل للمحطة.'
+                      : 'سيُضاف المبلغ إلى مستحقات العامل على المحطة.')
+                  : balanceMeaning,
+            ),
             const Text('لا تُسجّل العملية قبضًا أو صرفًا، ولا تؤثر على الصندوق.'),
           ],
           onSave: () => Navigator.pop(
@@ -9232,6 +9261,8 @@ class _PaymentsState extends State<PaymentsPage> {
         partyId: partyId!,
         amount: int.parse(amount.text),
         date: target == 'worker' ? debtDate : AppClock.now(),
+        partyOwesStation:
+            target != 'worker' || workerDebtDirection == 'worker_owes',
         notes: notes.text.trim(),
         userId: widget.userId,
       ),
