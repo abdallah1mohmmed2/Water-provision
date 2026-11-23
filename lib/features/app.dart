@@ -844,7 +844,7 @@ class _InitialSetupState extends State<InitialSetupPage>{
   Future<void> _load()async{try{final set=await repo.settings();final ps=await repo.db.query('pumps',where:'active=1',orderBy:'id');if(mounted)setState((){stationName.text=set['station_name']??'';currency.text=set['currency']??'YER';type=set['system_type']??'diesel';timeSource=set['time_source']??'device';pumps=ps;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   List<Map<String,Object?>> get compatiblePumps=>pumps.where((p)=>'${p['system_type']}'==type).toList();
   Future<void> _finish()async{if(stationName.text.trim().isEmpty){setState(()=>error='اكتب اسم المحطة أولاً');return;}if(currency.text.trim().isEmpty){setState(()=>error='حدد العملة المستخدمة');return;}if(compatiblePumps.isNotEmpty&&pumpId==null){setState(()=>error='اختر المضخة الأساسية للمنظومة');return;}setState(()=>saving=true);try{await repo.setSetting('station_name',stationName.text.trim());await repo.setSetting('currency',currency.text.trim().toUpperCase());await repo.setSetting('time_source',timeSource);await repo.setSystemType(type);if(pumpId!=null)await repo.selectPump(pumpId!);await repo.setSetting('initial_setup_completed','true');await AppPrefs.apply(await repo.settings());if(!mounted)return;Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>AdminShell(role:widget.role,userName:widget.userName,userId:widget.userId)));}catch(e){if(mounted)setState((){error=friendlyError(e);saving=false;});}}
-  Widget _typeCard(String value,String title,String subtitle,IconData icon,Color color){final selected=type==value;return InkWell(onTap:(){setState((){type=value;pumpId=null;});},borderRadius:BorderRadius.circular(20),child:AnimatedContainer(duration:Duration(milliseconds:180),padding:EdgeInsets.all(15),decoration:BoxDecoration(color:selected?color.withValues(alpha: .1):Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:selected?color:_reportLine,width:selected?2:1)),child:Row(children:[Container(width:45,height:45,decoration:BoxDecoration(color:selected?color:color.withValues(alpha: .1),borderRadius:BorderRadius.circular(14)),child:Icon(icon,color:selected?Colors.white:color)),SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),SizedBox(height:4),Text(subtitle,style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:10))]),),Icon(selected?Icons.radio_button_checked_rounded:Icons.radio_button_unchecked_rounded,color:selected?color:_reportInk.withValues(alpha: .28))])));}
+  Widget _typeCard(String value,String title,String subtitle,IconData icon,Color color){final selected=type==value;return InkWell(onTap:(){setState((){type=value;pumpId=null;});},borderRadius:BorderRadius.circular(20),child:AnimatedContainer(duration:Duration(milliseconds:180),padding:EdgeInsets.all(15),decoration:BoxDecoration(color:selected?color.withValues(alpha: .1):_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:selected?color:_reportLine,width:selected?2:1)),child:Row(children:[Container(width:45,height:45,decoration:BoxDecoration(color:selected?color:color.withValues(alpha: .1),borderRadius:BorderRadius.circular(14)),child:Icon(icon,color:selected?Colors.white:color)),SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),SizedBox(height:4),Text(subtitle,style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:10))]),),Icon(selected?Icons.radio_button_checked_rounded:Icons.radio_button_unchecked_rounded,color:selected?color:_reportInk.withValues(alpha: .28))])));}
   Widget _sectionTitle(String title,String sub,IconData icon)=>Padding(padding:EdgeInsets.only(bottom:10),child:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(11)),child:Icon(icon,color:_reportOliveDark,size:19)),SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),Text(sub,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))]) ]));
   @override Widget build(BuildContext context){final ps=compatiblePumps;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,body:loading?Center(child:CircularProgressIndicator()):SafeArea(child:ListView(padding:EdgeInsets.fromLTRB(20,18,20,28),children:[Container(padding:EdgeInsets.all(22),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(29),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .18),blurRadius:18,offset:Offset(0,8))]),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('مرحباً ${widget.userName}',style:TextStyle(color:Colors.white.withValues(alpha: .75),fontSize:12)),SizedBox(height:7),Text('لنجهّز محطتك معاً',style:TextStyle(color:Colors.white,fontSize:25,fontWeight:FontWeight.w900)),SizedBox(height:8),Text('اختر المنظومة والإعدادات الأساسية مرة واحدة، وسنخصّص لك التطبيق تلقائياً.',style:TextStyle(color:Colors.white.withValues(alpha: .84),fontSize:11,height:1.5))]),),Container(width:62,height:62,decoration:BoxDecoration(color:_reportSurface.withValues(alpha: .14),borderRadius:BorderRadius.circular(21)),child:Icon(Icons.water_drop_rounded,color:Colors.white,size:34))])),SizedBox(height:18),Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('اختر منظومة المحطة','ستظهر لك الواجهات والتقارير المناسبة فقط',Icons.tune_rounded),_typeCard('diesel','منظومة الديزل','خزان ووقود وتنبيهات استهلاك',Icons.local_gas_station_rounded,_reportOrange),SizedBox(height:9),_typeCard('solar','المنظومة الشمسية','سقي شمسي وتسعير وتشغيل',Icons.wb_sunny_rounded,_reportGreen),SizedBox(height:9),_typeCard('equivalent_hybrid','النوع الثالث','منظومة مخصصة بإعداداتها الخاصة',Icons.bolt_rounded,_reportOliveDark)])),SizedBox(height:14),Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('بيانات المحطة','معلومات تظهر في الواجهات والتقارير',Icons.storefront_rounded),TextField(controller:stationName,decoration:InputDecoration(labelText:'اسم المحطة',prefixIcon:Icon(Icons.storefront_outlined),border:OutlineInputBorder())),SizedBox(height:10),TextField(controller:currency,decoration:InputDecoration(labelText:'العملة',prefixIcon:Icon(Icons.currency_exchange_rounded),border:OutlineInputBorder()),textCapitalization:TextCapitalization.characters),SizedBox(height:10),DropdownButtonFormField<String>(initialValue:timeSource,items:const[DropdownMenuItem(value:'device',child:Text('وقت الجهاز')) ,DropdownMenuItem(value:'server',child:Text('وقت الخادم'))],onChanged:(v)=>setState(()=>timeSource=v??'device'),decoration:InputDecoration(labelText:'مصدر الوقت',prefixIcon:Icon(Icons.access_time_rounded),border:OutlineInputBorder()))])),SizedBox(height:14),Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('المضخة الأساسية','تطابق نوع المنظومة المختار',Icons.settings_input_component_rounded),if(ps.isEmpty)Container(padding:EdgeInsets.all(13),decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:Row(children:[Icon(Icons.info_outline_rounded,color:_reportOliveDark),SizedBox(width:8),Expanded(child:Text('لا توجد مضخات متوافقة حالياً. يمكنك إكمال الإعداد وإضافتها لاحقاً من إدارة المضخات.',style:TextStyle(fontSize:11,fontWeight:FontWeight.w700))) ]))else DropdownButtonFormField<int>(initialValue:pumpId,items:[for(final p in ps)DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))],onChanged:(v)=>setState(()=>pumpId=v),decoration:InputDecoration(labelText:'اختر المضخة',prefixIcon:Icon(Icons.water_rounded),border:OutlineInputBorder()))])),if(error!=null)Padding(padding:EdgeInsets.only(top:14),child:Container(padding:EdgeInsets.all(12),decoration:BoxDecoration(color:_reportOrange.withValues(alpha: .1),borderRadius:BorderRadius.circular(12)),child:Row(children:[Icon(Icons.warning_amber_rounded,color:_reportOrange),SizedBox(width:8),Expanded(child:Text(error!,style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:11)))]))),SizedBox(height:18),FilledButton.icon(onPressed:saving?null:_finish,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,padding:EdgeInsets.symmetric(vertical:16),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(16))),icon:saving?SizedBox(width:19,height:19,child:CircularProgressIndicator(strokeWidth:2,color:Colors.white)):Icon(Icons.check_circle_outline_rounded),label:Text(saving?'جارٍ حفظ الإعدادات…':'حفظ وفتح لوحة التحكم',style:TextStyle(fontWeight:FontWeight.w900))),SizedBox(height:10),Text('يمكن للمدير تعديل هذه الإعدادات لاحقاً من صفحة الإعدادات.',textAlign:TextAlign.center,style:TextStyle(color:_reportInk.withValues(alpha: .52),fontSize:10))]))));}
 }
@@ -1506,40 +1506,38 @@ class _DashboardCircularMenu extends StatelessWidget {
   final ValueChanged<int> onOpen;
   const _DashboardCircularMenu({required this.availableMenu, required this.onOpen});
 
-  // اختصارات ثابتة داخل البطاقة؛ لا نكرر وظائف الزر العائم.
-  static const _items = <(int, String, IconData, Color)>[
-    (1, 'المستفيدون', Icons.people_alt_rounded, Color(0xFF39FFB6)),
-    (10, 'العمال', Icons.engineering_rounded, Color(0xFF00E5FF)),
-    (11, 'الشركاء', Icons.handshake_rounded, Color(0xFF39FFB6)),
-    (7, 'المدفوعات', Icons.payments_rounded, Color(0xFF00E5FF)),
-    (8, 'الصناديق', Icons.account_balance_rounded, Color(0xFF39FFB6)),
-    (14, 'التقارير', Icons.analytics_rounded, Color(0xFF00E5FF)),
-    (17, 'النسخ الاحتياطي', Icons.backup_rounded, Color(0xFF39FFB6)),
-    (12, 'دفتر اليومية', Icons.menu_book_rounded, Color(0xFF00E5FF)),
-    (13, 'دفتر الأستاذ', Icons.account_tree_rounded, Color(0xFF39FFB6)),
-  ];
-
+  // ألوان الاختصارات مشتقة من الثيم ولا تفرض لوحة نيون مستقلة.
   @override
   Widget build(BuildContext context) {
-    final items = _items.where((item) => availableMenu.contains(item.$1)).toList();
+    final scheme = Theme.of(context).colorScheme;
+    final items = <(int, String, IconData, Color)>[
+      (1, 'المستفيدون', Icons.people_alt_rounded, scheme.primary),
+      (10, 'العمال', Icons.engineering_rounded, scheme.secondary),
+      (11, 'الشركاء', Icons.handshake_rounded, scheme.primary),
+      (7, 'المدفوعات', Icons.payments_rounded, scheme.secondary),
+      (8, 'الصناديق', Icons.account_balance_rounded, scheme.primary),
+      (14, 'التقارير', Icons.analytics_rounded, scheme.secondary),
+      (17, 'النسخ الاحتياطي', Icons.backup_rounded, scheme.primary),
+      (12, 'دفتر اليومية', Icons.menu_book_rounded, scheme.secondary),
+      (13, 'دفتر الأستاذ', Icons.account_tree_rounded, scheme.primary),
+    ].where((item) => availableMenu.contains(item.$1)).toList();
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 16, 12, 14),
       decoration: BoxDecoration(
-        color: const Color(0xFF08111F),
+        color: scheme.surface,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: .30)),
+        border: Border.all(color: scheme.primary.withValues(alpha: .30)),
         boxShadow: [
-          BoxShadow(color: const Color(0xFF00E5FF).withValues(alpha: .08), blurRadius: 26, spreadRadius: 1),
-          BoxShadow(color: const Color(0xFF39FFB6).withValues(alpha: .05), blurRadius: 38),
+          BoxShadow(color: scheme.primary.withValues(alpha: .08), blurRadius: 26, spreadRadius: 1),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Row(children: [
-            Icon(Icons.bolt_rounded, color: Color(0xFF39FFB6)),
-            SizedBox(width: 8),
-            Expanded(child: Text('العمليات السريعة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17))),
+          Row(children: [
+            Icon(Icons.bolt_rounded, color: scheme.primary),
+            const SizedBox(width: 8),
+            Expanded(child: Text('العمليات السريعة', style: TextStyle(color: scheme.onSurface, fontWeight: FontWeight.w900, fontSize: 17))),
           ]),
           const SizedBox(height: 14),
           GridView.builder(
@@ -1555,7 +1553,7 @@ class _DashboardCircularMenu extends StatelessWidget {
             itemBuilder: (context, index) {
               final item = items[index];
               return Material(
-                color: const Color(0xFF111F30),
+                color: scheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(18),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(18),
@@ -1577,7 +1575,7 @@ class _DashboardCircularMenu extends StatelessWidget {
                           textAlign: TextAlign.center,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                          style: TextStyle(color: scheme.onSurface, fontSize: 10, fontWeight: FontWeight.w700),
                         ),
                       ],
                     ),
