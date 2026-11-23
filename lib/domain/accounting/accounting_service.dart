@@ -1163,6 +1163,7 @@ class AccountingService {
     required int dieselPrice,
     required int solarRate,
     required int thirdRate,
+    String? hybridSource,
     required int cloudMinutes,
     List<Map<String, String>> cloudPeriods = const [],
     required int paidAmount,
@@ -1229,7 +1230,12 @@ class AccountingService {
     // Irrigation diesel is an in-kind quantity, not a billed fuel product.
     const effectiveDieselPrice = 0;
     final effectiveSolarRate = int.tryParse(set['solar_hourly_rate'] ?? '0') ?? 0;
+    final effectiveHybridDieselRate = int.tryParse(set['hybrid_diesel_hourly_rate'] ?? '0') ?? 0;
+    // Legacy rate remains read only for old records and legacy session paths.
     final effectiveThirdRate = int.tryParse(set['third_type_hourly_rate'] ?? '0') ?? 0;
+    if (effectiveType == 'equivalent_hybrid' && !const {'diesel', 'solar'}.contains(hybridSource)) {
+      throw StateError('حدد مصدر تشغيل السقاية: ديزل أو طاقة شمسية');
+    }
     final allowMidnight = set['allow_midnight_crossing'] == 'true';
     // عبور منتصف الليل: تُنقل النهاية لليوم التالي قبل أي فحص أو حفظ، حتى لا يُحفظ
     // end_datetime أصغر من البداية فيفسد فحص التعارض والتقارير.
@@ -1270,7 +1276,9 @@ class AccountingService {
     }
     // Cloud minutes are persisted for both non-diesel types, but only solar
     // discounts chargeable minutes. The third type retains its existing pricing.
-    final effectiveCloud = effectiveType != 'diesel'
+    final cloudApplies = effectiveType == 'solar' ||
+        (effectiveType == 'equivalent_hybrid' && hybridSource == 'solar');
+    final effectiveCloud = cloudApplies
         ? (normalizedCloudPeriods.isNotEmpty
             ? normalizedCloudPeriods.fold<int>(0, (sum, x) => sum + (x['minutes'] as int))
             : cloudMinutes.clamp(0, AccountingCalculations.minutesBetween(start, endDt, allowMidnightCrossing: allowMidnight)))
@@ -1299,10 +1307,16 @@ class AccountingService {
             rounding: rounding,
             partialHour: partialHour,
           )
-        : AccountingCalculations.equivalent(
+        : effectiveType == 'equivalent_hybrid' && hybridSource == 'solar'
+            ? AccountingCalculations.solar(
+                start: start, end: endDt, hourlyRate: effectiveSolarRate,
+                cloudMinutes: effectiveCloud, allowMidnightCrossing: allowMidnight,
+                rounding: rounding, partialHour: partialHour,
+              )
+            : AccountingCalculations.equivalent(
             start: start,
             end: endDt,
-            hourlyRate: effectiveThirdRate,
+            hourlyRate: effectiveType == 'equivalent_hybrid' ? effectiveHybridDieselRate : effectiveThirdRate,
             allowMidnightCrossing: allowMidnight,
             rounding: rounding,
             partialHour: partialHour,
@@ -1417,6 +1431,8 @@ class AccountingService {
         'end_datetime': endDt.toIso8601String(),
         'minutes': calc.minutes,
         'system_type': effectiveType,
+        'hybrid_source': effectiveType == 'equivalent_hybrid' ? hybridSource : null,
+        'hybrid_diesel_hourly_rate_snapshot': effectiveType == 'equivalent_hybrid' && hybridSource == 'diesel' ? effectiveHybridDieselRate : 0,
         'water_hourly_rate_snapshot': effectiveWaterRate,
         'work_minute_rate_snapshot': partyType == 'beneficiary'
             ? workMinuteRate.clamp(0, 1000000).toInt() : 0,
@@ -3168,9 +3184,11 @@ class AccountingService {
         }
         cloud = cloudMinutesOverride;
       }
-      // Cloud stoppage is only billable for solar systems. Keep diesel and
-      // equivalent-system recalculation consistent with recordIrrigation.
-      final effectiveCloud = type == 'solar' ? cloud : 0;
+      // Cloud stoppage affects standalone solar and hybrid irrigations selected as solar.
+      final hybridSource = '${old['hybrid_source'] ?? ''}';
+      final hybridSolar = type == 'equivalent_hybrid' && hybridSource == 'solar';
+      final hybridDiesel = type == 'equivalent_hybrid' && hybridSource == 'diesel';
+      final effectiveCloud = type == 'solar' || hybridSolar ? cloud : 0;
       final allowMidnight = cfg['allow_midnight_crossing'] == 'true';
       var result = type == 'diesel'
           ? AccountingCalculations.diesel(
@@ -3182,7 +3200,7 @@ class AccountingService {
               allowMidnightCrossing: allowMidnight,
               rounding: rounding, partialHour: partialHour,
             )
-          : type == 'solar'
+          : type == 'solar' || hybridSolar
               ? AccountingCalculations.solar(
                   start: start, end: end,
                   hourlyRate: (old['solar_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
@@ -3192,7 +3210,9 @@ class AccountingService {
                 )
               : AccountingCalculations.equivalent(
                   start: start, end: end,
-                  hourlyRate: (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  hourlyRate: hybridDiesel
+                      ? (old['hybrid_diesel_hourly_rate_snapshot'] as num?)?.toInt() ?? 0
+                      : (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
                   allowMidnightCrossing: allowMidnight,
                   rounding: rounding, partialHour: partialHour,
                 );
