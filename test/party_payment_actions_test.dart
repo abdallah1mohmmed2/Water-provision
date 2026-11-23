@@ -39,10 +39,10 @@ void main() {
         expect(find.text(debt ? 'إضافة مديونية سابقة' : 'تسجيل دفعة'), findsOneWidget);
         if (debt && kind == 'worker') {
           expect(find.textContaining('تاريخ المديونية:'), findsOneWidget);
-          expect(find.text('عليه للمحطة — الطرف مدين'), findsOneWidget);
+          expect(find.text('عليه للمحطة — العامل مدين'), findsOneWidget);
           expect(find.text('له على المحطة — المحطة مدينة'), findsOneWidget);
         } else if (debt && kind == 'partner') {
-          expect(find.text('عليه للمحطة — الطرف مدين'), findsOneWidget);
+          expect(find.text('عليه للمحطة — الشريك مدين'), findsOneWidget);
           expect(find.text('له على المحطة — المحطة مدينة'), findsOneWidget);
           expect(find.textContaining('تاريخ المديونية:'), findsNothing);
         } else {
