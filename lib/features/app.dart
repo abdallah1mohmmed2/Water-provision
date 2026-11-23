@@ -9183,7 +9183,7 @@ class _PaymentsState extends State<PaymentsPage> {
                 items: const [
                   DropdownMenuItem(
                     value: 'party_owes',
-                    child: Text('عليه للمحطة — الطرف مدين'),
+                    child: Text('عليه للمحطة — $partyLabel مدين'),
                   ),
                   DropdownMenuItem(
                     value: 'station_owes',
