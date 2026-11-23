@@ -2132,7 +2132,7 @@ class _DashboardState extends State<DashboardPage> {
           Row(children: [
             Icon(Icons.assessment_rounded, color: neon),
             const SizedBox(width: 8),
-            const Expanded(
+            Expanded(
               child: Text(
                 'التقارير المهمة',
                 style: TextStyle(color: scheme.onSurface, fontSize: 17, fontWeight: FontWeight.w900),
@@ -3698,7 +3698,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(Icons.water_drop_rounded, color: _cyan),
               SizedBox(width: 10),
@@ -5332,7 +5332,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, dialogSetState) => AlertDialog(
           backgroundColor: Theme.of(context).colorScheme.tertiaryContainer,
-          title: const Text('إضافة غيم / حساب وقت التوقف',
+          title: Text('إضافة غيم / حساب وقت التوقف',
               style: TextStyle(color: Theme.of(context).colorScheme.onTertiaryContainer, fontWeight: FontWeight.w900)),
           content: SingleChildScrollView(
             child: SizedBox(
@@ -6790,7 +6790,7 @@ int? parseClock(String raw) {
           if (saved)
             Card(
               color: _green.withValues(alpha: .08),
-              child: const ListTile(
+              child: ListTile(
                 leading: Icon(Icons.check_circle, color: _green),
                 title: Text('تم الحفظ بنجاح'),
                 subtitle: Text(
@@ -7780,7 +7780,7 @@ class _SessionsState extends State<SessionsPage> {
                                   padding: const EdgeInsets.all(8),
                                   child: Text(
                                     elapsed(x['actual_start']),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.w900,
                                       color: _cyan,
@@ -13109,7 +13109,7 @@ SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:EdgeInsets.only(
     children: [
       Icon(Icons.view_agenda_rounded, color: _reportOliveDark),
       const SizedBox(width: 8),
-      const Expanded(
+      Expanded(
         child: Text(
           'تفاصيل السجلات',
           style: TextStyle(
@@ -13413,14 +13413,14 @@ class _DebtsReportState extends State<DebtsReportPage>{
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('${x['name'] ?? 'غير محدد'}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: _reportInk, fontWeight: FontWeight.w900, fontSize: 16)),
               const SizedBox(height: 4),
               Text('$partyLabel — ${x['phone'] ?? 'بدون هاتف'}',
                   style: TextStyle(
                     color: _reportInk.withValues(alpha: .55), fontSize: 11)),
               const SizedBox(height: 8),
-              const Text('فتح تفاصيل الحساب',
+              Text('فتح تفاصيل الحساب',
                   style: TextStyle(
                     color: _reportOliveDark, fontSize: 10, fontWeight: FontWeight.w800)),
             ],
@@ -14097,7 +14097,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           useSpecialMinuteRateReports
                               ? 'عرض التقرير: سعر الدقيقة الخاص'
                               : 'عرض التقرير: سعر الساعة العام',
-                          style: const TextStyle(
+                          style: TextStyle(
                             color: _reportOliveDark, fontWeight: FontWeight.w800),
                         ),
                       ),
@@ -14641,7 +14641,7 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
                   value,
                   maxLines: 1,
                   softWrap: false,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: _reportInk,
                     fontSize: 18,
                     fontWeight: FontWeight.w900,
@@ -15334,7 +15334,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                       Container(
                         padding: const EdgeInsets.all(21),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
+                          gradient: LinearGradient(
                             colors: [_reportOliveDark, _reportOlive],
                           ),
                           borderRadius: BorderRadius.circular(27),
@@ -15411,7 +15411,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                   .take(8))
                                 ListTile(
                                   dense: true,
-                                  leading: const Icon(
+                                  leading: Icon(
                                     Icons.person_outline_rounded,
                                     color: _reportOliveDark,
                                   ),
@@ -15525,7 +15525,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                       p['ownership_mode'] == 'percentage'
                                           ? 'نسبة ملكية ${p['ownership_percentage'] ?? 0}%'
                                           : '${p['shares_count'] ?? 0} حصص',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontWeight: FontWeight.w900,
                                         color: _reportInk,
                                         fontSize: 17,
@@ -15583,7 +15583,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                         children: [
                           Icon(Icons.timeline_rounded, color: _reportOliveDark),
                           const SizedBox(width: 8),
-                          const Text(
+                          Text(
                             'سجل الحركات',
                             style: TextStyle(
                               fontWeight: FontWeight.w900,
@@ -15611,7 +15611,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: const Column(
+                          child: Column(
                             children: [
                               Icon(Icons.inbox_rounded, size: 42, color: _reportOlive),
                               SizedBox(height: 8),
