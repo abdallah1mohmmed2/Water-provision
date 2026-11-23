@@ -9148,6 +9148,7 @@ class _PaymentsState extends State<PaymentsPage> {
     int? partyId = widget.initialPartyId;
     final amount = TextEditingController();
     final notes = TextEditingController();
+    var debtDate = AppClock.now();
     final partyLabel = target == 'beneficiary'
         ? 'المستفيد'
         : target == 'worker'
@@ -9172,6 +9173,28 @@ class _PaymentsState extends State<PaymentsPage> {
               onChanged: (v) => setDialogState(() => partyId = v),
               decoration: InputDecoration(labelText: 'اختر $partyLabel *'),
             ),
+            if (target == 'worker')
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final picked = await showDatePicker(
+                    context: d,
+                    firstDate: DateTime(2000),
+                    lastDate: AppClock.now(),
+                    initialDate: debtDate,
+                    locale: const Locale('ar'),
+                    helpText: 'اختيار تاريخ الدين السابق',
+                  );
+                  if (picked != null) {
+                    setDialogState(() {
+                      debtDate = DateTime(picked.year, picked.month, picked.day);
+                    });
+                  }
+                },
+                icon: const Icon(Icons.calendar_month_outlined),
+                label: Text(
+                  'تاريخ المديونية: ${debtDate.year}-${debtDate.month.toString().padLeft(2, '0')}-${debtDate.day.toString().padLeft(2, '0')}',
+                ),
+              ),
             TextField(
               controller: amount,
               keyboardType: TextInputType.number,
@@ -9208,7 +9231,7 @@ class _PaymentsState extends State<PaymentsPage> {
         partyType: target,
         partyId: partyId!,
         amount: int.parse(amount.text),
-        date: AppClock.now(),
+        date: target == 'worker' ? debtDate : AppClock.now(),
         notes: notes.text.trim(),
         userId: widget.userId,
       ),
