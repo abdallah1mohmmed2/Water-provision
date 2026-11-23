@@ -21,6 +21,7 @@ class SaqiaTheme {
   };
 
   static Color accent(String key) => accents[key] ?? accents['olive']!;
+  static Color secondary(String key) => _secondary(key);
   static String name(String key) => names[key] ?? names['olive']!;
 
   static bool get isDark {
