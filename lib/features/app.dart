@@ -15420,8 +15420,8 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                 ListTile(
                                   dense: true,
                                   leading: Icon(
-                                    key: null,
                                     Icons.person_outline_rounded,
+                                    key: null,
                                     color: _reportOliveDark,
                                   ),
                                   title: Text('${x['name'] ?? ''}'),
@@ -15594,8 +15594,8 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                           Icon(Icons.timeline_rounded, color: _reportOliveDark),
                           const SizedBox(width: 8),
                           Text(
-                            key: null,
                             'سجل الحركات',
+                            key: null,
                             style: TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 19,
