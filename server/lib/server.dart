@@ -4582,13 +4582,20 @@ void _applyPartyDieselReceipt({
       ...old,
       for(final e in changes.entries) e.key:'${e.value}',
     };
-    for (final key in const ['solar_hourly_rate','hybrid_diesel_hourly_rate']) {
+    for (final key in const ['solar_hourly_rate','hybrid_diesel_hourly_rate','third_type_hourly_rate','diesel_hourly_water_rate','diesel_price_per_liter']) {
       final value = merged[key];
       if (value != null) {
         final rate = int.tryParse(value);
         if (rate == null || rate < 0 || rate > 1000000) {
-          return _json({'error':'سعر الساعة $key غير صالح'},status:422);
+          return _json({'error':'سعر الساعة أو الوقود $key غير صالح'},status:422);
         }
+      }
+    }
+    final litersPerHour = merged['diesel_liters_per_hour'];
+    if (litersPerHour != null) {
+      final rate = double.tryParse(litersPerHour);
+      if (rate == null || !rate.isFinite || rate < 0 || rate > 1000000) {
+        return _json({'error':'معدل استهلاك الديزل غير صالح'},status:422);
       }
     }
     if (merged['rounding'] != null && !const {'nearest','up','down'}.contains(merged['rounding'])) {
