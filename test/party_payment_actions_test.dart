@@ -37,6 +37,11 @@ void main() {
           find.byType(DropdownButtonFormField<int>));
         expect(selectors.first.initialValue, 7);
         expect(find.text(debt ? 'إضافة مديونية سابقة' : 'تسجيل دفعة'), findsOneWidget);
+        if (debt && kind == 'worker') {
+          expect(find.textContaining('تاريخ المديونية:'), findsOneWidget);
+        } else {
+          expect(find.textContaining('تاريخ المديونية:'), findsNothing);
+        }
         if (!debt) {
           final type = tester.widget<DropdownButtonFormField<String>>(
             find.byType(DropdownButtonFormField<String>));
