@@ -3145,7 +3145,7 @@ void main() {
   });
 
   test('النوع الثالث يستخدم سعر مصدر التشغيل المختار ويحفظ لقطته', () async {
-    final keys = ['system_type', 'solar_hourly_rate', 'hybrid_diesel_hourly_rate'];
+    final keys = ['system_type', 'solar_hourly_rate', 'hybrid_diesel_hourly_rate', 'work_price_difference_enabled'];
     final previous = <String, String>{};
     for (final key in keys) {
       final rows = await db.query('SELECT value FROM settings WHERE key=?', args: [key]);
@@ -3154,6 +3154,7 @@ void main() {
     try {
       await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
       await db.update('settings', {'value': '6000'}, 'key=?', ['solar_hourly_rate']);
+      await db.insert('settings', {'key': 'work_price_difference_enabled', 'value': 'false', 'updated_at': DateTime.now().toIso8601String()}, conflictAlgorithm: ConflictAlgorithm.replace);
       await db.insert('settings', {
         'key': 'hybrid_diesel_hourly_rate',
         'value': '9000',
