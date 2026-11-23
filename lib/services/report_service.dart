@@ -977,15 +977,24 @@ class ReportService {
     final totalMinutes =
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
     final totalCloudMinutes = data.fold<int>(0, (sum, row) =>
-        sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
+        sum + (('${row['system_type'] ?? ''}' == 'solar' ||
+            ('${row['system_type'] ?? ''}' == 'equivalent_hybrid' && row['hybrid_source'] == 'solar'))
+            ? n(row['cloud_minutes']) : 0));
     final useSpecialMinuteRate =
         settings['work_price_report_display_special_rate'] == 'true';
     final partialHour = settings['partial_hour'] != 'false';
-    int hourlyRate(Map<String, Object?> row) => switch ('${row['system_type'] ?? ''}') {
-      'solar' => n(row['solar_hourly_rate_snapshot']),
-      'equivalent_hybrid' => n(row['third_type_hourly_rate_snapshot']),
-      _ => n(row['water_hourly_rate_snapshot']),
-    };
+    int hourlyRate(Map<String, Object?> row) {
+      final type = '${row['system_type'] ?? ''}';
+      if (type == 'solar' || (type == 'equivalent_hybrid' && row['hybrid_source'] == 'solar')) {
+        return n(row['solar_hourly_rate_snapshot']);
+      }
+      if (type == 'equivalent_hybrid') {
+        return row['hybrid_source'] == 'diesel'
+            ? n(row['hybrid_diesel_hourly_rate_snapshot'])
+            : n(row['third_type_hourly_rate_snapshot']); // historical records
+      }
+      return n(row['water_hourly_rate_snapshot']);
+    }
     int reportAmount(Map<String, Object?> row, {required bool beforeCloud}) {
       final minutes = n(beforeCloud
           ? row['minutes']
