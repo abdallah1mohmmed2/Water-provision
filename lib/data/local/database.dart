@@ -31,7 +31,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 35,
+      version: 36,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -244,6 +244,15 @@ class AppDatabase {
     }
     if (oldV < 33) {
       await _migrateWorkDifferenceV33(d);
+    }
+    if (oldV < 36) {
+      final columns = await d.rawQuery('PRAGMA table_info(irrigations)');
+      if (!columns.any((row) => row['name'] == 'hybrid_source')) {
+        await d.execute('ALTER TABLE irrigations ADD COLUMN hybrid_source TEXT');
+      }
+      if (!columns.any((row) => row['name'] == 'hybrid_diesel_hourly_rate_snapshot')) {
+        await d.execute('ALTER TABLE irrigations ADD COLUMN hybrid_diesel_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0');
+      }
     }
     if (oldV < 19) {
       await d.execute(
