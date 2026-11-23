@@ -9180,7 +9180,7 @@ class _PaymentsState extends State<PaymentsPage> {
                 decoration: const InputDecoration(
                   labelText: 'اتجاه الرصيد *',
                 ),
-                items: const [
+                items: [
                   DropdownMenuItem(
                     value: 'party_owes',
                     child: Text('عليه للمحطة — $partyLabel مدين'),
