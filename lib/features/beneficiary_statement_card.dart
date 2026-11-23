@@ -81,7 +81,7 @@ class BeneficiaryStatementCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _line),
+        border: Border.all(color: line),
         boxShadow: [BoxShadow(color: ink.withValues(alpha: .04), blurRadius: 12, offset: const Offset(0, 4))],
       ),
       child: Column(
