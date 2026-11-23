@@ -1598,6 +1598,7 @@ class _NeonBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final destinations = <(int, String, IconData)>[
       (0, 'الرئيسية', Icons.home_rounded),
       if (isManager || canFinance) (14, 'التقارير', Icons.analytics_rounded),
@@ -1607,9 +1608,9 @@ class _NeonBottomBar extends StatelessWidget {
     ];
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF08111F),
-        border: Border(top: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: .25))),
-        boxShadow: [BoxShadow(color: const Color(0xFF00E5FF).withValues(alpha: .07), blurRadius: 18, offset: const Offset(0, -4))],
+        color: scheme.surface,
+        border: Border(top: BorderSide(color: scheme.outlineVariant)),
+        boxShadow: [BoxShadow(color: scheme.primary.withValues(alpha: .07), blurRadius: 18, offset: const Offset(0, -4))],
       ),
       child: SafeArea(
         top: false,
@@ -1622,10 +1623,10 @@ class _NeonBottomBar extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 2),
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(item.$3, color: currentIndex == item.$1 ? const Color(0xFF39FFB6) : const Color(0xFF8296AA), size: 22),
+                      Icon(item.$3, color: currentIndex == item.$1 ? scheme.primary : scheme.onSurfaceVariant, size: 22),
                       const SizedBox(height: 3),
                       Text(item.$2, maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: currentIndex == item.$1 ? const Color(0xFF39FFB6) : const Color(0xFFB5C3D1), fontSize: 10, fontWeight: currentIndex == item.$1 ? FontWeight.w900 : FontWeight.w600)),
+                        style: TextStyle(color: currentIndex == item.$1 ? scheme.primary : scheme.onSurfaceVariant, fontSize: 10, fontWeight: currentIndex == item.$1 ? FontWeight.w900 : FontWeight.w600)),
                     ]),
                   ),
                 ),
@@ -1691,17 +1692,18 @@ class _QuickActionOrbState extends State<QuickActionOrb>
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
+      final scheme = Theme.of(context).colorScheme;
       final maxX = (constraints.maxWidth - 66).clamp(0.0, double.infinity).toDouble();
       final maxY = (constraints.maxHeight - 66).clamp(0.0, double.infinity).toDouble();
       final menuMaxX = (constraints.maxWidth - 158).clamp(8.0, double.infinity).toDouble();
       final menuMaxY = (constraints.maxHeight - 56).clamp(8.0, double.infinity).toDouble();
       position = Offset(position.dx.clamp(8.0, maxX).toDouble(), position.dy.clamp(8.0, maxY).toDouble());
       final actions = <({IconData icon, String label, Color color, VoidCallback run})>[
-        (icon: Icons.water_drop_rounded, label: 'سقاية جديدة', color: const Color(0xff10b981), run: widget.onIrrigation),
-        if (widget.canCash) (icon: Icons.account_balance_wallet_rounded, label: 'صرف وقبض', color: const Color(0xff0ea5e9), run: widget.onCash),
-        (icon: Icons.format_list_numbered_rounded, label: 'حجز دور', color: const Color(0xff8b5cf6), run: widget.onQueue),
-        if (widget.canAddBeneficiary) (icon: Icons.person_add_alt_1_rounded, label: 'إضافة مستفيد', color: const Color(0xfff59e0b), run: widget.onAddBeneficiary),
-        if (widget.canAddExpense) (icon: Icons.receipt_long_rounded, label: 'إضافة مصروف', color: const Color(0xffef4444), run: widget.onAddExpense),
+        (icon: Icons.water_drop_rounded, label: 'سقاية جديدة', color: scheme.primary, run: widget.onIrrigation),
+        if (widget.canCash) (icon: Icons.account_balance_wallet_rounded, label: 'صرف وقبض', color: scheme.secondary, run: widget.onCash),
+        (icon: Icons.format_list_numbered_rounded, label: 'حجز دور', color: scheme.tertiary, run: widget.onQueue),
+        if (widget.canAddBeneficiary) (icon: Icons.person_add_alt_1_rounded, label: 'إضافة مستفيد', color: scheme.secondary, run: widget.onAddBeneficiary),
+        if (widget.canAddExpense) (icon: Icons.receipt_long_rounded, label: 'إضافة مصروف', color: scheme.error, run: widget.onAddExpense),
       ];
       final menuLeft = position.dx > constraints.maxWidth / 2
           ? (position.dx - 158).clamp(8.0, menuMaxX).toDouble()
@@ -1789,9 +1791,9 @@ class _QuickActionOrbState extends State<QuickActionOrb>
                   });
                 },
                 child: Material(
-                  color: const Color(0xff172554),
+                  color: scheme.primaryContainer,
                   elevation: 12,
-                  shadowColor: const Color(0x6610b981),
+                  shadowColor: scheme.primary.withValues(alpha: .35),
                   shape: const CircleBorder(),
                   child: InkWell(
                     customBorder: const CircleBorder(),
@@ -1806,8 +1808,8 @@ class _QuickActionOrbState extends State<QuickActionOrb>
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                           colors: expanded
-                              ? const [Color(0xff0ea5e9), Color(0xff6366f1)]
-                              : const [Color(0xff10b981), Color(0xff0ea5e9)],
+                              ? [scheme.secondary, scheme.tertiary]
+                              : [scheme.primary, scheme.secondary],
                         ),
                         border: Border.all(color: Colors.white.withValues(alpha: 0.8), width: 2),
                       ),
