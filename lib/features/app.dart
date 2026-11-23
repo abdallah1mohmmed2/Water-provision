@@ -5966,7 +5966,7 @@ int? parseClock(String raw) {
                         value: hybridSource,
                         decoration: const InputDecoration(labelText: 'مصدر تشغيل هذه السقاية', border: OutlineInputBorder()),
                         items: const [DropdownMenuItem(value: 'diesel', child: Text('ديزل')), DropdownMenuItem(value: 'solar', child: Text('طاقة شمسية'))],
-                        onChanged: (value) { setState(() { hybridSource = value; if (value == 'diesel') { cloudPeriods.clear(); cloudQuickController.clear(); quickCloudMode = false; } }); dialogSetState(() {}); },
+                        onChanged: hybridSource == null ? (value) { setState(() { hybridSource = value; if (value == 'diesel') { cloudPeriods.clear(); cloudQuickController.clear(); quickCloudMode = false; } }); dialogSetState(() {}); } : null,
                       ),
                     ],
                     const SizedBox(height: 10),
@@ -6646,7 +6646,7 @@ int? parseClock(String raw) {
                 if (type == 'equivalent_hybrid') ...[
                   const Align(alignment: AlignmentDirectional.centerStart, child: Text('مصدر تشغيل السقاية', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
                   const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(value: hybridSource, decoration: const InputDecoration(labelText: 'اختر مرة واحدة لهذه السقاية', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'diesel', child: Text('ديزل')), DropdownMenuItem(value: 'solar', child: Text('طاقة شمسية'))], onChanged: (value) => setState(() { hybridSource = value; if (value == 'diesel') cloudPeriods.clear(); })),
+                  DropdownButtonFormField<String>(value: hybridSource, decoration: const InputDecoration(labelText: 'اختر مرة واحدة لهذه السقاية', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'diesel', child: Text('ديزل')), DropdownMenuItem(value: 'solar', child: Text('طاقة شمسية'))], onChanged: hybridSource == null ? (value) => setState(() { hybridSource = value; if (value == 'diesel') cloudPeriods.clear(); }) : null),
                   const SizedBox(height: 12),
                 ],
                 Align(alignment: AlignmentDirectional.centerStart, child: Text(type == 'solar' || (type == 'equivalent_hybrid' && hybridSource == 'solar') ? 'وقت السقاية وفترات الغيم' : 'وقت السقاية', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
