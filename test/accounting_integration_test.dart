@@ -340,6 +340,52 @@ void main() {
     expect(txs.map((x) => x['amount']).toList(), [50000, 12000]);
   });
 
+  test('الدين النقدي السابق للشريك يدعم الاتجاهين دون حركة صندوق', () async {
+    final repo = StationRepository(db);
+    final partner = await repo.createPartner(
+      name: 'شريك دين سابق بالاتجاهين',
+      mode: 'shares',
+      shares: 1,
+    );
+    final cashBefore = await cashboxBalance(1);
+    final date = DateTime.now();
+
+    await svc.addPreviousPartyDebt(
+      partyType: 'partner',
+      partyId: partner,
+      amount: 50000,
+      date: date,
+      notes: 'دين سابق على الشريك للمحطة',
+      partyOwesStation: true,
+    );
+    expect((await svc.partnerBalance(partner))['balance'], -50000);
+
+    await svc.addPreviousPartyDebt(
+      partyType: 'partner',
+      partyId: partner,
+      amount: 12000,
+      date: date,
+      notes: 'مستحق سابق للشريك على المحطة',
+      partyOwesStation: false,
+    );
+    expect((await svc.partnerBalance(partner))['balance'], -38000);
+    expect(await cashboxBalance(1), cashBefore);
+
+    final txs = await db.query(
+      "SELECT type,amount FROM partner_transactions WHERE partner_id=? AND reference_type='previous_debt' ORDER BY id",
+      args: [partner],
+    );
+    expect(txs.map((x) => x['type']).toList(),
+        ['previous_receivable', 'opening_balance']);
+    expect(txs.map((x) => x['amount']).toList(), [50000, 12000]);
+
+    final gl = await db.rawQuery(
+      "SELECT COALESCE(SUM(credit)-SUM(debit),0) balance FROM journal_lines WHERE partner_id=?",
+      [partner],
+    );
+    expect((gl.single['balance'] as num).round(), -38000);
+  });
+
   test('أرصدة الأطراف المنشأة عبر المستودع تظهر في الأستاذ والكشف', () async {
     final repo = StationRepository(db);
     final w = await repo.createWorker(name: 'عامل برصيد افتتاحي', payType: 'fixed', opening: 1200);
