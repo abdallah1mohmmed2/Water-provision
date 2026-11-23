@@ -3178,7 +3178,9 @@ class AccountingService {
         cloud = cloud.clamp(0, end.difference(start).inMinutes).toInt();
       }
       if (cloudMinutesOverride != null) {
-        if (type != 'solar') throw ArgumentError('تعديل الغيم متاح للسقاية الشمسية فقط');
+        if (type != 'solar' && !(type == 'equivalent_hybrid' && old['hybrid_source'] == 'solar')) {
+          throw ArgumentError('تعديل الغيم متاح للسقاية الشمسية فقط');
+        }
         if (cloudMinutesOverride < 0 || cloudMinutesOverride > end.difference(start).inMinutes) {
           throw ArgumentError('دقائق الغيم يجب أن تكون بين صفر ومدة السقاية');
         }
