@@ -4891,6 +4891,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       type = 'diesel',
       queueType = 'circular',
       search = '';
+  // ثابت طوال فتح نموذج السقاية الحالي، ويُعاد عند فتح نموذج سريع جديد.
+  String? hybridSource;
   DateTime start = AppClock.now(),
       end = AppClock.now().add(const Duration(hours: 1));
   // يحتفظ بنهاية آخر سقاية ناجحة أثناء البقاء في شاشة السقاية فقط.
@@ -5171,8 +5173,8 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   int get dieselPrice =>
       int.tryParse(settings['diesel_price_per_liter'] ?? '0') ?? 0;
   int get solarRate => int.tryParse(settings['solar_hourly_rate'] ?? '0') ?? 0;
-  int get thirdRate =>
-      int.tryParse(settings['third_type_hourly_rate'] ?? '0') ?? 0;
+  int get hybridDieselRate => int.tryParse(settings['hybrid_diesel_hourly_rate'] ?? '0') ?? 0;
+  int get thirdRate => int.tryParse(settings['third_type_hourly_rate'] ?? '0') ?? 0;
   String _balLabel(int v) => partyType == 'beneficiary'
       ? AccountingCalculations.balanceLabel(v)
       : AccountingCalculations.partyDueLabel(v);
@@ -5219,10 +5221,16 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             rounding: settings['rounding'] ?? 'nearest',
             partialHour: settings['partial_hour'] != 'false',
           )
+        : hybridSource == 'solar'
+        ? AccountingCalculations.solar(
+            start: start, end: end, hourlyRate: solarRate, cloudMinutes: cloudMin,
+            allowMidnightCrossing: settings['allow_midnight_crossing'] == 'true',
+            rounding: settings['rounding'] ?? 'nearest', partialHour: settings['partial_hour'] != 'false',
+          )
         : AccountingCalculations.equivalent(
             start: start,
             end: end,
-            hourlyRate: thirdRate,
+            hourlyRate: type == 'equivalent_hybrid' ? hybridDieselRate : thirdRate,
             allowMidnightCrossing:
                 settings['allow_midnight_crossing'] == 'true',
             rounding: settings['rounding'] ?? 'nearest',
@@ -5870,6 +5878,7 @@ int? parseClock(String raw) {
   /// الحفظ يستدعي save() نفسها حتى تبقى قاعدة البيانات والقيود المحاسبية موحدة.
   Future<void> openQuickForm() async {
     if (!mounted || saved) return;
+    hybridSource = null;
 
     // كل مرة يفتح فيها النموذج العائم يبدأ بتاريخ اليوم؛ ويظل التاريخ
     // الذي يختاره المستخدم ثابتاً طوال عمر هذا الفورم فقط.
@@ -5912,7 +5921,7 @@ int? parseClock(String raw) {
                   ? _QuickIrrigationTimeTone.start
                   : _QuickIrrigationTimeTone.end,
               initialPeriod: (isStart ? start.hour : end.hour) < 12 ? 'am' : 'pm',
-              onCloudConfirmed: !isStart && type != 'diesel'
+              onCloudConfirmed: !isStart && type != 'diesel' && (type != 'equivalent_hybrid' || hybridSource == 'solar')
                   ? () => openCloudAfterEnd = true
                   : null,
             );
@@ -5951,6 +5960,15 @@ int? parseClock(String raw) {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Text('بطاقة وقت التشغيل', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+                    if (type == 'equivalent_hybrid') ...[
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        value: hybridSource,
+                        decoration: const InputDecoration(labelText: 'مصدر تشغيل هذه السقاية', border: OutlineInputBorder()),
+                        items: const [DropdownMenuItem(value: 'diesel', child: Text('ديزل')), DropdownMenuItem(value: 'solar', child: Text('طاقة شمسية'))],
+                        onChanged: (value) { setState(() => hybridSource = value); dialogSetState(() {}); },
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
                       onPressed: () async {
@@ -6068,7 +6086,7 @@ int? parseClock(String raw) {
                       icon: const Icon(Icons.av_timer),
                       label: Text('نهاية التشغيل: ${_hm12Label(end)}'),
                     ),
-                    if (type != 'diesel') ...[
+                    if (type != 'diesel' && (type != 'equivalent_hybrid' || hybridSource == 'solar')) ...[
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
                         onPressed: () async {
@@ -6179,7 +6197,11 @@ int? parseClock(String raw) {
       msg('وقت النهاية يجب أن يكون بعد وقت البداية');
       return;
     }
-    if (type != 'diesel' &&
+    if (type == 'equivalent_hybrid' && hybridSource == null) {
+      msg('حدد مصدر التشغيل لهذه السقاية: ديزل أو طاقة شمسية');
+      return;
+    }
+    if (type != 'diesel' && (type != 'equivalent_hybrid' || hybridSource == 'solar') &&
         (cloudMin < 0 || cloudMin > minutes ||
             (quickCloudMode && cloudQuickController.text.trim().isEmpty))) {
       msg('أدخل دقائق غيم صحيحة لا تتجاوز مدة السقاية');
@@ -6247,6 +6269,7 @@ int? parseClock(String raw) {
         dieselPrice: dieselPrice,
         solarRate: solarRate,
         thirdRate: thirdRate,
+        hybridSource: type == 'equivalent_hybrid' ? hybridSource : null,
         cloudMinutes: cloudMin,
         cloudPeriods: cloudPeriods
             .map(
@@ -6620,7 +6643,13 @@ int? parseClock(String raw) {
                     );
                   }),
                 const SizedBox(height: 18),
-                Align(alignment: AlignmentDirectional.centerStart, child: Text(type == 'solar' ? 'وقت السقاية وفترات الغيم' : 'وقت السقاية', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                if (type == 'equivalent_hybrid') ...[
+                  const Align(alignment: AlignmentDirectional.centerStart, child: Text('مصدر تشغيل السقاية', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(value: hybridSource, decoration: const InputDecoration(labelText: 'اختر مرة واحدة لهذه السقاية', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'diesel', child: Text('ديزل')), DropdownMenuItem(value: 'solar', child: Text('طاقة شمسية'))], onChanged: (value) => setState(() => hybridSource = value)),
+                  const SizedBox(height: 12),
+                ],
+                Align(alignment: AlignmentDirectional.centerStart, child: Text(type == 'solar' || (type == 'equivalent_hybrid' && hybridSource == 'solar') ? 'وقت السقاية وفترات الغيم' : 'وقت السقاية', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
                 const SizedBox(height: 10),
 
                 OutlinedButton.icon(
@@ -16556,12 +16585,10 @@ class _SettingsState extends State<SettingsPage> {
               ],
               if ((s['system_type'] ?? 'diesel') == 'solar')
                 setTile('solar_hourly_rate', 'سعر السقي الشمسي بالساعة', true),
-              if ((s['system_type'] ?? 'diesel') == 'equivalent_hybrid')
-                setTile(
-                  'third_type_hourly_rate',
-                  'سعر النوع الثالث بالساعة',
-                  true,
-                ),
+              if ((s['system_type'] ?? 'diesel') == 'equivalent_hybrid') ...[
+                setTile('hybrid_diesel_hourly_rate', 'سعر ساعة تشغيل الديزل في النوع الثالث', true),
+                setTile('solar_hourly_rate', 'سعر ساعة تشغيل الطاقة الشمسية', true),
+              ],
               if (widget.manager) ...[
                 const Divider(height: 8),
                 setTile('work_minute_rate', 'سعر الدقيقة الخاص للمستفيدين', true),
