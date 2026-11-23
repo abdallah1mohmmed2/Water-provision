@@ -23,9 +23,9 @@ class DieselDeliveryService {
     );
     if (rows.isEmpty ||
         settings.isEmpty ||
-        settings.first['value'] != 'diesel') {
+        !['diesel', 'equivalent_hybrid'].contains(settings.first['value'])) {
       throw StateError(
-        'تسجيل تسليم الديزل متاح للمدير والمحاسب في منظومة الديزل فقط',
+        'تسجيل تسليم الديزل متاح للمدير والمحاسب في منظومة الديزل والنوع الثالث فقط',
       );
     }
   }

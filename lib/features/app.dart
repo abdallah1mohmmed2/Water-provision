@@ -904,7 +904,7 @@ class _ShellState extends State<AdminShell> {
   );
   Set<int> get visible {
     final s = <int>{0, 2, 4, 5, 15};
-    if (systemType == 'diesel') s.add(6);
+    if (systemType == 'diesel' || systemType == 'equivalent_hybrid') s.add(6);
     if (role == AppRole.manager || role == AppRole.accountant) {
       s.addAll({1, 3, 7, 8, 9, 10, 11, 12, 13, 14, 19, 20});
     }
@@ -8412,7 +8412,7 @@ class _DieselState extends State<DieselPage> {
     final generation = ++_searchGeneration;
     final cfg = await SystemConfig.load(widget.r);
     if (!mounted || generation != _searchGeneration) return;
-    if (!cfg.isDiesel) {
+    if (!cfg.isDiesel && !cfg.isThird) {
       if (mounted) setState(() => enabled = false);
       return;
     }
@@ -8722,7 +8722,7 @@ class _DieselState extends State<DieselPage> {
             ],
           ),
         )
-      : const Center(child: Text('عناصر الديزل غير متاحة لأن المنظومة شمسية.'));
+      : const Center(child: Text('عناصر الديزل غير متاحة في المنظومة الشمسية.'));
 }
 
 class PartyPaymentActions extends StatelessWidget {

@@ -1,7 +1,7 @@
 import 'package:saqia_station/services/irrigation_message_fuel_service.dart';
 import 'package:saqia_station/features/party_diesel_balance.dart';
 import 'package:saqia_station/core/diesel_quantity.dart';
-import 'package:saqia_station/features/app.dart' show BeneficiariesPage, WorkersPage, PartnersPage;
+import 'package:saqia_station/features/app.dart' show BeneficiariesPage, WorkersPage, PartnersPage, DieselPage;
 
 import 'dart:convert';
 import 'dart:io';
@@ -238,11 +238,14 @@ void main() {
       );
       await repo.setSetting('system_type', 'solar');
       await expectLater(receive('worker', 5), throwsStateError);
+      await repo.setSetting('system_type', 'equivalent_hybrid');
+      await receive('worker', 5);
+      expect(await service.balance(1, 'worker', ids['worker']!), 10);
       expect(
         await scalar(
           "SELECT COUNT(*) FROM diesel_movements WHERE party_receipt=1",
         ),
-        1,
+        2,
       );
     },
   );
@@ -306,6 +309,27 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+  testWidgets(
+    'hybrid system exposes the existing diesel page and delivery action',
+    (tester) async {
+      await repo.setSetting('system_type', 'equivalent_hybrid');
+      tester.view.physicalSize = const Size(1000, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(MaterialApp(home: DieselPage(repo, userId: 1)));
+      for (var i = 0; i < 100 && find.text('إضافة تسليم ديزل').evaluate().isEmpty; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+      expect(find.text('إضافة تسليم ديزل'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   test(
     'v33 diesel rows survive migration and gain nullable party fields',
     () async {
