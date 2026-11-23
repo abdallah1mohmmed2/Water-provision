@@ -587,11 +587,11 @@ void main() {
       await waitForUi(
         tester,
         () => find
-            .textContaining('المستفيد المحدد غير موجود')
+            .textContaining('الطرف المحدد غير موجود')
             .evaluate()
             .isNotEmpty,
       );
-      expect(find.textContaining('المستفيد المحدد غير موجود'), findsOneWidget);
+      expect(find.textContaining('الطرف المحدد غير موجود'), findsOneWidget);
       expect(find.text('حفظ تسليم الديزل'), findsNothing);
       expect(
         await tester.runAsync(
