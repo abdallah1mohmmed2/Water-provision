@@ -31,6 +31,12 @@ void main() {
       }
     });
 
+    test('semantic report status tokens remain distinct', () {
+      expect(SaqiaTheme.reportError, isNot(SaqiaTheme.reportWarning));
+      expect(SaqiaTheme.reportError, isNot(SaqiaTheme.reportPositive));
+      expect(SaqiaTheme.reportWarning, isNot(SaqiaTheme.reportPositive));
+    });
+
     test('dark theme defines readable surfaces and input contrast', () {
       final dark = SaqiaTheme.dark(themeKey: 'violet');
       expect(dark.scaffoldBackgroundColor, const Color(0xff111815));
