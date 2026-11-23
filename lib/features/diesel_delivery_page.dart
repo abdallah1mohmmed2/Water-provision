@@ -235,7 +235,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
               'ديزل يسلّمه الشخص للمنظومة. يُسدّد ما عليه من لترات، ويُضاف الفائض إلى رصيده. لا يُشترط وجود مخزون ولا يُسجّل مبلغ مالي.',
             ),
             if (error != null)
-              Text(error!, style: const TextStyle(color: Colors.red)),
+              Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             if (enabled) ...[
               DropdownButtonFormField<String>(
                 initialValue: type,
