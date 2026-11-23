@@ -39,8 +39,11 @@ void main() {
         expect(find.text(debt ? 'إضافة مديونية سابقة' : 'تسجيل دفعة'), findsOneWidget);
         if (debt && kind == 'worker') {
           expect(find.textContaining('تاريخ المديونية:'), findsOneWidget);
+          expect(find.text('عليه للمحطة — العامل مدين'), findsOneWidget);
+          expect(find.text('له على المحطة — المحطة مدينة'), findsOneWidget);
         } else {
           expect(find.textContaining('تاريخ المديونية:'), findsNothing);
+          expect(find.text('اتجاه الرصيد *'), findsNothing);
         }
         if (!debt) {
           final type = tester.widget<DropdownButtonFormField<String>>(
