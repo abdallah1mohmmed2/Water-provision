@@ -4656,7 +4656,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
         ),
         const SizedBox(height: 8),
         if (sourceFromServer)
-          const Align(
+          Align(
             alignment: Alignment.centerRight,
             child: Text(
               'القائمة والرصيد من خادم Shelf؛ التفاصيل وكشوف الحركات ما زالت تعتمد على بيانات الجهاز حتى ترحيلها.',
@@ -4664,7 +4664,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             ),
           )
         else if (widget.r.serverSessionActive)
-          const Align(
+          Align(
             alignment: Alignment.centerRight,
             child: Text(
               'الخادم غير متاح حالياً؛ تُعرض آخر بيانات محلية محفوظة. قد لا تشمل تغييرات الأجهزة الأخرى.',
