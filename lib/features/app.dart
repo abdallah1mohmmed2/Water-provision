@@ -50,10 +50,10 @@ import 'reconciliation_page.dart';
 
 const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
 
-const _blue = Color(0xff287bff),
-    _cyan = Color(0xff00d7ff),
-    _purple = Color(0xff7c4dff),
-    _green = Color(0xff18e58c);
+Color get _blue => SaqiaTheme.accent(AppPrefs.current.themeKey);
+Color get _cyan => SaqiaTheme.secondary(AppPrefs.current.themeKey);
+Color get _purple => SaqiaTheme.secondary(AppPrefs.current.themeKey);
+Color get _green => SaqiaTheme.reportPositive;
 
 String money(Object? v) =>
     '${(v is num ? v : num.tryParse('$v') ?? 0).round()} ريال';
@@ -8668,12 +8668,12 @@ class _DieselState extends State<DieselPage> {
             children: [
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.oil_barrel, color: _cyan),
+                  leading: Icon(Icons.oil_barrel, color: _cyan),
                   title: const Text('المخزون الحالي'),
                   subtitle: Text('${stock.toStringAsFixed(2)} لتر'),
                   trailing: warning?['warning'] == true
                       ? const Icon(Icons.warning_amber, color: Colors.orange)
-                      : const Icon(Icons.check_circle, color: _green),
+                      : Icon(Icons.check_circle, color: _green),
                 ),
               ),
               const SizedBox(height: 10),
