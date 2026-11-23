@@ -323,7 +323,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: direction == 'from_party' ? 'الكمية المستلمة باللترات' : 'الكمية المسلّمة للطرف باللترات',
                   helperText: 'مثال: 5.75 — منزلتان عشريتان كحد أقصى',
                 ),
