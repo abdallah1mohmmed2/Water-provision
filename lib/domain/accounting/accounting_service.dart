@@ -4195,6 +4195,7 @@ class AccountingService {
           'amount': amount,
           'date': date.toIso8601String(),
           'notes': notes.trim(),
+          'balance_direction': workerPayable ? 'station_owes_worker' : 'party_owes_station',
           'reference_type': isWorker ? 'worker_opening' : 'partner_opening',
         },
         reason: workerPayable
