@@ -36,7 +36,7 @@ Future<bool> showBeneficiaryIrrigationMenu(
             onTap: () => Navigator.pop(c, 'edit'),
           ),
           ListTile(
-            leading: const Icon(Icons.delete_outline, color: Colors.red),
+            leading: const Icon(Icons.delete_outline, color: Theme.of(c).colorScheme.error),
             title: const Text('حذف السقاية (إلغاء وعكس الأثر)'),
             onTap: () => Navigator.pop(c, 'cancel'),
           ),
@@ -215,7 +215,7 @@ class _EditIrrigationDialogState extends State<_EditIrrigationDialog> {
             _field(endDate, 'تاريخ النهاية', true),
             _field(endTime, 'وقت النهاية', false),
             if (error != null)
-              Text(error!, style: const TextStyle(color: Colors.red)),
+              Text(error!, style: const TextStyle(color: Theme.of(c).colorScheme.error)),
           ],
         ),
       ),
@@ -286,7 +286,7 @@ class _CancelIrrigationDialogState extends State<_CancelIrrigationDialog> {
           decoration: const InputDecoration(labelText: 'سبب الإلغاء'),
         ),
         if (error != null)
-          Text(error!, style: const TextStyle(color: Colors.red)),
+          Text(error!, style: const TextStyle(color: Theme.of(c).colorScheme.error)),
       ],
     ),
     actions: [
