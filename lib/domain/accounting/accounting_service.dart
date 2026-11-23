@@ -4012,7 +4012,6 @@ class AccountingService {
     required int amount,
     required DateTime date,
     required String notes,
-    bool partyOwesStation = true,
     int? userId,
   }) async {
     if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
@@ -4086,6 +4085,7 @@ class AccountingService {
     required int amount,
     required DateTime date,
     required String notes,
+    bool partyOwesStation = true,
     int? userId,
   }) async {
     if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
