@@ -1070,6 +1070,7 @@ class StationRepository {
     int cloudMinutes = 0,
     int? operatorWorkerId,
     int? userId,
+    String? hybridSource,
   }) async {
     final s = (await db.rawQuery(
       'SELECT * FROM irrigation_sessions WHERE id=?',
@@ -1098,6 +1099,7 @@ class StationRepository {
       dieselPrice: int.tryParse(set['diesel_price_per_liter'] ?? '0') ?? 0,
       solarRate: int.tryParse(set['solar_hourly_rate'] ?? '0') ?? 0,
       thirdRate: int.tryParse(set['third_type_hourly_rate'] ?? '0') ?? 0,
+      hybridSource: hybridSource,
       cloudMinutes: cloudMinutes,
       paidAmount: 0,
       queueId: s['queue_entry_id'] as int?,
@@ -2906,6 +2908,8 @@ class StationRepository {
                       COALESCE(i.solar_hourly_rate_snapshot,0) solar_hourly_rate_snapshot,
                       COALESCE(i.water_hourly_rate_snapshot,0) water_hourly_rate_snapshot,
                       COALESCE(i.third_type_hourly_rate_snapshot,0) third_type_hourly_rate_snapshot,
+                      COALESCE(i.hybrid_source,'') hybrid_source,
+                      COALESCE(i.hybrid_diesel_hourly_rate_snapshot,0) hybrid_diesel_hourly_rate_snapshot,
                       COALESCE(i.work_minute_rate_snapshot,0) work_minute_rate_snapshot,
                       COALESCE(i.work_price_enabled_snapshot,0) work_price_enabled_snapshot,
                       COALESCE(i.work_base_water_amount_snapshot,0) work_base_water_amount_snapshot,
@@ -3273,6 +3277,7 @@ class StationRepository {
             """SELECT i.beneficiary_id,i.minutes,i.chargeable_minutes,i.system_type,
                       i.work_minute_rate_snapshot,i.water_hourly_rate_snapshot,
                       i.solar_hourly_rate_snapshot,i.third_type_hourly_rate_snapshot,
+                      i.hybrid_source,i.hybrid_diesel_hourly_rate_snapshot,
                       i.diesel_amount,i.total_amount
                FROM irrigations i
                WHERE i.beneficiary_id IN ($placeholders)
