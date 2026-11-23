@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
+import '../core/theme.dart';
+
 /// Read-only Android preview. Never changes the rows used to generate PDF.
 class BeneficiaryStatementCard extends StatelessWidget {
   final Map<String, Object?> row;
   const BeneficiaryStatementCard({required this.row, super.key});
 
-  static const _ink = Color(0xff24312b);
-  static const _muted = Color(0xff69756e);
-  static const _green = Color(0xff287457);
-  static const _orange = Color(0xffb65a24);
-  static const _line = Color(0xffe3e8e3);
 
   num _amount(String key) => row[key] is num
       ? row[key] as num
@@ -40,18 +37,24 @@ class BeneficiaryStatementCard extends StatelessWidget {
     _ => '${row['description'] ?? 'حركة حساب'}',
   };
 
-  Widget _field(String label, String value) => Column(
+  Widget _field(String label, String value, Color muted, Color ink) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(label, style: const TextStyle(color: _muted, fontSize: 12)),
+      Text(label, style: TextStyle(color: muted, fontSize: 12)),
       const SizedBox(height: 5),
       Text(value, softWrap: true,
-        style: const TextStyle(color: _ink, fontSize: 15, fontWeight: FontWeight.w700)),
+        style: TextStyle(color: ink, fontSize: 15, fontWeight: FontWeight.w700)),
     ],
   );
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final ink = scheme.onSurface;
+    final muted = scheme.onSurfaceVariant;
+    final green = SaqiaTheme.reportPositive;
+    final orange = SaqiaTheme.reportNegative;
+    final line = scheme.outlineVariant;
     final type = '${row['type'] ?? ''}';
     final irrigation = type == 's';
     final balance = _amount('balance');
@@ -61,7 +64,7 @@ class BeneficiaryStatementCard extends StatelessWidget {
         : type == 'p' ? _amount('credit').abs()
         : type == 'payment' || type == 'receipt' || type == 'disbursement'
             ? (_amount('credit') - _amount('debit')).abs() : 0;
-    final color = balance > 0 ? _orange : _green;
+    final color = balance > 0 ? orange : green;
     final fields = <(String, String)>[
       (irrigation ? 'تاريخ السقو' : 'التاريخ', _date(row['date'])),
       if (irrigation) ...[
@@ -76,10 +79,10 @@ class BeneficiaryStatementCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: _line),
-        boxShadow: [BoxShadow(color: _ink.withValues(alpha: .04), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [BoxShadow(color: ink.withValues(alpha: .04), blurRadius: 12, offset: const Offset(0, 4))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -87,11 +90,11 @@ class BeneficiaryStatementCard extends StatelessWidget {
           Row(children: [
             Container(
               padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: _green.withValues(alpha: .08), borderRadius: BorderRadius.circular(12)),
-              child: Icon(irrigation ? Icons.water_drop_outlined : Icons.receipt_long_outlined, color: _green, size: 22),
+              decoration: BoxDecoration(color: green.withValues(alpha: .08), borderRadius: BorderRadius.circular(12)),
+              child: Icon(irrigation ? Icons.water_drop_outlined : Icons.receipt_long_outlined, color: green, size: 22),
             ),
             const SizedBox(width: 10),
-            Expanded(child: Text(_title(type), style: const TextStyle(color: _ink, fontSize: 17, fontWeight: FontWeight.w800))),
+            Expanded(child: Text(_title(type), style: const TextStyle(color: ink, fontSize: 17, fontWeight: FontWeight.w800))),
           ]),
           const Padding(padding: EdgeInsets.symmetric(vertical: 14), child: Divider(height: 1, color: _line)),
           LayoutBuilder(builder: (context, constraints) {
@@ -99,18 +102,18 @@ class BeneficiaryStatementCard extends StatelessWidget {
             final width = twoColumns ? (constraints.maxWidth - 16) / 2 : constraints.maxWidth;
             return Wrap(spacing: 16, runSpacing: 16, children: [
               for (final field in fields)
-                SizedBox(width: width, child: _field(field.$1, field.$2)),
+                SizedBox(width: width, child: _field(field.$1, field.$2, muted, ink)),
             ]);
           }),
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(color: color.withValues(alpha: .08), borderRadius: BorderRadius.circular(14)),
-            child: _field('المتبقي', _balance(balance)),
+            child: _field('المتبقي', _balance(balance), muted, ink),
           ),
           if (!irrigation) ...[
             const SizedBox(height: 16),
-            _field('الملاحظات', '${row['notes'] ?? ''}'.trim().isEmpty ? '—' : '${row['notes']}'),
+            _field('الملاحظات', '${row['notes'] ?? ''}'.trim().isEmpty ? '—' : '${row['notes']}', muted, ink),
           ],
         ],
       ),
