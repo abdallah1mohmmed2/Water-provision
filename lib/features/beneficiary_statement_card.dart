@@ -94,9 +94,9 @@ class BeneficiaryStatementCard extends StatelessWidget {
               child: Icon(irrigation ? Icons.water_drop_outlined : Icons.receipt_long_outlined, color: green, size: 22),
             ),
             const SizedBox(width: 10),
-            Expanded(child: Text(_title(type), style: const TextStyle(color: ink, fontSize: 17, fontWeight: FontWeight.w800))),
+            Expanded(child: Text(_title(type), style: TextStyle(color: ink, fontSize: 17, fontWeight: FontWeight.w800))),
           ]),
-          const Padding(padding: EdgeInsets.symmetric(vertical: 14), child: Divider(height: 1, color: _line)),
+          Padding(padding: const EdgeInsets.symmetric(vertical: 14), child: Divider(height: 1, color: line)),
           LayoutBuilder(builder: (context, constraints) {
             final twoColumns = constraints.maxWidth >= 260 && MediaQuery.textScalerOf(context).scale(14) <= 19;
             final width = twoColumns ? (constraints.maxWidth - 16) / 2 : constraints.maxWidth;
