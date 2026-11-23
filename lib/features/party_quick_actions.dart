@@ -11,6 +11,7 @@ Future<void> showPartyPdfChoices(
   BuildContext context, {
   required String name,
   required PartyReportCallback generate,
+  required bool dieselEnabled,
 }) => showModalBottomSheet<void>(
   context: context,
   showDragHandle: true,
@@ -41,7 +42,11 @@ Future<void> showPartyPdfChoices(
           children: [
             Text(name, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            for (final report in const ['irrigations', 'statement', 'diesel'])
+            for (final report in [
+              'irrigations',
+              'statement',
+              if (dieselEnabled) 'diesel',
+            ])
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: ReportPdfLongPress(
@@ -131,7 +136,11 @@ class PartyQuickActions extends StatelessWidget {
           ),
         OutlinedButton.icon(
           onPressed: () => showPartyPdfChoices(
-            context, name: name, generate: _report),
+            context,
+            name: name,
+            generate: _report,
+            dieselEnabled: dieselEnabled,
+          ),
           icon: const Icon(Icons.picture_as_pdf_rounded),
           label: const Text('PDF'),
         ),
