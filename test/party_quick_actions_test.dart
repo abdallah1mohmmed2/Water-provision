@@ -277,14 +277,15 @@ void main() {
           await tester.pumpAndSettle();
         } else {
           expect(cloudShortcut, findsOneWidget);
+          // Capture the active theme before opening the modal route: the
+          // underlying shortcut is offstage while the cloud dialog is shown.
+          final expectedCloudColor =
+              Theme.of(tester.element(endPicker)).colorScheme.tertiaryContainer;
           await tester.tap(cloudShortcut);
           await tester.pumpAndSettle();
           expect(find.text('إضافة غيم / حساب وقت التوقف'), findsOneWidget);
           final dialogs = tester.widgetList<AlertDialog>(find.byType(AlertDialog));
-          expect(
-            dialogs.last.backgroundColor,
-            Theme.of(tester.element(cloudShortcut)).colorScheme.tertiaryContainer,
-          );
+          expect(dialogs.last.backgroundColor, expectedCloudColor);
           await tester.tap(find.text('إلغاء'));
           await tester.pumpAndSettle();
         }
