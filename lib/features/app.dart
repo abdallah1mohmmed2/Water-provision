@@ -6714,7 +6714,7 @@ int? parseClock(String raw) {
                 if (end.year != start.year || end.month != start.month || end.day != start.day)
                   const Chip(avatar: Icon(Icons.nights_stay_outlined), label: Text('وقت النهاية في اليوم التالي')),
                 Chip(label: Text('المدة: $minutes دقيقة'), avatar: const Icon(Icons.timelapse)),
-                if (type == 'solar') ...[
+                if (type == 'solar' || (type == 'equivalent_hybrid' && hybridSource == 'solar')) ...[
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
                     onPressed: minutes > 0 ? () => addCloudPeriod() : null,
@@ -6788,7 +6788,7 @@ int? parseClock(String raw) {
                     Metric('سلفة ديزل عينية', "${DieselQuantity.format(p['ديزل سلفة']!)} لتر", SaqiaTheme.reportWarning),
                   ],
                 ],
-                if (type == 'solar' && cloudMin > 0) Metric('خصم الغيم', '$cloudMin دقيقة', _cyan),
+                if ((type == 'solar' || (type == 'equivalent_hybrid' && hybridSource == 'solar')) && cloudMin > 0) Metric('خصم الغيم', '$cloudMin دقيقة', _cyan),
                 Metric('الإجمالي المستحق', money(p['الإجمالي']), _green),
                 if (partyType == 'beneficiary')
                   Metric('المدفوع', money(p['المدفوع']), _blue),
@@ -13786,7 +13786,8 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       return;
     }
 
-    final isSolar = '${row['system_type']}' == 'solar';
+    final isSolar = '${row['system_type']}' == 'solar' ||
+        ('${row['system_type']}' == 'equivalent_hybrid' && row['hybrid_source'] == 'solar');
     int? cloudOverride;
     if (isSolar) {
       final input = TextEditingController(text: '${_n(row['cloud_minutes'])}');
