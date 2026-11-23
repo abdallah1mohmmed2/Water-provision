@@ -3947,20 +3947,27 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             if (['beneficiary', 'worker', 'partner'].contains(widget.kind))
               IconButton(
                 tooltip: 'تقارير PDF',
-                onPressed: () => showPartyPdfChoices(context,
-                  name: widget.title,
-                  generate: (report) => report == 'diesel'
-                    ? ReportService(widget.r).printPartyDieselPdf(
-                        partyType: widget.kind, partyId: widget.id,
-                        from: filterFrom, to: filterTo)
-                    : report == 'irrigations'
-                      ? ReportService(widget.r).printPdf('irrigations',
-                          beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
-                          workerId: widget.kind == 'worker' ? widget.id : null,
-                          partnerId: widget.kind == 'partner' ? widget.id : null,
-                          from: filterFrom, to: filterTo, systemType: 'all')
-                      : printPersonReport(),
-                ),
+                onPressed: () async {
+                  final currentSettings = await widget.r.settings();
+                  if (!context.mounted) return;
+                  await showPartyPdfChoices(
+                    context,
+                    name: widget.title,
+                    dieselEnabled: const {'diesel', 'equivalent_hybrid'}
+                        .contains(currentSettings['system_type'] ?? 'diesel'),
+                    generate: (report) => report == 'diesel'
+                      ? ReportService(widget.r).printPartyDieselPdf(
+                          partyType: widget.kind, partyId: widget.id,
+                          from: filterFrom, to: filterTo)
+                      : report == 'irrigations'
+                        ? ReportService(widget.r).printPdf('irrigations',
+                            beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
+                            workerId: widget.kind == 'worker' ? widget.id : null,
+                            partnerId: widget.kind == 'partner' ? widget.id : null,
+                            from: filterFrom, to: filterTo, systemType: 'all')
+                        : printPersonReport(),
+                  );
+                },
                 icon: const Icon(Icons.picture_as_pdf_rounded),
               ),
             IconButton(
