@@ -3144,4 +3144,64 @@ void main() {
     expect(april['closing_balance'], 200);
   });
 
+  test('النوع الثالث يستخدم سعر مصدر التشغيل المختار ويحفظ لقطته', () async {
+    final keys = ['system_type', 'solar_hourly_rate', 'hybrid_diesel_hourly_rate'];
+    final previous = <String, String>{};
+    for (final key in keys) {
+      final rows = await db.query('SELECT value FROM settings WHERE key=?', args: [key]);
+      previous[key] = rows.isEmpty ? '' : '${rows.first['value']}';
+    }
+    try {
+      await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
+      await db.update('settings', {'value': '6000'}, 'key=?', ['solar_hourly_rate']);
+      await db.insert('settings', {
+        'key': 'hybrid_diesel_hourly_rate',
+        'value': '9000',
+        'updated_at': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final start = DateTime(2048, 5, 6, 8);
+      final dieselParty = await db.insert('beneficiaries', {
+        'name': 'مستفيد اختبار ديزل النوع الثالث',
+        'created_at': start.toIso8601String(),
+        'updated_at': start.toIso8601String(),
+      });
+      final solarParty = await db.insert('beneficiaries', {
+        'name': 'مستفيد اختبار شمسي النوع الثالث',
+        'created_at': start.toIso8601String(),
+        'updated_at': start.toIso8601String(),
+      });
+      final dieselId = await svc.recordIrrigation(
+        stationId: 1, pumpId: 1, beneficiaryId: dieselParty,
+        start: start, end: start.add(const Duration(hours: 1)),
+        systemType: 'equivalent_hybrid', waterRate: 0, litersPerHour: 0,
+        dieselPrice: 0, solarRate: 0, thirdRate: 0, hybridSource: 'diesel',
+        cloudMinutes: 0, paidAmount: 0,
+      );
+      final solarId = await svc.recordIrrigation(
+        stationId: 1, pumpId: 1, beneficiaryId: solarParty,
+        start: start.add(const Duration(hours: 2)),
+        end: start.add(const Duration(hours: 3)),
+        systemType: 'equivalent_hybrid', waterRate: 0, litersPerHour: 0,
+        dieselPrice: 0, solarRate: 0, thirdRate: 0, hybridSource: 'solar',
+        cloudMinutes: 15, paidAmount: 0,
+      );
+      final diesel = (await db.query('SELECT * FROM irrigations WHERE id=?', args: [dieselId])).single;
+      final solar = (await db.query('SELECT * FROM irrigations WHERE id=?', args: [solarId])).single;
+      expect(diesel['hybrid_source'], 'diesel');
+      expect(diesel['hybrid_diesel_hourly_rate_snapshot'], 9000);
+      expect(diesel['total_amount'], 9000);
+      expect(solar['hybrid_source'], 'solar');
+      expect(solar['solar_hourly_rate_snapshot'], 6000);
+      expect(solar['cloud_minutes'], 15);
+      expect(solar['chargeable_minutes'], 45);
+      expect(solar['total_amount'], 4500);
+    } finally {
+      for (final entry in previous.entries) {
+        if (entry.value.isNotEmpty) {
+          await db.update('settings', {'value': entry.value}, 'key=?', [entry.key]);
+        }
+      }
+    }
+  });
+
 }
