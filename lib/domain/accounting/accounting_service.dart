@@ -4078,7 +4078,7 @@ class AccountingService {
   }
 
   /// إضافة مديونية سابقة من مركز المدفوعات دون أي حركة صندوق.
-  /// لجميع الأطراف: المبلغ عليهم للمحطة. الأرصدة التاريخية المستحقة للأطراف لا تُمس.
+  /// يدعم العامل والشريك الاتجاهين؛ المستفيد تبقى مديونيته لصالح المحطة.
   Future<int> addPreviousPartyDebt({
     required String partyType,
     required int partyId,
@@ -4125,12 +4125,13 @@ class AccountingService {
           ? await _workerAccountIdTx(tx, partyId)
           : await _partnerAccountIdTx(tx, partyId);
       final openingEquity = await _accountIdTx(tx, '3000');
-      final workerPayable = isWorker && !partyOwesStation;
+      final partyPayable = !partyOwesStation;
+      final partyLabel = isWorker ? 'العامل' : 'الشريك';
       final entryId = await _entry(
         tx,
-        description: workerPayable
-            ? 'مستحقات سابقة للعامل $name'
-            : 'مديونية سابقة على ${isWorker ? 'العامل' : 'الشريك'} $name',
+        description: partyPayable
+            ? 'مستحقات سابقة لـ$partyLabel $name'
+            : 'مديونية سابقة على $partyLabel $name',
         referenceType: isWorker ? 'worker_opening' : 'partner_opening',
         referenceId: partyId,
         date: date,
@@ -4140,16 +4141,16 @@ class AccountingService {
           {
             'account_id': partyAccount,
             if (isWorker) 'worker_id': partyId else 'partner_id': partyId,
-            'debit': workerPayable ? 0 : amount,
-            'credit': workerPayable ? amount : 0,
+            'debit': partyPayable ? 0 : amount,
+            'credit': partyPayable ? amount : 0,
             'memo': notes.trim(),
           },
           {
             'account_id': openingEquity,
-            'debit': workerPayable ? amount : 0,
-            'credit': workerPayable ? 0 : amount,
-            'memo': workerPayable
-                ? 'مقابل مستحقات سابقة للعامل'
+            'debit': partyPayable ? amount : 0,
+            'credit': partyPayable ? 0 : amount,
+            'memo': partyPayable
+                ? 'مقابل مستحقات سابقة للطرف'
                 : 'مقابل مديونية سابقة على الطرف',
           },
         ],
@@ -4159,7 +4160,7 @@ class AccountingService {
           'worker_id': partyId,
           'station_id': stationId,
           'date': date.toIso8601String(),
-          'type': workerPayable ? 'opening_balance' : 'previous_receivable',
+          'type': partyPayable ? 'opening_balance' : 'previous_receivable',
           'hours': 0,
           'rate_snapshot': 0,
           'percentage_snapshot': 0,
@@ -4174,7 +4175,7 @@ class AccountingService {
           'partner_id': partyId,
           'station_id': stationId,
           'date': date.toIso8601String(),
-          'type': 'previous_receivable',
+          'type': partyPayable ? 'opening_balance' : 'previous_receivable',
           'amount': amount,
           'ownership_snapshot': null,
           'reference_type': 'previous_debt',
@@ -4195,11 +4196,13 @@ class AccountingService {
           'amount': amount,
           'date': date.toIso8601String(),
           'notes': notes.trim(),
-          'balance_direction': workerPayable ? 'station_owes_worker' : 'party_owes_station',
+          'balance_direction': partyPayable
+              ? (isWorker ? 'station_owes_worker' : 'station_owes_partner')
+              : 'party_owes_station',
           'reference_type': isWorker ? 'worker_opening' : 'partner_opening',
         },
-        reason: workerPayable
-            ? 'إثبات مستحقات سابقة للعامل دون حركة نقدية'
+        reason: partyPayable
+            ? 'إثبات مستحقات سابقة للطرف دون حركة نقدية'
             : 'إضافة مديونية سابقة على الطرف دون حركة نقدية',
       );
       return entryId;
