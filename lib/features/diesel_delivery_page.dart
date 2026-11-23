@@ -9,13 +9,19 @@ import '../domain/maintenance/diesel_delivery_service.dart';
 class DieselDeliveryPage extends StatefulWidget {
   final StationRepository repo;
   final int userId;
-  final int? initialBeneficiaryId;
+  final String initialPartyType;
+  final int? initialPartyId;
   const DieselDeliveryPage(
     this.repo, {
     required this.userId,
-    this.initialBeneficiaryId,
+    this.initialPartyType = 'beneficiary',
+    this.initialPartyId,
     super.key,
-  });
+  }) : assert(
+         initialPartyType == 'beneficiary' ||
+             initialPartyType == 'worker' ||
+             initialPartyType == 'partner',
+       );
   @override
   State<DieselDeliveryPage> createState() => _DieselDeliveryPageState();
 }
@@ -23,7 +29,8 @@ class DieselDeliveryPage extends StatefulWidget {
 class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
   late final service = DieselDeliveryService(widget.repo.db);
   final liters = TextEditingController(), notes = TextEditingController();
-  String type = 'beneficiary', request = const Uuid().v4();
+  late String type;
+  String request = const Uuid().v4();
   int? person, station;
   double? balance;
   DateTime date = AppClock.now();
@@ -40,6 +47,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
   @override
   void initState() {
     super.initState();
+    type = widget.initialPartyType;
     _loadPeople(useInitial: true);
   }
 
@@ -70,7 +78,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
       if (!mounted || token != generation) {
         return;
       }
-      final initial = useInitial ? widget.initialBeneficiaryId : null;
+      final initial = useInitial ? widget.initialPartyId : null;
       if (initial != null && !rows.any((row) => row['id'] == initial)) {
         throw StateError(
           'المستفيد المحدد غير موجود في بيانات المحطة الحالية؛ حدّث بيانات المستفيدين',
