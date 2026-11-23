@@ -3226,6 +3226,10 @@ void _applyPartyDieselReceipt({
     required int station, required String entityKey, required Map payload,
     required String now, required int? userId, required String? role,
   }) {
+    // Some installations/tests create the business tables after the server
+    // object is constructed. Re-run the additive, idempotent migration at the
+    // command boundary so the hybrid-source columns exist before validation.
+    _ensureP1Schema();
     if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بترحيل السقايات');
     final globalId = (payload['_global_id'] ?? '').toString();
     final valid = globalId.length == 36 && RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId) && globalId[8] == '-' && globalId[13] == '-' && globalId[18] == '-' && globalId[23] == '-' && globalId[14] == '4' && '89abAB'.contains(globalId[19]);
