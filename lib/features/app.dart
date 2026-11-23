@@ -4749,6 +4749,20 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                         partyType: 'beneficiary',
                                         partyId: x['id'] as int,
                                         name: '${x['name']}',
+                                        dieselEnabled: dieselSystem,
+                                        onDieselDelivery: () async {
+                                          await Navigator.of(context).push(
+                                            MaterialPageRoute<void>(
+                                              builder: (_) => DieselDeliveryPage(
+                                                widget.r,
+                                                userId: widget.userId,
+                                                initialPartyType: 'beneficiary',
+                                                initialPartyId: x['id'] as int,
+                                              ),
+                                            ),
+                                          );
+                                          if (mounted) await load();
+                                        },
                                         onNewIrrigation: () async {
                                           await Navigator.push(context, MaterialPageRoute<void>(
                                             builder: (_) => NewIrrigationPage(widget.r,
@@ -4814,16 +4828,6 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                           spacing: 8,
                                           runSpacing: 8,
                                           children: [
-                                            if (dieselSystem)
-                                              OutlinedButton.icon(
-                                                key: ValueKey('beneficiary-diesel-${x['id']}'),
-                                                onPressed: () async {
-                                                  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselDeliveryPage(widget.r, userId: widget.userId, initialBeneficiaryId: x['id'] as int)));
-                                                  if (mounted) await load();
-                                                },
-                                                icon: const Icon(Icons.local_gas_station_outlined),
-                                                label: const Text('إضافة تسليم ديزل'),
-                                              ),
                                             OutlinedButton.icon(
                                               onPressed: () => details(x),
                                               icon: const Icon(Icons.open_in_new),
@@ -10212,6 +10216,7 @@ class _WorkersState extends State<WorkersPage> {
   String q = '';
   Timer? _searchDebounce;
   int _searchGeneration = 0;
+  bool dieselSystem = false;
 
   Future<void> load() async {
     final generation = ++_searchGeneration;
@@ -10223,7 +10228,14 @@ class _WorkersState extends State<WorkersPage> {
   @override
   void initState() {
     super.initState();
+    _loadDieselSystem();
     load();
+  }
+
+  Future<void> _loadDieselSystem() async {
+    final settings = await widget.r.settings();
+    if (!mounted) return;
+    setState(() => dieselSystem = settings['system_type'] == 'diesel');
   }
 
   @override
@@ -10789,6 +10801,20 @@ class _WorkersState extends State<WorkersPage> {
                                             partyType: 'worker',
                                             partyId: x['id'] as int,
                                             name: '${x['name']}',
+                                             dieselEnabled: dieselSystem,
+                                             onDieselDelivery: () async {
+                                               await Navigator.of(context).push(
+                                                 MaterialPageRoute<void>(
+                                                   builder: (_) => DieselDeliveryPage(
+                                                     widget.r,
+                                                     userId: widget.userId,
+                                                     initialPartyType: 'worker',
+                                                     initialPartyId: x['id'] as int,
+                                                   ),
+                                                 ),
+                                               );
+                                               if (mounted) await load();
+                                             },
                                             onNewIrrigation: () async {
                                               await Navigator.push(context, MaterialPageRoute<void>(
                                                 builder: (_) => NewIrrigationPage(widget.r,
@@ -10896,6 +10922,7 @@ class _PartnersState extends State<PartnersPage> {
   String q = '';
   Timer? _searchDebounce;
   int _searchGeneration = 0;
+  bool dieselSystem = false;
 
   Future<void> load() async {
     final generation = ++_searchGeneration;
@@ -10907,7 +10934,14 @@ class _PartnersState extends State<PartnersPage> {
   @override
   void initState() {
     super.initState();
+    _loadDieselSystem();
     load();
+  }
+
+  Future<void> _loadDieselSystem() async {
+    final settings = await widget.r.settings();
+    if (!mounted) return;
+    setState(() => dieselSystem = settings['system_type'] == 'diesel');
   }
 
   @override
@@ -11345,6 +11379,20 @@ class _PartnersState extends State<PartnersPage> {
                                             partyType: 'partner',
                                             partyId: x['id'] as int,
                                             name: '${x['name']}',
+                                             dieselEnabled: dieselSystem,
+                                             onDieselDelivery: () async {
+                                               await Navigator.of(context).push(
+                                                 MaterialPageRoute<void>(
+                                                   builder: (_) => DieselDeliveryPage(
+                                                     widget.r,
+                                                     userId: widget.userId,
+                                                     initialPartyType: 'partner',
+                                                     initialPartyId: x['id'] as int,
+                                                   ),
+                                                 ),
+                                               );
+                                               if (mounted) await load();
+                                             },
                                             onNewIrrigation: () async {
                                               await Navigator.push(context, MaterialPageRoute<void>(
                                                 builder: (_) => NewIrrigationPage(widget.r,
