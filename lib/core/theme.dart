@@ -52,6 +52,12 @@ class SaqiaTheme {
   static Color get reportNegative =>
       isDark ? const Color(0xffffad75) : const Color(0xffde7732);
 
+  /// ألوان حالة عامة للواجهات القديمة، مستقلة عن لون الهوية المختار.
+  static Color get reportError =>
+      isDark ? const Color(0xffff8f8f) : const Color(0xffba1a1a);
+  static Color get reportWarning =>
+      isDark ? const Color(0xffffcc80) : const Color(0xff8a5a00);
+
   static ThemeData light({String themeKey = 'olive'}) {
     final primary = accent(themeKey);
     final scheme = ColorScheme.fromSeed(
