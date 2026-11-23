@@ -11,11 +11,14 @@ class DieselDeliveryPage extends StatefulWidget {
   final int userId;
   final String initialPartyType;
   final int? initialPartyId;
+  @Deprecated('Use initialPartyType and initialPartyId')
+  final int? initialBeneficiaryId;
   const DieselDeliveryPage(
     this.repo, {
     required this.userId,
     this.initialPartyType = 'beneficiary',
     this.initialPartyId,
+    this.initialBeneficiaryId,
     super.key,
   }) : assert(
          initialPartyType == 'beneficiary' ||
@@ -78,10 +81,12 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
       if (!mounted || token != generation) {
         return;
       }
-      final initial = useInitial ? widget.initialPartyId : null;
+      final initial = useInitial
+          ? widget.initialPartyId ?? widget.initialBeneficiaryId
+          : null;
       if (initial != null && !rows.any((row) => row['id'] == initial)) {
         throw StateError(
-          'المستفيد المحدد غير موجود في بيانات المحطة الحالية؛ حدّث بيانات المستفيدين',
+          'الطرف المحدد غير موجود في بيانات المحطة الحالية؛ حدّث بيانات الأطراف',
         );
       }
       setState(() {
