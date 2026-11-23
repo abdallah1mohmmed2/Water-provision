@@ -7690,8 +7690,24 @@ class _SessionsState extends State<SessionsPage> {
       );
       if (confirmed != true) return;
     }
+    String? hybridSource;
+    final currentSettings = await widget.r.settings();
+    if ((currentSettings['system_type'] ?? 'diesel') == 'equivalent_hybrid') {
+      hybridSource = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('مصدر تشغيل الجلسة'),
+          content: const Text('حدد مصدر التشغيل الذي استُخدم في هذه الجلسة.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, 'diesel'), child: const Text('ديزل')),
+            TextButton(onPressed: () => Navigator.pop(dialogContext, 'solar'), child: const Text('طاقة شمسية')),
+          ],
+        ),
+      );
+      if (hybridSource == null) return;
+    }
     try {
-      await widget.r.stopSession(id, operatorWorkerId: selected, userId: widget.userId);
+      await widget.r.stopSession(id, operatorWorkerId: selected, userId: widget.userId, hybridSource: hybridSource);
       await load();
       msg('تم إنهاء الجلسة وإنشاء السقاية المحاسبية');
     } catch (e) {
@@ -13652,13 +13668,18 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
 
   int get totalMinutes => visible.fold<int>(0, (sum, row) => sum + _n(row['minutes']));
   int get totalCloudMinutes => visible.fold<int>(0, (sum, row) =>
-      sum + ('${row['system_type'] ?? ''}' == 'solar' ? _n(row['cloud_minutes']) : 0));
+      sum + (('${row['system_type'] ?? ''}' == 'solar' ||
+          ('${row['system_type'] ?? ''}' == 'equivalent_hybrid' && row['hybrid_source'] == 'solar'))
+          ? _n(row['cloud_minutes']) : 0));
   int _hourlyAmount(Map<String, Object?> row, {required bool beforeCloud}) {
-    final rate = switch ('${row['system_type'] ?? ''}') {
-      'solar' => _n(row['solar_hourly_rate_snapshot']),
-      'equivalent_hybrid' => _n(row['third_type_hourly_rate_snapshot']),
-      _ => _n(row['water_hourly_rate_snapshot']),
-    };
+    final type = '${row['system_type'] ?? ''}';
+    final rate = type == 'solar' || (type == 'equivalent_hybrid' && row['hybrid_source'] == 'solar')
+        ? _n(row['solar_hourly_rate_snapshot'])
+        : type == 'equivalent_hybrid'
+            ? (row['hybrid_source'] == 'diesel'
+                ? _n(row['hybrid_diesel_hourly_rate_snapshot'])
+                : _n(row['third_type_hourly_rate_snapshot']))
+            : _n(row['water_hourly_rate_snapshot']);
     final minutes = beforeCloud
         ? _n(row['minutes'])
         : _n(row['chargeable_minutes'] ?? (_n(row['minutes']) - _n(row['cloud_minutes'])));
