@@ -1243,7 +1243,7 @@ class AccountingService {
         ? end.add(const Duration(days: 1))
         : end;
     final normalizedCloudPeriods = <Map<String, Object?>>[];
-    if (effectiveType != 'diesel' && cloudPeriods.isNotEmpty) {
+    if ((effectiveType == 'solar' || (effectiveType == 'equivalent_hybrid' && hybridSource == 'solar')) && cloudPeriods.isNotEmpty) {
       final parsed = <Map<String, Object?>>[];
       for (final period in cloudPeriods) {
         final ps = DateTime.tryParse(period['start'] ?? '');
