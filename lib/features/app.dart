@@ -2419,7 +2419,7 @@ class _DashboardState extends State<DashboardPage> {
                 Row(children: [
                   Container(width: 4, height: 22, decoration: BoxDecoration(color: neon, borderRadius: BorderRadius.circular(4))),
                   const SizedBox(width: 9),
-                  const Text('حالة التشغيل', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
+                  Text('حالة التشغيل', style: TextStyle(color: scheme.onSurface, fontSize: 17, fontWeight: FontWeight.w900)),
                 ]),
                 const SizedBox(height: 11),
                 statusPanel(
@@ -2437,11 +2437,11 @@ class _DashboardState extends State<DashboardPage> {
                   const SizedBox(height: 10),
                   statusPanel(
                     icon: warning?['warning'] == true ? Icons.warning_amber_rounded : Icons.check_circle_rounded,
-                    color: warning?['warning'] == true ? const Color(0xFFFFB454) : neon,
+                    color: warning?['warning'] == true ? scheme.error : neon,
                     title: 'تنبيه الديزل',
                     subtitle: '${diesel.toStringAsFixed(2)} لتر متاح من ${warning?['capacity'] ?? 0} لتر',
                     trailing: Text(warning?['warning'] == true ? 'قريب من الحد' : 'طبيعي',
-                      style: TextStyle(color: warning?['warning'] == true ? const Color(0xFFFFB454) : neon, fontSize: 10, fontWeight: FontWeight.w900)),
+                      style: TextStyle(color: warning?['warning'] == true ? scheme.error : neon, fontSize: 10, fontWeight: FontWeight.w900)),
                   ),
                 ],
               ],
@@ -5331,9 +5331,9 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, dialogSetState) => AlertDialog(
-          backgroundColor: const Color(0xFFF2EAFB),
+          backgroundColor: Theme.of(context).colorScheme.tertiaryContainer,
           title: const Text('إضافة غيم / حساب وقت التوقف',
-              style: TextStyle(color: Color(0xFF71369B), fontWeight: FontWeight.w900)),
+              style: TextStyle(color: Theme.of(context).colorScheme.onTertiaryContainer, fontWeight: FontWeight.w900)),
           content: SingleChildScrollView(
             child: SizedBox(
               width: 380,
@@ -5534,15 +5534,15 @@ int? parseClock(String raw) {
     VoidCallback? onCloudConfirmed,
   }) async {
     final dialogBackground = switch (tone) {
-      _QuickIrrigationTimeTone.start => const Color(0xFFE8F3FF),
-      _QuickIrrigationTimeTone.end => const Color(0xFFE6F5EB),
-      _QuickIrrigationTimeTone.cloud => const Color(0xFFF2EAFB),
+      _QuickIrrigationTimeTone.start => Theme.of(context).colorScheme.primaryContainer,
+      _QuickIrrigationTimeTone.end => Theme.of(context).colorScheme.secondaryContainer,
+      _QuickIrrigationTimeTone.cloud => Theme.of(context).colorScheme.tertiaryContainer,
       null => null,
     };
     final headingColor = switch (tone) {
-      _QuickIrrigationTimeTone.start => const Color(0xFF185BA0),
-      _QuickIrrigationTimeTone.end => const Color(0xFF246B43),
-      _QuickIrrigationTimeTone.cloud => const Color(0xFF71369B),
+      _QuickIrrigationTimeTone.start => Theme.of(context).colorScheme.onPrimaryContainer,
+      _QuickIrrigationTimeTone.end => Theme.of(context).colorScheme.onSecondaryContainer,
+      _QuickIrrigationTimeTone.cloud => Theme.of(context).colorScheme.onTertiaryContainer,
       null => null,
     };
     var hour = use24Hour ? initial.hour : (initial.hour % 12 == 0 ? 12 : initial.hour % 12);
@@ -12674,7 +12674,7 @@ class _ReportsState extends State<ReportsPage> {
     }
   }
   Future<void> printR(String k) async {try{if(k=='invoices'){final invoiceRows=await widget.r.report('invoices',from:from,to:to,systemType:'all');if(!mounted)return;await ReportService(widget.r).printInvoicesPdf(rows:invoiceRows,from:from,to:to);return;}final rows = await _rows(k);if(!mounted)return;await ReportService(widget.r).printPdf(k,from:from,to:to,beneficiaryId:bid,workerId:wid,partnerId:pid,systemType:type,cashboxId:cid,paymentMethodId:mid,category:category,status:status,sourceRows:rows);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}}
-  Widget sel<T>(String label,T? v,List<DropdownMenuItem<T>> items,ValueChanged<T?> f)=>SizedBox(width:205,child:DropdownButtonFormField<T>(initialValue:v,items:items,onChanged:f,decoration:InputDecoration(labelText:label,filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(14),borderSide:BorderSide.none))));
+  Widget sel<T>(String label,T? v,List<DropdownMenuItem<T>> items,ValueChanged<T?> f)=>SizedBox(width:205,child:DropdownButtonFormField<T>(initialValue:v,items:items,onChanged:f,decoration:InputDecoration(labelText:label,filled:true,fillColor:_reportSurface,border:OutlineInputBorder(borderRadius:BorderRadius.circular(14),borderSide:BorderSide.none))));
   IconData _icon(String k)=>switch(k){'invoices'=>Icons.receipt_long_rounded,'irrigations'=>Icons.water_drop_rounded,'expenses'=>Icons.receipt_long_rounded,'journal'=>Icons.menu_book_rounded,'ledger'=>Icons.account_balance_rounded,'worker_transactions'=>Icons.engineering_rounded,'partner_accounts'=>Icons.groups_rounded,'beneficiary_statement'=>Icons.person_pin_rounded,'monthly_financial'=>Icons.insights_rounded,'cashboxes'=>Icons.account_balance_wallet_rounded,_=>Icons.analytics_rounded};
   String _group(String k)=>switch(k){
     'invoices'||'irrigations'||'time_comparison'||'income'||'monthly_financial'||'revenue_comparison'||'system_comparison'=>'السقايات والإيرادات',
@@ -14946,7 +14946,7 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
     ]);
   }
   Widget _line(Map<String,Object?> x,int i){final lah=_n(x['lah']),alayh=_n(x['alayh']),balance=_n(x['balance']);return Container(margin:EdgeInsets.only(bottom:10),padding:EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:34,height:34,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${i+1}',style:TextStyle(fontWeight:FontWeight.w900,color:_reportOliveDark)))),SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['description']??x['memo']??_movementLabel(x['reference_type'])}',maxLines:1,overflow:TextOverflow.ellipsis,style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),SizedBox(height:3),Text('${_date(x['date'])} • ${_movementLabel(x['reference_type'])}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),if(lah>0)Text('له ${money(lah)}',style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),if(alayh>0)Padding(padding:EdgeInsetsDirectional.only(start:10),child:Text('عليه ${money(alayh)}',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:12)))]),SizedBox(height:8),Row(children:[Text('${x['party_name']??''}',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10)),Spacer(),Text('الرصيد ${money(balance)}',style:TextStyle(color:_reportInk.withValues(alpha: .7),fontWeight:FontWeight.w800,fontSize:11))]) ]));}
-  @override Widget build(BuildContext context){final opening=_n(statementSummary['opening_balance']),netMovement=_n(statementSummary['net_movement']),closing=_n(statementSummary['closing_balance']);final reconciled=opening+netMovement==closing;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(labels[kind]!,style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded))]),body:loading?Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:EdgeInsets.fromLTRB(18,6,18,30),children:[Container(padding:EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الكشوف المالية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),SizedBox(height:6),Text('${labels[kind]} ${_name()}'.trim(),style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),SizedBox(height:7),Text('عرض مبسط للحركات المالية والرصيد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.menu_book_rounded,color:Colors.white,size:46)])),SizedBox(height:14),Container(padding:EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:_selector()),SizedBox(height:12),Row(children:[Expanded(child:_stat('الرصيد الافتتاحي',money(opening),_reportOliveDark)),SizedBox(width:8),Expanded(child:_stat('صافي حركات الفترة',money(netMovement),netMovement>=0?_reportGreen:_reportOrange)),SizedBox(width:8),Expanded(child:_stat('الرصيد الختامي',money(closing),reconciled?_reportGreen:_reportOrange))]),SizedBox(height:8),Container(padding:EdgeInsets.symmetric(horizontal:12,vertical:9),decoration:BoxDecoration(color:reconciled?Color(0xFFE8F5E9):Color(0xFFFFEBEE),borderRadius:BorderRadius.circular(12)),child:Text(reconciled?'تمت المطابقة: الرصيد الافتتاحي + صافي الحركات = الرصيد الختامي':'تنبيه: يوجد فرق في مطابقة الرصيد التراكمي',style:TextStyle(color:reconciled?Color(0xFF2E7D32):Color(0xFFC62828),fontWeight:FontWeight.w800,fontSize:11))),SizedBox(height:18),if(visible.isEmpty)EmptyView('لا توجد حركات لهذا الكشف في الفترة المحددة')else ...[for(var i=0;i<visible.length&&i<500;i++)_line(visible[i],i)] ])));}
+  @override Widget build(BuildContext context){final opening=_n(statementSummary['opening_balance']),netMovement=_n(statementSummary['net_movement']),closing=_n(statementSummary['closing_balance']);final reconciled=opening+netMovement==closing;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(labels[kind]!,style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded))]),body:loading?Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:EdgeInsets.fromLTRB(18,6,18,30),children:[Container(padding:EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الكشوف المالية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),SizedBox(height:6),Text('${labels[kind]} ${_name()}'.trim(),style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),SizedBox(height:7),Text('عرض مبسط للحركات المالية والرصيد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.menu_book_rounded,color:Colors.white,size:46)])),SizedBox(height:14),Container(padding:EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:_selector()),SizedBox(height:12),Row(children:[Expanded(child:_stat('الرصيد الافتتاحي',money(opening),_reportOliveDark)),SizedBox(width:8),Expanded(child:_stat('صافي حركات الفترة',money(netMovement),netMovement>=0?_reportGreen:_reportOrange)),SizedBox(width:8),Expanded(child:_stat('الرصيد الختامي',money(closing),reconciled?_reportGreen:_reportOrange))]),SizedBox(height:8),Container(padding:EdgeInsets.symmetric(horizontal:12,vertical:9),decoration:BoxDecoration(color:reconciled?SaqiaTheme.reportPositive.withValues(alpha: .12):Theme.of(context).colorScheme.errorContainer,borderRadius:BorderRadius.circular(12)),child:Text(reconciled?'تمت المطابقة: الرصيد الافتتاحي + صافي الحركات = الرصيد الختامي':'تنبيه: يوجد فرق في مطابقة الرصيد التراكمي',style:TextStyle(color:reconciled?SaqiaTheme.reportPositive:Theme.of(context).colorScheme.onErrorContainer,fontWeight:FontWeight.w800,fontSize:11))),SizedBox(height:18),if(visible.isEmpty)EmptyView('لا توجد حركات لهذا الكشف في الفترة المحددة')else ...[for(var i=0;i<visible.length&&i<500;i++)_line(visible[i],i)] ])));}
   Widget _stat(String label,String value,Color color)=>Container(padding:EdgeInsets.all(13),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(17),border:Border.all(color:_reportLine)),child:Column(children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),SizedBox(height:4),Text(value,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:14))]));
 }
 
