@@ -25,7 +25,7 @@ if missing_tables: errors.append('Missing tables: '+', '.join(missing_tables))
 
 required_surface={
  'خصم الغيم':['cloud_minutes','chargeable_minutes'],
- 'الأسعار التاريخية':['water_hourly_rate_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot'],
+ 'الأسعار التاريخية':['water_hourly_rate_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot','hybrid_source','hybrid_diesel_hourly_rate_snapshot'],
  'له / عليه':['عليه','له'],
  'مدة الانتظار':['min_wait_days','_checkWaiting'],
  'تجاوز المدير':['override_waiting_period','waiting_period_override'],
