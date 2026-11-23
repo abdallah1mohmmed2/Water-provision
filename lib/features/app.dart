@@ -12863,7 +12863,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: _reportSurface,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: _reportLine),
           ),
@@ -12902,7 +12902,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
       margin:const EdgeInsetsDirectional.only(start:5,end:5,bottom:8),
       padding:const EdgeInsets.all(15),
       decoration:BoxDecoration(
-        color:Colors.white,
+        color:_reportSurface,
         borderRadius:BorderRadius.circular(20),
         border:Border.all(color:_reportLine),
         boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha:.05),blurRadius:12,offset:Offset(0,4))],
@@ -13394,7 +13394,7 @@ class _DebtsReportState extends State<DebtsReportPage>{
         margin: const EdgeInsets.only(bottom: 11),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: _reportSurface,
           borderRadius: BorderRadius.circular(21),
           border: Border.all(color: _reportLine),
         ),
@@ -14018,7 +14018,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: _reportSurface,
           borderRadius: BorderRadius.circular(19),
           border: Border.all(color: _reportLine),
           boxShadow: [BoxShadow(color: color.withValues(alpha: .08), blurRadius: 15, offset: const Offset(0, 5))],
@@ -14194,7 +14194,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                               rows: [
                                 for (var i = 0; i < data.length; i++)
                                   DataRow(
-                                    color: WidgetStateProperty.resolveWith((states) => i.isEven ? Colors.white : _reportCream.withValues(alpha: .7)),
+                                    color: WidgetStateProperty.resolveWith((states) => i.isEven ? _reportSurface : _reportCream.withValues(alpha: .7)),
                                     cells: [
                                       DataCell(Text('${i + 1}')),
                                       DataCell(Text('${data[i]['party_name'] ?? 'غير محدد'}')),
@@ -14605,7 +14605,7 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
         constraints: const BoxConstraints(minHeight: 112),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: _reportSurface,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: _reportLine),
         ),
@@ -14954,7 +14954,7 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
     ]);
   }
   Widget _line(Map<String,Object?> x,int i){final lah=_n(x['lah']),alayh=_n(x['alayh']),balance=_n(x['balance']);return Container(margin:EdgeInsets.only(bottom:10),padding:EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:34,height:34,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${i+1}',style:TextStyle(fontWeight:FontWeight.w900,color:_reportOliveDark)))),SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['description']??x['memo']??_movementLabel(x['reference_type'])}',maxLines:1,overflow:TextOverflow.ellipsis,style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),SizedBox(height:3),Text('${_date(x['date'])} • ${_movementLabel(x['reference_type'])}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),if(lah>0)Text('له ${money(lah)}',style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),if(alayh>0)Padding(padding:EdgeInsetsDirectional.only(start:10),child:Text('عليه ${money(alayh)}',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:12)))]),SizedBox(height:8),Row(children:[Text('${x['party_name']??''}',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10)),Spacer(),Text('الرصيد ${money(balance)}',style:TextStyle(color:_reportInk.withValues(alpha: .7),fontWeight:FontWeight.w800,fontSize:11))]) ]));}
-  @override Widget build(BuildContext context){final opening=_n(statementSummary['opening_balance']),netMovement=_n(statementSummary['net_movement']),closing=_n(statementSummary['closing_balance']);final reconciled=opening+netMovement==closing;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(labels[kind]!,style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded))]),body:loading?Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:EdgeInsets.fromLTRB(18,6,18,30),children:[Container(padding:EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الكشوف المالية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),SizedBox(height:6),Text('${labels[kind]} ${_name()}'.trim(),style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),SizedBox(height:7),Text('عرض مبسط للحركات المالية والرصيد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.menu_book_rounded,color:Colors.white,size:46)])),SizedBox(height:14),Container(padding:EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:_selector()),SizedBox(height:12),Row(children:[Expanded(child:_stat('الرصيد الافتتاحي',money(opening),_reportOliveDark)),SizedBox(width:8),Expanded(child:_stat('صافي حركات الفترة',money(netMovement),netMovement>=0?_reportGreen:_reportOrange)),SizedBox(width:8),Expanded(child:_stat('الرصيد الختامي',money(closing),reconciled?_reportGreen:_reportOrange))]),SizedBox(height:8),Container(padding:EdgeInsets.symmetric(horizontal:12,vertical:9),decoration:BoxDecoration(color:reconciled?SaqiaTheme.reportPositive.withValues(alpha: .12):Theme.of(context).colorScheme.errorContainer,borderRadius:BorderRadius.circular(12)),child:Text(reconciled?'تمت المطابقة: الرصيد الافتتاحي + صافي الحركات = الرصيد الختامي':'تنبيه: يوجد فرق في مطابقة الرصيد التراكمي',style:TextStyle(color:reconciled?SaqiaTheme.reportPositive:Theme.of(context).colorScheme.onErrorContainer,fontWeight:FontWeight.w800,fontSize:11))),SizedBox(height:18),if(visible.isEmpty)EmptyView('لا توجد حركات لهذا الكشف في الفترة المحددة')else ...[for(var i=0;i<visible.length&&i<500;i++)_line(visible[i],i)] ])));}
+  @override Widget build(BuildContext context){final opening=_n(statementSummary['opening_balance']),netMovement=_n(statementSummary['net_movement']),closing=_n(statementSummary['closing_balance']);final reconciled=opening+netMovement==closing;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(labels[kind]!,style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded))]),body:loading?Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:EdgeInsets.fromLTRB(18,6,18,30),children:[Container(padding:EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الكشوف المالية',style:TextStyle(color:_reportSurface.withValues(alpha: .72),fontSize:12)),SizedBox(height:6),Text('${labels[kind]} ${_name()}'.trim(),style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),SizedBox(height:7),Text('عرض مبسط للحركات المالية والرصيد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.menu_book_rounded,color:Colors.white,size:46)])),SizedBox(height:14),Container(padding:EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:_selector()),SizedBox(height:12),Row(children:[Expanded(child:_stat('الرصيد الافتتاحي',money(opening),_reportOliveDark)),SizedBox(width:8),Expanded(child:_stat('صافي حركات الفترة',money(netMovement),netMovement>=0?_reportGreen:_reportOrange)),SizedBox(width:8),Expanded(child:_stat('الرصيد الختامي',money(closing),reconciled?_reportGreen:_reportOrange))]),SizedBox(height:8),Container(padding:EdgeInsets.symmetric(horizontal:12,vertical:9),decoration:BoxDecoration(color:reconciled?SaqiaTheme.reportPositive.withValues(alpha: .12):Theme.of(context).colorScheme.errorContainer,borderRadius:BorderRadius.circular(12)),child:Text(reconciled?'تمت المطابقة: الرصيد الافتتاحي + صافي الحركات = الرصيد الختامي':'تنبيه: يوجد فرق في مطابقة الرصيد التراكمي',style:TextStyle(color:reconciled?SaqiaTheme.reportPositive:Theme.of(context).colorScheme.onErrorContainer,fontWeight:FontWeight.w800,fontSize:11))),SizedBox(height:18),if(visible.isEmpty)EmptyView('لا توجد حركات لهذا الكشف في الفترة المحددة')else ...[for(var i=0;i<visible.length&&i<500;i++)_line(visible[i],i)] ])));}
   Widget _stat(String label,String value,Color color)=>Container(padding:EdgeInsets.all(13),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(17),border:Border.all(color:_reportLine)),child:Column(children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),SizedBox(height:4),Text(value,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:14))]));
 }
 
@@ -15394,7 +15394,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: _reportSurface,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(color: _reportLine),
                         ),
@@ -15497,7 +15497,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: _reportSurface,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: _reportLine),
                           ),
@@ -15619,7 +15619,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                         Container(
                           padding: const EdgeInsets.all(30),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: _reportSurface,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Column(
