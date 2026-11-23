@@ -2604,6 +2604,12 @@ class StationRepository {
   }
 
   Future<void> setSetting(String key, String value) async {
+    if (const {'solar_hourly_rate','hybrid_diesel_hourly_rate'}.contains(key)) {
+      final rate = int.tryParse(value);
+      if (rate == null || rate < 0 || rate > 1000000) {
+        throw ArgumentError('سعر ساعة التشغيل يجب أن يكون رقماً صحيحاً من صفر إلى مليون');
+      }
+    }
     if (key == 'work_minute_rate') {
       final rate = int.tryParse(value);
       if (rate == null || rate < 0 || rate > 1000000) {
@@ -2640,11 +2646,20 @@ class StationRepository {
       }
     }
     final api = SyncCoordinator.instance.apiClient;
-    if (api != null && const {
-      'work_minute_rate',
-      'work_price_difference_enabled',
-    }.contains(key)) {
-      await api.put('/settings', {key: value});
+    const serverPricingKeys = {
+      'diesel_hourly_water_rate', 'diesel_liters_per_hour', 'diesel_price_per_liter',
+      'solar_hourly_rate', 'third_type_hourly_rate', 'hybrid_diesel_hourly_rate',
+      'rounding', 'partial_hour', 'allow_midnight_crossing',
+      'work_minute_rate', 'work_price_difference_enabled',
+    };
+    if (api != null && serverPricingKeys.contains(key)) {
+      final current = await settings();
+      final changes = <String, String>{};
+      for (final settingKey in serverPricingKeys) {
+        final nextValue = settingKey == key ? value : current[settingKey];
+        if (nextValue != null) changes[settingKey] = nextValue;
+      }
+      await api.put('/settings', changes);
     }
     await db.insert('settings', {
       'key': key,
