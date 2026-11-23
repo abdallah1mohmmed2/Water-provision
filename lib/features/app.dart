@@ -3444,7 +3444,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 IconButton(
                   tooltip: 'إلغاء المديونية بعكس القيد',
                   onPressed: () => cancelPriorDebt(history[i]),
-                  icon: const Icon(Icons.undo_rounded, color: SaqiaTheme.reportError),
+                  icon: Icon(Icons.undo_rounded, color: SaqiaTheme.reportError),
                 ),
               ],
             ],
@@ -4674,7 +4674,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
         if (loadError != null)
           Align(
             alignment: Alignment.centerRight,
-            child: Text(loadError!, style: const TextStyle(color: SaqiaTheme.reportError)),
+            child: Text(loadError!, style: TextStyle(color: SaqiaTheme.reportError)),
           ),
         const SizedBox(height: 10),
         if (loading) const LinearProgressIndicator(),
@@ -4722,7 +4722,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                       ),
                                       if (widget.manager)
                                         ListTile(
-                                          leading: const Icon(
+                                          leading: Icon(
                                             Icons.delete_outline,
                                             color: SaqiaTheme.reportError,
                                           ),
@@ -7434,7 +7434,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
                                     IconButton(
                                       tooltip: 'إلغاء السقاية',
                                       onPressed: () => cancelIrrigationRow(x),
-                                      icon: const Icon(
+                                      icon: Icon(
                                         Icons.cancel_outlined,
                                         color: SaqiaTheme.reportError,
                                       ),
@@ -7795,7 +7795,7 @@ class _SessionsState extends State<SessionsPage> {
                                 IconButton(
                                   tooltip: 'إنهاء الجلسة',
                                   onPressed: () => stop(x['id'] as int),
-                                  icon: const Icon(
+                                  icon: Icon(
                                     Icons.stop_circle,
                                     color: SaqiaTheme.reportError,
                                   ),
@@ -8346,7 +8346,7 @@ class _QueueState extends State<QueueBookingPage> {
                                           IconButton(
                                             tooltip: 'إلغاء الحجز',
                                             onPressed: () => cancelBooking(entries[i]),
-                                            icon: const Icon(Icons.cancel_outlined, color: SaqiaTheme.reportError),
+                                            icon: Icon(Icons.cancel_outlined, color: SaqiaTheme.reportError),
                                           ),
                                         ],
                                       ] else ...[
@@ -8676,7 +8676,7 @@ class _DieselState extends State<DieselPage> {
                   title: const Text('المخزون الحالي'),
                   subtitle: Text('${stock.toStringAsFixed(2)} لتر'),
                   trailing: warning?['warning'] == true
-                      ? const Icon(Icons.warning_amber, color: SaqiaTheme.reportWarning)
+                      ? Icon(Icons.warning_amber, color: SaqiaTheme.reportWarning)
                       : Icon(Icons.check_circle, color: _green),
                 ),
               ),
@@ -8719,7 +8719,7 @@ class _DieselState extends State<DieselPage> {
                               IconButton(
                                 tooltip: 'إلغاء الحركة',
                                 onPressed: () => cancelMove(x),
-                                icon: const Icon(Icons.cancel_outlined, color: SaqiaTheme.reportError),
+                                icon: Icon(Icons.cancel_outlined, color: SaqiaTheme.reportError),
                               ),
                             ],
                           ],
@@ -9354,7 +9354,7 @@ class _PaymentsState extends State<PaymentsPage> {
                           IconButton(
                             tooltip: 'إلغاء الدفعة',
                             onPressed: () => cancelPay(x),
-                            icon: const Icon(
+                            icon: Icon(
                               Icons.cancel_outlined,
                               color: SaqiaTheme.reportError,
                             ),
@@ -9846,7 +9846,7 @@ class _CashboxesState extends State<CashboxesPage> {
                   IconButton(
                     tooltip: 'حذف',
                     onPressed: () => deleteBox(x),
-                    icon: const Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
+                    icon: Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
                   ),
                   const Icon(Icons.open_in_new),
                 ],
@@ -9885,7 +9885,7 @@ class _CashboxesState extends State<CashboxesPage> {
                   IconButton(
                     tooltip: 'حذف',
                     onPressed: () => deleteMethod(x),
-                    icon: const Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
+                    icon: Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
                   ),
                   const Icon(Icons.open_in_new),
                 ],
@@ -10193,7 +10193,7 @@ class _ExpensesState extends State<ExpensesPage> {
                         IconButton(
                           tooltip: 'إلغاء المصروف',
                           onPressed: () => cancelExp(x),
-                          icon: const Icon(Icons.cancel_outlined, color: SaqiaTheme.reportError),
+                          icon: Icon(Icons.cancel_outlined, color: SaqiaTheme.reportError),
                         ),
                     ],
                   ),
@@ -10635,7 +10635,7 @@ class _WorkersState extends State<WorkersPage> {
             ),
             if (widget.manager)
               ListTile(
-              leading: const Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
+              leading: Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
               title: const Text('حذف'),
               onTap: () {
                 Navigator.pop(c);
@@ -11506,7 +11506,7 @@ class _PartnersState extends State<PartnersPage> {
             ),
             if (widget.manager)
               ListTile(
-              leading: const Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
+              leading: Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
               title: const Text('حذف'),
               onTap: () {
                 Navigator.pop(c);
