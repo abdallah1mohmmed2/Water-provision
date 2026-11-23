@@ -51,7 +51,7 @@ import 'reconciliation_page.dart';
 const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
 
 Color get _blue => SaqiaTheme.reportAccent;
-    _cyan = Color(0xff00d7ff),
+const _cyan = Color(0xff00d7ff),
     _purple = Color(0xff7c4dff),
     _green = Color(0xff18e58c);
 
