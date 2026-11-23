@@ -826,6 +826,7 @@ class AppDatabase {
       'diesel_liters_per_hour': '0',
       'diesel_price_per_liter': '0',
       'third_type_hourly_rate': '0',
+      'hybrid_diesel_hourly_rate': '0',
       'rounding': 'nearest',
       'partial_hour': 'true',
       'diesel_delivery_financial_credit': 'false',
