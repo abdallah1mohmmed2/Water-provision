@@ -2237,10 +2237,10 @@ class _DashboardState extends State<DashboardPage> {
             Icon(icon, color: color, size: 23),
             const Spacer(),
             Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: muted, fontSize: 11, fontWeight: FontWeight.w600)),
+              style: TextStyle(color: muted, fontSize: 11, fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
             Text(value, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900)),
+              style: TextStyle(color: scheme.onSurface, fontSize: 19, fontWeight: FontWeight.w900)),
           ],
         ),
       );
@@ -2263,9 +2263,9 @@ class _DashboardState extends State<DashboardPage> {
             child: Icon(icon, color: color)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+            Text(title, style: TextStyle(color: scheme.onSurface, fontWeight: FontWeight.w900)),
             const SizedBox(height: 5),
-            Text(subtitle, style: const TextStyle(color: muted, fontSize: 11, height: 1.45)),
+            Text(subtitle, style: TextStyle(color: muted, fontSize: 11, height: 1.45)),
           ])),
           if (trailing != null) ...[const SizedBox(width: 8), trailing],
         ]),
@@ -2289,10 +2289,10 @@ class _DashboardState extends State<DashboardPage> {
                 Container(
                   padding: const EdgeInsets.all(19),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                    gradient: LinearGradient(
                       begin: AlignmentDirectional.topStart,
                       end: AlignmentDirectional.bottomEnd,
-                      colors: [Color(0xFF123047), Color(0xFF10251F), Color(0xFF101E2E)],
+                      colors: [scheme.primaryContainer, scheme.surfaceContainerHighest, scheme.surface],
                     ),
                     borderRadius: BorderRadius.circular(25),
                     border: Border.all(color: cyan.withValues(alpha: .38)),
@@ -2303,15 +2303,15 @@ class _DashboardState extends State<DashboardPage> {
                   ),
                   child: Row(children: [
                     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const Text('لوحة التحكم', style: TextStyle(color: neon, fontSize: 12, fontWeight: FontWeight.w800)),
+                      Text('لوحة التحكم', style: TextStyle(color: neon, fontSize: 12, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 7),
-                      const Text('مرحباً بك في منظومة', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
+                      Text('مرحباً بك في منظومة', style: TextStyle(color: scheme.onSurface, fontSize: 23, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 7),
                       Text(
                         stationName.isNotEmpty ? stationName : SystemConfig.displayNameFor(systemType),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: neon, fontSize: 16, fontWeight: FontWeight.w800),
+                        style: TextStyle(color: neon, fontSize: 16, fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 7),
                       Text('ملخص التشغيل والعمليات اليومية في مكان واحد',
@@ -2322,12 +2322,12 @@ class _DashboardState extends State<DashboardPage> {
                         color: cyan.withValues(alpha: .08),
                         border: Border.all(color: neon.withValues(alpha: .7)),
                         boxShadow: [BoxShadow(color: neon.withValues(alpha: .12), blurRadius: 18)]),
-                      child: const Icon(Icons.water_drop_rounded, color: neon, size: 30)),
+                      child: Icon(Icons.water_drop_rounded, color: neon, size: 30)),
                   ]),
                 ),
                 const SizedBox(height: 20),
-                const Row(children: [
-                  Expanded(child: Text('ملخص التشغيل', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900))),
+                Row(children: [
+                  Expanded(child: Text('ملخص التشغيل', style: TextStyle(color: scheme.onSurface, fontSize: 17, fontWeight: FontWeight.w900))),
                   Icon(Icons.swipe_rounded, color: cyan, size: 18),
                   SizedBox(width: 5),
                   Text('اسحب', style: TextStyle(color: muted, fontSize: 10)),
