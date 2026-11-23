@@ -50,8 +50,8 @@ import 'reconciliation_page.dart';
 
 const MethodChannel _floatingBubbleChannel = MethodChannel('saqia/floating_bubble');
 
-Color get _blue => SaqiaTheme.reportAccent;
-const _cyan = Color(0xff00d7ff),
+const _blue = Color(0xff287bff),
+    _cyan = Color(0xff00d7ff),
     _purple = Color(0xff7c4dff),
     _green = Color(0xff18e58c);
 
@@ -581,11 +581,11 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
                           borderRadius: BorderRadius.circular(26),
                           gradient: LinearGradient(colors: [SaqiaTheme.accent(AppPrefs.current.themeKey), SaqiaTheme.accent(AppPrefs.current.themeKey).withValues(alpha: .72)]),
                         ),
-                        child: Icon(Icons.shield_rounded, size: 44, color: Colors.white),
+                        child: const Icon(Icons.shield_rounded, size: 44, color: Colors.white),
                       ),
                       const SizedBox(height: 18),
                       Text(AppPrefs.current.appName, textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 8),
                       const Text('تأمين محلي للجهاز', style: TextStyle(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 22),
@@ -612,7 +612,7 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
                         width: double.infinity,
                         child: FilledButton.icon(
                           onPressed: busy ? null : _verifyPin,
-                          icon: Icon(Icons.lock_open_rounded),
+                          icon: const Icon(Icons.lock_open_rounded),
                           label: Text(busy ? 'جارٍ التحقق…' : 'فتح التطبيق'),
                         ),
                       ),
@@ -622,7 +622,7 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
                           width: double.infinity,
                           child: OutlinedButton.icon(
                             onPressed: busy ? null : _verifyBiometric,
-                            icon: Icon(Icons.fingerprint_rounded),
+                            icon: const Icon(Icons.fingerprint_rounded),
                             label: const Text('فتح بالبصمة'),
                           ),
                         ),
@@ -632,7 +632,7 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
                         onPressed: () => Navigator.push(c, MaterialPageRoute(
                           builder: (_) => const SecuritySettingsPage(firstTime: false),
                         )).then((_) => _load()),
-                        icon: Icon(Icons.settings_outlined),
+                        icon: const Icon(Icons.settings_outlined),
                         label: const Text('إعدادات التأمين'),
                       ),
                       const SizedBox(height: 4),
@@ -757,11 +757,11 @@ class _SecuritySettingsPageState extends State<SecuritySettingsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Icon(Icons.security_rounded, size: 48),
+                      const Icon(Icons.security_rounded, size: 48),
                       const SizedBox(height: 10),
                       Text(widget.firstTime ? 'إنشاء تأمين محلي' : 'إدارة التأمين المحلي',
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+                        style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 8),
                       const Text('كلمة مرور الحساب لم تعد مطلوبة. أنشئ رمزًا رقميًا من 4 إلى 8 أرقام، ويمكنك استخدام البصمة بدلًا منه عند توفرها.',
                         textAlign: TextAlign.center),
@@ -782,7 +782,7 @@ class _SecuritySettingsPageState extends State<SecuritySettingsPage> {
                         maxLength: 8,
                         decoration: InputDecoration(
                           labelText: widget.firstTime ? 'رمز التأمين الجديد (4–8 أرقام)' : 'رمز جديد (اتركه فارغًا للإبقاء على الحالي)',
-                          prefixIcon: Icon(Icons.pin_outlined),
+                          prefixIcon: const Icon(Icons.pin_outlined),
                           border: const OutlineInputBorder(),
                           counterText: '',
                         ),
@@ -800,7 +800,7 @@ class _SecuritySettingsPageState extends State<SecuritySettingsPage> {
                         contentPadding: EdgeInsets.zero,
                         value: bioEnabled && bioAvailable,
                         onChanged: bioAvailable ? (v) => setState(() => bioEnabled = v) : null,
-                        secondary: Icon(Icons.fingerprint_rounded),
+                        secondary: const Icon(Icons.fingerprint_rounded),
                         title: const Text('السماح بفتح التطبيق بالبصمة'),
                         subtitle: Text(bioAvailable
                           ? 'ستبقى أرقام PIN متاحة كوسيلة احتياطية.'
@@ -813,7 +813,7 @@ class _SecuritySettingsPageState extends State<SecuritySettingsPage> {
                       const SizedBox(height: 18),
                       FilledButton.icon(
                         onPressed: saving ? null : _save,
-                        icon: saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(Icons.save_rounded),
+                        icon: saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.save_rounded),
                         label: Text(saving ? 'جارٍ الحفظ…' : 'حفظ إعدادات التأمين'),
                       ),
                       const SizedBox(height: 8),
@@ -844,9 +844,9 @@ class _InitialSetupState extends State<InitialSetupPage>{
   Future<void> _load()async{try{final set=await repo.settings();final ps=await repo.db.query('pumps',where:'active=1',orderBy:'id');if(mounted)setState((){stationName.text=set['station_name']??'';currency.text=set['currency']??'YER';type=set['system_type']??'diesel';timeSource=set['time_source']??'device';pumps=ps;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   List<Map<String,Object?>> get compatiblePumps=>pumps.where((p)=>'${p['system_type']}'==type).toList();
   Future<void> _finish()async{if(stationName.text.trim().isEmpty){setState(()=>error='اكتب اسم المحطة أولاً');return;}if(currency.text.trim().isEmpty){setState(()=>error='حدد العملة المستخدمة');return;}if(compatiblePumps.isNotEmpty&&pumpId==null){setState(()=>error='اختر المضخة الأساسية للمنظومة');return;}setState(()=>saving=true);try{await repo.setSetting('station_name',stationName.text.trim());await repo.setSetting('currency',currency.text.trim().toUpperCase());await repo.setSetting('time_source',timeSource);await repo.setSystemType(type);if(pumpId!=null)await repo.selectPump(pumpId!);await repo.setSetting('initial_setup_completed','true');await AppPrefs.apply(await repo.settings());if(!mounted)return;Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>AdminShell(role:widget.role,userName:widget.userName,userId:widget.userId)));}catch(e){if(mounted)setState((){error=friendlyError(e);saving=false;});}}
-  Widget _typeCard(String value,String title,String subtitle,IconData icon,Color color){final selected=type==value;return InkWell(onTap:(){setState((){type=value;pumpId=null;});},borderRadius:BorderRadius.circular(20),child:AnimatedContainer(duration:const Duration(milliseconds:180),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:selected?color.withValues(alpha: .1):Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:selected?color:_reportLine,width:selected?2:1)),child:Row(children:[Container(width:45,height:45,decoration:BoxDecoration(color:selected?color:color.withValues(alpha: .1),borderRadius:BorderRadius.circular(14)),child:Icon(icon,color:selected?Colors.white:color)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),const SizedBox(height:4),Text(subtitle,style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:10))]),),Icon(selected?Icons.radio_button_checked_rounded:Icons.radio_button_unchecked_rounded,color:selected?color:_reportInk.withValues(alpha: .28))])));}
-  Widget _sectionTitle(String title,String sub,IconData icon)=>Padding(padding:const EdgeInsets.only(bottom:10),child:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(11)),child:Icon(icon,color:_reportOliveDark,size:19)),const SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),Text(sub,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))]) ]));
-  @override Widget build(BuildContext context){final ps=compatiblePumps;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,body:loading?const Center(child:CircularProgressIndicator()):SafeArea(child:ListView(padding:const EdgeInsets.fromLTRB(20,18,20,28),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(29),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .18),blurRadius:18,offset:const Offset(0,8))]),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('مرحباً ${widget.userName}',style:TextStyle(color:Colors.white.withValues(alpha: .75),fontSize:12)),const SizedBox(height:7),const Text('لنجهّز محطتك معاً',style:TextStyle(color:Colors.white,fontSize:25,fontWeight:FontWeight.w900)),const SizedBox(height:8),Text('اختر المنظومة والإعدادات الأساسية مرة واحدة، وسنخصّص لك التطبيق تلقائياً.',style:TextStyle(color:Colors.white.withValues(alpha: .84),fontSize:11,height:1.5))]),),Container(width:62,height:62,decoration:BoxDecoration(color:Colors.white.withValues(alpha: .14),borderRadius:BorderRadius.circular(21)),child:Icon(Icons.water_drop_rounded,color:Colors.white,size:34))])),const SizedBox(height:18),Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('اختر منظومة المحطة','ستظهر لك الواجهات والتقارير المناسبة فقط',Icons.tune_rounded),_typeCard('diesel','منظومة الديزل','خزان ووقود وتنبيهات استهلاك',Icons.local_gas_station_rounded,_reportOrange),const SizedBox(height:9),_typeCard('solar','المنظومة الشمسية','سقي شمسي وتسعير وتشغيل',Icons.wb_sunny_rounded,_reportGreen),const SizedBox(height:9),_typeCard('equivalent_hybrid','النوع الثالث','منظومة مخصصة بإعداداتها الخاصة',Icons.bolt_rounded,_reportOliveDark)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('بيانات المحطة','معلومات تظهر في الواجهات والتقارير',Icons.storefront_rounded),TextField(controller:stationName,decoration:const InputDecoration(labelText:'اسم المحطة',prefixIcon:Icon(Icons.storefront_outlined),border:OutlineInputBorder())),const SizedBox(height:10),TextField(controller:currency,decoration:const InputDecoration(labelText:'العملة',prefixIcon:Icon(Icons.currency_exchange_rounded),border:OutlineInputBorder()),textCapitalization:TextCapitalization.characters),const SizedBox(height:10),DropdownButtonFormField<String>(initialValue:timeSource,items:const[DropdownMenuItem(value:'device',child:Text('وقت الجهاز')) ,DropdownMenuItem(value:'server',child:Text('وقت الخادم'))],onChanged:(v)=>setState(()=>timeSource=v??'device'),decoration:const InputDecoration(labelText:'مصدر الوقت',prefixIcon:Icon(Icons.access_time_rounded),border:OutlineInputBorder()))])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('المضخة الأساسية','تطابق نوع المنظومة المختار',Icons.settings_input_component_rounded),if(ps.isEmpty)Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:const Row(children:[Icon(Icons.info_outline_rounded,color:_reportOliveDark),SizedBox(width:8),Expanded(child:Text('لا توجد مضخات متوافقة حالياً. يمكنك إكمال الإعداد وإضافتها لاحقاً من إدارة المضخات.',style:TextStyle(fontSize:11,fontWeight:FontWeight.w700))) ]))else DropdownButtonFormField<int>(initialValue:pumpId,items:[for(final p in ps)DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))],onChanged:(v)=>setState(()=>pumpId=v),decoration:const InputDecoration(labelText:'اختر المضخة',prefixIcon:Icon(Icons.water_rounded),border:OutlineInputBorder()))])),if(error!=null)Padding(padding:const EdgeInsets.only(top:14),child:Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:_reportOrange.withValues(alpha: .1),borderRadius:BorderRadius.circular(12)),child:Row(children:[Icon(Icons.warning_amber_rounded,color:_reportOrange),const SizedBox(width:8),Expanded(child:Text(error!,style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:11)))]))),const SizedBox(height:18),FilledButton.icon(onPressed:saving?null:_finish,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,padding:const EdgeInsets.symmetric(vertical:16),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(16))),icon:saving?const SizedBox(width:19,height:19,child:CircularProgressIndicator(strokeWidth:2,color:Colors.white)):Icon(Icons.check_circle_outline_rounded),label:Text(saving?'جارٍ حفظ الإعدادات…':'حفظ وفتح لوحة التحكم',style:TextStyle(fontWeight:FontWeight.w900))),const SizedBox(height:10),Text('يمكن للمدير تعديل هذه الإعدادات لاحقاً من صفحة الإعدادات.',textAlign:TextAlign.center,style:TextStyle(color:_reportInk.withValues(alpha: .52),fontSize:10))]))));}
+  Widget _typeCard(String value,String title,String subtitle,IconData icon,Color color){final selected=type==value;return InkWell(onTap:(){setState((){type=value;pumpId=null;});},borderRadius:BorderRadius.circular(20),child:AnimatedContainer(duration:const Duration(milliseconds:180),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:selected?color.withValues(alpha: .1):Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:selected?color:_reportLine,width:selected?2:1)),child:Row(children:[Container(width:45,height:45,decoration:BoxDecoration(color:selected?color:color.withValues(alpha: .1),borderRadius:BorderRadius.circular(14)),child:Icon(icon,color:selected?Colors.white:color)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),const SizedBox(height:4),Text(subtitle,style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:10))]),),Icon(selected?Icons.radio_button_checked_rounded:Icons.radio_button_unchecked_rounded,color:selected?color:_reportInk.withValues(alpha: .28))])));}
+  Widget _sectionTitle(String title,String sub,IconData icon)=>Padding(padding:const EdgeInsets.only(bottom:10),child:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(11)),child:Icon(icon,color:_reportOliveDark,size:19)),const SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),Text(sub,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))]) ]));
+  @override Widget build(BuildContext context){final ps=compatiblePumps;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,body:loading?const Center(child:CircularProgressIndicator()):SafeArea(child:ListView(padding:const EdgeInsets.fromLTRB(20,18,20,28),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(29),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .18),blurRadius:18,offset:const Offset(0,8))]),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('مرحباً ${widget.userName}',style:TextStyle(color:Colors.white.withValues(alpha: .75),fontSize:12)),const SizedBox(height:7),const Text('لنجهّز محطتك معاً',style:TextStyle(color:Colors.white,fontSize:25,fontWeight:FontWeight.w900)),const SizedBox(height:8),Text('اختر المنظومة والإعدادات الأساسية مرة واحدة، وسنخصّص لك التطبيق تلقائياً.',style:TextStyle(color:Colors.white.withValues(alpha: .84),fontSize:11,height:1.5))]),),Container(width:62,height:62,decoration:BoxDecoration(color:Colors.white.withValues(alpha: .14),borderRadius:BorderRadius.circular(21)),child:const Icon(Icons.water_drop_rounded,color:Colors.white,size:34))])),const SizedBox(height:18),Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('اختر منظومة المحطة','ستظهر لك الواجهات والتقارير المناسبة فقط',Icons.tune_rounded),_typeCard('diesel','منظومة الديزل','خزان ووقود وتنبيهات استهلاك',Icons.local_gas_station_rounded,_reportOrange),const SizedBox(height:9),_typeCard('solar','المنظومة الشمسية','سقي شمسي وتسعير وتشغيل',Icons.wb_sunny_rounded,_reportGreen),const SizedBox(height:9),_typeCard('equivalent_hybrid','النوع الثالث','منظومة مخصصة بإعداداتها الخاصة',Icons.bolt_rounded,_reportOliveDark)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('بيانات المحطة','معلومات تظهر في الواجهات والتقارير',Icons.storefront_rounded),TextField(controller:stationName,decoration:const InputDecoration(labelText:'اسم المحطة',prefixIcon:Icon(Icons.storefront_outlined),border:OutlineInputBorder())),const SizedBox(height:10),TextField(controller:currency,decoration:const InputDecoration(labelText:'العملة',prefixIcon:Icon(Icons.currency_exchange_rounded),border:OutlineInputBorder()),textCapitalization:TextCapitalization.characters),const SizedBox(height:10),DropdownButtonFormField<String>(initialValue:timeSource,items:const[DropdownMenuItem(value:'device',child:Text('وقت الجهاز')) ,DropdownMenuItem(value:'server',child:Text('وقت الخادم'))],onChanged:(v)=>setState(()=>timeSource=v??'device'),decoration:const InputDecoration(labelText:'مصدر الوقت',prefixIcon:Icon(Icons.access_time_rounded),border:OutlineInputBorder()))])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('المضخة الأساسية','تطابق نوع المنظومة المختار',Icons.settings_input_component_rounded),if(ps.isEmpty)Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:const Row(children:[Icon(Icons.info_outline_rounded,color:_reportOliveDark),SizedBox(width:8),Expanded(child:Text('لا توجد مضخات متوافقة حالياً. يمكنك إكمال الإعداد وإضافتها لاحقاً من إدارة المضخات.',style:TextStyle(fontSize:11,fontWeight:FontWeight.w700))) ]))else DropdownButtonFormField<int>(initialValue:pumpId,items:[for(final p in ps)DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))],onChanged:(v)=>setState(()=>pumpId=v),decoration:const InputDecoration(labelText:'اختر المضخة',prefixIcon:Icon(Icons.water_rounded),border:OutlineInputBorder()))])),if(error!=null)Padding(padding:const EdgeInsets.only(top:14),child:Container(padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:_reportOrange.withValues(alpha: .1),borderRadius:BorderRadius.circular(12)),child:Row(children:[const Icon(Icons.warning_amber_rounded,color:_reportOrange),const SizedBox(width:8),Expanded(child:Text(error!,style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:11)))]))),const SizedBox(height:18),FilledButton.icon(onPressed:saving?null:_finish,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,padding:const EdgeInsets.symmetric(vertical:16),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(16))),icon:saving?const SizedBox(width:19,height:19,child:CircularProgressIndicator(strokeWidth:2,color:Colors.white)):const Icon(Icons.check_circle_outline_rounded),label:Text(saving?'جارٍ حفظ الإعدادات…':'حفظ وفتح لوحة التحكم',style:const TextStyle(fontWeight:FontWeight.w900))),const SizedBox(height:10),Text('يمكن للمدير تعديل هذه الإعدادات لاحقاً من صفحة الإعدادات.',textAlign:TextAlign.center,style:TextStyle(color:_reportInk.withValues(alpha: .52),fontSize:10))]))));}
 }
 
 class AdminShell extends StatefulWidget {
@@ -1139,7 +1139,7 @@ class _ShellState extends State<AdminShell> {
           elevation: index == 0 ? 0 : null,
           title: Text(
             pages[index],
-            style: TextStyle(fontWeight: FontWeight.w800),
+            style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           actions: [
             if (role == AppRole.manager)
@@ -1149,18 +1149,18 @@ class _ShellState extends State<AdminShell> {
                   c,
                   MaterialPageRoute(builder: (_) => const SecuritySettingsPage(firstTime: false)),
                 ),
-                icon: Icon(Icons.security_rounded),
+                icon: const Icon(Icons.security_rounded),
               ),
             IconButton(
               tooltip: 'تحديث',
               onPressed: refreshCounts,
-              icon: Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh),
             ),
             Builder(
               builder: (bc) => IconButton(
                 tooltip: 'القائمة',
                 onPressed: () => Scaffold.of(bc).openDrawer(),
-                icon: Icon(Icons.menu_open),
+                icon: const Icon(Icons.menu_open),
               ),
             ),
           ],
@@ -1182,9 +1182,9 @@ class _ShellState extends State<AdminShell> {
                             colors: [SaqiaTheme.accent(AppPrefs.current.themeKey), SaqiaTheme.accent(AppPrefs.current.themeKey).withValues(alpha: .72)],
                           ),
                         ),
-                        child: Icon(
+                        child: const Icon(
                           Icons.water_drop,
-                          color: _reportSurface,
+                          color: Colors.white,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -1194,14 +1194,14 @@ class _ShellState extends State<AdminShell> {
                           children: [
                             Text(
                               AppPrefs.current.appName.split(' ').first,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 23,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
                             Text(
                               widget.userName,
-                              style: TextStyle(fontSize: 12),
+                              style: const TextStyle(fontSize: 12),
                             ),
                           ],
                         ),
@@ -1577,7 +1577,7 @@ class _DashboardCircularMenu extends StatelessWidget {
                           textAlign: TextAlign.center,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
                         ),
                       ],
                     ),
@@ -1761,8 +1761,8 @@ class _QuickActionOrbState extends State<QuickActionOrb>
                                       actions[i].label,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: _reportSurface,
+                                      style: const TextStyle(
+                                        color: Colors.white,
                                         fontWeight: FontWeight.w600,
                                         fontSize: 12,
                                       ),
@@ -1811,14 +1811,14 @@ class _QuickActionOrbState extends State<QuickActionOrb>
                               ? const [Color(0xff0ea5e9), Color(0xff6366f1)]
                               : const [Color(0xff10b981), Color(0xff0ea5e9)],
                         ),
-                        border: Border.all(color: _reportSurface.withValues(alpha: 0.8), width: 2),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.8), width: 2),
                       ),
                       child: AnimatedRotation(
                         turns: expanded ? 0.125 : 0,
                         duration: const Duration(milliseconds: 260),
                         child: Icon(
                           expanded ? Icons.close_rounded : Icons.add_rounded,
-                          color: _reportSurface,
+                          color: Colors.white,
                           size: 32,
                         ),
                       ),
@@ -1859,7 +1859,7 @@ class PageFrame extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 26,
                       fontWeight: FontWeight.w900,
                     ),
@@ -2092,7 +2092,7 @@ class _DashboardState extends State<DashboardPage> {
             ),
             const SizedBox(width: 7),
             Text(label, style: TextStyle(
-              color: _reportSurface,
+              color: Colors.white,
               fontSize: 11,
               fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
             )),
@@ -2128,7 +2128,7 @@ class _DashboardState extends State<DashboardPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(children: [
-            Icon(Icons.assessment_rounded, color: neon),
+            const Icon(Icons.assessment_rounded, color: neon),
             const SizedBox(width: 8),
             const Expanded(
               child: Text(
@@ -2161,7 +2161,7 @@ class _DashboardState extends State<DashboardPage> {
                       Expanded(
                         child: Text(
                           item.$1,
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
                         ),
                       ),
                       Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withValues(alpha: .55), size: 15),
@@ -2195,7 +2195,7 @@ class _DashboardState extends State<DashboardPage> {
             Text(title),
             Text(
               value,
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
             ),
           ],
         ),
@@ -2234,10 +2234,10 @@ class _DashboardState extends State<DashboardPage> {
             Icon(icon, color: color, size: 23),
             const Spacer(),
             Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: muted, fontSize: 11, fontWeight: FontWeight.w600)),
+              style: const TextStyle(color: muted, fontSize: 11, fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
             Text(value, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900)),
+              style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900)),
           ],
         ),
       );
@@ -2260,9 +2260,9 @@ class _DashboardState extends State<DashboardPage> {
             child: Icon(icon, color: color)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+            Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
             const SizedBox(height: 5),
-            Text(subtitle, style: TextStyle(color: muted, fontSize: 11, height: 1.45)),
+            Text(subtitle, style: const TextStyle(color: muted, fontSize: 11, height: 1.45)),
           ])),
           if (trailing != null) ...[const SizedBox(width: 8), trailing],
         ]),
@@ -2286,7 +2286,7 @@ class _DashboardState extends State<DashboardPage> {
                 Container(
                   padding: const EdgeInsets.all(19),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
+                    gradient: const LinearGradient(
                       begin: AlignmentDirectional.topStart,
                       end: AlignmentDirectional.bottomEnd,
                       colors: [Color(0xFF123047), Color(0xFF10251F), Color(0xFF101E2E)],
@@ -2308,7 +2308,7 @@ class _DashboardState extends State<DashboardPage> {
                         stationName.isNotEmpty ? stationName : SystemConfig.displayNameFor(systemType),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: neon, fontSize: 16, fontWeight: FontWeight.w800),
+                        style: const TextStyle(color: neon, fontSize: 16, fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 7),
                       Text('ملخص التشغيل والعمليات اليومية في مكان واحد',
@@ -2319,7 +2319,7 @@ class _DashboardState extends State<DashboardPage> {
                         color: cyan.withValues(alpha: .08),
                         border: Border.all(color: neon.withValues(alpha: .7)),
                         boxShadow: [BoxShadow(color: neon.withValues(alpha: .12), blurRadius: 18)]),
-                      child: Icon(Icons.water_drop_rounded, color: neon, size: 30)),
+                      child: const Icon(Icons.water_drop_rounded, color: neon, size: 30)),
                   ]),
                 ),
                 const SizedBox(height: 20),
@@ -2644,7 +2644,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 children: [
                   Text(
                     '${x['party_name'] ?? x['description'] ?? 'حركة'}',
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                   const SizedBox(height: 3),
                   Text(
@@ -2662,7 +2662,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
               children: [
                 Text(
                   money(x['amount']),
-                  style: TextStyle(fontWeight: FontWeight.w900),
+                  style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 3),
                 Text(
@@ -2759,7 +2759,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
               ),
               OutlinedButton.icon(
                 onPressed: () => pickPaymentDate(true),
-                icon: Icon(Icons.date_range),
+                icon: const Icon(Icons.date_range),
                 label: Text(
                   paymentFrom == null
                       ? 'من تاريخ'
@@ -2768,7 +2768,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
               ),
               OutlinedButton.icon(
                 onPressed: () => pickPaymentDate(false),
-                icon: Icon(Icons.event),
+                icon: const Icon(Icons.event),
                 label: Text(
                   paymentTo == null
                       ? 'إلى تاريخ'
@@ -3105,7 +3105,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
           const SizedBox(height: 4),
           Text(
             displayValue(k, v),
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
           ),
         ],
       ),
@@ -3153,7 +3153,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
               const SizedBox(width: 12),
               Text(
                 title,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w900,
                 ),
@@ -3225,7 +3225,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 value,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w900,
                 ),
@@ -3435,12 +3435,12 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 IconButton(
                   tooltip: 'تعديل المديونية بقيد تصحيحي',
                   onPressed: () => editPriorDebt(history[i]),
-                  icon: Icon(Icons.edit_outlined),
+                  icon: const Icon(Icons.edit_outlined),
                 ),
                 IconButton(
                   tooltip: 'إلغاء المديونية بعكس القيد',
                   onPressed: () => cancelPriorDebt(history[i]),
-                  icon: Icon(Icons.undo_rounded, color: Colors.red),
+                  icon: const Icon(Icons.undo_rounded, color: Colors.red),
                 ),
               ],
             ],
@@ -3714,7 +3714,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             children: [
               OutlinedButton.icon(
                 onPressed: () => pickDetailDate(true),
-                icon: Icon(Icons.date_range),
+                icon: const Icon(Icons.date_range),
                 label: Text(
                   filterFrom == null
                       ? 'من تاريخ'
@@ -3723,7 +3723,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
               ),
               OutlinedButton.icon(
                 onPressed: () => pickDetailDate(false),
-                icon: Icon(Icons.event),
+                icon: const Icon(Icons.event),
                 label: Text(
                   filterTo == null
                       ? 'إلى تاريخ'
@@ -3815,7 +3815,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     systemType: 'all',
   )),
   child: OutlinedButton.icon(
-          icon: Icon(Icons.picture_as_pdf_rounded),
+          icon: const Icon(Icons.picture_as_pdf_rounded),
           label: Text(
             worker
                 ? 'PDF التسقيات المرتبطة بالعامل'
@@ -3864,7 +3864,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                     setState(() => loading = true);
                     load();
                   },
-                  icon: Icon(Icons.refresh_rounded),
+                  icon: const Icon(Icons.refresh_rounded),
                   label: const Text('إعادة المحاولة'),
                 ),
               ],
@@ -3936,7 +3936,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 : widget.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontWeight: FontWeight.w900),
+            style: const TextStyle(fontWeight: FontWeight.w900),
           ),
           actions: [
             if (['beneficiary', 'worker', 'partner'].contains(widget.kind))
@@ -3956,12 +3956,12 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                           from: filterFrom, to: filterTo, systemType: 'all')
                       : printPersonReport(),
                 ),
-                icon: Icon(Icons.picture_as_pdf_rounded),
+                icon: const Icon(Icons.picture_as_pdf_rounded),
               ),
             IconButton(
               onPressed: load,
               tooltip: 'تحديث',
-              icon: Icon(Icons.refresh_rounded),
+              icon: const Icon(Icons.refresh_rounded),
             ),
           ],
         ),
@@ -4130,7 +4130,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                                                   }
                                                 }
                                               },
-                                              icon: Icon(Icons.picture_as_pdf_rounded),
+                                              icon: const Icon(Icons.picture_as_pdf_rounded),
                                               label: const Text('كشف الحساب'),
                                             ),
 ),
@@ -4264,7 +4264,7 @@ class _TimelineItem extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: TextStyle(fontWeight: FontWeight.w800),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       const SizedBox(height: 3),
                       Text(
@@ -4280,7 +4280,7 @@ class _TimelineItem extends StatelessWidget {
                 if (amount.isNotEmpty)
                   Text(
                     amount,
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
               ],
             ),
@@ -4634,7 +4634,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
     actions: [
       FilledButton.icon(
         onPressed: add,
-        icon: Icon(Icons.person_add),
+        icon: const Icon(Icons.person_add),
         label: const Text('إضافة مستفيد'),
       ),
     ],
@@ -4669,7 +4669,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
         if (loadError != null)
           Align(
             alignment: Alignment.centerRight,
-            child: Text(loadError!, style: TextStyle(color: Colors.red)),
+            child: Text(loadError!, style: const TextStyle(color: Colors.red)),
           ),
         const SizedBox(height: 10),
         if (loading) const LinearProgressIndicator(),
@@ -4704,7 +4704,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       ListTile(
-                                        leading: Icon(
+                                        leading: const Icon(
                                           Icons.edit_outlined,
                                         ),
                                         title: const Text(
@@ -4717,7 +4717,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                       ),
                                       if (widget.manager)
                                         ListTile(
-                                          leading: Icon(
+                                          leading: const Icon(
                                             Icons.delete_outline,
                                             color: Colors.red,
                                           ),
@@ -4767,7 +4767,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                           Expanded(
                                             child: Text(
                                               '${x['name']}',
-                                              style: TextStyle(
+                                              style: const TextStyle(
                                                 fontSize: 17,
                                                 fontWeight: FontWeight.w900,
                                               ),
@@ -4830,17 +4830,17 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                                   await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselDeliveryPage(widget.r, userId: widget.userId, initialBeneficiaryId: x['id'] as int)));
                                                   if (mounted) await load();
                                                 },
-                                                icon: Icon(Icons.local_gas_station_outlined),
+                                                icon: const Icon(Icons.local_gas_station_outlined),
                                                 label: const Text('إضافة تسليم ديزل'),
                                               ),
                                             OutlinedButton.icon(
                                               onPressed: () => details(x),
-                                              icon: Icon(Icons.open_in_new),
+                                              icon: const Icon(Icons.open_in_new),
                                               label: const Text('التفاصيل'),
                                             ),
                                             OutlinedButton.icon(
                                               onPressed: () => sendAccountSummary(x),
-                                              icon: Icon(Icons.send_rounded),
+                                              icon: const Icon(Icons.send_rounded),
                                               label: const Text('إرسال الحساب'),
                                             ),
                                           ],
@@ -5382,7 +5382,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                   else ...[
                     Row(children: [
                       Expanded(child: TextField(controller: startController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'بداية الغيم (ساعة:دقيقة)', hintText: '13:10'))),
-                      IconButton(tooltip: 'لاقط وقت هجين لبداية الغيم', icon: Icon(Icons.schedule), onPressed: () async {
+                      IconButton(tooltip: 'لاقط وقت هجين لبداية الغيم', icon: const Icon(Icons.schedule), onPressed: () async {
                         final initial = _parseCloudClock(startController.text) ?? start;
                         final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار بداية الغيم', use24Hour: true, tone: _QuickIrrigationTimeTone.cloud);
                         if (selected != null) { startController.text = '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}'; dialogSetState(() {}); }
@@ -5391,7 +5391,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                     const SizedBox(height: 10),
                     Row(children: [
                       Expanded(child: TextField(controller: endController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'نهاية الغيم (ساعة:دقيقة)', hintText: '13:20'))),
-                      IconButton(tooltip: 'لاقط وقت هجين لنهاية الغيم', icon: Icon(Icons.schedule), onPressed: () async {
+                      IconButton(tooltip: 'لاقط وقت هجين لنهاية الغيم', icon: const Icon(Icons.schedule), onPressed: () async {
                         final initial = _parseCloudClock(endController.text) ?? start.add(const Duration(minutes: 15));
                         final selected = await _showHybridTimePicker(initial: initial, title: 'اختيار نهاية الغيم', use24Hour: true, tone: _QuickIrrigationTimeTone.cloud);
                         if (selected != null) { endController.text = '${selected.hour.toString().padLeft(2, '0')}:${selected.minute.toString().padLeft(2, '0')}'; dialogSetState(() {}); }
@@ -5479,7 +5479,7 @@ int? parseClock(String raw) {
                   'end': ce,
                 });
               },
-              icon: Icon(Icons.check),
+              icon: const Icon(Icons.check),
               label: const Text('احتساب الغيم'),
             ),
           ],
@@ -5651,12 +5651,12 @@ int? parseClock(String raw) {
             OutlinedButton.icon(
               key: const ValueKey('quick-end-cloud-button'),
               onPressed: () => confirmTime(openCloud: true),
-              icon: Icon(Icons.cloud_outlined),
+              icon: const Icon(Icons.cloud_outlined),
               label: const Text('الغيم'),
             ),
           FilledButton.icon(
             onPressed: confirmTime,
-            icon: Icon(Icons.check),
+            icon: const Icon(Icons.check),
             label: const Text('تأكيد الوقت'),
           ),
         ],
@@ -5979,7 +5979,7 @@ int? parseClock(String raw) {
                         });
                         dialogSetState(() {});
                       },
-                      icon: Icon(Icons.calendar_month_rounded),
+                      icon: const Icon(Icons.calendar_month_rounded),
                       label: Text('تاريخ السقاية: ${DateFormat('yyyy/MM/dd', 'ar').format(selectedDate)}'),
                     ),
                     const SizedBox(height: 8),
@@ -6028,7 +6028,7 @@ int? parseClock(String raw) {
                               title: Text('${item['name'] ?? 'غير معروف'}'),
                               subtitle: Text(typeLabel),
                               selected: selected,
-                              trailing: selected ? Icon(Icons.check_circle_rounded) : null,
+                              trailing: selected ? const Icon(Icons.check_circle_rounded) : null,
                               onTap: () async {
                                 if (id == null) return;
                                 await selectParty(itemType, id);
@@ -6064,13 +6064,13 @@ int? parseClock(String raw) {
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
                       onPressed: () => chooseTime(true),
-                      icon: Icon(Icons.access_time),
+                      icon: const Icon(Icons.access_time),
                       label: Text('بداية التشغيل: ${_hm12Label(start)}'),
                     ),
                     const SizedBox(height: 6),
                     OutlinedButton.icon(
                       onPressed: () => chooseTime(false),
-                      icon: Icon(Icons.av_timer),
+                      icon: const Icon(Icons.av_timer),
                       label: Text('نهاية التشغيل: ${_hm12Label(end)}'),
                     ),
                     if (type != 'diesel') ...[
@@ -6081,7 +6081,7 @@ int? parseClock(String raw) {
                           await addCloudPeriod();
                           if (mounted) dialogSetState(() {});
                         },
-                        icon: Icon(Icons.cloud_outlined),
+                        icon: const Icon(Icons.cloud_outlined),
                         label: Text(quickCloudMode ? 'تعديل الغيم' : 'إضافة غيم'),
                       ),
                       if (quickCloudMode)
@@ -6154,7 +6154,7 @@ int? parseClock(String raw) {
                     }
                   });
                 },
-                icon: Icon(Icons.save_rounded),
+                icon: const Icon(Icons.save_rounded),
                 label: const Text('حفظ سقاية'),
               ),
             ],
@@ -6482,7 +6482,7 @@ int? parseClock(String raw) {
         if (saved)
           OutlinedButton.icon(
             onPressed: newOperation,
-            icon: Icon(Icons.add),
+            icon: const Icon(Icons.add),
             label: const Text('عملية جديدة'),
           ),
       ],
@@ -6583,17 +6583,17 @@ int? parseClock(String raw) {
                 const SizedBox(height: 10),
                 if (partyType == 'beneficiary' && bid != null)
                   Chip(
-                    avatar: Icon(Icons.person),
+                    avatar: const Icon(Icons.person),
                     label: Text('المحدد: ${beneficiaries.firstWhere((x) => x['id'] == bid, orElse: () => <String, Object?>{})['name'] ?? '-'} • مستفيد'),
                   )
                 else if (partyType == 'worker' && workerId != null)
                   Chip(
-                    avatar: Icon(Icons.engineering),
+                    avatar: const Icon(Icons.engineering),
                     label: Text('المحدد: ${workers.firstWhere((x) => x['id'] == workerId, orElse: () => <String, Object?>{})['name'] ?? '-'} • عامل'),
                   )
                 else if (partyType == 'partner' && partnerId != null)
                   Chip(
-                    avatar: Icon(Icons.handshake),
+                    avatar: const Icon(Icons.handshake),
                     label: Text('المحدد: ${partners.firstWhere((x) => x['id'] == partnerId, orElse: () => <String, Object?>{})['name'] ?? '-'} • شريك'),
                   ),
                 if (query.isNotEmpty)
@@ -6614,7 +6614,7 @@ int? parseClock(String raw) {
                               : Icons.handshake),
                       title: Text('${x['name'] ?? '-'}'),
                       subtitle: Text(category),
-                      trailing: Icon(Icons.north_west, size: 18),
+                      trailing: const Icon(Icons.north_west, size: 18),
                       onTap: () async {
                         final id = (x['id'] as num?)?.toInt();
                         if (id == null) return;
@@ -6625,12 +6625,12 @@ int? parseClock(String raw) {
                     );
                   }),
                 const SizedBox(height: 18),
-                Align(alignment: AlignmentDirectional.centerStart, child: Text(type == 'solar' ? 'وقت السقاية وفترات الغيم' : 'وقت السقاية', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                Align(alignment: AlignmentDirectional.centerStart, child: Text(type == 'solar' ? 'وقت السقاية وفترات الغيم' : 'وقت السقاية', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
                 const SizedBox(height: 10),
 
                 OutlinedButton.icon(
                   onPressed: () => pickDate(true),
-                  icon: Icon(Icons.event),
+                  icon: const Icon(Icons.event),
                   label: Text('تاريخ جديد: ${selectedDate.year}/${selectedDate.month.toString().padLeft(2, '0')}/${selectedDate.day.toString().padLeft(2, '0')}'),
                 ),
                 const SizedBox(height: 8),
@@ -6638,7 +6638,7 @@ int? parseClock(String raw) {
                   const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت البداية', style: TextStyle(fontWeight: FontWeight.w800))),
                   Row(children: [
                     SizedBox(width: 240, child: TextField(controller: startTimeController, keyboardType: TextInputType.datetime, onTap: () { if (startPeriod == null) setState(_ensureStartPeriodSelected); }, onChanged: (_) { if (startPeriod == null) setState(_ensureStartPeriodSelected); }, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '08:30'))),
-                    IconButton(tooltip: 'لاقط وقت هجين للبداية', icon: Icon(Icons.schedule), onPressed: () async {
+                    IconButton(tooltip: 'لاقط وقت هجين للبداية', icon: const Icon(Icons.schedule), onPressed: () async {
                       await pickStartAndThenEnd();
                     }),
                   ]),
@@ -6651,7 +6651,7 @@ int? parseClock(String raw) {
                     alignment: AlignmentDirectional.centerEnd,
                     child: FilledButton.icon(
                       onPressed: nextTimeStep,
-                      icon: Icon(Icons.arrow_forward),
+                      icon: const Icon(Icons.arrow_forward),
                       label: const Text('التالي'),
                     ),
                   ),
@@ -6659,7 +6659,7 @@ int? parseClock(String raw) {
                   const Align(alignment: AlignmentDirectional.centerStart, child: Text('وقت النهاية', style: TextStyle(fontWeight: FontWeight.w800))),
                   Row(children: [
                     SizedBox(width: 240, child: TextField(controller: endTimeController, keyboardType: TextInputType.datetime, decoration: const InputDecoration(labelText: 'الساعة والدقيقة', hintText: '09:30'), onChanged: (_) => setState(_updateEndPeriodFromTime))),
-                    IconButton(tooltip: 'لاقط وقت هجين للنهاية', icon: Icon(Icons.schedule), onPressed: () async {
+                    IconButton(tooltip: 'لاقط وقت هجين للنهاية', icon: const Icon(Icons.schedule), onPressed: () async {
                       final value = _parseTimeMinutes(endTimeController.text);
                       final hour24 = value == null ? end.hour : _to24Hour(value, endPeriod ?? (end.hour < 12 ? 'am' : 'pm'));
                       final picked = await _showHybridTimePicker(initial: DateTime(selectedDate.year, selectedDate.month, selectedDate.day, hour24, value == null ? end.minute : value % 60), title: 'اختيار وقت النهاية');
@@ -6671,35 +6671,35 @@ int? parseClock(String raw) {
                       }
                     }),
                   ]),
-                  Chip(avatar: Icon(Icons.schedule), label: Text('الفترة تلقائياً: ${endPeriod == 'am' ? 'ص' : 'م'}')), 
-                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: Icon(Icons.arrow_back), label: const Text('تعديل وقت البداية')),
+                  Chip(avatar: const Icon(Icons.schedule), label: Text('الفترة تلقائياً: ${endPeriod == 'am' ? 'ص' : 'م'}')), 
+                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.arrow_back), label: const Text('تعديل وقت البداية')),
                   const SizedBox(height: 10),
                   Align(
                     alignment: AlignmentDirectional.centerEnd,
                     child: FilledButton.icon(
                       onPressed: nextTimeStep,
-                      icon: Icon(Icons.check_circle_outline),
+                      icon: const Icon(Icons.check_circle_outline),
                       label: const Text('تأكيد وقت النهاية'),
                     ),
                   ),
                 ] else ...[
                   Text('البداية: ${_hm12Label(start)}'),
                   Text('النهاية: ${_hm12Label(end)}'),
-                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: Icon(Icons.edit), label: const Text('تعديل الوقت')),
+                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.edit), label: const Text('تعديل الوقت')),
                 ],
                 if (end.year != start.year || end.month != start.month || end.day != start.day)
                   const Chip(avatar: Icon(Icons.nights_stay_outlined), label: Text('وقت النهاية في اليوم التالي')),
-                Chip(label: Text('المدة: $minutes دقيقة'), avatar: Icon(Icons.timelapse)),
+                Chip(label: Text('المدة: $minutes دقيقة'), avatar: const Icon(Icons.timelapse)),
                 if (type == 'solar') ...[
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
                     onPressed: minutes > 0 ? () => addCloudPeriod() : null,
-                    icon: Icon(Icons.cloud_outlined),
+                    icon: const Icon(Icons.cloud_outlined),
                     label: Text(quickCloudMode ? 'تعديل الغيم السريع' : 'إضافة غيم'),
                   ),
                   if (quickCloudMode)
                     Chip(
-                      avatar: Icon(Icons.bolt, size: 18),
+                      avatar: const Icon(Icons.bolt, size: 18),
                       label: Text('الغيم السريع: $cloudMin دقيقة'),
                     ),
                   if (!quickCloudMode && cloudPeriods.isNotEmpty)
@@ -6708,7 +6708,7 @@ int? parseClock(String raw) {
                       final p = entry.value;
                       final m = p['end']!.difference(p['start']!).inMinutes;
                       return InputChip(
-                        avatar: Icon(Icons.cloud, size: 18),
+                        avatar: const Icon(Icons.cloud, size: 18),
                         label: Text(
                           'غيم ${i + 1}: ${_hm(p['start']!)} → ${_hm(p['end']!)} • $m دقيقة',
                         ),
@@ -6719,7 +6719,7 @@ int? parseClock(String raw) {
                     }),
                   if (cloudMin > 0)
                     Chip(
-                      avatar: Icon(Icons.remove_circle_outline),
+                      avatar: const Icon(Icons.remove_circle_outline),
                       label: Text(
                         'خصم الغيم: $cloudMin دقيقة • المحاسبة: ${minutes - cloudMin} دقيقة',
                       ),
@@ -6739,7 +6739,7 @@ int? parseClock(String raw) {
               width: double.infinity,
               child: FilledButton.icon(
                 onPressed: loading || saved ? null : save,
-                icon: Icon(Icons.save_rounded),
+                icon: const Icon(Icons.save_rounded),
                 label: const Text('حفظ سقاية جديدة'),
               ),
             ),
@@ -6834,7 +6834,7 @@ class DateButton extends StatelessWidget {
   @override
   Widget build(BuildContext c) => OutlinedButton.icon(
     onPressed: onTap,
-    icon: Icon(Icons.event),
+    icon: const Icon(Icons.event),
     label: Text(
       '$label: ${value.year}/${value.month.toString().padLeft(2, '0')}/${value.day.toString().padLeft(2, '0')} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}',
     ),
@@ -6894,7 +6894,7 @@ class SectionCard extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 title,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w900,
                 ),
@@ -7254,7 +7254,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
                   NewIrrigationPage(widget.r, manager: widget.manager),
             ),
           ).then((_) => load()),
-          icon: Icon(Icons.add),
+          icon: const Icon(Icons.add),
           label: const Text('سقاية جديدة'),
         ),
       ],
@@ -7337,13 +7337,13 @@ class _IrrigationsState extends State<IrrigationsPage> {
                 ],
                 onChanged: (value) { if (value != null) { setState(() => systemTypeFilter = value); load(); } },
               )),
-              OutlinedButton.icon(onPressed: loading ? null : chooseCustomRange, icon: Icon(Icons.date_range), label: const Text('فترة مخصصة')),
+              OutlinedButton.icon(onPressed: loading ? null : chooseCustomRange, icon: const Icon(Icons.date_range), label: const Text('فترة مخصصة')),
               ReportPdfLongPress(
   enabled: !loading,
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(printIrrigationsReport),
   child: FilledButton.icon(
                 onPressed: loading ? null : printIrrigationsReport,
-                icon: Icon(Icons.print_rounded),
+                icon: const Icon(Icons.print_rounded),
                 label: const Text('طباعة تقرير السقايات'),
               ),
 ),
@@ -7352,7 +7352,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(createIrrigationsPdf),
   child: OutlinedButton.icon(
                 onPressed: loading ? null : createIrrigationsPdf,
-                icon: Icon(Icons.picture_as_pdf_rounded),
+                icon: const Icon(Icons.picture_as_pdf_rounded),
                 label: const Text('إنشاء PDF'),
               ),
 ),
@@ -7390,7 +7390,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
                                   DataCell(
                                     Text(
                                       '${x['beneficiary_name'] ?? '-'}',
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         fontWeight: FontWeight.w800,
                                       ),
                                     ),
@@ -7428,7 +7428,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
                                     IconButton(
                                       tooltip: 'إلغاء السقاية',
                                       onPressed: () => cancelIrrigationRow(x),
-                                      icon: Icon(
+                                      icon: const Icon(
                                         Icons.cancel_outlined,
                                         color: Colors.red,
                                       ),
@@ -7728,7 +7728,7 @@ class _SessionsState extends State<SessionsPage> {
       actions: [
         FilledButton.icon(
           onPressed: start,
-          icon: Icon(Icons.play_arrow),
+          icon: const Icon(Icons.play_arrow),
           label: const Text('بدء جلسة'),
         ),
       ],
@@ -7777,7 +7777,7 @@ class _SessionsState extends State<SessionsPage> {
                                   padding: const EdgeInsets.all(8),
                                   child: Text(
                                     elapsed(x['actual_start']),
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.w900,
                                       color: _cyan,
@@ -7788,7 +7788,7 @@ class _SessionsState extends State<SessionsPage> {
                                 IconButton(
                                   tooltip: 'إنهاء الجلسة',
                                   onPressed: () => stop(x['id'] as int),
-                                  icon: Icon(
+                                  icon: const Icon(
                                     Icons.stop_circle,
                                     color: Colors.red,
                                   ),
@@ -7797,7 +7797,7 @@ class _SessionsState extends State<SessionsPage> {
                                 IconButton(
                                   tooltip: 'تأجيل',
                                   onPressed: () => postpone(x['id'] as int),
-                                  icon: Icon(Icons.pause_circle),
+                                  icon: const Icon(Icons.pause_circle),
                                 ),
                             ],
                           ),
@@ -8211,19 +8211,19 @@ class _QueueState extends State<QueueBookingPage> {
       actions: [
         OutlinedButton.icon(
           onPressed: load,
-          icon: Icon(Icons.refresh_rounded),
+          icon: const Icon(Icons.refresh_rounded),
           label: const Text('تحديث'),
         ),
         if (isBookingMode)
           FilledButton.icon(
             onPressed: book,
-            icon: Icon(Icons.add_rounded),
+            icon: const Icon(Icons.add_rounded),
             label: const Text('إضافة طلب للدور'),
           )
         else
           FilledButton.icon(
             onPressed: addQueue,
-            icon: Icon(Icons.add_rounded),
+            icon: const Icon(Icons.add_rounded),
             label: const Text('إضافة إلى الدور'),
           ),
       ],
@@ -8321,7 +8321,7 @@ class _QueueState extends State<QueueBookingPage> {
                                             ),
                                           ),
                                         ),
-                                        icon: Icon(Icons.info_outline_rounded),
+                                        icon: const Icon(Icons.info_outline_rounded),
                                       ),
                                       if (isBookingMode) ...[
                                         if (!const {'completed', 'cancelled'}
@@ -8329,35 +8329,35 @@ class _QueueState extends State<QueueBookingPage> {
                                           IconButton(
                                             tooltip: 'إدارة الدور',
                                             onPressed: () => review(entries[i]),
-                                            icon: Icon(Icons.edit_calendar_rounded),
+                                            icon: const Icon(Icons.edit_calendar_rounded),
                                           ),
                                           IconButton(
                                             tooltip: 'تعديل الملاحظات',
                                             onPressed: () => editBookingNotes(entries[i]),
-                                            icon: Icon(Icons.edit_note_rounded),
+                                            icon: const Icon(Icons.edit_note_rounded),
                                           ),
                                           IconButton(
                                             tooltip: 'إلغاء الحجز',
                                             onPressed: () => cancelBooking(entries[i]),
-                                            icon: Icon(Icons.cancel_outlined, color: Colors.red),
+                                            icon: const Icon(Icons.cancel_outlined, color: Colors.red),
                                           ),
                                         ],
                                       ] else ...[
                                         IconButton(
                                           tooltip: 'غياب / تأجيل (حسب سياسة الغياب)',
                                           onPressed: () => postpone(entries[i]['id'] as int),
-                                          icon: Icon(Icons.pause_rounded),
+                                          icon: const Icon(Icons.pause_rounded),
                                         ),
                                         IconButton(
                                           tooltip: 'تمت الخدمة',
                                           onPressed: () => completeEntry(entries[i]['id'] as int),
-                                          icon: Icon(Icons.check_circle_outline_rounded),
+                                          icon: const Icon(Icons.check_circle_outline_rounded),
                                         ),
                                         if (widget.manager)
                                           IconButton(
                                             tooltip: 'تجاوز',
                                             onPressed: () => overrideQ(entries[i]['id'] as int),
-                                            icon: Icon(Icons.flash_on_rounded),
+                                            icon: const Icon(Icons.flash_on_rounded),
                                           ),
                                       ],
                                     ],
@@ -8628,7 +8628,7 @@ class _DieselState extends State<DieselPage> {
           title: 'الديزل',
           subtitle: 'المخزون والحركات والتنبيه والسلف والتسليم',
           actions: [
-            FilledButton.icon(onPressed: () async { await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselDeliveryPage(widget.r, userId: widget.userId))); await load(); }, icon: Icon(Icons.add), label: const Text('إضافة تسليم ديزل')),
+            FilledButton.icon(onPressed: () async { await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselDeliveryPage(widget.r, userId: widget.userId))); await load(); }, icon: const Icon(Icons.add), label: const Text('إضافة تسليم ديزل')),
             if (warning?['warning'] == true)
               OutlinedButton.icon(
                 onPressed: () async {
@@ -8652,12 +8652,12 @@ class _DieselState extends State<DieselPage> {
                   }
                   await load();
                 },
-                icon: Icon(Icons.snooze),
+                icon: const Icon(Icons.snooze),
                 label: const Text('تأجيل التنبيه 10 دقائق'),
               ),
             FilledButton.icon(
               onPressed: add,
-              icon: Icon(Icons.local_gas_station),
+              icon: const Icon(Icons.local_gas_station),
               label: const Text('حركة ديزل'),
             ),
           ],
@@ -8665,12 +8665,12 @@ class _DieselState extends State<DieselPage> {
             children: [
               Card(
                 child: ListTile(
-                  leading: Icon(Icons.oil_barrel, color: _cyan),
+                  leading: const Icon(Icons.oil_barrel, color: _cyan),
                   title: const Text('المخزون الحالي'),
                   subtitle: Text('${stock.toStringAsFixed(2)} لتر'),
                   trailing: warning?['warning'] == true
-                      ? Icon(Icons.warning_amber, color: Colors.orange)
-                      : Icon(Icons.check_circle, color: _green),
+                      ? const Icon(Icons.warning_amber, color: Colors.orange)
+                      : const Icon(Icons.check_circle, color: _green),
                 ),
               ),
               const SizedBox(height: 10),
@@ -8707,12 +8707,12 @@ class _DieselState extends State<DieselPage> {
                               IconButton(
                                 tooltip: 'تعديل الملاحظات',
                                 onPressed: () => editMoveNotes(x),
-                                icon: Icon(Icons.edit_note_rounded),
+                                icon: const Icon(Icons.edit_note_rounded),
                               ),
                               IconButton(
                                 tooltip: 'إلغاء الحركة',
                                 onPressed: () => cancelMove(x),
-                                icon: Icon(Icons.cancel_outlined, color: Colors.red),
+                                icon: const Icon(Icons.cancel_outlined, color: Colors.red),
                               ),
                             ],
                           ],
@@ -8764,12 +8764,12 @@ class PartyPaymentActions extends StatelessWidget {
     children: [
       OutlinedButton.icon(
         onPressed: () => _open(context, debt: true),
-        icon: Icon(Icons.note_add_outlined),
+        icon: const Icon(Icons.note_add_outlined),
         label: const Text('إضافة دين سابق'),
       ),
       FilledButton.icon(
         onPressed: () => _open(context, debt: false),
-        icon: Icon(Icons.add_card),
+        icon: const Icon(Icons.add_card),
         label: Text(partyType == 'beneficiary' ? 'قبض نقود' : 'صرف نقود'),
       ),
     ],
@@ -9256,12 +9256,12 @@ class _PaymentsState extends State<PaymentsPage> {
     actions: [
       OutlinedButton.icon(
         onPressed: addPreviousDebt,
-        icon: Icon(Icons.note_add_outlined),
+        icon: const Icon(Icons.note_add_outlined),
         label: const Text('إضافة دين سابق'),
       ),
       FilledButton.icon(
         onPressed: add,
-        icon: Icon(Icons.add_card),
+        icon: const Icon(Icons.add_card),
         label: const Text('تسجيل دفعة'),
       ),
     ],
@@ -9341,13 +9341,13 @@ class _PaymentsState extends State<PaymentsPage> {
                           IconButton(
                             tooltip: 'تعديل سند القبض/الصرف',
                             onPressed: () => add(x),
-                            icon: Icon(Icons.edit_outlined),
+                            icon: const Icon(Icons.edit_outlined),
                           ),
                         if (x['status'] == 'posted')
                           IconButton(
                             tooltip: 'إلغاء الدفعة',
                             onPressed: () => cancelPay(x),
-                            icon: Icon(
+                            icon: const Icon(
                               Icons.cancel_outlined,
                               color: Colors.red,
                             ),
@@ -9366,7 +9366,7 @@ class _PaymentsState extends State<PaymentsPage> {
                               msg(friendlyError(e));
                             }
                           },
-                          icon: Icon(Icons.receipt_long),
+                          icon: const Icon(Icons.receipt_long),
                         ),
 ),
                       ],
@@ -9786,17 +9786,17 @@ class _CashboxesState extends State<CashboxesPage> {
       actions: [
         OutlinedButton.icon(
           onPressed: transfer,
-          icon: Icon(Icons.swap_horiz),
+          icon: const Icon(Icons.swap_horiz),
           label: const Text('تحويل'),
         ),
         OutlinedButton.icon(
           onPressed: addMethod,
-          icon: Icon(Icons.payments),
+          icon: const Icon(Icons.payments),
           label: const Text('طريقة دفع'),
         ),
         FilledButton.icon(
           onPressed: addBox,
-          icon: Icon(Icons.account_balance),
+          icon: const Icon(Icons.account_balance),
           label: const Text('صندوق جديد'),
         ),
       ],
@@ -9834,14 +9834,14 @@ class _CashboxesState extends State<CashboxesPage> {
                   IconButton(
                     tooltip: 'تعديل',
                     onPressed: () => editBox(x),
-                    icon: Icon(Icons.edit_outlined),
+                    icon: const Icon(Icons.edit_outlined),
                   ),
                   IconButton(
                     tooltip: 'حذف',
                     onPressed: () => deleteBox(x),
-                    icon: Icon(Icons.delete_outline, color: Colors.red),
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
                   ),
-                  Icon(Icons.open_in_new),
+                  const Icon(Icons.open_in_new),
                 ],
               ),
             ),
@@ -9873,14 +9873,14 @@ class _CashboxesState extends State<CashboxesPage> {
                   IconButton(
                     tooltip: 'تعديل',
                     onPressed: () => editMethod(x),
-                    icon: Icon(Icons.edit_outlined),
+                    icon: const Icon(Icons.edit_outlined),
                   ),
                   IconButton(
                     tooltip: 'حذف',
                     onPressed: () => deleteMethod(x),
-                    icon: Icon(Icons.delete_outline, color: Colors.red),
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
                   ),
-                  Icon(Icons.open_in_new),
+                  const Icon(Icons.open_in_new),
                 ],
               ),
             ),
@@ -10133,7 +10133,7 @@ class _ExpensesState extends State<ExpensesPage> {
     actions: [
       FilledButton.icon(
         onPressed: add,
-        icon: Icon(Icons.add),
+        icon: const Icon(Icons.add),
         label: const Text('مصروف جديد'),
       ),
     ],
@@ -10186,7 +10186,7 @@ class _ExpensesState extends State<ExpensesPage> {
                         IconButton(
                           tooltip: 'إلغاء المصروف',
                           onPressed: () => cancelExp(x),
-                          icon: Icon(Icons.cancel_outlined, color: Colors.red),
+                          icon: const Icon(Icons.cancel_outlined, color: Colors.red),
                         ),
                     ],
                   ),
@@ -10619,7 +10619,7 @@ class _WorkersState extends State<WorkersPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: Icon(Icons.edit_outlined),
+              leading: const Icon(Icons.edit_outlined),
               title: const Text('تعديل معلومات العامل'),
               onTap: () {
                 Navigator.pop(c);
@@ -10628,7 +10628,7 @@ class _WorkersState extends State<WorkersPage> {
             ),
             if (widget.manager)
               ListTile(
-              leading: Icon(Icons.delete_outline, color: Colors.red),
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
               title: const Text('حذف'),
               onTap: () {
                 Navigator.pop(c);
@@ -10855,19 +10855,19 @@ class _WorkersState extends State<WorkersPage> {
   child: OutlinedButton.icon(
           onPressed: () =>
               ReportService(widget.r).printPdf('worker_transactions'),
-          icon: Icon(Icons.picture_as_pdf_rounded),
+          icon: const Icon(Icons.picture_as_pdf_rounded),
           label: const Text('تقرير العمال'),
         ),
 ),
         if (widget.manager)
           OutlinedButton.icon(
             onPressed: accrueMonthlySalary,
-            icon: Icon(Icons.event_available_rounded),
+            icon: const Icon(Icons.event_available_rounded),
             label: const Text('ترحيل استحقاقات العمال'),
           ),
         FilledButton.icon(
           onPressed: add,
-          icon: Icon(Icons.person_add_alt),
+          icon: const Icon(Icons.person_add_alt),
           label: const Text('عامل جديد'),
         ),
       ],
@@ -10951,7 +10951,7 @@ class _WorkersState extends State<WorkersPage> {
                                               Expanded(
                                                 child: Text(
                                                   '${x['name']}',
-                                                  style: TextStyle(
+                                                  style: const TextStyle(
                                                     fontSize: 17,
                                                     fontWeight: FontWeight.w900,
                                                   ),
@@ -11014,14 +11014,14 @@ style: TextStyle(
                                               children: [
                                                 OutlinedButton.icon(
                                                   onPressed: () => transaction(x),
-                                                  icon: Icon(
+                                                  icon: const Icon(
                                                     Icons.account_balance_wallet_outlined,
                                                   ),
                                                   label: const Text('حركة العامل'),
                                                 ),
                                                 OutlinedButton.icon(
                                                   onPressed: () => sendAccountSummary(x),
-                                                  icon: Icon(Icons.send_rounded),
+                                                  icon: const Icon(Icons.send_rounded),
                                                   label: const Text('إرسال الحساب'),
                                                 ),
                                               ],
@@ -11213,7 +11213,7 @@ class _PartnersState extends State<PartnersPage> {
               children: [
                 Icon(isPercentage ? Icons.percent_rounded : Icons.pie_chart_rounded, color: _reportOliveDark),
                 const SizedBox(width: 8),
-                Expanded(child: Text(basis, style: TextStyle(fontWeight: FontWeight.w800))),
+                Expanded(child: Text(basis, style: const TextStyle(fontWeight: FontWeight.w800))),
               ],
             ),
           ),
@@ -11490,7 +11490,7 @@ class _PartnersState extends State<PartnersPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: Icon(Icons.edit_outlined),
+              leading: const Icon(Icons.edit_outlined),
               title: const Text('تعديل معلومات الشريك'),
               onTap: () {
                 Navigator.pop(c);
@@ -11499,7 +11499,7 @@ class _PartnersState extends State<PartnersPage> {
             ),
             if (widget.manager)
               ListTile(
-              leading: Icon(Icons.delete_outline, color: Colors.red),
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
               title: const Text('حذف'),
               onTap: () {
                 Navigator.pop(c);
@@ -11531,13 +11531,13 @@ class _PartnersState extends State<PartnersPage> {
   ReportService(widget.r).printPdf('partner_accounts')),
   child: OutlinedButton.icon(
           onPressed: () => ReportService(widget.r).printPdf('partner_accounts'),
-          icon: Icon(Icons.picture_as_pdf_rounded),
+          icon: const Icon(Icons.picture_as_pdf_rounded),
           label: const Text('تقرير الشركاء'),
         ),
 ),
         FilledButton.icon(
           onPressed: add,
-          icon: Icon(Icons.group_add),
+          icon: const Icon(Icons.group_add),
           label: const Text('شريك جديد'),
         ),
       ],
@@ -11621,7 +11621,7 @@ class _PartnersState extends State<PartnersPage> {
                                               Expanded(
                                                 child: Text(
                                                   '${x['name']}',
-                                                  style: TextStyle(
+                                                  style: const TextStyle(
                                                     fontSize: 17,
                                                     fontWeight: FontWeight.w900,
                                                   ),
@@ -11683,7 +11683,7 @@ style: TextStyle(
                                               Expanded(
                                                 child: OutlinedButton.icon(
                                                   onPressed: () => share(x),
-                                                  icon: Icon(
+                                                  icon: const Icon(
                                                     Icons.add_chart,
                                                   ),
                                                   label: const Text('استحقاق'),
@@ -11693,7 +11693,7 @@ style: TextStyle(
                                               Expanded(
                                                 child: OutlinedButton.icon(
                                                   onPressed: () => pay(x),
-                                                  icon: Icon(
+                                                  icon: const Icon(
                                                     Icons.payments,
                                                   ),
                                                   label: const Text('دفع'),
@@ -11837,14 +11837,14 @@ class _DateRangeBar extends StatelessWidget {
     children: [
       OutlinedButton.icon(
         onPressed: () => _pick(c, from, onFrom),
-        icon: Icon(Icons.date_range),
+        icon: const Icon(Icons.date_range),
         label: Text(
           from == null ? 'من تاريخ' : 'من ${DateFormat('yyyy/MM/dd').format(from!)}',
         ),
       ),
       OutlinedButton.icon(
         onPressed: () => _pick(c, to, onTo),
-        icon: Icon(Icons.event),
+        icon: const Icon(Icons.event),
         label: Text(
           to == null ? 'إلى تاريخ' : 'إلى ${DateFormat('yyyy/MM/dd').format(to!)}',
         ),
@@ -11852,7 +11852,7 @@ class _DateRangeBar extends StatelessWidget {
       if (from != null || to != null)
         TextButton.icon(
           onPressed: onClear,
-          icon: Icon(Icons.clear),
+          icon: const Icon(Icons.clear),
           label: const Text('مسح التواريخ'),
         ),
     ],
@@ -11938,7 +11938,7 @@ class _JournalState extends State<JournalPage> {
                   Expanded(
                     child: Text(
                       '${head['description']}',
-                      style: TextStyle(fontWeight: FontWeight.w900),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                   ),
                   Text(
@@ -12039,7 +12039,7 @@ class _JournalState extends State<JournalPage> {
       actions: [
         OutlinedButton.icon(
           onPressed: load,
-          icon: Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh),
           label: const Text('تحديث'),
         ),
       ],
@@ -12233,7 +12233,7 @@ class _LedgerState extends State<LedgerPage> {
                 children: [
                   if (x['party_name'] != null)
                     ActionChip(
-                      avatar: Icon(Icons.person_outline, size: 16),
+                      avatar: const Icon(Icons.person_outline, size: 16),
                       label: Text('${x['party_name']}'),
                       onPressed: () => _openLedgerParty(c, widget.r, x),
                     ),
@@ -12248,11 +12248,11 @@ class _LedgerState extends State<LedgerPage> {
                 children: [
                   Text(
                     'عليه: ${d > 0 ? money(d) : '—'}',
-                    style: TextStyle(color: _reportOrange, fontWeight: FontWeight.w800, fontSize: 12),
+                    style: const TextStyle(color: _reportOrange, fontWeight: FontWeight.w800, fontSize: 12),
                   ),
                   Text(
                     'له: ${cr > 0 ? money(cr) : '—'}',
-                    style: TextStyle(color: _reportGreen, fontWeight: FontWeight.w800, fontSize: 12),
+                    style: const TextStyle(color: _reportGreen, fontWeight: FontWeight.w800, fontSize: 12),
                   ),
                   Text(
                     'الرصيد الجاري: ${_drLabel((x['balance'] as num?)?.round() ?? 0)}',
@@ -12279,13 +12279,13 @@ class _LedgerState extends State<LedgerPage> {
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_printLedger),
   child: OutlinedButton.icon(
           onPressed: loading ? null : _printLedger,
-          icon: Icon(Icons.print_rounded),
+          icon: const Icon(Icons.print_rounded),
           label: const Text('طباعة كشف الحساب'),
         ),
 ),
         OutlinedButton.icon(
           onPressed: loading ? null : _init,
-          icon: Icon(Icons.refresh),
+          icon: const Icon(Icons.refresh),
           label: const Text('تحديث'),
         ),
       ],
@@ -12447,14 +12447,13 @@ class _LedgerState extends State<LedgerPage> {
   }
 }
 
-Color get _reportOlive => SaqiaTheme.reportAccent;
-Color get _reportOliveDark => SaqiaTheme.reportAccentDark;
-Color get _reportCream => SaqiaTheme.reportBackground;
-Color get _reportSurface => SaqiaTheme.reportSurface;
-Color get _reportInk => SaqiaTheme.reportInk;
-Color get _reportGreen => SaqiaTheme.reportPositive;
-Color get _reportOrange => SaqiaTheme.reportNegative;
-Color get _reportLine => SaqiaTheme.reportOutline;
+const _reportOlive = Color(0xff777648);
+const _reportOliveDark = Color(0xff575633);
+const _reportCream = Color(0xffF4F3E9);
+const _reportInk = Color(0xff263027);
+const _reportGreen = Color(0xff169B58);
+const _reportOrange = Color(0xffDE7732);
+const _reportLine = Color(0xffDDE1D5);
 
 
 /// أزرار الفترات الموحدة لكل معاينات التقارير ذات نطاق التاريخ.
@@ -12495,22 +12494,22 @@ List<Widget> reportQuickRangeButtons(
   return [
     OutlinedButton.icon(
       onPressed: () => choose('today'),
-      icon: Icon(Icons.today_rounded, size: 16),
+      icon: const Icon(Icons.today_rounded, size: 16),
       label: const Text('اليوم'),
     ),
     OutlinedButton.icon(
       onPressed: () => choose('week'),
-      icon: Icon(Icons.view_week_rounded, size: 16),
+      icon: const Icon(Icons.view_week_rounded, size: 16),
       label: const Text('هذا الأسبوع'),
     ),
     OutlinedButton.icon(
       onPressed: () => choose('month'),
-      icon: Icon(Icons.calendar_month_rounded, size: 16),
+      icon: const Icon(Icons.calendar_month_rounded, size: 16),
       label: const Text('هذا الشهر'),
     ),
     OutlinedButton.icon(
       onPressed: () => choose('financial'),
-      icon: Icon(Icons.account_balance_rounded, size: 16),
+      icon: const Icon(Icons.account_balance_rounded, size: 16),
       label: const Text('السنة المالية'),
     ),
   ];
@@ -12709,13 +12708,13 @@ class _ReportsState extends State<ReportsPage> {
     _=>'معاينة البيانات والفلاتر والطباعة',
   };
   bool _allowedReport(String k) => currentType == 'diesel' || (k != 'diesel_inventory' && k != 'oil_status');
-  Widget _reportCard(String k){final title=ReportService.titles[k]??'تقرير';return Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .08),blurRadius:18,offset:const Offset(0,7))]),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(_icon(k),color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Text(title,softWrap:true,style:TextStyle(fontWeight:FontWeight.w900,fontSize:16,color:_reportInk))),Icon(Icons.swipe_rounded,size:20,color:_reportOlive)]),const SizedBox(height:14),Expanded(child:Align(alignment:Alignment.topRight,child:Text(_description(k),softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha: .72),fontSize:13,height:1.5)))),const SizedBox(height:10),Row(children:[Expanded(child:OutlinedButton.icon(onPressed:()=>previewR(k),style:OutlinedButton.styleFrom(foregroundColor:_reportOliveDark,side:const BorderSide(color:_reportLine),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:Icon(Icons.visibility_outlined,size:18),label:const Text('معاينة كاملة'))),const SizedBox(width:10),ReportPdfLongPress(
+  Widget _reportCard(String k){final title=ReportService.titles[k]??'تقرير';return Container(padding:const EdgeInsets.all(18),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .08),blurRadius:18,offset:const Offset(0,7))]),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(_icon(k),color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Text(title,softWrap:true,style:const TextStyle(fontWeight:FontWeight.w900,fontSize:16,color:_reportInk))),const Icon(Icons.swipe_rounded,size:20,color:_reportOlive)]),const SizedBox(height:14),Expanded(child:Align(alignment:Alignment.topRight,child:Text(_description(k),softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha: .72),fontSize:13,height:1.5)))),const SizedBox(height:10),Row(children:[Expanded(child:OutlinedButton.icon(onPressed:()=>previewR(k),style:OutlinedButton.styleFrom(foregroundColor:_reportOliveDark,side:const BorderSide(color:_reportLine),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.visibility_outlined,size:18),label:const Text('معاينة كاملة'))),const SizedBox(width:10),ReportPdfLongPress(
   enabled: true,
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => printR(k)),
-  child: FilledButton.tonalIcon(onPressed:()=>printR(k),style:FilledButton.styleFrom(foregroundColor:_reportOliveDark,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:Icon(Icons.print_rounded,size:18),label:const Text('PDF')),
+  child: FilledButton.tonalIcon(onPressed:()=>printR(k),style:FilledButton.styleFrom(foregroundColor:_reportOliveDark,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:const Icon(Icons.print_rounded,size:18),label:const Text('PDF')),
 )])]));}
-  @override Widget build(BuildContext c)=>Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مركز التقارير',style:TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:IconButton(onPressed:load,icon:Icon(Icons.refresh_rounded)))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,32),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(28)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('تقاريرك المالية والتشغيلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:13)),const SizedBox(height:7),const Text('كل الأرقام في نظرة واضحة',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:23)),const SizedBox(height:10),Text('اختر فترة ثم افتح التقرير أو اطبعه PDF',style:TextStyle(color:Colors.white.withValues(alpha: .78),fontSize:12))]),),Container(width:68,height:68,decoration:BoxDecoration(color:Colors.white.withValues(alpha: .15),shape:BoxShape.circle),child:Icon(Icons.insights_rounded,color:Colors.white,size:35))])),const SizedBox(height:16),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Icon(Icons.tune_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('نطاق التقرير',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),const Spacer(),TextButton(onPressed:()=>setState((){_dateFilterEdited=true;from=null;to=null;bid=null;wid=pid=cid=mid=null;category=status=null;type = currentType;}),child:const Text('مسح الكل'))]),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[for(final qr in _quickRanges())ChoiceChip(label:Text(qr.$1),selected:from==qr.$2&&to==qr.$3,onSelected:(_)=>setState((){_dateFilterEdited=true;from=qr.$2;to=qr.$3;}),selectedColor:_reportOliveDark, labelStyle:TextStyle(color:from==qr.$2&&to==qr.$3?Colors.white:_reportInk)),OutlinedButton.icon(onPressed:()async{final value=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:from??AppClock.now(),locale:const Locale('ar'));if(value!=null&&mounted)setState((){_dateFilterEdited=true;from=value;});},icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.year}/${from!.month}/${from!.day}')),OutlinedButton.icon(onPressed:()async{final value=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:to??AppClock.now(),locale:const Locale('ar'));if(value!=null&&mounted)setState((){_dateFilterEdited=true;to=value;});},icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.year}/${to!.month}/${to!.day}'))]),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[sel<int>('الصندوق',cid,[const DropdownMenuItem(value:null,child:Text('كل الصناديق')),for(final x in cs)DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']}'))],(v)=>setState(()=>cid=v))])])),const SizedBox(height:22),for(final group in ['السقايات والإيرادات','المالية والحركة','كشوف الحساب','دفتر الأستاذ','التشغيل والمتابعة']) _reportGroup(group)])));
-  Widget _reportGroup(String group){final items=ReportsPage.keys.where((k)=>_group(k)==group&&_allowedReport(k)).toList();return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:6,height:24,decoration:BoxDecoration(color:_reportOliveDark,borderRadius:BorderRadius.circular(5))),const SizedBox(width:9),Expanded(child:Text(group,style:TextStyle(fontSize:19,fontWeight:FontWeight.w900,color:_reportInk))),Text('${items.length} تقارير',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:12))]),const SizedBox(height:11),if(items.isNotEmpty)SizedBox(height:228,child:PageView.builder(scrollDirection:Axis.horizontal,physics:const PageScrollPhysics(),padEnds:true,itemCount:items.length,controller:(_reportControllers[group]??=PageController(viewportFraction:.91)),itemBuilder:(context,index)=>Padding(padding:const EdgeInsetsDirectional.only(end:10,bottom:4),child:_reportCard(items[index])))),if(items.length>1)Padding(padding:const EdgeInsets.only(top:7),child:Center(child:Text('اسحب أفقيًا لاستعراض البطاقات • ${items.length} تقارير',style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:11)))),const SizedBox(height:25)]);}
+  @override Widget build(BuildContext c)=>Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مركز التقارير',style:TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:16),child:IconButton(onPressed:load,icon:const Icon(Icons.refresh_rounded)))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,32),children:[Container(padding:const EdgeInsets.all(22),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(28)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('تقاريرك المالية والتشغيلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:13)),const SizedBox(height:7),const Text('كل الأرقام في نظرة واضحة',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:23)),const SizedBox(height:10),Text('اختر فترة ثم افتح التقرير أو اطبعه PDF',style:TextStyle(color:Colors.white.withValues(alpha: .78),fontSize:12))]),),Container(width:68,height:68,decoration:BoxDecoration(color:Colors.white.withValues(alpha: .15),shape:BoxShape.circle),child:const Icon(Icons.insights_rounded,color:Colors.white,size:35))])),const SizedBox(height:16),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[const Icon(Icons.tune_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('نطاق التقرير',style:TextStyle(fontWeight:FontWeight.w900,fontSize:16)),const Spacer(),TextButton(onPressed:()=>setState((){_dateFilterEdited=true;from=null;to=null;bid=null;wid=pid=cid=mid=null;category=status=null;type = currentType;}),child:const Text('مسح الكل'))]),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[for(final qr in _quickRanges())ChoiceChip(label:Text(qr.$1),selected:from==qr.$2&&to==qr.$3,onSelected:(_)=>setState((){_dateFilterEdited=true;from=qr.$2;to=qr.$3;}),selectedColor:_reportOliveDark, labelStyle:TextStyle(color:from==qr.$2&&to==qr.$3?Colors.white:_reportInk)),OutlinedButton.icon(onPressed:()async{final value=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:from??AppClock.now(),locale:const Locale('ar'));if(value!=null&&mounted)setState((){_dateFilterEdited=true;from=value;});},icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.year}/${from!.month}/${from!.day}')),OutlinedButton.icon(onPressed:()async{final value=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:to??AppClock.now(),locale:const Locale('ar'));if(value!=null&&mounted)setState((){_dateFilterEdited=true;to=value;});},icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.year}/${to!.month}/${to!.day}'))]),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[sel<int>('الصندوق',cid,[const DropdownMenuItem(value:null,child:Text('كل الصناديق')),for(final x in cs)DropdownMenuItem(value:x['id'] as int,child:Text('${x['name']}'))],(v)=>setState(()=>cid=v))])])),const SizedBox(height:22),for(final group in ['السقايات والإيرادات','المالية والحركة','كشوف الحساب','دفتر الأستاذ','التشغيل والمتابعة']) _reportGroup(group)])));
+  Widget _reportGroup(String group){final items=ReportsPage.keys.where((k)=>_group(k)==group&&_allowedReport(k)).toList();return Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:6,height:24,decoration:BoxDecoration(color:_reportOliveDark,borderRadius:BorderRadius.circular(5))),const SizedBox(width:9),Expanded(child:Text(group,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,color:_reportInk))),Text('${items.length} تقارير',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:12))]),const SizedBox(height:11),if(items.isNotEmpty)SizedBox(height:228,child:PageView.builder(scrollDirection:Axis.horizontal,physics:const PageScrollPhysics(),padEnds:true,itemCount:items.length,controller:(_reportControllers[group]??=PageController(viewportFraction:.91)),itemBuilder:(context,index)=>Padding(padding:const EdgeInsetsDirectional.only(end:10,bottom:4),child:_reportCard(items[index])))),if(items.length>1)Padding(padding:const EdgeInsets.only(top:7),child:Center(child:Text('اسحب أفقيًا لاستعراض البطاقات • ${items.length} تقارير',style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:11)))),const SizedBox(height:25)]);}
 }
 
 String? reportFieldArabic(String key) => {
@@ -12855,7 +12854,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: _reportSurface,
+            color: Colors.white,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: _reportLine),
           ),
@@ -12877,7 +12876,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
                   children: [
                     Text(label, style: TextStyle(color: _reportInk.withValues(alpha: .55), fontSize: 11)),
                     const SizedBox(height: 3),
-                    Text(value, style: TextStyle(fontWeight: FontWeight.w900, color: _reportInk, fontSize: 16)),
+                    Text(value, style: const TextStyle(fontWeight: FontWeight.w900, color: _reportInk, fontSize: 16)),
                   ],
                 ),
               ),
@@ -12904,7 +12903,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
           crossAxisAlignment:CrossAxisAlignment.stretch,
           children:[
             Row(children:[
-              Container(width:30,height:30,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${index+1}',style:TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900)))),
+              Container(width:30,height:30,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${index+1}',style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900)))),
               const SizedBox(width:10),
               Expanded(child:Text(
                 _value(entries.isNotEmpty?entries.first.key:'description', entries.isNotEmpty?entries.first.value:null),
@@ -12914,7 +12913,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
                     ? TextDirection.ltr
                     : null,
                 softWrap:true,
-                style:TextStyle(fontWeight:FontWeight.w800,color:_reportInk),
+                style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk),
               )),
               if(row['lah']!=null&&((row['lah'] as num?)?.abs()??0)>0)_badge('له','${row['lah']}',_reportGreen),
               if(row['alayh']!=null&&((row['alayh'] as num?)?.abs()??0)>0)_badge('عليه','${row['alayh']}',_reportOrange),
@@ -13085,10 +13084,10 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
             collective: widget.beneficiaryId == null,
           )}'
         : (visibleRows.isEmpty ? '-' : '${visibleRows.last['balance'] ?? '-'}');
-    return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(_title(),style:TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:12),child:ReportPdfLongPress(
+    return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(_title(),style:const TextStyle(fontWeight:FontWeight.w900)),actions:[Padding(padding:const EdgeInsetsDirectional.only(end:12),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_printReport),
-  child: FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))),onPressed:_printReport,icon:Icon(Icons.print_rounded),label:const Text('PDF')),
-))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(26)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التقرير',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(_title(),style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(widget.filters.trim().isEmpty?'كل الفترات':widget.filters,style:TextStyle(color:Colors.white.withValues(alpha: .8),fontSize:11))]),),Icon(Icons.assessment_rounded,color:Colors.white,size:48)])),const SizedBox(height:14),if(_hasBeneficiarySearch) ...[
+  child: FilledButton.icon(style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(14))),onPressed:_printReport,icon:const Icon(Icons.print_rounded),label:const Text('PDF')),
+))]),body:ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(26)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التقرير',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(_title(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:6),Text(widget.filters.trim().isEmpty?'كل الفترات':widget.filters,style:TextStyle(color:Colors.white.withValues(alpha: .8),fontSize:11))]),),const Icon(Icons.assessment_rounded,color:Colors.white,size:48)])),const SizedBox(height:14),if(_hasBeneficiarySearch) ...[
   const SizedBox(height:14),
   TextField(
     onChanged:(value)=>setState(()=>search=value),
@@ -13103,7 +13102,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
 const SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<int>(initialValue:_selectedPaymentMethodId,items:[const DropdownMenuItem<int>(value:null,child:Text('كل طرق الدفع')),for(final method in widget.paymentMethods)DropdownMenuItem<int>(value:method['id'] as int,child:Text('${method['name']}'))],onChanged:_applyPaymentMethod,decoration:const InputDecoration(labelText:'طريقة الدفع',border:OutlineInputBorder(),prefixIcon:Icon(Icons.payments_rounded)))),if(_hasQueueBookingStatusFilter) Padding(padding:const EdgeInsets.only(bottom:14),child:DropdownButtonFormField<String>(initialValue:_selectedQueueBookingStatus,items:[const DropdownMenuItem<String>(value:null,child:Text('كل حالات الطابور والحجز')),for(final value in _queueBookingStatuses)DropdownMenuItem<String>(value:value,child:Text(statusName(value)))],onChanged:_applyQueueBookingStatus,decoration:const InputDecoration(labelText:'حالة الطابور والحجز',border:OutlineInputBorder(),prefixIcon:Icon(Icons.event_available_rounded)))),Row(children:[_metric('عدد السجلات','${visibleRows.length}',Icons.view_list_rounded,_reportOliveDark),const SizedBox(width:10),_metric(widget.keyName == 'beneficiary_statement' && widget.beneficiaryId == null ? 'إجمالي الرصيد الختامي' : 'آخر رصيد',net,Icons.account_balance_wallet_rounded,net.startsWith('-')?_reportOrange:_reportGreen)]),const SizedBox(height:16),if(visibleRows.isEmpty)Container(padding:const EdgeInsets.all(35),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(22)),child:const Column(children:[Icon(Icons.inbox_rounded,size:44,color:_reportOlive),SizedBox(height:10),Text('لا توجد بيانات مطابقة للفلاتر المحددة',style:TextStyle(fontWeight:FontWeight.w700))]))else ...[
   Row(
     children: [
-      Icon(Icons.view_agenda_rounded, color: _reportOliveDark),
+      const Icon(Icons.view_agenda_rounded, color: _reportOliveDark),
       const SizedBox(width: 8),
       const Expanded(
         child: Text(
@@ -13213,19 +13212,19 @@ class _RevenueComparisonsState extends State<RevenueComparisonsPage>{
   Future<void> _print()async{try{await ReportService(widget.r).printPdf('time_comparison',from:from,to:to,systemType:'all');}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   int _n(Object? v)=>(v as num?)?.round()??0;
   String _month(Object? v){final s='$v';final p=s.split('-');const n=['','يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];final m=int.tryParse(p.length>1?p[1]:'')??0;return m>0&&m<13?'${n[m]} ${p.first}':s;}
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(icon,color:color,size:21),const SizedBox(width:8),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15))]))])));
-  Widget _monthCard(String m,Map<String,int> a,Map<String,int>? previous,int maxMonth,int index){final old=previous?['total']??0;final change=old<=0?0:((a['total']!-old)*100/old);final color=change>=0?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Icon(Icons.calendar_today_rounded,color:_reportOliveDark,size:20),const SizedBox(width:8),Expanded(child:Text(_month(m),style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk,fontSize:15))),Text(money(a['total']??0),style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:16))]),const SizedBox(height:10),ClipRRect(borderRadius:BorderRadius.circular(5),child:LinearProgressIndicator(value:maxMonth<=0?0:(a['total']??0)/maxMonth,minHeight:9,backgroundColor:_reportCream,color:_reportGreen)),const SizedBox(height:8),Row(children:[Text('${a['operations']} عملية • ${a['minutes']} دقيقة',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:10)),const Spacer(),Text(index==0?'بداية المقارنة':'${change>=0?'+':''}${change.toStringAsFixed(1)}% عن الشهر السابق',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:10))])]));}
-  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['total']));final ops=rows.fold<int>(0,(s,x)=>s+_n(x['operations']));final minutes=rows.fold<int>(0,(s,x)=>s+_n(x['minutes']));final months=<String,Map<String,int>>{};final systems=<String,Map<String,int>>{};for(final x in rows){final m='${x['month']}';final st='${x['system_type']}';final a=months.putIfAbsent(m,()=>{'total':0,'operations':0,'minutes':0});a['total']=(a['total']??0)+_n(x['total']);a['operations']=(a['operations']??0)+_n(x['operations']);a['minutes']=(a['minutes']??0)+_n(x['minutes']);final b=systems.putIfAbsent(st,()=>{'total':0,'operations':0,'minutes':0});b['total']=(b['total']??0)+_n(x['total']);b['operations']=(b['operations']??0)+_n(x['operations']);b['minutes']=(b['minutes']??0)+_n(x['minutes']);}final maxMonth=months.values.fold<int>(0,(m,x)=>(x['total']??0)>m?(x['total']??0):m);final maxSystem=systems.values.fold<int>(0,(m,x)=>(x['total']??0)>m?(x['total']??0):m);final monthKeys=months.keys.toList()..sort();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مقارنات الإيرادات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(icon,color:color,size:21),const SizedBox(width:8),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15))]))])));
+  Widget _monthCard(String m,Map<String,int> a,Map<String,int>? previous,int maxMonth,int index){final old=previous?['total']??0;final change=old<=0?0:((a['total']!-old)*100/old);final color=change>=0?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[const Icon(Icons.calendar_today_rounded,color:_reportOliveDark,size:20),const SizedBox(width:8),Expanded(child:Text(_month(m),style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk,fontSize:15))),Text(money(a['total']??0),style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:16))]),const SizedBox(height:10),ClipRRect(borderRadius:BorderRadius.circular(5),child:LinearProgressIndicator(value:maxMonth<=0?0:(a['total']??0)/maxMonth,minHeight:9,backgroundColor:_reportCream,color:_reportGreen)),const SizedBox(height:8),Row(children:[Text('${a['operations']} عملية • ${a['minutes']} دقيقة',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:10)),const Spacer(),Text(index==0?'بداية المقارنة':'${change>=0?'+':''}${change.toStringAsFixed(1)}% عن الشهر السابق',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:10))])]));}
+  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['total']));final ops=rows.fold<int>(0,(s,x)=>s+_n(x['operations']));final minutes=rows.fold<int>(0,(s,x)=>s+_n(x['minutes']));final months=<String,Map<String,int>>{};final systems=<String,Map<String,int>>{};for(final x in rows){final m='${x['month']}';final st='${x['system_type']}';final a=months.putIfAbsent(m,()=>{'total':0,'operations':0,'minutes':0});a['total']=(a['total']??0)+_n(x['total']);a['operations']=(a['operations']??0)+_n(x['operations']);a['minutes']=(a['minutes']??0)+_n(x['minutes']);final b=systems.putIfAbsent(st,()=>{'total':0,'operations':0,'minutes':0});b['total']=(b['total']??0)+_n(x['total']);b['operations']=(b['operations']??0)+_n(x['operations']);b['minutes']=(b['minutes']??0)+_n(x['minutes']);}final maxMonth=months.values.fold<int>(0,(m,x)=>(x['total']??0)>m?(x['total']??0):m);final maxSystem=systems.values.fold<int>(0,(m,x)=>(x['total']??0)>m?(x['total']??0):m);final monthKeys=months.keys.toList()..sort();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('مقارنات الإيرادات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
-  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الاتجاهات المالية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('مقارنات الإيرادات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('قياس نمو الدخل بين الأشهر والمنظومات',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.compare_arrows_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.day}/${from!.month}/${from!.year}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.day}/${to!.month}/${to!.year}')),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الاتجاهات المالية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('مقارنات الإيرادات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('قياس نمو الدخل بين الأشهر والمنظومات',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.compare_arrows_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${from!.day}/${from!.month}/${from!.year}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${to!.day}/${to!.month}/${to!.year}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),TextButton.icon(onPressed:(){final now=AppClock.now();setState((){from=DateTime(now.year,1,1);to=DateTime(now.year,now.month,now.day);});_load();},icon:Icon(Icons.calendar_view_month_rounded,size:16),label:const Text('هذا العام')),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])),const SizedBox(height:12),Row(children:[_kpi('إجمالي الإيرادات',money(total),Icons.trending_up_rounded,_reportGreen),const SizedBox(width:8),_kpi('عدد العمليات','$ops',Icons.format_list_numbered_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي الدقائق','$minutes د',Icons.timer_rounded,_reportOliveDark)]),const SizedBox(height:18),Row(children:[Icon(Icons.calendar_month_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('مقارنة الأشهر',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${monthKeys.length} شهر',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(monthKeys.isEmpty)const EmptyView('لا توجد إيرادات للمقارنة')else ...[for(var i=0;i<monthKeys.length;i++)_monthCard(monthKeys[i],months[monthKeys[i]]!,i==0?null:months[monthKeys[i-1]],maxMonth,i)],const SizedBox(height:14),const Row(children:[Icon(Icons.category_rounded,color:_reportOliveDark),SizedBox(width:8),Text('مقارنة المنظومات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk))]),const SizedBox(height:10),for(final e in systems.entries)Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Expanded(child:Text(systemName(e.key),style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk))),Text(money(e.value['total']??0),style:TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900))]),const SizedBox(height:8),ClipRRect(borderRadius:BorderRadius.circular(5),child:LinearProgressIndicator(value:maxSystem<=0?0:(e.value['total']??0)/maxSystem,minHeight:8,backgroundColor:_reportCream,color:_reportOliveDark)),const SizedBox(height:6),Align(alignment:Alignment.centerRight,child:Text('${e.value['operations']} عملية • ${e.value['minutes']} دقيقة',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:10)))]))])));}
+        ),TextButton.icon(onPressed:(){final now=AppClock.now();setState((){from=DateTime(now.year,1,1);to=DateTime(now.year,now.month,now.day);});_load();},icon:const Icon(Icons.calendar_view_month_rounded,size:16),label:const Text('هذا العام')),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])),const SizedBox(height:12),Row(children:[_kpi('إجمالي الإيرادات',money(total),Icons.trending_up_rounded,_reportGreen),const SizedBox(width:8),_kpi('عدد العمليات','$ops',Icons.format_list_numbered_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي الدقائق','$minutes د',Icons.timer_rounded,_reportOliveDark)]),const SizedBox(height:18),Row(children:[const Icon(Icons.calendar_month_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('مقارنة الأشهر',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${monthKeys.length} شهر',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(monthKeys.isEmpty)const EmptyView('لا توجد إيرادات للمقارنة')else ...[for(var i=0;i<monthKeys.length;i++)_monthCard(monthKeys[i],months[monthKeys[i]]!,i==0?null:months[monthKeys[i-1]],maxMonth,i)],const SizedBox(height:14),const Row(children:[Icon(Icons.category_rounded,color:_reportOliveDark),SizedBox(width:8),Text('مقارنة المنظومات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk))]),const SizedBox(height:10),for(final e in systems.entries)Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Expanded(child:Text(systemName(e.key),style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk))),Text(money(e.value['total']??0),style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900))]),const SizedBox(height:8),ClipRRect(borderRadius:BorderRadius.circular(5),child:LinearProgressIndicator(value:maxSystem<=0?0:(e.value['total']??0)/maxSystem,minHeight:8,backgroundColor:_reportCream,color:_reportOliveDark)),const SizedBox(height:6),Align(alignment:Alignment.centerRight,child:Text('${e.value['operations']} عملية • ${e.value['minutes']} دقيقة',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:10)))]))])));}
 }
 
 class MonthlyFinancialReportPage extends StatefulWidget {
@@ -13265,20 +13264,20 @@ class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
   int _n(Object? v)=>(v as num?)?.round()??0;
   String _month(Object? v){final s='$v';final p=s.split('-');const names=['','يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];final m=int.tryParse(p.length>1?p[1]:'')??0;return m>0&&m<13?'${names[m]} ${p.first}':s;}
   String _date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:4),Text(value,style:TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
-  Widget _monthCard(Map<String,Object?> x,int maxValue){final income=_n(x['income']);final expenses=_n(x['expenses']);final net=income-expenses;final margin=income<=0?0:net*100/income;final color=net>=0?_reportGreen:_reportOrange;final incomeWidth=maxValue<=0?0.0:income/maxValue;final expenseWidth=maxValue<=0?0.0:expenses/maxValue;return Container(margin:const EdgeInsets.only(bottom:12),padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(Icons.calendar_month_rounded,color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Text(_month(x['month']),style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:17))),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text('صافي النتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),Text(money(net),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:17))])]),const SizedBox(height:14),_bar('الإيرادات',income,incomeWidth,_reportGreen),const SizedBox(height:8),_bar('المصروفات',expenses,expenseWidth,_reportOrange),const SizedBox(height:12),Row(children:[Text('الهامش ${margin.toStringAsFixed(1)}%',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:11)),const Spacer(),Text('إيرادات ${money(income)} • مصروفات ${money(expenses)}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))]) ]));}
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
+  Widget _monthCard(Map<String,Object?> x,int maxValue){final income=_n(x['income']);final expenses=_n(x['expenses']);final net=income-expenses;final margin=income<=0?0:net*100/income;final color=net>=0?_reportGreen:_reportOrange;final incomeWidth=maxValue<=0?0.0:income/maxValue;final expenseWidth=maxValue<=0?0.0:expenses/maxValue;return Container(margin:const EdgeInsets.only(bottom:12),padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:const Icon(Icons.calendar_month_rounded,color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Text(_month(x['month']),style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:17))),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text('صافي النتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),Text(money(net),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:17))])]),const SizedBox(height:14),_bar('الإيرادات',income,incomeWidth,_reportGreen),const SizedBox(height:8),_bar('المصروفات',expenses,expenseWidth,_reportOrange),const SizedBox(height:12),Row(children:[Text('الهامش ${margin.toStringAsFixed(1)}%',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:11)),const Spacer(),Text('إيرادات ${money(income)} • مصروفات ${money(expenses)}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))]) ]));}
   Widget _bar(String label,int value,double width,Color color)=>Row(children:[SizedBox(width:65,child:Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11))),Expanded(child:ClipRRect(borderRadius:BorderRadius.circular(5),child:LinearProgressIndicator(value:width,minHeight:9,backgroundColor:_reportCream,color:color))),const SizedBox(width:8),SizedBox(width:72,child:Text(money(value),textAlign:TextAlign.end,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:11))) ]);
-  @override Widget build(BuildContext context){final income=rows.fold<int>(0,(s,x)=>s+_n(x['income']));final expenses=rows.fold<int>(0,(s,x)=>s+_n(x['expenses']));final net=income-expenses;final maxValue=rows.fold<int>(0,(m,x){final a=_n(x['income']);final b=_n(x['expenses']);return a>b?(a>m?a:m):(b>m?b:m);});final margin=income<=0?0:net*100/income;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('التقرير المالي الشهري',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  @override Widget build(BuildContext context){final income=rows.fold<int>(0,(s,x)=>s+_n(x['income']));final expenses=rows.fold<int>(0,(s,x)=>s+_n(x['expenses']));final net=income-expenses;final maxValue=rows.fold<int>(0,(m,x){final a=_n(x['income']);final b=_n(x['expenses']);return a>b?(a>m?a:m):(b>m?b:m);});final margin=income<=0?0:net*100/income;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('التقرير المالي الشهري',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
-  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الأداء المالي',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('التقرير المالي الشهري',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مقارنة الإيرادات والمصروفات وصافي النتيجة لكل شهر',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.insights_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الأداء المالي',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('التقرير المالي الشهري',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مقارنة الإيرادات والمصروفات وصافي النتيجة لكل شهر',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.insights_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),TextButton.icon(onPressed:(){final now=AppClock.now();setState((){from=DateTime(now.year,1,1);to=DateTime(now.year,now.month,now.day);});_load();},icon:Icon(Icons.calendar_view_month_rounded,size:16),label:const Text('هذا العام')),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])),const SizedBox(height:12),Row(children:[_kpi('الإيرادات',money(income),Icons.trending_up_rounded,_reportGreen),const SizedBox(width:8),_kpi('المصروفات',money(expenses),Icons.receipt_long_rounded,_reportOrange),const SizedBox(width:8),_kpi('صافي النتيجة',money(net),Icons.account_balance_wallet_rounded,net>=0?_reportGreen:_reportOrange)]),const SizedBox(height:10),Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.speed_rounded,color:_reportOliveDark),const SizedBox(width:9),const Text('الهامش المالي العام',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('${margin.toStringAsFixed(1)}%',style:TextStyle(color:net>=0?_reportGreen:_reportOrange,fontSize:19,fontWeight:FontWeight.w900))])),const SizedBox(height:18),Row(children:[Icon(Icons.bar_chart_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('الأداء حسب الشهر',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${rows.length} شهر',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(rows.isEmpty)const EmptyView('لا توجد بيانات مالية في الفترة المحددة')else ...[for(final x in rows)_monthCard(x,maxValue)]])));}
+        ),TextButton.icon(onPressed:(){final now=AppClock.now();setState((){from=DateTime(now.year,1,1);to=DateTime(now.year,now.month,now.day);});_load();},icon:const Icon(Icons.calendar_view_month_rounded,size:16),label:const Text('هذا العام')),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])),const SizedBox(height:12),Row(children:[_kpi('الإيرادات',money(income),Icons.trending_up_rounded,_reportGreen),const SizedBox(width:8),_kpi('المصروفات',money(expenses),Icons.receipt_long_rounded,_reportOrange),const SizedBox(width:8),_kpi('صافي النتيجة',money(net),Icons.account_balance_wallet_rounded,net>=0?_reportGreen:_reportOrange)]),const SizedBox(height:10),Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.speed_rounded,color:_reportOliveDark),const SizedBox(width:9),const Text('الهامش المالي العام',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('${margin.toStringAsFixed(1)}%',style:TextStyle(color:net>=0?_reportGreen:_reportOrange,fontSize:19,fontWeight:FontWeight.w900))])),const SizedBox(height:18),Row(children:[const Icon(Icons.bar_chart_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('الأداء حسب الشهر',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${rows.length} شهر',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(rows.isEmpty)const EmptyView('لا توجد بيانات مالية في الفترة المحددة')else ...[for(final x in rows)_monthCard(x,maxValue)]])));}
 }
 
 class CashboxesTransfersReportPage extends StatefulWidget {
@@ -13320,24 +13319,24 @@ class _CashboxesTransfersReportState extends State<CashboxesTransfersReportPage>
   bool _dateOk(Object? v){final d=DateTime.tryParse('$v');return d==null||(from==null||!d.isBefore(from!))&&(to==null||d.isBefore(to!.add(const Duration(days:1))));}
   List<Map<String,Object?>> get visibleTransfers{final q=search.trim().toLowerCase();return transfers.where((x)=>_dateOk(x['date'])&&(q.isEmpty||'${x['from_cashbox']??''} ${x['to_cashbox']??''} ${x['notes']??''}'.toLowerCase().contains(q))).toList();}
   List<Map<String,Object?>> get visibleFlow{final q=search.trim().toLowerCase();return flow.where((x)=>_dateOk(x['date'])&&(q.isEmpty||'${x['title']??''} ${x['kind']??''}'.toLowerCase().contains(q))).toList();}
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(icon,color:color,size:21),const SizedBox(width:8),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15))]))])));
-  Widget _boxCard(Map<String,Object?> x){final balance=_n(x['current_balance']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:Icon(Icons.account_balance_wallet_rounded,color:_reportOliveDark)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??'صندوق'}',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),const SizedBox(height:4),Text('الحساب النقدي المرتبط بالصندوق',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text('الرصيد',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),Text(money(balance),style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:17))]) ]));}
-  Widget _transferCard(Map<String,Object?> x){return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:_reportOlive.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(Icons.swap_horiz_rounded,color:_reportOliveDark)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['from_cashbox']??'صندوق غير محدد'}  ←  ${x['to_cashbox']??'صندوق غير محدد'}',style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:4),Text('${_date(x['date'])} • ${x['notes']??'تحويل داخلي'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Text(money(_n(x['amount'])),style:TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900,fontSize:16))]));}
-  Widget _flowCard(Map<String,Object?> x){final amount=_n(x['amount']);final positive=amount>=0;final color=positive?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Row(children:[Icon(positive?Icons.arrow_downward_rounded:Icons.arrow_upward_rounded,color:color),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['title']??'حركة نقدية'}',style:TextStyle(fontWeight:FontWeight.w800,color:_reportInk)),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),Text(positive?'له ${money(amount)}':'عليه ${money(amount.abs())}',style:TextStyle(color:color,fontWeight:FontWeight.w900))]));}
-  @override Widget build(BuildContext context){final boxBalance=boxes.fold<int>(0,(s,x)=>s+_n(x['current_balance']));final transferIn=visibleTransfers.fold<int>(0,(s,x)=>s+_n(x['amount']));final flowIn=visibleFlow.where((x)=>_n(x['amount'])>=0).fold<int>(0,(s,x)=>s+_n(x['amount']));final flowOut=visibleFlow.where((x)=>_n(x['amount'])<0).fold<int>(0,(s,x)=>s+_n(x['amount']).abs());return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('الصناديق والتحويلات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),ReportPdfLongPress(
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(icon,color:color,size:21),const SizedBox(width:8),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15))]))])));
+  Widget _boxCard(Map<String,Object?> x){final balance=_n(x['current_balance']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:const Icon(Icons.account_balance_wallet_rounded,color:_reportOliveDark)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??'صندوق'}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),const SizedBox(height:4),Text('الحساب النقدي المرتبط بالصندوق',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text('الرصيد',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),Text(money(balance),style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:17))]) ]));}
+  Widget _transferCard(Map<String,Object?> x){return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:_reportOlive.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:const Icon(Icons.swap_horiz_rounded,color:_reportOliveDark)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['from_cashbox']??'صندوق غير محدد'}  ←  ${x['to_cashbox']??'صندوق غير محدد'}',style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:4),Text('${_date(x['date'])} • ${x['notes']??'تحويل داخلي'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Text(money(_n(x['amount'])),style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900,fontSize:16))]));}
+  Widget _flowCard(Map<String,Object?> x){final amount=_n(x['amount']);final positive=amount>=0;final color=positive?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Row(children:[Icon(positive?Icons.arrow_downward_rounded:Icons.arrow_upward_rounded,color:color),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['title']??'حركة نقدية'}',style:const TextStyle(fontWeight:FontWeight.w800,color:_reportInk)),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),Text(positive?'له ${money(amount)}':'عليه ${money(amount.abs())}',style:TextStyle(color:color,fontWeight:FontWeight.w900))]));}
+  @override Widget build(BuildContext context){final boxBalance=boxes.fold<int>(0,(s,x)=>s+_n(x['current_balance']));final transferIn=visibleTransfers.fold<int>(0,(s,x)=>s+_n(x['amount']));final flowIn=visibleFlow.where((x)=>_n(x['amount'])>=0).fold<int>(0,(s,x)=>s+_n(x['amount']));final flowOut=visibleFlow.where((x)=>_n(x['amount'])<0).fold<int>(0,(s,x)=>s+_n(x['amount']).abs());return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('الصناديق والتحويلات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print('cash_flow')),
-  child: IconButton(onPressed:()=>_print('cash_flow'),icon:Icon(Icons.picture_as_pdf_rounded)),
+  child: IconButton(onPressed:()=>_print('cash_flow'),icon:const Icon(Icons.picture_as_pdf_rounded)),
 ),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print('cashboxes')),
-  child: FilledButton.icon(onPressed:()=>_print('cashboxes'),style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.account_balance_wallet_rounded,size:18),label:const Text('PDF الصناديق')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة النقدية الداخلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('الصناديق والتحويلات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الأرصدة والتحصيلات والمصروفات والتحويلات بين الصناديق',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.swap_horiz_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في الصندوق أو البيان أو الملاحظات',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  child: FilledButton.icon(onPressed:()=>_print('cashboxes'),style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.account_balance_wallet_rounded,size:18),label:const Text('PDF الصناديق')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة النقدية الداخلية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('الصناديق والتحويلات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الأرصدة والتحصيلات والمصروفات والتحويلات بين الصناديق',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.swap_horiz_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في الصندوق أو البيان أو الملاحظات',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('أرصدة الصناديق',money(boxBalance),Icons.account_balance_wallet_rounded,_reportGreen),const SizedBox(width:8),_kpi('التحويلات','${visibleTransfers.length}',Icons.swap_horiz_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('دخل نقدي',money(flowIn),Icons.south_west_rounded,_reportGreen)]),const SizedBox(height:10),Row(children:[_kpi('مصروف نقدي',money(flowOut),Icons.north_east_rounded,_reportOrange),const SizedBox(width:8),_kpi('تحويلات داخلية',money(transferIn),Icons.compare_arrows_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('صافي النقد',money(flowIn-flowOut),Icons.insights_rounded,_reportGreen)]),const SizedBox(height:18),const Row(children:[Icon(Icons.account_balance_wallet_rounded,color:_reportOliveDark),SizedBox(width:8),Text('أرصدة الصناديق',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk))]),const SizedBox(height:10),if(boxes.isEmpty)const EmptyView('لا توجد صناديق نشطة')else ...[for(final x in boxes)_boxCard(x)],const SizedBox(height:14),Row(children:[Icon(Icons.swap_horiz_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('التحويلات بين الصناديق',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visibleTransfers.length} تحويل',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visibleTransfers.isEmpty)const EmptyView('لا توجد تحويلات مطابقة للفترة')else ...[for(final x in visibleTransfers.take(200))_transferCard(x)],const SizedBox(height:14),Row(children:[Icon(Icons.timeline_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('التدفق النقدي',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visibleFlow.length} حركة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visibleFlow.isEmpty)const EmptyView('لا توجد حركات نقدية مطابقة للفترة')else ...[for(final x in visibleFlow.take(200))_flowCard(x)]])));}
+        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('أرصدة الصناديق',money(boxBalance),Icons.account_balance_wallet_rounded,_reportGreen),const SizedBox(width:8),_kpi('التحويلات','${visibleTransfers.length}',Icons.swap_horiz_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('دخل نقدي',money(flowIn),Icons.south_west_rounded,_reportGreen)]),const SizedBox(height:10),Row(children:[_kpi('مصروف نقدي',money(flowOut),Icons.north_east_rounded,_reportOrange),const SizedBox(width:8),_kpi('تحويلات داخلية',money(transferIn),Icons.compare_arrows_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('صافي النقد',money(flowIn-flowOut),Icons.insights_rounded,_reportGreen)]),const SizedBox(height:18),const Row(children:[Icon(Icons.account_balance_wallet_rounded,color:_reportOliveDark),SizedBox(width:8),Text('أرصدة الصناديق',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk))]),const SizedBox(height:10),if(boxes.isEmpty)const EmptyView('لا توجد صناديق نشطة')else ...[for(final x in boxes)_boxCard(x)],const SizedBox(height:14),Row(children:[const Icon(Icons.swap_horiz_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('التحويلات بين الصناديق',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visibleTransfers.length} تحويل',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visibleTransfers.isEmpty)const EmptyView('لا توجد تحويلات مطابقة للفترة')else ...[for(final x in visibleTransfers.take(200))_transferCard(x)],const SizedBox(height:14),Row(children:[const Icon(Icons.timeline_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('التدفق النقدي',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visibleFlow.length} حركة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visibleFlow.isEmpty)const EmptyView('لا توجد حركات نقدية مطابقة للفترة')else ...[for(final x in visibleFlow.take(200))_flowCard(x)]])));}
 }
 
 class DebtsReportPage extends StatefulWidget {
@@ -13354,7 +13353,7 @@ class _DebtsReportState extends State<DebtsReportPage>{
   Future<void> _print()async{try{await ReportService(widget.r).printPdf('all_party_debts',from:month,to:DateTime(month.year,month.month+1,0),sourceRows:visible);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   int _n(Object? v)=>(v as num?)?.round()??0;
   List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final b=_n(x['balance']);final okView=view=='all'||(view=='alayh'&&b>0)||(view=='lah'&&b<0)||(view=='balanced'&&b==0);final okSearch=q.isEmpty||'${x['name']??''} ${x['phone']??''} ${x['party_type']??''}'.toLowerCase().contains(q);return okView&&okSearch;}).toList();}
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
   Widget _card(Map<String,Object?> x) {
     final balance = _n(x['balance']);
     final positive = balance > 0;
@@ -13385,7 +13384,7 @@ class _DebtsReportState extends State<DebtsReportPage>{
         margin: const EdgeInsets.only(bottom: 11),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: _reportSurface,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(21),
           border: Border.all(color: _reportLine),
         ),
@@ -13409,7 +13408,7 @@ class _DebtsReportState extends State<DebtsReportPage>{
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('${x['name'] ?? 'غير محدد'}',
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: _reportInk, fontWeight: FontWeight.w900, fontSize: 16)),
               const SizedBox(height: 4),
               Text('$partyLabel — ${x['phone'] ?? 'بدون هاتف'}',
@@ -13442,17 +13441,17 @@ class _DebtsReportState extends State<DebtsReportPage>{
     final totalAlayh = totals.totalAlayh;
     final totalLah = totals.totalLah;
     final onCount = visible.where((x) => _n(x['balance']) > 0).length;
-    return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير المديونيات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+    return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير المديونيات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
-  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة أرصدة الأطراف',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المديونيات والحسابات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('ترتيب واضح للحسابات التي عليها أو لها مبالغ',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.account_balance_wallet_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة أرصدة الأطراف',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المديونيات والحسابات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('ترتيب واضح للحسابات التي عليها أو لها مبالغ',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.account_balance_wallet_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[
         Row(children:[
-          IconButton(onPressed:()=>_setDebtMonth(DateTime(month.year,month.month-1,1)),tooltip:'الشهر السابق',icon:Icon(Icons.chevron_right_rounded)),
+          IconButton(onPressed:()=>_setDebtMonth(DateTime(month.year,month.month-1,1)),tooltip:'الشهر السابق',icon:const Icon(Icons.chevron_right_rounded)),
           Expanded(child:InkWell(onTap:_pickDebtMonth,child:Column(children:[
             const Text('المديونيات القائمة حتى نهاية الشهر',style:TextStyle(fontSize:11)),
-            Text('${month.year}/${month.month.toString().padLeft(2,'0')}',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
+            Text('${month.year}/${month.month.toString().padLeft(2,'0')}',style:const TextStyle(fontSize:20,fontWeight:FontWeight.w900)),
           ]))),
-          IconButton(onPressed:()=>_setDebtMonth(DateTime(month.year,month.month+1,1)),tooltip:'الشهر التالي',icon:Icon(Icons.chevron_left_rounded)),
+          IconButton(onPressed:()=>_setDebtMonth(DateTime(month.year,month.month+1,1)),tooltip:'الشهر التالي',icon:const Icon(Icons.chevron_left_rounded)),
         ]),
         TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم الحساب أو الهاتف',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[ChoiceChip(label:const Text('الكل'),selected:view=='all',onSelected:(_)=>setState(()=>view='all')),ChoiceChip(label:const Text('عليه'),selected:view=='alayh',selectedColor:_reportOrange.withValues(alpha: .18),onSelected:(_)=>setState(()=>view='alayh')),ChoiceChip(label:const Text('له'),selected:view=='lah',selectedColor:_reportGreen.withValues(alpha: .18),onSelected:(_)=>setState(()=>view='lah')),ChoiceChip(label:const Text('متوازن'),selected:view=='balanced',onSelected:(_)=>setState(()=>view='balanced'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد الحسابات','${visible.length}',Icons.groups_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي عليه',money(totalAlayh),Icons.arrow_upward_rounded,_reportOrange),const SizedBox(width:8),_kpi('إجمالي له',money(totalLah),Icons.arrow_downward_rounded,_reportGreen)]),
 const SizedBox(height:10),
@@ -13465,7 +13464,7 @@ Row(children:[
         : totals.net < 0 ? _reportGreen : _reportOliveDark,
   ),
 ]),
-const SizedBox(height:10),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.warning_amber_rounded,color:_reportOrange),const SizedBox(width:8),const Text('حسابات عليها مبالغ',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('$onCount حساب',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w900))])),const SizedBox(height:18),Row(children:[Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('كشف الحسابات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} نتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حسابات مطابقة للفلاتر')]))else ...[for(final x in visible.take(300))_card(x)]])));}
+const SizedBox(height:10),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.warning_amber_rounded,color:_reportOrange),const SizedBox(width:8),const Text('حسابات عليها مبالغ',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('$onCount حساب',style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900))])),const SizedBox(height:18),Row(children:[const Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('كشف الحسابات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} نتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حسابات مطابقة للفلاتر')]))else ...[for(final x in visible.take(300))_card(x)]])));}
 }
 
 class RevenueCollectionsReportPage extends StatefulWidget {
@@ -13505,23 +13504,23 @@ class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>
   int _n(Object? v)=>(v as num?)?.round()??0;
   String _date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
   String _system(Object? v)=>systemName('$v');
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
-  Widget _incomeCard(Map<String,Object?> x){final total=_n(x['total']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:Icon(Icons.water_drop_rounded,color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_system(x['system_type']),style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk,fontSize:15)),const SizedBox(height:4),Text('${_n(x['operations'])} عملية • ${_n(x['minutes'])} دقيقة',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(money(total),style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:17)),Text('إيراد',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10))]) ]));}
-  Widget _paymentCard(Map<String,Object?> x){final amount=_n(x['amount']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:_reportGreen.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(Icons.payments_rounded,color:_reportGreen)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['party_name']??'تحصيل عام'}',style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:4),Text('${x['method_name']??'طريقة غير محددة'} • ${x['cashbox_name']??'صندوق غير محدد'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(money(amount),style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:16)),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10))]) ]));}
-  @override Widget build(BuildContext context){final revenue=income.where((x)=>'${x['system_type']}'!='الإجمالي العام').fold<int>(0,(s,x)=>s+_n(x['total']));final collected=payments.fold<int>(0,(s,x)=>s+_n(x['amount']));final due=revenue-collected;final rate=revenue<=0?0:collected*100/revenue;final q=search.trim().toLowerCase();final shownPayments=q.isEmpty?payments:payments.where((x)=>'${x['party_name']??''} ${x['method_name']??''} ${x['cashbox_name']??''}'.toLowerCase().contains(q)).toList();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('الإيرادات والتحصيلات المالية',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),ReportPdfLongPress(
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
+  Widget _incomeCard(Map<String,Object?> x){final total=_n(x['total']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:const Icon(Icons.water_drop_rounded,color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_system(x['system_type']),style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk,fontSize:15)),const SizedBox(height:4),Text('${_n(x['operations'])} عملية • ${_n(x['minutes'])} دقيقة',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(money(total),style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:17)),Text('إيراد',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10))]) ]));}
+  Widget _paymentCard(Map<String,Object?> x){final amount=_n(x['amount']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:_reportGreen.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:const Icon(Icons.payments_rounded,color:_reportGreen)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['party_name']??'تحصيل عام'}',style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:4),Text('${x['method_name']??'طريقة غير محددة'} • ${x['cashbox_name']??'صندوق غير محدد'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(money(amount),style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:16)),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10))]) ]));}
+  @override Widget build(BuildContext context){final revenue=income.where((x)=>'${x['system_type']}'!='الإجمالي العام').fold<int>(0,(s,x)=>s+_n(x['total']));final collected=payments.fold<int>(0,(s,x)=>s+_n(x['amount']));final due=revenue-collected;final rate=revenue<=0?0:collected*100/revenue;final q=search.trim().toLowerCase();final shownPayments=q.isEmpty?payments:payments.where((x)=>'${x['party_name']??''} ${x['method_name']??''} ${x['cashbox_name']??''}'.toLowerCase().contains(q)).toList();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('الإيرادات والتحصيلات المالية',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print('payment_log')),
-  child: IconButton(onPressed:()=>_print('payment_log'),icon:Icon(Icons.receipt_long_rounded)),
+  child: IconButton(onPressed:()=>_print('payment_log'),icon:const Icon(Icons.receipt_long_rounded)),
 ),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print('income')),
-  child: FilledButton.icon(onPressed:()=>_print('income'),style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF الإيرادات')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الإيرادات والتحصيل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('من الدخل إلى الصندوق',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مقارنة الإيراد المسجل بالمبالغ المحصلة فعلياً',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.insights_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في المستفيد أو طريقة الدفع أو الصندوق',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  child: FilledButton.icon(onPressed:()=>_print('income'),style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF الإيرادات')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الإيرادات والتحصيل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('من الدخل إلى الصندوق',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مقارنة الإيراد المسجل بالمبالغ المحصلة فعلياً',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.insights_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في المستفيد أو طريقة الدفع أو الصندوق',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('الإيرادات',money(revenue),Icons.trending_up_rounded,_reportGreen),const SizedBox(width:8),_kpi('التحصيلات',money(collected),Icons.payments_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي عليه',money(due),Icons.pending_actions_rounded,_reportOrange)]),const SizedBox(height:10),Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.speed_rounded,color:_reportOliveDark),const SizedBox(width:9),const Text('نسبة التحصيل',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('${rate.toStringAsFixed(1)}%',style:TextStyle(color:_reportGreen,fontSize:18,fontWeight:FontWeight.w900))])),const SizedBox(height:18),const Row(children:[Icon(Icons.trending_up_rounded,color:_reportOliveDark),SizedBox(width:8),Text('الإيرادات حسب المنظومة',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk))]),const SizedBox(height:10),if(revenue==0)const EmptyView('لا توجد إيرادات في الفترة المحددة')else ...[for(final x in income.where((x)=>'${x['system_type']}'!='الإجمالي العام'))_incomeCard(x)],const SizedBox(height:15),Row(children:[Icon(Icons.payments_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل التحصيلات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${shownPayments.length} عملية',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(shownPayments.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد تحصيلات مطابقة للفلاتر')]))else ...[for(final x in shownPayments.take(300))_paymentCard(x)]])));}
+        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('الإيرادات',money(revenue),Icons.trending_up_rounded,_reportGreen),const SizedBox(width:8),_kpi('التحصيلات',money(collected),Icons.payments_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي عليه',money(due),Icons.pending_actions_rounded,_reportOrange)]),const SizedBox(height:10),Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.speed_rounded,color:_reportOliveDark),const SizedBox(width:9),const Text('نسبة التحصيل',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('${rate.toStringAsFixed(1)}%',style:const TextStyle(color:_reportGreen,fontSize:18,fontWeight:FontWeight.w900))])),const SizedBox(height:18),const Row(children:[Icon(Icons.trending_up_rounded,color:_reportOliveDark),SizedBox(width:8),Text('الإيرادات حسب المنظومة',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk))]),const SizedBox(height:10),if(revenue==0)const EmptyView('لا توجد إيرادات في الفترة المحددة')else ...[for(final x in income.where((x)=>'${x['system_type']}'!='الإجمالي العام'))_incomeCard(x)],const SizedBox(height:15),Row(children:[const Icon(Icons.payments_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل التحصيلات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${shownPayments.length} عملية',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(shownPayments.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد تحصيلات مطابقة للفلاتر')]))else ...[for(final x in shownPayments.take(300))_paymentCard(x)]])));}
 }
 
 class InventoryMovementReportPage extends StatefulWidget {
@@ -13566,20 +13565,20 @@ class _InventoryMovementReportState extends State<InventoryMovementReportPage>{
   Color _color(String v)=>_in(v)?_reportGreen:_reportOrange;
   String _date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
   List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return rows.where((x){final d=DateTime.tryParse('${x['date']}');final okFrom=from==null||d==null||!d.isBefore(from!);final okTo=to==null||d==null||d.isBefore(to!.add(const Duration(days:1)));final okKind=kind==null||x['kind']==kind;final okSearch=q.isEmpty||'${x['kind']??''} ${x['beneficiary_name']??''} ${x['notes']??''}'.toLowerCase().contains(q);return okFrom&&okTo&&okKind&&okSearch;}).toList();}
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
-  Widget _card(Map<String,Object?> x){final v='${x['kind']}';final incoming=_in(v);final liters=_lit(x['liters']);final color=_color(v);return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_icon(v),color:color)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_kind(v),style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${_date(x['date'])} • ${x['beneficiary_name']??'المستودع الرئيسي'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Text('${liters.toStringAsFixed(2)} لتر',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:16))]),const SizedBox(height:11),Row(children:[_tag(Icons.scale_rounded,'${incoming?'وارد':'مصروف'} من المخزون'),_tag(Icons.payments_outlined,money(_n(x['amount']))),_tag(Icons.price_check_rounded,'سعر ${money(_n(x['unit_price']))}'),const Spacer(),Icon(Icons.arrow_back_ios_new_rounded,size:14,color:_reportOlive)]),if('${x['notes']??''}'.trim().isNotEmpty)Padding(padding:const EdgeInsets.only(top:10),child:Align(alignment:Alignment.centerRight,child:Text('${x['notes']}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))))]));}
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
+  Widget _card(Map<String,Object?> x){final v='${x['kind']}';final incoming=_in(v);final liters=_lit(x['liters']);final color=_color(v);return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_icon(v),color:color)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_kind(v),style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${_date(x['date'])} • ${x['beneficiary_name']??'المستودع الرئيسي'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Text('${liters.toStringAsFixed(2)} لتر',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:16))]),const SizedBox(height:11),Row(children:[_tag(Icons.scale_rounded,'${incoming?'وارد':'مصروف'} من المخزون'),_tag(Icons.payments_outlined,money(_n(x['amount']))),_tag(Icons.price_check_rounded,'سعر ${money(_n(x['unit_price']))}'),const Spacer(),const Icon(Icons.arrow_back_ios_new_rounded,size:14,color:_reportOlive)]),if('${x['notes']??''}'.trim().isNotEmpty)Padding(padding:const EdgeInsets.only(top:10),child:Align(alignment:Alignment.centerRight,child:Text('${x['notes']}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))))]));}
   Widget _tag(IconData icon,String text)=>Padding(padding:const EdgeInsetsDirectional.only(end:9),child:Row(mainAxisSize:MainAxisSize.min,children:[Icon(icon,size:14,color:_reportOlive),const SizedBox(width:4),Text(text,style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:10))]));
-  @override Widget build(BuildContext context){final v=visible;final incoming=v.where((x)=>_in('${x['kind']}')).fold<double>(0,(s,x)=>s+_lit(x['liters']));final outgoing=v.where((x)=>!_in('${x['kind']}')).fold<double>(0,(s,x)=>s+_lit(x['liters']));final amount=v.fold<int>(0,(s,x)=>s+_n(x['amount']));final fill=capacity<=0?0.0:(stock/capacity).clamp(0.0,1.0).toDouble();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('حركة المخزون والمستودعات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  @override Widget build(BuildContext context){final v=visible;final incoming=v.where((x)=>_in('${x['kind']}')).fold<double>(0,(s,x)=>s+_lit(x['liters']));final outgoing=v.where((x)=>!_in('${x['kind']}')).fold<double>(0,(s,x)=>s+_lit(x['liters']));final amount=v.fold<int>(0,(s,x)=>s+_n(x['amount']));final fill=capacity<=0?0.0:(stock/capacity).clamp(0.0,1.0).toDouble();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('حركة المخزون والمستودعات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
-  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة المستودع الرئيسي',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('حركة مخزون الديزل',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('التوريد والاستهلاك والتسليم والسلف في سجل واحد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.inventory_2_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(x)=>setState(()=>search=x),decoration:const InputDecoration(labelText:'بحث في نوع الحركة أو المستفيد أو الملاحظات',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[DropdownButtonFormField<String>(initialValue:kind,items:[const DropdownMenuItem<String>(value:null,child:Text('كل أنواع الحركة')),for(final x in ['receipt','opening_balance','correction','delivery','advance','consumption'])DropdownMenuItem(value:x,child:Text(_kind(x)))],onChanged:(x)=>setState(()=>kind=x),decoration:const InputDecoration(labelText:'نوع الحركة',border:OutlineInputBorder())),OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة المستودع الرئيسي',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('حركة مخزون الديزل',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('التوريد والاستهلاك والتسليم والسلف في سجل واحد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.inventory_2_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(x)=>setState(()=>search=x),decoration:const InputDecoration(labelText:'بحث في نوع الحركة أو المستفيد أو الملاحظات',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[DropdownButtonFormField<String>(initialValue:kind,items:[const DropdownMenuItem<String>(value:null,child:Text('كل أنواع الحركة')),for(final x in ['receipt','opening_balance','correction','delivery','advance','consumption'])DropdownMenuItem(value:x,child:Text(_kind(x)))],onChanged:(x)=>setState(()=>kind=x),decoration:const InputDecoration(labelText:'نوع الحركة',border:OutlineInputBorder())),OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),if(from!=null||to!=null||kind!=null)TextButton(onPressed:(){setState((){from=null;to=null;kind=null;});},child:const Text('مسح الفلاتر'))])])),const SizedBox(height:12),Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Icon(Icons.water_drop_rounded,color:_reportOliveDark),const SizedBox(width:7),const Text('الرصيد الحالي في المستودع',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('${stock.toStringAsFixed(2)} لتر',style:TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900,fontSize:19))]),if(capacity>0)Padding(padding:const EdgeInsets.only(top:10),child:ClipRRect(borderRadius:BorderRadius.circular(6),child:LinearProgressIndicator(value:fill,minHeight:8,backgroundColor:_reportCream,color:_reportOliveDark))),if(capacity>0)Padding(padding:const EdgeInsets.only(top:5),child:Text('السعة ${capacity.toStringAsFixed(2)} لتر',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)))])),const SizedBox(height:12),Row(children:[_kpi('عدد الحركات','${v.length}',Icons.format_list_numbered_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('الوارد','${incoming.toStringAsFixed(2)} لتر',Icons.south_west_rounded,_reportGreen),const SizedBox(width:8),_kpi('المصروف','${outgoing.toStringAsFixed(2)} لتر',Icons.north_east_rounded,_reportOrange)]),const SizedBox(height:10),Row(children:[_kpi('قيمة الحركات',money(amount),Icons.payments_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('نتائج العرض','${v.length}',Icons.filter_alt_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('حالة المخزون',capacity>0?'${(fill*100).toStringAsFixed(0)}%':'مفتوح',Icons.speed_rounded,_reportGreen)]),const SizedBox(height:18),Row(children:[Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل حركة المستودع',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${v.length} حركة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(v.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حركات مخزون مطابقة للفلاتر')]))else ...[for(final x in v.take(300))_card(x)]])));}
+        ),if(from!=null||to!=null||kind!=null)TextButton(onPressed:(){setState((){from=null;to=null;kind=null;});},child:const Text('مسح الفلاتر'))])])),const SizedBox(height:12),Container(padding:const EdgeInsets.all(17),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[const Icon(Icons.water_drop_rounded,color:_reportOliveDark),const SizedBox(width:7),const Text('الرصيد الحالي في المستودع',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('${stock.toStringAsFixed(2)} لتر',style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900,fontSize:19))]),if(capacity>0)Padding(padding:const EdgeInsets.only(top:10),child:ClipRRect(borderRadius:BorderRadius.circular(6),child:LinearProgressIndicator(value:fill,minHeight:8,backgroundColor:_reportCream,color:_reportOliveDark))),if(capacity>0)Padding(padding:const EdgeInsets.only(top:5),child:Text('السعة ${capacity.toStringAsFixed(2)} لتر',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)))])),const SizedBox(height:12),Row(children:[_kpi('عدد الحركات','${v.length}',Icons.format_list_numbered_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('الوارد','${incoming.toStringAsFixed(2)} لتر',Icons.south_west_rounded,_reportGreen),const SizedBox(width:8),_kpi('المصروف','${outgoing.toStringAsFixed(2)} لتر',Icons.north_east_rounded,_reportOrange)]),const SizedBox(height:10),Row(children:[_kpi('قيمة الحركات',money(amount),Icons.payments_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('نتائج العرض','${v.length}',Icons.filter_alt_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('حالة المخزون',capacity>0?'${(fill*100).toStringAsFixed(0)}%':'مفتوح',Icons.speed_rounded,_reportGreen)]),const SizedBox(height:18),Row(children:[const Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل حركة المستودع',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${v.length} حركة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(v.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حركات مخزون مطابقة للفلاتر')]))else ...[for(final x in v.take(300))_card(x)]])));}
 }
 
 class ExpensesDetailedReportPage extends StatefulWidget {
@@ -13622,21 +13621,21 @@ class _ExpensesDetailedReportState extends State<ExpensesDetailedReportPage>{
   String _time(Object? v){final d=DateTime.tryParse('$v');return d==null?'':'${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';}
   List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return q.isEmpty?rows:rows.where((x)=>'${x['title']??''} ${x['notes']??''} ${x['category']??''} ${x['method_name']??''} ${x['cashbox_name']??''}'.toLowerCase().contains(q)).toList();}
   Color _statusColor(Object? v)=>'$v'=='posted'?_reportGreen:'$v'=='cancelled'?_reportOrange:_reportOliveDark;
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
-  Widget _card(Map<String,Object?> x){final id=x['id'];final color=_statusColor(x['status']);return InkWell(onTap:id is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'expense',id:id,title:'تفاصيل المصروف'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(_expenseIcon('${x['category']}'),color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['title']??'مصروف تشغيلي'}',maxLines:1,overflow:TextOverflow.ellipsis,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${categoryName('${x['category']}')} • ${_date(x['date'])} ${_time(x['date'])}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Text(money(_n(x['amount'])),style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:17))]),const SizedBox(height:11),Row(children:[_tag(Icons.category_outlined,categoryName('${x['category']}')),_tag(Icons.payments_outlined,'${x['method_name']??'طريقة غير محددة'}'),_tag(Icons.account_balance_wallet_outlined,'${x['cashbox_name']??'صندوق غير محدد'}'),const Spacer(),Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:5),decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(9)),child:Text(statusName(x['status']),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:10)))])])));}
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
+  Widget _card(Map<String,Object?> x){final id=x['id'];final color=_statusColor(x['status']);return InkWell(onTap:id is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'expense',id:id,title:'تفاصيل المصروف'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(_expenseIcon('${x['category']}'),color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['title']??'مصروف تشغيلي'}',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${categoryName('${x['category']}')} • ${_date(x['date'])} ${_time(x['date'])}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Text(money(_n(x['amount'])),style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:17))]),const SizedBox(height:11),Row(children:[_tag(Icons.category_outlined,categoryName('${x['category']}')),_tag(Icons.payments_outlined,'${x['method_name']??'طريقة غير محددة'}'),_tag(Icons.account_balance_wallet_outlined,'${x['cashbox_name']??'صندوق غير محدد'}'),const Spacer(),Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:5),decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(9)),child:Text(statusName(x['status']),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:10)))])])));}
   IconData _expenseIcon(String k)=>switch(k){'fuel'=>Icons.local_gas_station_rounded,'maintenance'=>Icons.build_rounded,'parts'=>Icons.settings_rounded,'oil'||'grease'=>Icons.opacity_rounded,'transport'=>Icons.local_shipping_rounded,'workers'||'partners'=>Icons.groups_rounded,_=>Icons.receipt_long_rounded};
   Widget _tag(IconData icon,String text)=>Padding(padding:const EdgeInsetsDirectional.only(end:9),child:Row(mainAxisSize:MainAxisSize.min,children:[Icon(icon,size:14,color:_reportOlive),const SizedBox(width:4),Text(text,style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:10))]));
-  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['amount']));final posted=rows.where((x)=>x['status']=='posted').fold<int>(0,(s,x)=>s+_n(x['amount']));final cancelled=rows.where((x)=>x['status']=='cancelled').length;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('المصروفات النثرية والتشغيلية',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['amount']));final posted=rows.where((x)=>x['status']=='posted').fold<int>(0,(s,x)=>s+_n(x['amount']));final cancelled=rows.where((x)=>x['status']=='cancelled').length;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('المصروفات النثرية والتشغيلية',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
-  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة المصروفات',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('النثرية والتشغيلية',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('التصنيف والمبلغ والصندوق وطريقة الدفع لكل عملية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.receipt_long_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في البيان أو التصنيف أو الصندوق',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[DropdownButtonFormField<String>(initialValue:category,items:[const DropdownMenuItem<String>(value:null,child:Text('كل التصنيفات')),for(final v in ['workers','partners','fuel','oil','grease','maintenance','parts','transport','admin','other'])DropdownMenuItem(value:v,child:Text(categoryName(v)))],onChanged:(v){setState(()=>category=v);_load();},decoration:const InputDecoration(labelText:'التصنيف',border:OutlineInputBorder())),DropdownButtonFormField<String>(initialValue:status,items:[const DropdownMenuItem<String>(value:null,child:Text('كل الحالات')),for(final v in ['posted','cancelled','new','scheduled'])DropdownMenuItem(value:v,child:Text(statusName(v)))],onChanged:(v){setState(()=>status=v);_load();},decoration:const InputDecoration(labelText:'الحالة',border:OutlineInputBorder())),OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة المصروفات',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('النثرية والتشغيلية',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('التصنيف والمبلغ والصندوق وطريقة الدفع لكل عملية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.receipt_long_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في البيان أو التصنيف أو الصندوق',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[DropdownButtonFormField<String>(initialValue:category,items:[const DropdownMenuItem<String>(value:null,child:Text('كل التصنيفات')),for(final v in ['workers','partners','fuel','oil','grease','maintenance','parts','transport','admin','other'])DropdownMenuItem(value:v,child:Text(categoryName(v)))],onChanged:(v){setState(()=>category=v);_load();},decoration:const InputDecoration(labelText:'التصنيف',border:OutlineInputBorder())),DropdownButtonFormField<String>(initialValue:status,items:[const DropdownMenuItem<String>(value:null,child:Text('كل الحالات')),for(final v in ['posted','cancelled','new','scheduled'])DropdownMenuItem(value:v,child:Text(statusName(v)))],onChanged:(v){setState(()=>status=v);_load();},decoration:const InputDecoration(labelText:'الحالة',border:OutlineInputBorder())),OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد العمليات','${rows.length}',Icons.format_list_numbered_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي المصروف',money(total),Icons.payments_rounded,_reportOrange),const SizedBox(width:8),_kpi('المعتمد',money(posted),Icons.check_circle_rounded,_reportGreen)]),const SizedBox(height:10),Row(children:[_kpi('ملغى','$cancelled',Icons.cancel_rounded,_reportOrange),const SizedBox(width:8),_kpi('نتائج العرض','${visible.length}',Icons.filter_alt_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('التصنيفات','${rows.map((x)=>x['category']).toSet().length}',Icons.category_rounded,_reportOliveDark)]),const SizedBox(height:18),Row(children:[Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل المصروفات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} عملية',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد مصروفات مطابقة للفلاتر')]))else ...[for(final x in visible.take(300))_card(x)]])));}
+        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد العمليات','${rows.length}',Icons.format_list_numbered_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي المصروف',money(total),Icons.payments_rounded,_reportOrange),const SizedBox(width:8),_kpi('المعتمد',money(posted),Icons.check_circle_rounded,_reportGreen)]),const SizedBox(height:10),Row(children:[_kpi('ملغى','$cancelled',Icons.cancel_rounded,_reportOrange),const SizedBox(width:8),_kpi('نتائج العرض','${visible.length}',Icons.filter_alt_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('التصنيفات','${rows.map((x)=>x['category']).toSet().length}',Icons.category_rounded,_reportOliveDark)]),const SizedBox(height:18),Row(children:[const Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل المصروفات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} عملية',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد مصروفات مطابقة للفلاتر')]))else ...[for(final x in visible.take(300))_card(x)]])));}
 }
 
 class InvoicesReportPage extends StatefulWidget {
@@ -14008,7 +14007,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: _reportSurface,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(19),
           border: Border.all(color: _reportLine),
           boxShadow: [BoxShadow(color: color.withValues(alpha: .08), blurRadius: 15, offset: const Offset(0, 5))],
@@ -14020,7 +14019,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(title, style: TextStyle(color: _reportInk.withValues(alpha: .58), fontSize: 10, fontWeight: FontWeight.w700)),
             const SizedBox(height: 5),
-            Text(value, style: TextStyle(color: _reportInk, fontSize: 15, fontWeight: FontWeight.w900), maxLines: 2, overflow: TextOverflow.ellipsis),
+            Text(value, style: const TextStyle(color: _reportInk, fontSize: 15, fontWeight: FontWeight.w900), maxLines: 2, overflow: TextOverflow.ellipsis),
           ])),
         ]),
       );
@@ -14055,10 +14054,10 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
           elevation: 0,
           title: const Text('تقرير الفواتير', style: TextStyle(fontWeight: FontWeight.w900)),
           actions: [
-            IconButton(onPressed: _load, tooltip: 'تحديث', icon: Icon(Icons.refresh_rounded)),
+            IconButton(onPressed: _load, tooltip: 'تحديث', icon: const Icon(Icons.refresh_rounded)),
             ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_previewPdf),
-  child: IconButton(onPressed: _previewPdf, icon: Icon(Icons.picture_as_pdf_rounded)),
+  child: IconButton(onPressed: _previewPdf, icon: const Icon(Icons.picture_as_pdf_rounded)),
 ),
           ],
         ),
@@ -14072,7 +14071,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       Container(
                         padding: const EdgeInsets.all(22),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: [_reportOliveDark, _reportOlive]),
+                          gradient: const LinearGradient(colors: [_reportOliveDark, _reportOlive]),
                           borderRadius: BorderRadius.circular(26),
                         ),
                         child: Row(children: [
@@ -14083,7 +14082,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                             const SizedBox(height: 7),
                             Text('عرض الساعات والمبالغ المسلّمة لكل سقاية', style: TextStyle(color: Colors.white.withValues(alpha: .84), fontSize: 11)),
                           ])),
-                          Icon(Icons.receipt_long_rounded, color: Colors.white, size: 44),
+                          const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 44),
                         ]),
                       ),
                       const SizedBox(height: 14),
@@ -14093,7 +14092,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           useSpecialMinuteRateReports
                               ? 'عرض التقرير: سعر الدقيقة الخاص'
                               : 'عرض التقرير: سعر الساعة العام',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: _reportOliveDark, fontWeight: FontWeight.w800),
                         ),
                       ),
@@ -14124,7 +14123,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(19), border: Border.all(color: _reportLine)),
+                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(19), border: Border.all(color: _reportLine)),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           TextField(
                             onChanged: (value) => setState(() => search = value),
@@ -14133,8 +14132,8 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           const SizedBox(height: 10),
                           Wrap(spacing: 8, runSpacing: 8, children: [
                             ChoiceChip(label: const Text('كل الفترات'), selected: from == null && to == null, onSelected: (_) => _quickRange('all')),
-                            OutlinedButton.icon(onPressed: () => _pickDate(true), icon: Icon(Icons.calendar_today_rounded, size: 16), label: Text('من: ${_dateLabel(from)}')),
-                            OutlinedButton.icon(onPressed: () => _pickDate(false), icon: Icon(Icons.event_rounded, size: 16), label: Text('إلى: ${_dateLabel(to)}')),
+                            OutlinedButton.icon(onPressed: () => _pickDate(true), icon: const Icon(Icons.calendar_today_rounded, size: 16), label: Text('من: ${_dateLabel(from)}')),
+                            OutlinedButton.icon(onPressed: () => _pickDate(false), icon: const Icon(Icons.event_rounded, size: 16), label: Text('إلى: ${_dateLabel(to)}')),
                             ...reportQuickRangeButtons(
                               context,
                               onSelected: (rangeFrom, rangeTo) {
@@ -14148,7 +14147,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       ),
                       const SizedBox(height: 14),
                       Row(children: [
-                        Icon(Icons.view_list_rounded, color: _reportOliveDark),
+                        const Icon(Icons.view_list_rounded, color: _reportOliveDark),
                         const SizedBox(width: 8),
                         const Text('تفاصيل الفواتير', style: TextStyle(color: _reportInk, fontSize: 18, fontWeight: FontWeight.w900)),
                         const Spacer(),
@@ -14159,7 +14158,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                         const EmptyView('لا توجد فواتير مطابقة للفلاتر')
                       else
                         Container(
-                          decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(18), border: Border.all(color: _reportLine)),
+                          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), border: Border.all(color: _reportLine)),
                           child: SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: DataTable(
@@ -14191,10 +14190,10 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                       DataCell(Text(_time(data[i]['end_datetime']))),
                                       DataCell(Text('${_invoiceNetMinutes(data[i])}')),
                                       if (showCloud) DataCell(Text(data[i]['system_type'] == 'diesel' ? '—' : '${_n(data[i]['cloud_minutes'])}')),
-                                      DataCell(Text(_money(_amountAfterCloud(data[i])), style: TextStyle(fontWeight: FontWeight.w800))),
-                                      DataCell(Text(_money(data[i]['paid_amount']), style: TextStyle(fontWeight: FontWeight.w800))),
+                                      DataCell(Text(_money(_amountAfterCloud(data[i])), style: const TextStyle(fontWeight: FontWeight.w800))),
+                                      DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),
-                                      DataCell(IconButton(tooltip: 'تعديل السقاية', icon: Icon(Icons.edit_calendar_rounded, color: _reportOliveDark), onPressed: () => _editInvoice(data[i]))),
+                                      DataCell(IconButton(tooltip: 'تعديل السقاية', icon: const Icon(Icons.edit_calendar_rounded, color: _reportOliveDark), onPressed: () => _editInvoice(data[i]))),
                                     ],
                                   ),
                               ],
@@ -14205,15 +14204,15 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       Wrap(spacing: 10, runSpacing: 10, children: [
                         ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_previewPdf),
-  child: FilledButton.icon(onPressed: _previewPdf, icon: Icon(Icons.preview_rounded), label: const Text('معاينة PDF')),
+  child: FilledButton.icon(onPressed: _previewPdf, icon: const Icon(Icons.preview_rounded), label: const Text('معاينة PDF')),
 ),
                         ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_printPdf),
-  child: FilledButton.icon(onPressed: _printPdf, icon: Icon(Icons.print_rounded), label: const Text('طباعة مباشرة')),
+  child: FilledButton.icon(onPressed: _printPdf, icon: const Icon(Icons.print_rounded), label: const Text('طباعة مباشرة')),
 ),
                         ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_sharePdf),
-  child: OutlinedButton.icon(onPressed: _sharePdf, icon: Icon(Icons.share_rounded), label: const Text('مشاركة PDF')),
+  child: OutlinedButton.icon(onPressed: _sharePdf, icon: const Icon(Icons.share_rounded), label: const Text('مشاركة PDF')),
 ),
                       ]),
                     ],
@@ -14261,20 +14260,20 @@ class _IrrigationDetailedReportState extends State<IrrigationDetailedReportPage>
   String _date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
   String _time(Object? v){final d=DateTime.tryParse('$v');if(d==null)return '';final h=d.hour%12==0?12:d.hour%12;final p=d.hour<12?'ص':'م';return '${h.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')} $p';}
   List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return q.isEmpty?rows:rows.where((x)=>'${x['party_name']??''} ${x['start_datetime']??''}'.toLowerCase().contains(q)).toList();}
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
-  Widget _card(Map<String,Object?> x){final total=_n(x['total_amount']);final paid=_n(x['paid_amount']);final due=total-paid;final cloud=_n(x['cloud_minutes'])>0;final id=x['irrigation_id'];return InkWell(onTap:id is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'irrigation',id:id,title:'تفاصيل السقاية'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:Icon(Icons.water_drop_rounded,color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['party_name']??'غير محدد'}',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${_date(x['start_datetime'])} • ${_time(x['start_datetime'])}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),if(cloud)Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:6),decoration:BoxDecoration(color:_reportOrange.withValues(alpha: .12),borderRadius:BorderRadius.circular(10)),child:const Text('بسعر مخفض',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:10))),Icon(Icons.arrow_back_ios_new_rounded,size:15,color:_reportOlive)]),const SizedBox(height:12),Row(children:[_mini('المدة','${_n(x['minutes'])} دقيقة',Icons.timer_outlined),const SizedBox(width:10),_mini('الإجمالي',money(total),Icons.receipt_long_rounded),const SizedBox(width:10),_mini('المدفوع',money(paid),Icons.payments_outlined)]),const SizedBox(height:12),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),decoration:BoxDecoration(color:due>0?_reportOrange.withValues(alpha: .08):_reportGreen.withValues(alpha: .08),borderRadius:BorderRadius.circular(13)),child:Row(children:[Icon(due>0?Icons.pending_actions_rounded:Icons.check_circle_rounded,color:due>0?_reportOrange:_reportGreen,size:18),const SizedBox(width:7),Text(due>0?'عليه ${money(due)}':'مكتملة السداد',style:TextStyle(color:due>0?_reportOrange:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),const Spacer(),if(id is int)const Text('فتح التفاصيل',style:TextStyle(color:_reportOliveDark,fontSize:11,fontWeight:FontWeight.w800))]))])));}
-  Widget _mini(String label,String value,IconData icon)=>Expanded(child:Row(children:[Icon(icon,size:16,color:_reportOlive),const SizedBox(width:5),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:9)),Text(value,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w800,fontSize:11))]))]));
-  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['total_amount']));final paid=rows.fold<int>(0,(s,x)=>s+_n(x['paid_amount']));final minutes=rows.fold<int>(0,(s,x)=>s+_n(x['minutes']));final due=total-paid;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير السقايات التفصيلي',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
+  Widget _card(Map<String,Object?> x){final total=_n(x['total_amount']);final paid=_n(x['paid_amount']);final due=total-paid;final cloud=_n(x['cloud_minutes'])>0;final id=x['irrigation_id'];return InkWell(onTap:id is int?()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'irrigation',id:id,title:'تفاصيل السقاية'))):null,borderRadius:BorderRadius.circular(21),child:Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.water_drop_rounded,color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['party_name']??'غير محدد'}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${_date(x['start_datetime'])} • ${_time(x['start_datetime'])}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),if(cloud)Container(padding:const EdgeInsets.symmetric(horizontal:9,vertical:6),decoration:BoxDecoration(color:_reportOrange.withValues(alpha: .12),borderRadius:BorderRadius.circular(10)),child:const Text('بسعر مخفض',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:10))),const Icon(Icons.arrow_back_ios_new_rounded,size:15,color:_reportOlive)]),const SizedBox(height:12),Row(children:[_mini('المدة','${_n(x['minutes'])} دقيقة',Icons.timer_outlined),const SizedBox(width:10),_mini('الإجمالي',money(total),Icons.receipt_long_rounded),const SizedBox(width:10),_mini('المدفوع',money(paid),Icons.payments_outlined)]),const SizedBox(height:12),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:10),decoration:BoxDecoration(color:due>0?_reportOrange.withValues(alpha: .08):_reportGreen.withValues(alpha: .08),borderRadius:BorderRadius.circular(13)),child:Row(children:[Icon(due>0?Icons.pending_actions_rounded:Icons.check_circle_rounded,color:due>0?_reportOrange:_reportGreen,size:18),const SizedBox(width:7),Text(due>0?'عليه ${money(due)}':'مكتملة السداد',style:TextStyle(color:due>0?_reportOrange:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),const Spacer(),if(id is int)const Text('فتح التفاصيل',style:TextStyle(color:_reportOliveDark,fontSize:11,fontWeight:FontWeight.w800))]))])));}
+  Widget _mini(String label,String value,IconData icon)=>Expanded(child:Row(children:[Icon(icon,size:16,color:_reportOlive),const SizedBox(width:5),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:9)),Text(value,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w800,fontSize:11))]))]));
+  @override Widget build(BuildContext context){final total=rows.fold<int>(0,(s,x)=>s+_n(x['total_amount']));final paid=rows.fold<int>(0,(s,x)=>s+_n(x['paid_amount']));final minutes=rows.fold<int>(0,(s,x)=>s+_n(x['minutes']));final due=total-paid;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تقرير السقايات التفصيلي',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
-  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التشغيل والتحصيل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('تفاصيل السقايات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('المدة والإجمالي والمدفوع والرصيد لكل عملية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.water_drop_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم المستفيد أو التاريخ',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة التشغيل والتحصيل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('تفاصيل السقايات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('المدة والإجمالي والمدفوع والرصيد لكل عملية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.water_drop_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم المستفيد أو التاريخ',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد السقايات','${rows.length}',Icons.format_list_numbered_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي المدة','$minutes د',Icons.timer_rounded,_reportGreen),const SizedBox(width:8),_kpi('الإيراد',money(total),Icons.trending_up_rounded,_reportOliveDark)]),const SizedBox(height:10),Row(children:[_kpi('المدفوع',money(paid),Icons.payments_rounded,_reportGreen),const SizedBox(width:8),_kpi('إجمالي عليه',money(due),Icons.pending_actions_rounded,_reportOrange),const SizedBox(width:8),_kpi('نتائج العرض','${visible.length}',Icons.filter_alt_rounded,_reportOliveDark)]),const SizedBox(height:18),Row(children:[Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل السقايات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} عملية',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد سقايات مطابقة للفلاتر')]))else ...[for(final x in visible.take(300))_card(x)]])));}
+        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد السقايات','${rows.length}',Icons.format_list_numbered_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي المدة','$minutes د',Icons.timer_rounded,_reportGreen),const SizedBox(width:8),_kpi('الإيراد',money(total),Icons.trending_up_rounded,_reportOliveDark)]),const SizedBox(height:10),Row(children:[_kpi('المدفوع',money(paid),Icons.payments_rounded,_reportGreen),const SizedBox(width:8),_kpi('إجمالي عليه',money(due),Icons.pending_actions_rounded,_reportOrange),const SizedBox(width:8),_kpi('نتائج العرض','${visible.length}',Icons.filter_alt_rounded,_reportOliveDark)]),const SizedBox(height:18),Row(children:[const Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل السقايات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} عملية',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد سقايات مطابقة للفلاتر')]))else ...[for(final x in visible.take(300))_card(x)]])));}
 }
 
 class PartnerProfitDistributionPage extends StatefulWidget {
@@ -14594,7 +14593,7 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
         constraints: const BoxConstraints(minHeight: 112),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: _reportSurface,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: _reportLine),
         ),
@@ -14637,7 +14636,7 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
                   value,
                   maxLines: 1,
                   softWrap: false,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: _reportInk,
                     fontSize: 18,
                     fontWeight: FontWeight.w900,
@@ -14668,7 +14667,7 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
           Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:Icon(p['mode']=='percentage'?Icons.percent_rounded:Icons.pie_chart_rounded,color:_reportOliveDark)),
           const SizedBox(width:12),
           Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-            Text('${p['name']??''}',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),
+            Text('${p['name']??''}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),
             const SizedBox(height:4),
             Text(mode,style:TextStyle(color:_reportInk.withValues(alpha:.6),fontSize:11)),
             const SizedBox(height:8),
@@ -14714,17 +14713,17 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
       ]),
     );
   }
-  @override Widget build(BuildContext context){final revenue=_n(summary['revenue']);final expenses=_n(summary['expenses']);final workers=_n(summary['workers']);final workerDue=_n(summary['worker_due']);final partnerDue=_n(summary['partner_due']);final profit=_n(summary['distributable']);final totalShares=partners.where((p)=>(p['active'] as num?)?.toInt()==1).fold<double>(0.0,(sum,p)=>sum+((p['basis'] as num?)?.toDouble()??0.0));final q=partnerSearch.trim().toLowerCase();final visiblePartners=partners.where((p)=>q.isEmpty||'${p['name']??''}'.toLowerCase().contains(q)).toList();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('صافي الأرباح والتوزيعات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),FilledButton.icon(onPressed:loading ? null : _postDistribution,style:FilledButton.styleFrom(backgroundColor:_reportGreen,foregroundColor:Colors.white),icon:Icon(Icons.account_balance_rounded,size:18),label:const Text('ترحيل التوزيع')),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  @override Widget build(BuildContext context){final revenue=_n(summary['revenue']);final expenses=_n(summary['expenses']);final workers=_n(summary['workers']);final workerDue=_n(summary['worker_due']);final partnerDue=_n(summary['partner_due']);final profit=_n(summary['distributable']);final totalShares=partners.where((p)=>(p['active'] as num?)?.toInt()==1).fold<double>(0.0,(sum,p)=>sum+((p['basis'] as num?)?.toDouble()??0.0));final q=partnerSearch.trim().toLowerCase();final visiblePartners=partners.where((p)=>q.isEmpty||'${p['name']??''}'.toLowerCase().contains(q)).toList();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('صافي الأرباح والتوزيعات',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),FilledButton.icon(onPressed:loading ? null : _postDistribution,style:FilledButton.styleFrom(backgroundColor:_reportGreen,foregroundColor:Colors.white),icon:const Icon(Icons.account_balance_rounded,size:18),label:const Text('ترحيل التوزيع')),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
-  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الربح والتوزيع',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('صافي الأرباح القابل للتوزيع',style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الإيرادات − المصروفات العامة − مستحقات العمال',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.pie_chart_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text('من ${from.day}/${from.month}/${from.year}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text('إلى ${to.day}/${to.month}/${to.year}')),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الربح والتوزيع',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('صافي الأرباح القابل للتوزيع',style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الإيرادات − المصروفات العامة − مستحقات العمال',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.pie_chart_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text('من ${from.day}/${from.month}/${from.year}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text('إلى ${to.day}/${to.month}/${to.year}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),TextButton.icon(onPressed:(){final now=AppClock.now();setState((){from=DateTime(now.year,now.month,1);to=DateTime(now.year,now.month,now.day);});_load();},icon:Icon(Icons.restart_alt_rounded,size:16),label:const Text('هذا الشهر'))])),const SizedBox(height:12),Wrap(
+        ),TextButton.icon(onPressed:(){final now=AppClock.now();setState((){from=DateTime(now.year,now.month,1);to=DateTime(now.year,now.month,now.day);});_load();},icon:const Icon(Icons.restart_alt_rounded,size:16),label:const Text('هذا الشهر'))])),const SizedBox(height:12),Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
@@ -14735,7 +14734,7 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
             _kpi('إجمالي مستحقات الشركاء',_money(partnerDue),Icons.groups_rounded,_reportGreen),
             _kpi('الحسابات الشخصية للشركاء','${partners.length}',Icons.account_tree_rounded,_reportOrange),
           ],
-        ),const SizedBox(height:12),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[Row(children:[Icon(_n(irrigationAudit['difference'])==0?Icons.verified_rounded:Icons.warning_amber_rounded,color:_n(irrigationAudit['difference'])==0?_reportGreen:_reportOrange),const SizedBox(width:8),const Expanded(child:Text('مطابقة السقايات مع دفتر الأستاذ',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:14))),Text(_n(irrigationAudit['difference'])==0?'متطابق':'يوجد فرق',style:TextStyle(color:_n(irrigationAudit['difference'])==0?_reportGreen:_reportOrange,fontWeight:FontWeight.w800))]),const SizedBox(height:10),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text('إجمالي السقايات في الفترة',style:TextStyle(color:_reportInk.withValues(alpha:.72),fontSize:12)),Text(_money(irrigationAudit['irrigation_total']),style:TextStyle(color:_reportInk,fontWeight:FontWeight.w800))]),const SizedBox(height:5),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text('إيراد الأستاذ في الفترة',style:TextStyle(color:_reportInk.withValues(alpha:.72),fontSize:12)),Text(_money(irrigationAudit['ledger_revenue_total']),style:TextStyle(color:_reportInk,fontWeight:FontWeight.w800))]),const SizedBox(height:5),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text('الفرق',style:TextStyle(color:_reportInk.withValues(alpha:.72),fontSize:12)),Text(_money(irrigationAudit['difference']),style:TextStyle(color:_n(irrigationAudit['difference'])==0?_reportGreen:_reportOrange,fontWeight:FontWeight.w900))]),const Divider(height:18),Text('السقايات الملغاة في الفترة: ${_n(irrigationAudit['cancelled_irrigation_count'])} • إجماليها: ${_money(irrigationAudit['cancelled_irrigation_total'])}',style:TextStyle(color:_reportInk.withValues(alpha:.72),fontSize:11)),Text('سجلات إلغاء/حذف السقايات المسجلة بالتدقيق: ${_n(irrigationAudit['irrigation_audit_event_count'])}',style:TextStyle(color:_reportInk.withValues(alpha:.72),fontSize:11)),if(((irrigationAudit['mismatched_irrigations'] as List?)??const []).isNotEmpty)Text('تنبيه: توجد سقايات غير مطابقة لقيودها (${((irrigationAudit['mismatched_irrigations'] as List?)??const []).length}). راجعها قبل ترحيل الأرباح.',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:12))])),const SizedBox(height:12),Container(padding:const EdgeInsets.all(19),decoration:BoxDecoration(gradient:LinearGradient(colors:[profit>=0?_reportGreen:_reportOrange,profit>=0?_reportGreen.withValues(alpha: .72):_reportOrange.withValues(alpha: .72)]),borderRadius:BorderRadius.circular(23)),child:Row(children:[Icon(Icons.account_balance_wallet_rounded,color:Colors.white,size:38),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('صافي الربح القابل للتوزيع',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:12)),const SizedBox(height:5),Text(_money(profit),style:TextStyle(color:Colors.white,fontSize:25,fontWeight:FontWeight.w900))])),Text('${partners.length} شركاء',style:TextStyle(color:Colors.white.withValues(alpha: .85),fontWeight:FontWeight.w800))])),const SizedBox(height:14),TextField(onChanged:(v)=>setState(()=>partnerSearch=v),decoration:const InputDecoration(labelText:'اكتب اسم الشريك للبحث',prefixIcon:Icon(Icons.person_search_rounded),border:OutlineInputBorder())),const SizedBox(height:18),Row(children:[Icon(Icons.groups_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('توزيع الاستحقاقات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('$totalShares إجمالي الحصص/النسب',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11))]),const SizedBox(height:10),if(partners.isEmpty)const EmptyView('أضف شركاء لعرض التوزيع')else if(visiblePartners.isEmpty)const EmptyView('لا يوجد شريك يطابق الاسم المكتوب')else ...[for(final p in visiblePartners)_partnerCard(p,profit)],const SizedBox(height:8),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.info_outline_rounded,color:_reportOliveDark),const SizedBox(width:9),Expanded(child:Text('يتم خصم مستحقات العمال أولاً، ثم توزيع الصافي حسب النسبة أو الحصص المسجلة لكل شريك.',style:TextStyle(color:_reportInk.withValues(alpha: .72),fontSize:12,fontWeight:FontWeight.w700)))]))])));}
+        ),const SizedBox(height:12),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[Row(children:[Icon(_n(irrigationAudit['difference'])==0?Icons.verified_rounded:Icons.warning_amber_rounded,color:_n(irrigationAudit['difference'])==0?_reportGreen:_reportOrange),const SizedBox(width:8),const Expanded(child:Text('مطابقة السقايات مع دفتر الأستاذ',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:14))),Text(_n(irrigationAudit['difference'])==0?'متطابق':'يوجد فرق',style:TextStyle(color:_n(irrigationAudit['difference'])==0?_reportGreen:_reportOrange,fontWeight:FontWeight.w800))]),const SizedBox(height:10),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text('إجمالي السقايات في الفترة',style:TextStyle(color:_reportInk.withValues(alpha:.72),fontSize:12)),Text(_money(irrigationAudit['irrigation_total']),style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w800))]),const SizedBox(height:5),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text('إيراد الأستاذ في الفترة',style:TextStyle(color:_reportInk.withValues(alpha:.72),fontSize:12)),Text(_money(irrigationAudit['ledger_revenue_total']),style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w800))]),const SizedBox(height:5),Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text('الفرق',style:TextStyle(color:_reportInk.withValues(alpha:.72),fontSize:12)),Text(_money(irrigationAudit['difference']),style:TextStyle(color:_n(irrigationAudit['difference'])==0?_reportGreen:_reportOrange,fontWeight:FontWeight.w900))]),const Divider(height:18),Text('السقايات الملغاة في الفترة: ${_n(irrigationAudit['cancelled_irrigation_count'])} • إجماليها: ${_money(irrigationAudit['cancelled_irrigation_total'])}',style:TextStyle(color:_reportInk.withValues(alpha:.72),fontSize:11)),Text('سجلات إلغاء/حذف السقايات المسجلة بالتدقيق: ${_n(irrigationAudit['irrigation_audit_event_count'])}',style:TextStyle(color:_reportInk.withValues(alpha:.72),fontSize:11)),if(((irrigationAudit['mismatched_irrigations'] as List?)??const []).isNotEmpty)Text('تنبيه: توجد سقايات غير مطابقة لقيودها (${((irrigationAudit['mismatched_irrigations'] as List?)??const []).length}). راجعها قبل ترحيل الأرباح.',style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:12))])),const SizedBox(height:12),Container(padding:const EdgeInsets.all(19),decoration:BoxDecoration(gradient:LinearGradient(colors:[profit>=0?_reportGreen:_reportOrange,profit>=0?_reportGreen.withValues(alpha: .72):_reportOrange.withValues(alpha: .72)]),borderRadius:BorderRadius.circular(23)),child:Row(children:[const Icon(Icons.account_balance_wallet_rounded,color:Colors.white,size:38),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('صافي الربح القابل للتوزيع',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:12)),const SizedBox(height:5),Text(_money(profit),style:const TextStyle(color:Colors.white,fontSize:25,fontWeight:FontWeight.w900))])),Text('${partners.length} شركاء',style:TextStyle(color:Colors.white.withValues(alpha: .85),fontWeight:FontWeight.w800))])),const SizedBox(height:14),TextField(onChanged:(v)=>setState(()=>partnerSearch=v),decoration:const InputDecoration(labelText:'اكتب اسم الشريك للبحث',prefixIcon:Icon(Icons.person_search_rounded),border:OutlineInputBorder())),const SizedBox(height:18),Row(children:[const Icon(Icons.groups_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('توزيع الاستحقاقات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('$totalShares إجمالي الحصص/النسب',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11))]),const SizedBox(height:10),if(partners.isEmpty)const EmptyView('أضف شركاء لعرض التوزيع')else if(visiblePartners.isEmpty)const EmptyView('لا يوجد شريك يطابق الاسم المكتوب')else ...[for(final p in visiblePartners)_partnerCard(p,profit)],const SizedBox(height:8),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.info_outline_rounded,color:_reportOliveDark),const SizedBox(width:9),Expanded(child:Text('يتم خصم مستحقات العمال أولاً، ثم توزيع الصافي حسب النسبة أو الحصص المسجلة لكل شريك.',style:TextStyle(color:_reportInk.withValues(alpha: .72),fontSize:12,fontWeight:FontWeight.w700)))]))])));}
 }
 
 class CentralLedgerReportPage extends StatefulWidget {
@@ -14777,19 +14776,19 @@ class _CentralLedgerReportState extends State<CentralLedgerReportPage>{
   int _running(int index){var n=0;for(var i=0;i<=index&&i<rows.length;i++) {
     n+=_n(rows[i]['debit'])-_n(rows[i]['credit']);
   }return n;}
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
-  Widget _line(Map<String,Object?> x,int index){final debit=_n(x['debit']);final credit=_n(x['credit']);final running=_running(rows.indexOf(x));return InkWell(onTap:()=>_openJournalEntry(context,widget.r,x),borderRadius:BorderRadius.circular(19),child:Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(11)),child:Center(child:Text('${index+1}',style:TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900)))),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['description']??x['memo']??'حركة مالية'}',maxLines:1,overflow:TextOverflow.ellipsis,style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:3),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Icon(Icons.open_in_new_rounded,size:17,color:_reportOlive)]),const SizedBox(height:10),Row(children:[if(credit>0)Text('له ${money(credit)}',style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),if(debit>0)Padding(padding:const EdgeInsetsDirectional.only(start:12),child:Text('عليه ${money(debit)}',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:12))),const Spacer(),Text('الرصيد ${money(running)}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])])));}
-  @override Widget build(BuildContext context){final totalDebit=rows.fold<int>(0,(s,x)=>s+_n(x['debit']));final totalCredit=rows.fold<int>(0,(s,x)=>s+_n(x['credit']));final net=totalDebit-totalCredit;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('دفتر الأستاذ المركزي',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
+  Widget _line(Map<String,Object?> x,int index){final debit=_n(x['debit']);final credit=_n(x['credit']);final running=_running(rows.indexOf(x));return InkWell(onTap:()=>_openJournalEntry(context,widget.r,x),borderRadius:BorderRadius.circular(19),child:Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(11)),child:Center(child:Text('${index+1}',style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900)))),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['description']??x['memo']??'حركة مالية'}',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:3),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),const Icon(Icons.open_in_new_rounded,size:17,color:_reportOlive)]),const SizedBox(height:10),Row(children:[if(credit>0)Text('له ${money(credit)}',style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),if(debit>0)Padding(padding:const EdgeInsetsDirectional.only(start:12),child:Text('عليه ${money(debit)}',style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:12))),const Spacer(),Text('الرصيد ${money(running)}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])])));}
+  @override Widget build(BuildContext context){final totalDebit=rows.fold<int>(0,(s,x)=>s+_n(x['debit']));final totalCredit=rows.fold<int>(0,(s,x)=>s+_n(x['credit']));final net=totalDebit-totalCredit;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('دفتر الأستاذ المركزي',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
-  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الحركات المالية المركزية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('دفتر الأستاذ العام',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مصدر موحد لكل القيود والحركات المالية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.account_balance_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في البيان أو الحساب أو المرجع',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الحركات المالية المركزية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('دفتر الأستاذ العام',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('مصدر موحد لكل القيود والحركات المالية',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.account_balance_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث في البيان أو الحساب أو المرجع',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد القيود','${rows.length}',Icons.receipt_long_rounded,_reportOliveDark),const SizedBox(width:9),_kpi('إجمالي له',money(totalCredit),Icons.south_west_rounded,_reportGreen),const SizedBox(width:9),_kpi('إجمالي عليه',money(totalDebit),Icons.north_east_rounded,_reportOrange)]),const SizedBox(height:12),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.balance_rounded,color:_reportOliveDark),const SizedBox(width:9),const Text('الصافي المركزي',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text(money(net),style:TextStyle(color:net<=0?_reportGreen:_reportOrange,fontWeight:FontWeight.w900,fontSize:16))])),const SizedBox(height:18),Row(children:[Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('الحركات المالية',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} نتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حركات مطابقة للفلاتر')]))else ...[for(var i=0;i<visible.length&&i<300;i++)_line(visible[i],i)]])));}
+        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد القيود','${rows.length}',Icons.receipt_long_rounded,_reportOliveDark),const SizedBox(width:9),_kpi('إجمالي له',money(totalCredit),Icons.south_west_rounded,_reportGreen),const SizedBox(width:9),_kpi('إجمالي عليه',money(totalDebit),Icons.north_east_rounded,_reportOrange)]),const SizedBox(height:12),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.balance_rounded,color:_reportOliveDark),const SizedBox(width:9),const Text('الصافي المركزي',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text(money(net),style:TextStyle(color:net<=0?_reportGreen:_reportOrange,fontWeight:FontWeight.w900,fontSize:16))])),const SizedBox(height:18),Row(children:[const Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('الحركات المالية',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} نتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حركات مطابقة للفلاتر')]))else ...[for(var i=0;i<visible.length&&i<300;i++)_line(visible[i],i)]])));}
 }
 
 class LedgerStatementsPage extends StatefulWidget {
@@ -14876,10 +14875,10 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
           decoration:InputDecoration(
             labelText:'ابحث في ${labels[kind]}',
             hintText:'اكتب حرفًا أو جزءًا من الاسم لعرض النتائج',
-            prefixIcon:Icon(Icons.person_search_rounded),
+            prefixIcon:const Icon(Icons.person_search_rounded),
             suffixIcon:personSearch.isEmpty?null:IconButton(
               onPressed:()=>setState(()=>personSearch=''),
-              icon:Icon(Icons.close_rounded),
+              icon:const Icon(Icons.close_rounded),
             ),
             border:const OutlineInputBorder(),
           ),
@@ -14921,15 +14920,15 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
                 setState(()=>selectedId=null);
                 _load();
               },
-              icon:Icon(Icons.filter_alt_off_rounded,size:17),
+              icon:const Icon(Icons.filter_alt_off_rounded,size:17),
               label:Text('إلغاء تحديد ${labels[kind]}'),
             ),
           ),
       ],
       const SizedBox(height:10),
       Wrap(spacing:8,runSpacing:8,children:[
-        OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),
-        OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+        OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),
+        OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
@@ -14941,8 +14940,8 @@ class _LedgerStatementsState extends State<LedgerStatementsPage>{
       ]),
     ]);
   }
-  Widget _line(Map<String,Object?> x,int i){final lah=_n(x['lah']),alayh=_n(x['alayh']),balance=_n(x['balance']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:34,height:34,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${i+1}',style:TextStyle(fontWeight:FontWeight.w900,color:_reportOliveDark)))),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['description']??x['memo']??_movementLabel(x['reference_type'])}',maxLines:1,overflow:TextOverflow.ellipsis,style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:3),Text('${_date(x['date'])} • ${_movementLabel(x['reference_type'])}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),if(lah>0)Text('له ${money(lah)}',style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),if(alayh>0)Padding(padding:const EdgeInsetsDirectional.only(start:10),child:Text('عليه ${money(alayh)}',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:12)))]),const SizedBox(height:8),Row(children:[Text('${x['party_name']??''}',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10)),const Spacer(),Text('الرصيد ${money(balance)}',style:TextStyle(color:_reportInk.withValues(alpha: .7),fontWeight:FontWeight.w800,fontSize:11))]) ]));}
-  @override Widget build(BuildContext context){final opening=_n(statementSummary['opening_balance']),netMovement=_n(statementSummary['net_movement']),closing=_n(statementSummary['closing_balance']);final reconciled=opening+netMovement==closing;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(labels[kind]!,style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,6,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الكشوف المالية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text('${labels[kind]} ${_name()}'.trim(),style:TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('عرض مبسط للحركات المالية والرصيد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.menu_book_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:_selector()),const SizedBox(height:12),Row(children:[Expanded(child:_stat('الرصيد الافتتاحي',money(opening),_reportOliveDark)),const SizedBox(width:8),Expanded(child:_stat('صافي حركات الفترة',money(netMovement),netMovement>=0?_reportGreen:_reportOrange)),const SizedBox(width:8),Expanded(child:_stat('الرصيد الختامي',money(closing),reconciled?_reportGreen:_reportOrange))]),const SizedBox(height:8),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:9),decoration:BoxDecoration(color:reconciled?const Color(0xFFE8F5E9):const Color(0xFFFFEBEE),borderRadius:BorderRadius.circular(12)),child:Text(reconciled?'تمت المطابقة: الرصيد الافتتاحي + صافي الحركات = الرصيد الختامي':'تنبيه: يوجد فرق في مطابقة الرصيد التراكمي',style:TextStyle(color:reconciled?const Color(0xFF2E7D32):const Color(0xFFC62828),fontWeight:FontWeight.w800,fontSize:11))),const SizedBox(height:18),if(visible.isEmpty)const EmptyView('لا توجد حركات لهذا الكشف في الفترة المحددة')else ...[for(var i=0;i<visible.length&&i<500;i++)_line(visible[i],i)] ])));}
+  Widget _line(Map<String,Object?> x,int i){final lah=_n(x['lah']),alayh=_n(x['alayh']),balance=_n(x['balance']);return Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:34,height:34,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(10)),child:Center(child:Text('${i+1}',style:const TextStyle(fontWeight:FontWeight.w900,color:_reportOliveDark)))),const SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['description']??x['memo']??_movementLabel(x['reference_type'])}',maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),const SizedBox(height:3),Text('${_date(x['date'])} • ${_movementLabel(x['reference_type'])}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))])),if(lah>0)Text('له ${money(lah)}',style:const TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:12)),if(alayh>0)Padding(padding:const EdgeInsetsDirectional.only(start:10),child:Text('عليه ${money(alayh)}',style:const TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:12)))]),const SizedBox(height:8),Row(children:[Text('${x['party_name']??''}',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10)),const Spacer(),Text('الرصيد ${money(balance)}',style:TextStyle(color:_reportInk.withValues(alpha: .7),fontWeight:FontWeight.w800,fontSize:11))]) ]));}
+  @override Widget build(BuildContext context){final opening=_n(statementSummary['opening_balance']),netMovement=_n(statementSummary['net_movement']),closing=_n(statementSummary['closing_balance']);final reconciled=opening+netMovement==closing;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text(labels[kind]!,style:const TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,6,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('الكشوف المالية',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text('${labels[kind]} ${_name()}'.trim(),style:const TextStyle(color:Colors.white,fontSize:22,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('عرض مبسط للحركات المالية والرصيد',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.menu_book_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:_selector()),const SizedBox(height:12),Row(children:[Expanded(child:_stat('الرصيد الافتتاحي',money(opening),_reportOliveDark)),const SizedBox(width:8),Expanded(child:_stat('صافي حركات الفترة',money(netMovement),netMovement>=0?_reportGreen:_reportOrange)),const SizedBox(width:8),Expanded(child:_stat('الرصيد الختامي',money(closing),reconciled?_reportGreen:_reportOrange))]),const SizedBox(height:8),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:9),decoration:BoxDecoration(color:reconciled?const Color(0xFFE8F5E9):const Color(0xFFFFEBEE),borderRadius:BorderRadius.circular(12)),child:Text(reconciled?'تمت المطابقة: الرصيد الافتتاحي + صافي الحركات = الرصيد الختامي':'تنبيه: يوجد فرق في مطابقة الرصيد التراكمي',style:TextStyle(color:reconciled?const Color(0xFF2E7D32):const Color(0xFFC62828),fontWeight:FontWeight.w800,fontSize:11))),const SizedBox(height:18),if(visible.isEmpty)const EmptyView('لا توجد حركات لهذا الكشف في الفترة المحددة')else ...[for(var i=0;i<visible.length&&i<500;i++)_line(visible[i],i)] ])));}
   Widget _stat(String label,String value,Color color)=>Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(17),border:Border.all(color:_reportLine)),child:Column(children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:4),Text(value,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:14))]));
 }
 
@@ -14981,20 +14980,20 @@ class _WorkerTransactionsOverviewState extends State<WorkerTransactionsOverviewP
   }});_load();}}
   Future<void> _print(int id)async{try{await ReportService(widget.r).printPdf('worker_transactions',workerId:id,from:from,to:to);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
   List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return q.isEmpty?data:data.where((x)=>'${x['name']??''} ${x['phone']??''}'.toLowerCase().contains(q)).toList();}
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(icon,color:color,size:21),const SizedBox(width:8),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15))]))])));
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(icon,color:color,size:21),const SizedBox(width:8),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),const SizedBox(height:3),Text(value,style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15))]))])));
   Widget _mini(String l,String v,Color c)=>Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(l,style:TextStyle(color:_reportInk.withValues(alpha: .52),fontSize:10)),const SizedBox(height:3),Text(v,style:TextStyle(color:c,fontWeight:FontWeight.w900,fontSize:14))]));
-  Widget _card(Map<String,Object?> x){final id=x['id'] as int;final lah=_n(x['lahTotal']);final alayh=_n(x['alayhTotal']);final opening=_n(x['opening_balance']);final balance=lah-alayh;final color=balance>=0?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:Icon(Icons.engineering_rounded,color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??''}',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${payTypeName('${x['pay_type']}')} • ${x['phone']??'بدون هاتف'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),ReportPdfLongPress(
+  Widget _card(Map<String,Object?> x){final id=x['id'] as int;final lah=_n(x['lahTotal']);final alayh=_n(x['alayhTotal']);final opening=_n(x['opening_balance']);final balance=lah-alayh;final color=balance>=0?_reportGreen:_reportOrange;return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.engineering_rounded,color:_reportOliveDark)),const SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['name']??''}',style:const TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),const SizedBox(height:4),Text('${payTypeName('${x['pay_type']}')} • ${x['phone']??'بدون هاتف'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print(id)),
-  child: IconButton(onPressed:()=>_print(id),icon:Icon(Icons.picture_as_pdf_rounded,color:_reportOliveDark)),
-),IconButton(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>WorkerAccountsReportPage(widget.r,initialWorkerId:id,initialFrom:from,initialTo:to,autoSelectPeriod:false))),tooltip:'فتح الكشف',icon:Icon(Icons.open_in_new_rounded,color:_reportOliveDark))]),const SizedBox(height:11),Align(alignment:Alignment.centerRight,child:Text(opening>0?'الرصيد الافتتاحي له ${money(opening.abs())}':opening<0?'الرصيد الافتتاحي عليه ${money(opening.abs())}':'الرصيد الافتتاحي صفر',style:TextStyle(color:_reportInk.withValues(alpha:.7),fontSize:11,fontWeight:FontWeight.w700))),const SizedBox(height:8),Row(children:[_mini('له',money(lah),_reportGreen),const SizedBox(width:10),_mini('عليه',money(alayh),_reportOrange),const SizedBox(width:10),_mini('الحركات','${x['movementCount']??0}',_reportOliveDark)]),const SizedBox(height:10),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:9),decoration:BoxDecoration(color:color.withValues(alpha: .08),borderRadius:BorderRadius.circular(12)),child:Row(children:[Icon(balance>=0?Icons.account_balance_wallet_rounded:Icons.warning_amber_rounded,color:color,size:18),const SizedBox(width:7),Text(balance>=0?'صافي الحساب له ${money(balance.abs())}':'صافي الحساب عليه ${money(balance.abs())}',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:12)),const Spacer(),const Text('كشف تفصيلي',style:TextStyle(color:_reportOliveDark,fontSize:10,fontWeight:FontWeight.w800))]))]));}
-  @override Widget build(BuildContext context){final lah=data.fold<int>(0,(s,x)=>s+_n(x['lahTotal']));final alayh=data.fold<int>(0,(s,x)=>s+_n(x['alayhTotal']));final movements=data.fold<int>(0,(s,x)=>s+_n(x['movementCount']));return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('معاملات العمال',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة استحقاقات العمال',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المعاملات والاستحقاقات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الدفعات والاستحقاقات والسلف من دفتر الأستاذ المركزي',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.engineering_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم العامل أو الهاتف',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  child: IconButton(onPressed:()=>_print(id),icon:const Icon(Icons.picture_as_pdf_rounded,color:_reportOliveDark)),
+),IconButton(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>WorkerAccountsReportPage(widget.r,initialWorkerId:id,initialFrom:from,initialTo:to,autoSelectPeriod:false))),tooltip:'فتح الكشف',icon:const Icon(Icons.open_in_new_rounded,color:_reportOliveDark))]),const SizedBox(height:11),Align(alignment:Alignment.centerRight,child:Text(opening>0?'الرصيد الافتتاحي له ${money(opening.abs())}':opening<0?'الرصيد الافتتاحي عليه ${money(opening.abs())}':'الرصيد الافتتاحي صفر',style:TextStyle(color:_reportInk.withValues(alpha:.7),fontSize:11,fontWeight:FontWeight.w700))),const SizedBox(height:8),Row(children:[_mini('له',money(lah),_reportGreen),const SizedBox(width:10),_mini('عليه',money(alayh),_reportOrange),const SizedBox(width:10),_mini('الحركات','${x['movementCount']??0}',_reportOliveDark)]),const SizedBox(height:10),Container(padding:const EdgeInsets.symmetric(horizontal:12,vertical:9),decoration:BoxDecoration(color:color.withValues(alpha: .08),borderRadius:BorderRadius.circular(12)),child:Row(children:[Icon(balance>=0?Icons.account_balance_wallet_rounded:Icons.warning_amber_rounded,color:color,size:18),const SizedBox(width:7),Text(balance>=0?'صافي الحساب له ${money(balance.abs())}':'صافي الحساب عليه ${money(balance.abs())}',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:12)),const Spacer(),const Text('كشف تفصيلي',style:TextStyle(color:_reportOliveDark,fontSize:10,fontWeight:FontWeight.w800))]))]));}
+  @override Widget build(BuildContext context){final lah=data.fold<int>(0,(s,x)=>s+_n(x['lahTotal']));final alayh=data.fold<int>(0,(s,x)=>s+_n(x['alayhTotal']));final movements=data.fold<int>(0,(s,x)=>s+_n(x['movementCount']));return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('معاملات العمال',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة استحقاقات العمال',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),const Text('المعاملات والاستحقاقات',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الدفعات والاستحقاقات والسلف من دفتر الأستاذ المركزي',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.engineering_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(children:[TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث باسم العامل أو الهاتف',prefixIcon:Icon(Icons.search_rounded),border:OutlineInputBorder())),const SizedBox(height:10),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد العمال','${data.length}',Icons.groups_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي له',money(lah),Icons.south_west_rounded,_reportGreen),const SizedBox(width:8),_kpi('إجمالي عليه',money(alayh),Icons.north_east_rounded,_reportOrange)]),const SizedBox(height:10),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.timeline_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('إجمالي الحركات',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('$movements حركة',style:TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900))])),const SizedBox(height:18),Row(children:[Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('حسابات العمال',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} عامل',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)const EmptyView('لا توجد معاملات عمال مطابقة للفلاتر')else ...[for(final x in visible)_card(x)]])));}
+        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))])])),const SizedBox(height:12),Row(children:[_kpi('عدد العمال','${data.length}',Icons.groups_rounded,_reportOliveDark),const SizedBox(width:8),_kpi('إجمالي له',money(lah),Icons.south_west_rounded,_reportGreen),const SizedBox(width:8),_kpi('إجمالي عليه',money(alayh),Icons.north_east_rounded,_reportOrange)]),const SizedBox(height:10),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.timeline_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('إجمالي الحركات',style:TextStyle(fontWeight:FontWeight.w800)),const Spacer(),Text('$movements حركة',style:const TextStyle(color:_reportOliveDark,fontWeight:FontWeight.w900))])),const SizedBox(height:18),Row(children:[const Icon(Icons.view_list_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('حسابات العمال',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${visible.length} عامل',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(visible.isEmpty)const EmptyView('لا توجد معاملات عمال مطابقة للفلاتر')else ...[for(final x in visible)_card(x)]])));}
 }
 
 class WorkerAccountsReportPage extends StatefulWidget {
@@ -15049,19 +15048,19 @@ class _WorkerAccountsReportState extends State<WorkerAccountsReportPage> {
   String _date(Object? value){final d=DateTime.tryParse('$value');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
   String _type(Object? value)=>switch('$value'){'payment'=>'دفعة للعامل','payment_note'=>'ملاحظة الدفع','accrual'=>'استحقاق أجر','worker_income_total'=>'إجمالي دخل العامل','opening_balance'=>'الرصيد الافتتاحي','irrigation'=>'سقاية على حساب العامل','worker_irrigation_info'=>'سقاية مرتبطة بالعامل',_=>'حركة محاسبية'};
   IconData _typeIcon(Object? value)=>switch('$value'){'payment'=>Icons.payments_rounded,'payment_note'=>Icons.sticky_note_2_rounded,'accrual'||'worker_income_total'=>Icons.engineering_rounded,'opening_balance'=>Icons.flag_rounded,_=>Icons.water_drop_rounded};
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
-  Widget _movement(Map<String,Object?> x){final kind='${x['type']??''}';final signed=_n(x['signed_amount']);final positive=signed>=0;final color=positive?_reportGreen:_reportOrange;final isIrrigationInfo=kind=='worker_irrigation_info';return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_typeIcon(x['type']),color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Expanded(child:Text('${x['description']??_type(x['type'])}',maxLines:2,overflow:TextOverflow.ellipsis,style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk))),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:11))]),const SizedBox(height:5),Text(_type(x['type']),style:TextStyle(color:color,fontSize:11,fontWeight:FontWeight.w800)),if(!isIrrigationInfo)...[const SizedBox(height:8),Row(children:[Text(positive?'له':'عليه',style:TextStyle(color:color,fontWeight:FontWeight.w900)),const SizedBox(width:6),Text(money(signed.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900)),const Spacer(),Text('الرصيد ${money(_n(x['balance']))}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])] else const Padding(padding:EdgeInsets.only(top:6),child:Text('معلومة عن السقاية فقط — لا تُحتسب هنا كدخل منفصل',style:TextStyle(fontSize:11,color:_reportInk))) ]))]));}
-  @override Widget build(BuildContext context){final w=worker;final bal=_n(summary['balance']);final openingRow=rows.where((x)=>x['type']=='opening_balance').firstOrNull;final opening=_n(openingRow?['signed_amount']??openingRow?['balance']);final financialRows=rows.where((x)=>!const ['opening_balance','carried_balance','current_balance','worker_irrigation_info','worker_income_total'].contains(x['type'])).toList();final lah=financialRows.fold<int>(0,(sum,x)=>sum+_n(x['lah']));final alayh=financialRows.fold<int>(0,(sum,x)=>sum+_n(x['alayh']));final pay=w==null?'':payTypeName('${w['pay_type']}');final payDetail=w==null?'':w['pay_type']=='hourly'?'${w['hourly_rate']??0} لكل ساعة':w['pay_type']=='percentage'?'${w['percentage_rate']??0}% من السقاية':'راتب ${w['fixed_salary']??0} شهرياً';return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تفاصيل حسابات العمال',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
+  Widget _movement(Map<String,Object?> x){final kind='${x['type']??''}';final signed=_n(x['signed_amount']);final positive=signed>=0;final color=positive?_reportGreen:_reportOrange;final isIrrigationInfo=kind=='worker_irrigation_info';return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_typeIcon(x['type']),color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Expanded(child:Text('${x['description']??_type(x['type'])}',maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk))),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:11))]),const SizedBox(height:5),Text(_type(x['type']),style:TextStyle(color:color,fontSize:11,fontWeight:FontWeight.w800)),if(!isIrrigationInfo)...[const SizedBox(height:8),Row(children:[Text(positive?'له':'عليه',style:TextStyle(color:color,fontWeight:FontWeight.w900)),const SizedBox(width:6),Text(money(signed.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900)),const Spacer(),Text('الرصيد ${money(_n(x['balance']))}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])] else const Padding(padding:EdgeInsets.only(top:6),child:Text('معلومة عن السقاية فقط — لا تُحتسب هنا كدخل منفصل',style:TextStyle(fontSize:11,color:_reportInk))) ]))]));}
+  @override Widget build(BuildContext context){final w=worker;final bal=_n(summary['balance']);final openingRow=rows.where((x)=>x['type']=='opening_balance').firstOrNull;final opening=_n(openingRow?['signed_amount']??openingRow?['balance']);final financialRows=rows.where((x)=>!const ['opening_balance','carried_balance','current_balance','worker_irrigation_info','worker_income_total'].contains(x['type'])).toList();final lah=financialRows.fold<int>(0,(sum,x)=>sum+_n(x['lah']));final alayh=financialRows.fold<int>(0,(sum,x)=>sum+_n(x['alayh']));final pay=w==null?'':payTypeName('${w['pay_type']}');final payDetail=w==null?'':w['pay_type']=='hourly'?'${w['hourly_rate']??0} لكل ساعة':w['pay_type']=='percentage'?'${w['percentage_rate']??0}% من السقاية':'راتب ${w['fixed_salary']??0} شهرياً';return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:const Text('تفاصيل حسابات العمال',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:const Icon(Icons.refresh_rounded)),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
-  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
-))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('كشف استحقاقات العامل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(w==null?'اختر عاملاً':w['name']?.toString()??'اختر عاملاً',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الساعات والاستحقاقات والدفعات من دفتر الأستاذ المركزي',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.engineering_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[TextField(controller:workerSearchController,onChanged:(v)=>setState(()=>workerSearch=v),decoration:InputDecoration(labelText:'اكتب اسم العامل للبحث',hintText:'اكتب اسم العامل',prefixIcon:Icon(Icons.search_rounded),suffixIcon:workerSearch.isEmpty?null:IconButton(onPressed:(){workerSearchController.clear();setState(()=>workerSearch='');},icon:Icon(Icons.close_rounded)),border:const OutlineInputBorder())),if(workerSearch.trim().isNotEmpty) ...[const SizedBox(height:8),...workers.where((x)=>'${x['name']??''}'.toLowerCase().contains(workerSearch.trim().toLowerCase())).take(8).map((x)=>ListTile(dense:true,leading:Icon(Icons.engineering_rounded),title:Text('${x['name']??''}'),subtitle:Text('${x['phone']??'بدون هاتف'}'),onTap:(){final id=x['id'] as int;workerSearchController.text='${x['name']??''}';setState((){selectedId=id;workerSearch='${x['name']??''}';});_load();})),if(!workers.any((x)=>'${x['name']??''}'.toLowerCase().contains(workerSearch.trim().toLowerCase())))const Padding(padding:EdgeInsets.all(8),child:Text('لا يوجد عامل يطابق الاسم المكتوب'))]])),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pickDate(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pickDate(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
+  child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:const Icon(Icons.picture_as_pdf_rounded,size:18),label:const Text('PDF')),
+))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:const EdgeInsets.all(21),decoration:BoxDecoration(gradient:const LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('كشف استحقاقات العامل',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),const SizedBox(height:6),Text(w==null?'اختر عاملاً':w['name']?.toString()??'اختر عاملاً',style:const TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),const SizedBox(height:7),Text('الساعات والاستحقاقات والدفعات من دفتر الأستاذ المركزي',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),const Icon(Icons.engineering_rounded,color:Colors.white,size:46)])),const SizedBox(height:14),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[TextField(controller:workerSearchController,onChanged:(v)=>setState(()=>workerSearch=v),decoration:InputDecoration(labelText:'اكتب اسم العامل للبحث',hintText:'اكتب اسم العامل',prefixIcon:const Icon(Icons.search_rounded),suffixIcon:workerSearch.isEmpty?null:IconButton(onPressed:(){workerSearchController.clear();setState(()=>workerSearch='');},icon:const Icon(Icons.close_rounded)),border:const OutlineInputBorder())),if(workerSearch.trim().isNotEmpty) ...[const SizedBox(height:8),...workers.where((x)=>'${x['name']??''}'.toLowerCase().contains(workerSearch.trim().toLowerCase())).take(8).map((x)=>ListTile(dense:true,leading:const Icon(Icons.engineering_rounded),title:Text('${x['name']??''}'),subtitle:Text('${x['phone']??'بدون هاتف'}'),onTap:(){final id=x['id'] as int;workerSearchController.text='${x['name']??''}';setState((){selectedId=id;workerSearch='${x['name']??''}';});_load();})),if(!workers.any((x)=>'${x['name']??''}'.toLowerCase().contains(workerSearch.trim().toLowerCase())))const Padding(padding:EdgeInsets.all(8),child:Text('لا يوجد عامل يطابق الاسم المكتوب'))]])),const SizedBox(height:12),Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pickDate(true),icon:const Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pickDate(false),icon:const Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
         ...reportQuickRangeButtons(
           context,
           onSelected: (rangeFrom, rangeTo) {
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))]),const SizedBox(height:15),if(w!=null)Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:Icon(Icons.schedule_rounded,color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('نظام أجر العامل',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:3),Text(pay,style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk,fontSize:17)),Text(payDetail,style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11))])),OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'worker',id:selectedId!,title:'تفاصيل العامل'))),icon:Icon(Icons.open_in_new_rounded,size:16),label:const Text('ملف العامل'))])),const SizedBox(height:12),Row(children:[_kpi('الرصيد الحالي',money(bal),Icons.account_balance_wallet_rounded,bal>=0?_reportGreen:_reportOrange),const SizedBox(width:9),_kpi('إجمالي له',money(lah),Icons.south_west_rounded,_reportGreen),const SizedBox(width:9),_kpi('إجمالي عليه',money(alayh),Icons.north_east_rounded,_reportOrange)]),const SizedBox(height:9),Container(padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(14),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.flag_rounded,color:_reportOliveDark,size:18),const SizedBox(width:8),const Expanded(child:Text('الرصيد الافتتاحي',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w800,fontSize:12))),Text(opening>0?'له ${money(opening.abs())}':opening<0?'عليه ${money(opening.abs())}':'صفر',style:TextStyle(color:opening>=0?_reportGreen:_reportOrange,fontWeight:FontWeight.w900,fontSize:13))])),const SizedBox(height:18),Row(children:[Icon(Icons.timeline_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل الاستحقاقات والدفعات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${rows.length} حركة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(selectedId==null||workers.isEmpty)const EmptyView('أضف عاملاً لعرض كشف الحساب')else if(rows.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حركات في الفترة المحددة')]))else ...[for(final x in rows.take(300))_movement(x)]])));}
+        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:const Text('مسح الفترة'))]),const SizedBox(height:15),if(w!=null)Container(padding:const EdgeInsets.all(16),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.schedule_rounded,color:_reportOliveDark)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('نظام أجر العامل',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:3),Text(pay,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk,fontSize:17)),Text(payDetail,style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11))])),OutlinedButton.icon(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>RecordDetailsPage(widget.r,kind:'worker',id:selectedId!,title:'تفاصيل العامل'))),icon:const Icon(Icons.open_in_new_rounded,size:16),label:const Text('ملف العامل'))])),const SizedBox(height:12),Row(children:[_kpi('الرصيد الحالي',money(bal),Icons.account_balance_wallet_rounded,bal>=0?_reportGreen:_reportOrange),const SizedBox(width:9),_kpi('إجمالي له',money(lah),Icons.south_west_rounded,_reportGreen),const SizedBox(width:9),_kpi('إجمالي عليه',money(alayh),Icons.north_east_rounded,_reportOrange)]),const SizedBox(height:9),Container(padding:const EdgeInsets.symmetric(horizontal:14,vertical:11),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(14),border:Border.all(color:_reportLine)),child:Row(children:[const Icon(Icons.flag_rounded,color:_reportOliveDark,size:18),const SizedBox(width:8),const Expanded(child:Text('الرصيد الافتتاحي',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w800,fontSize:12))),Text(opening>0?'له ${money(opening.abs())}':opening<0?'عليه ${money(opening.abs())}':'صفر',style:TextStyle(color:opening>=0?_reportGreen:_reportOrange,fontWeight:FontWeight.w900,fontSize:13))])),const SizedBox(height:18),Row(children:[const Icon(Icons.timeline_rounded,color:_reportOliveDark),const SizedBox(width:8),const Text('سجل الاستحقاقات والدفعات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),const Spacer(),Text('${rows.length} حركة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),const SizedBox(height:10),if(selectedId==null||workers.isEmpty)const EmptyView('أضف عاملاً لعرض كشف الحساب')else if(rows.isEmpty)Container(padding:const EdgeInsets.all(30),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:const Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد حركات في الفترة المحددة')]))else ...[for(final x in rows.take(300))_movement(x)]])));}
 }
 
 class PartnerAccountsReportPage extends StatefulWidget {
@@ -15270,8 +15269,8 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
   String _date(Object? value){final d=DateTime.tryParse('$value');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
   String _type(Object? value)=>switch('$value'){ 'payment'=>'دفعة للشريك','share_accrual'=>'استحقاق أرباح','partner_profit_total'=>'إجمالي أرباح الشريك','partner_irrigation_info'=>'سقاية خاصة بالشريك','opening_balance'=>'رصيد افتتاحي','irrigation'=>'سقاية على حساب الشريك',_=>'حركة محاسبية'};
   IconData _typeIcon(Object? value)=>switch('$value'){ 'payment'=>Icons.payments_rounded,'share_accrual'||'partner_profit_total'=>Icons.trending_up_rounded,'opening_balance'=>Icons.flag_rounded,_=>Icons.receipt_long_rounded};
-  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
-  Widget _movement(Map<String,Object?> x){final kind='${x['type']??''}';final signed=_n(x['signed_amount']);final positive=signed>=0;final color=positive?_reportGreen:_reportOrange;final info=kind=='partner_irrigation_info';return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_typeIcon(x['type']),color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Expanded(child:Text('${x['description']??_type(x['type'])}',maxLines:2,overflow:TextOverflow.ellipsis,style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk))),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:11))]),const SizedBox(height:5),Text(_type(x['type']),style:TextStyle(color:color,fontSize:11,fontWeight:FontWeight.w800)),if(!info)...[const SizedBox(height:8),Row(children:[Text(positive?'له':'عليه',style:TextStyle(color:color,fontWeight:FontWeight.w900)),const SizedBox(width:6),Text(money(signed.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900)),const Spacer(),Text('الرصيد ${money(_n(x['balance']))}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])] else const Padding(padding:EdgeInsets.only(top:6),child:Text('بيان السقاية فقط؛ دون عرض ربحها بشكل منفصل',style:TextStyle(fontSize:11,color:_reportInk))) ]))]));}
+  Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:11)),const SizedBox(height:4),Text(value,style:const TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
+  Widget _movement(Map<String,Object?> x){final kind='${x['type']??''}';final signed=_n(x['signed_amount']);final positive=signed>=0;final color=positive?_reportGreen:_reportOrange;final info=kind=='partner_irrigation_info';return Container(margin:const EdgeInsets.only(bottom:11),padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(14)),child:Icon(_typeIcon(x['type']),color:color)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Expanded(child:Text('${x['description']??_type(x['type'])}',maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w900,color:_reportInk))),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:11))]),const SizedBox(height:5),Text(_type(x['type']),style:TextStyle(color:color,fontSize:11,fontWeight:FontWeight.w800)),if(!info)...[const SizedBox(height:8),Row(children:[Text(positive?'له':'عليه',style:TextStyle(color:color,fontWeight:FontWeight.w900)),const SizedBox(width:6),Text(money(signed.abs()),style:TextStyle(color:color,fontWeight:FontWeight.w900)),const Spacer(),Text('الرصيد ${money(_n(x['balance']))}',style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11,fontWeight:FontWeight.w700))])] else const Padding(padding:EdgeInsets.only(top:6),child:Text('بيان السقاية فقط؛ دون عرض ربحها بشكل منفصل',style:TextStyle(fontSize:11,color:_reportInk))) ]))]));}
   @override
   Widget build(BuildContext context) {
     final p = partner;
@@ -15298,7 +15297,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
             IconButton(
               onPressed: _load,
               tooltip: 'تحديث',
-              icon: Icon(Icons.refresh_rounded),
+              icon: const Icon(Icons.refresh_rounded),
             ),
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 10),
@@ -15313,7 +15312,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                     borderRadius: BorderRadius.circular(13),
                   ),
                 ),
-                icon: Icon(Icons.picture_as_pdf_rounded, size: 18),
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
                 label: const Text('PDF'),
               ),
 ),
@@ -15330,7 +15329,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                       Container(
                         padding: const EdgeInsets.all(21),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
+                          gradient: const LinearGradient(
                             colors: [_reportOliveDark, _reportOlive],
                           ),
                           borderRadius: BorderRadius.circular(27),
@@ -15344,7 +15343,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                   Text(
                                     'كشف حساب مالي',
                                     style: TextStyle(
-                                      color: _reportSurface.withValues(alpha: .72),
+                                      color: Colors.white.withValues(alpha: .72),
                                       fontSize: 12,
                                     ),
                                   ),
@@ -15353,8 +15352,8 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                     p == null
                                         ? 'اختر شريكاً'
                                         : p['name']?.toString() ?? 'اختر شريكاً',
-                                    style: TextStyle(
-                                      color: _reportSurface,
+                                    style: const TextStyle(
+                                      color: Colors.white,
                                       fontSize: 23,
                                       fontWeight: FontWeight.w900,
                                     ),
@@ -15363,16 +15362,16 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                   Text(
                                     'كل الحركات مترجمة إلى له وعليه من دفتر الأستاذ المركزي',
                                     style: TextStyle(
-                                      color: _reportSurface.withValues(alpha: .82),
+                                      color: Colors.white.withValues(alpha: .82),
                                       fontSize: 11,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            Icon(
+                            const Icon(
                               Icons.groups_rounded,
-                              color: _reportSurface,
+                              color: Colors.white,
                               size: 46,
                             ),
                           ],
@@ -15382,7 +15381,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: _reportSurface,
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(color: _reportLine),
                         ),
@@ -15407,7 +15406,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                   .take(8))
                                 ListTile(
                                   dense: true,
-                                  leading: Icon(
+                                  leading: const Icon(
                                     Icons.person_outline_rounded,
                                     color: _reportOliveDark,
                                   ),
@@ -15444,14 +15443,14 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                         children: [
                           OutlinedButton.icon(
                             onPressed: () => _pickDate(true),
-                            icon: Icon(Icons.calendar_today_rounded, size: 16),
+                            icon: const Icon(Icons.calendar_today_rounded, size: 16),
                             label: Text(
                               from == null ? 'من تاريخ' : 'من ${_date(from)}',
                             ),
                           ),
                           OutlinedButton.icon(
                             onPressed: () => _pickDate(false),
-                            icon: Icon(Icons.event_rounded, size: 16),
+                            icon: const Icon(Icons.event_rounded, size: 16),
                             label: Text(
                               to == null ? 'إلى تاريخ' : 'إلى ${_date(to)}',
                             ),
@@ -15484,7 +15483,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: _reportSurface,
+                            color: Colors.white,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: _reportLine),
                           ),
@@ -15521,7 +15520,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                       p['ownership_mode'] == 'percentage'
                                           ? 'نسبة ملكية ${p['ownership_percentage'] ?? 0}%'
                                           : '${p['shares_count'] ?? 0} حصص',
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         fontWeight: FontWeight.w900,
                                         color: _reportInk,
                                         fontSize: 17,
@@ -15542,7 +15541,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                     ),
                                   ),
                                 ),
-                                icon: Icon(Icons.open_in_new_rounded, size: 16),
+                                icon: const Icon(Icons.open_in_new_rounded, size: 16),
                                 label: const Text('ملف الشريك'),
                               ),
                             ],
@@ -15577,7 +15576,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                       const SizedBox(height: 18),
                       Row(
                         children: [
-                          Icon(Icons.timeline_rounded, color: _reportOliveDark),
+                          const Icon(Icons.timeline_rounded, color: _reportOliveDark),
                           const SizedBox(width: 8),
                           const Text(
                             'سجل الحركات',
@@ -15604,7 +15603,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                         Container(
                           padding: const EdgeInsets.all(30),
                           decoration: BoxDecoration(
-                            color: _reportSurface,
+                            color: Colors.white,
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: const Column(
@@ -15685,7 +15684,7 @@ class _NotificationsState extends State<NotificationsPage> {
                     ),
                     trailing: PopupMenuButton<int>(
                       tooltip: 'تأجيل التنبيه',
-                      icon: Icon(Icons.snooze_rounded),
+                      icon: const Icon(Icons.snooze_rounded),
                       onSelected: (m) async {
                         if (!await runGuarded(
                           context,
@@ -15945,7 +15944,7 @@ class _SettingsState extends State<SettingsPage> {
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
                       onPressed: () => refresh(() => controllers[selected]!.text = MessageTemplateService.defaultFor(selected, systemType: s['system_type'])),
-                      icon: Icon(Icons.restore),
+                      icon: const Icon(Icons.restore),
                       label: const Text('استعادة النص الافتراضي'),
                     ),
                     const Divider(),
@@ -15971,7 +15970,7 @@ class _SettingsState extends State<SettingsPage> {
                     if (dialogContext.mounted) ScaffoldMessenger.of(dialogContext).showSnackBar(SnackBar(content: Text('تعذر حفظ القوالب: $e')));
                   }
                 },
-                icon: Icon(Icons.save),
+                icon: const Icon(Icons.save),
                 label: const Text('حفظ القوالب'),
               ),
             ],
@@ -16018,7 +16017,7 @@ class _SettingsState extends State<SettingsPage> {
                     radius: 9,
                     backgroundColor: SaqiaTheme.accent(key),
                     child: selected == key
-                        ? Icon(Icons.check, size: 12, color: Colors.white)
+                        ? const Icon(Icons.check, size: 12, color: Colors.white)
                         : null,
                   ),
                   label: Text(SaqiaTheme.name(key)),
@@ -16027,7 +16026,7 @@ class _SettingsState extends State<SettingsPage> {
           ),
         ),
         ListTile(
-          leading: Icon(Icons.brightness_6_rounded),
+          leading: const Icon(Icons.brightness_6_rounded),
           title: const Text('وضع العرض'),
           subtitle: const Text('فاتح أو داكن أو حسب إعداد الجهاز'),
           trailing: SizedBox(
@@ -16145,7 +16144,7 @@ class _SettingsState extends State<SettingsPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('${target['account_code']} • ${target['account_name']}', style: TextStyle(fontWeight: FontWeight.w800)),
+                          Text('${target['account_code']} • ${target['account_name']}', style: const TextStyle(fontWeight: FontWeight.w800)),
                           Text('${sourceLabel('${target['source_type']}')} • ${target['currency']} • رصيد الأستاذ بتاريخ القطع: ${money(target['book_balance'])}'),
                           if ((target['cashbox_names'] as List).isNotEmpty)
                             Text('الصناديق المرتبطة: ${(target['cashbox_names'] as List).join('، ')}'),
@@ -16422,7 +16421,7 @@ class _SettingsState extends State<SettingsPage> {
   Widget _pumpSettingTile() => ListTile(
     title: const Text('المضخة المستخدمة في السقي'),
     subtitle: Text(s['pump_name'] ?? 'غير محددة'),
-    trailing: Icon(Icons.arrow_drop_down),
+    trailing: const Icon(Icons.arrow_drop_down),
     onTap: () async {
       final pumps = await widget.r.db.query(
         'pumps',
@@ -16501,7 +16500,7 @@ class _SettingsState extends State<SettingsPage> {
       ),
       trailing: FilledButton.tonalIcon(
         onPressed: () => _pickImageSetting(key, label),
-        icon: Icon(Icons.folder_open_rounded),
+        icon: const Icon(Icons.folder_open_rounded),
         label: const Text('اختيار صورة'),
       ),
     );
@@ -16510,7 +16509,7 @@ class _SettingsState extends State<SettingsPage> {
   Widget setTile(String k, String label, [bool n = false]) => ListTile(
     title: Text(label),
     subtitle: Text(settingDisplay(k, s[k] ?? 'غير مضبوط')),
-    trailing: Icon(Icons.edit),
+    trailing: const Icon(Icons.edit),
     onTap: () => edit(k, label, numeric: n),
   );
   Widget workDifferenceTile() {
@@ -16546,7 +16545,7 @@ class _SettingsState extends State<SettingsPage> {
       }
       await load();
     },
-    secondary: Icon(Icons.toggle_on_outlined),
+    secondary: const Icon(Icons.toggle_on_outlined),
     contentPadding: const EdgeInsets.symmetric(horizontal: 16),
   );
   Widget dropdownTile(
@@ -16556,7 +16555,7 @@ class _SettingsState extends State<SettingsPage> {
   ) => ListTile(
     title: Text(label),
     subtitle: Text(settingDisplay(k, s[k] ?? 'غير مضبوط')),
-    trailing: Icon(Icons.keyboard_arrow_down_rounded),
+    trailing: const Icon(Icons.keyboard_arrow_down_rounded),
     onTap: () async {
       final current = s[k];
       final v = await showDialog<String>(
@@ -16570,7 +16569,7 @@ class _SettingsState extends State<SettingsPage> {
                 child: Row(
                   children: [
                     if (o.key == current)
-                      Icon(Icons.check_rounded, size: 18),
+                      const Icon(Icons.check_rounded, size: 18),
                     const SizedBox(width: 8),
                     Text(o.value),
                   ],
@@ -16591,7 +16590,7 @@ class _SettingsState extends State<SettingsPage> {
     margin: const EdgeInsets.only(bottom: 16),
     padding: const EdgeInsets.all(22),
     decoration: BoxDecoration(
-      gradient: LinearGradient(colors: [_reportOliveDark, _reportOlive]),
+      gradient: const LinearGradient(colors: [_reportOliveDark, _reportOlive]),
       borderRadius: BorderRadius.circular(28),
       boxShadow: [BoxShadow(color: _reportOlive.withValues(alpha: .18), blurRadius: 18, offset: const Offset(0, 8))],
     ),
@@ -16599,7 +16598,7 @@ class _SettingsState extends State<SettingsPage> {
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('مركز التحكم', style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 12)),
         const SizedBox(height: 6),
-        Text(s['station_name'] ?? 'إعدادات المحطة', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
+        Text(s['station_name'] ?? 'إعدادات المحطة', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
         const SizedBox(height: 7),
         Text('اضبط التشغيل والتسعير والتنبيهات والمحاسبة من مكان واحد', style: TextStyle(color: Colors.white.withValues(alpha: .84), fontSize: 11)),
         const SizedBox(height: 14),
@@ -16609,10 +16608,10 @@ class _SettingsState extends State<SettingsPage> {
           _settingBadge(Icons.currency_exchange_rounded, s['currency'] ?? 'YER'),
         ]),
       ])),
-      Container(width: 66, height: 66, decoration: BoxDecoration(color: _reportSurface.withValues(alpha: .14), borderRadius: BorderRadius.circular(22)), child: Icon(Icons.tune_rounded, color: _reportSurface, size: 34)),
+      Container(width: 66, height: 66, decoration: BoxDecoration(color: Colors.white.withValues(alpha: .14), borderRadius: BorderRadius.circular(22)), child: const Icon(Icons.tune_rounded, color: Colors.white, size: 34)),
     ]),
   );
-  Widget _settingBadge(IconData icon, String text) => Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7), decoration: BoxDecoration(color: _reportSurface.withValues(alpha: .14), borderRadius: BorderRadius.circular(11)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 14, color: _reportSurface), const SizedBox(width: 5), Text(text, style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))]));
+  Widget _settingBadge(IconData icon, String text) => Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7), decoration: BoxDecoration(color: Colors.white.withValues(alpha: .14), borderRadius: BorderRadius.circular(11)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 14, color: Colors.white), const SizedBox(width: 5), Text(text, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))]));
 
   @override
   Widget build(BuildContext c) {
@@ -16622,22 +16621,22 @@ class _SettingsState extends State<SettingsPage> {
       actions: [
         OutlinedButton.icon(
           onPressed: users,
-          icon: Icon(Icons.people_alt),
+          icon: const Icon(Icons.people_alt),
           label: const Text('المستخدمون'),
         ),
         if (widget.manager) FilledButton.icon(
           onPressed: close,
-          icon: Icon(Icons.lock_clock),
+          icon: const Icon(Icons.lock_clock),
           label: const Text('إقفال آخر سنة مكتملة'),
         ),
         if (widget.manager) OutlinedButton.icon(
           onPressed: reconcileCashAndBank,
-          icon: Icon(Icons.account_balance_wallet_outlined),
+          icon: const Icon(Icons.account_balance_wallet_outlined),
           label: const Text('مطابقة النقد والبنك'),
         ),
         if (widget.manager) OutlinedButton.icon(
           onPressed: manageClosures,
-          icon: Icon(Icons.history),
+          icon: const Icon(Icons.history),
           label: const Text('سجل الإقفالات'),
         ),
       ],
@@ -16649,10 +16648,10 @@ class _SettingsState extends State<SettingsPage> {
             title: 'قوالب الرسائل',
             children: [
               ListTile(
-                leading: Icon(Icons.message_outlined, color: _reportOliveDark),
+                leading: const Icon(Icons.message_outlined, color: _reportOliveDark),
                 title: const Text('تعديل رسائل السقاية والقبض والدفع'),
                 subtitle: const Text('تعديل النص، إدراج معلومات جاهزة، معاينة الرسالة واستعادة النص الافتراضي'),
-                trailing: Icon(Icons.chevron_right),
+                trailing: const Icon(Icons.chevron_right),
                 onTap: editMessageTemplates,
               ),
             ],
@@ -16665,7 +16664,7 @@ class _SettingsState extends State<SettingsPage> {
                 onChanged: _bubbleBusy ? null : _setBubbleEnabled,
                 secondary: _bubbleBusy
                     ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-                    : Icon(Icons.bubble_chart_rounded, color: _reportOliveDark),
+                    : const Icon(Icons.bubble_chart_rounded, color: _reportOliveDark),
                 title: const Text('إظهار فقاعة ساقية فوق التطبيقات'),
                 subtitle: const Text('فقاعة واحدة: تظهر داخل ساقية كالمعتاد، وتنتقل للظهور فوق التطبيقات عند تفعيل هذا المفتاح. تختفي نسخة التراكب تلقائياً أثناء استخدام التطبيق لمنع التكرار. تتطلب صلاحية الظهور فوق التطبيقات وتعرض إشعاراً أثناء عملها.'),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
@@ -16675,8 +16674,8 @@ class _SettingsState extends State<SettingsPage> {
           Container(
             margin: const EdgeInsets.only(bottom: 16),
             padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-            decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(18), border: Border.all(color: _reportLine)),
-            child: Row(children: [Icon(Icons.info_outline_rounded, color: _reportOliveDark), const SizedBox(width: 9), Expanded(child: Text('اضغط على أي قسم لعرض إعداداته. يتم حفظ التغييرات مباشرة وتطبيق إعدادات الاسم والتنبيهات والحركة فوراً.', style: TextStyle(color: _reportInk.withValues(alpha: .68), fontSize: 11, fontWeight: FontWeight.w700)))]),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), border: Border.all(color: _reportLine)),
+            child: Row(children: [const Icon(Icons.info_outline_rounded, color: _reportOliveDark), const SizedBox(width: 9), Expanded(child: Text('اضغط على أي قسم لعرض إعداداته. يتم حفظ التغييرات مباشرة وتطبيق إعدادات الاسم والتنبيهات والحركة فوراً.', style: TextStyle(color: _reportInk.withValues(alpha: .68), fontSize: 11, fontWeight: FontWeight.w700)))]),
           ),
           SettingGroup(
             title: 'بيانات المحطة',
@@ -16696,13 +16695,13 @@ class _SettingsState extends State<SettingsPage> {
             title: 'المنظومة والتسعير',
             children: [
               ListTile(
-                leading: Icon(Icons.lock_outline_rounded, color: _reportOliveDark),
+                leading: const Icon(Icons.lock_outline_rounded, color: _reportOliveDark),
                 title: const Text('نوع المنظومة'),
                 subtitle: Text('${settingDisplay('system_type', s['system_type'] ?? 'diesel')} • ثابت منذ الإعداد الأولي'),
-                trailing: Icon(Icons.verified_rounded, color: _reportGreen),
+                trailing: const Icon(Icons.verified_rounded, color: _reportGreen),
               ),
               if ((s['system_type'] ?? 'diesel') == 'diesel') ...[
-                ListTile(leading: Icon(Icons.oil_barrel_outlined), title: const Text('موعد تغيير الزيت وتكلفته'), subtitle: const Text('ساعات السقاية، التنبيه، وسجل المصروفات'), onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselOilPage(widget.r, userId: widget.userId, role: widget.manager ? 'manager' : 'operations')))),
+                ListTile(leading: const Icon(Icons.oil_barrel_outlined), title: const Text('موعد تغيير الزيت وتكلفته'), subtitle: const Text('ساعات السقاية، التنبيه، وسجل المصروفات'), onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => DieselOilPage(widget.r, userId: widget.userId, role: widget.manager ? 'manager' : 'operations')))),
                 setTile(
                   'diesel_hourly_water_rate',
                   'سعر مياه الديزل بالساعة',
@@ -16793,7 +16792,7 @@ class _SettingsState extends State<SettingsPage> {
                     );
                   }
                 },
-                icon: Icon(Icons.notifications_active_outlined),
+                icon: const Icon(Icons.notifications_active_outlined),
                 label: const Text('إدارة إشعارات التطبيق من إعدادات الجهاز'),
               ),
               setTile('notification_appointment_title', 'عنوان إشعار الموعد'),
@@ -16839,13 +16838,13 @@ class SettingGroup extends StatelessWidget {
   @override
   Widget build(BuildContext c) => Container(
     margin: const EdgeInsets.only(bottom: 14),
-    decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(22), border: Border.all(color: _reportLine), boxShadow: [BoxShadow(color: _reportOlive.withValues(alpha: .05), blurRadius: 14, offset: const Offset(0, 5))]),
+    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), border: Border.all(color: _reportLine), boxShadow: [BoxShadow(color: _reportOlive.withValues(alpha: .05), blurRadius: 14, offset: const Offset(0, 5))]),
     child: Theme(data: Theme.of(c).copyWith(dividerColor: Colors.transparent), child: ExpansionTile(
       initiallyExpanded: true,
       tilePadding: const EdgeInsets.symmetric(horizontal: 17, vertical: 4),
       childrenPadding: const EdgeInsets.only(bottom: 8),
       leading: Container(width: 42, height: 42, decoration: BoxDecoration(color: _reportCream, borderRadius: BorderRadius.circular(13)), child: Icon(_icon, color: _reportOliveDark)),
-      title: Text(title, style: TextStyle(fontWeight: FontWeight.w900, color: _reportInk, fontSize: 16)),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900, color: _reportInk, fontSize: 16)),
       subtitle: Text('${children.length} إعداد', style: TextStyle(color: _reportInk.withValues(alpha: .52), fontSize: 10)),
       children: children,
     )),
@@ -16893,7 +16892,7 @@ class _PerformanceState extends State<PerformancePage> {
     actions: [
       OutlinedButton.icon(
         onPressed: load,
-        icon: Icon(Icons.refresh),
+        icon: const Icon(Icons.refresh),
         label: const Text('تحديث'),
       ),
     ],
@@ -17005,26 +17004,26 @@ class _BackupState extends State<BackupPage> {
   void msg(String x) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(x))); }
   Widget _badge(IconData icon, String title, String value, Color color) => Container(
     padding: const EdgeInsets.all(15),
-    decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(19), border: Border.all(color: _reportLine)),
-    child: Row(children: [Container(width: 39, height: 39, decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: color, size: 21)), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: TextStyle(color: _reportInk.withValues(alpha: .55), fontSize: 10)), const SizedBox(height: 3), Text(value, style: TextStyle(color: _reportInk, fontWeight: FontWeight.w900, fontSize: 13))]))]),
+    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(19), border: Border.all(color: _reportLine)),
+    child: Row(children: [Container(width: 39, height: 39, decoration: BoxDecoration(color: color.withValues(alpha: .12), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: color, size: 21)), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: TextStyle(color: _reportInk.withValues(alpha: .55), fontSize: 10)), const SizedBox(height: 3), Text(value, style: const TextStyle(color: _reportInk, fontWeight: FontWeight.w900, fontSize: 13))]))]),
   );
   Widget _historyCard(Map<String, Object?> x) {
     final restored = '${x['status']}' == 'restored';
-    return Container(margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(18), border: Border.all(color: _reportLine)), child: Row(children: [Container(width: 42, height: 42, decoration: BoxDecoration(color: (restored ? _reportOrange : _reportGreen).withValues(alpha: .12), borderRadius: BorderRadius.circular(13)), child: Icon(restored ? Icons.restore_rounded : Icons.verified_rounded, color: restored ? _reportOrange : _reportGreen)), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(restored ? 'استعادة نسخة' : 'نسخة احتياطية منشأة', style: TextStyle(fontWeight: FontWeight.w900, color: _reportInk)), const SizedBox(height: 4), Text('${x['created_at'] ?? ''}', style: TextStyle(color: _reportInk.withValues(alpha: .58), fontSize: 10)), if ('${x['notes'] ?? ''}'.trim().isNotEmpty) Text('${x['notes']}', style: TextStyle(color: _reportInk.withValues(alpha: .5), fontSize: 10))])), Icon(Icons.chevron_left_rounded, color: _reportOliveDark)]));
+    return Container(margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), border: Border.all(color: _reportLine)), child: Row(children: [Container(width: 42, height: 42, decoration: BoxDecoration(color: (restored ? _reportOrange : _reportGreen).withValues(alpha: .12), borderRadius: BorderRadius.circular(13)), child: Icon(restored ? Icons.restore_rounded : Icons.verified_rounded, color: restored ? _reportOrange : _reportGreen)), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(restored ? 'استعادة نسخة' : 'نسخة احتياطية منشأة', style: const TextStyle(fontWeight: FontWeight.w900, color: _reportInk)), const SizedBox(height: 4), Text('${x['created_at'] ?? ''}', style: TextStyle(color: _reportInk.withValues(alpha: .58), fontSize: 10)), if ('${x['notes'] ?? ''}'.trim().isNotEmpty) Text('${x['notes']}', style: TextStyle(color: _reportInk.withValues(alpha: .5), fontSize: 10))])), const Icon(Icons.chevron_left_rounded, color: _reportOliveDark)]));
   }
   @override Widget build(BuildContext c) {
     final type = settings['system_type'] ?? 'diesel';
     final station = settings['station_name'] ?? 'المحطة الحالية';
     return PageFrame(title: 'النسخ الاحتياطي والاستعادة', subtitle: 'نسخ SQLite واستعادتها مع التحقق من سلامة الملف', child: ListView(children: [
-      Container(padding: const EdgeInsets.all(21), decoration: BoxDecoration(gradient: LinearGradient(colors: [_reportOliveDark, _reportOlive]), borderRadius: BorderRadius.circular(27)), child: Row(children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(station, style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 12)), const SizedBox(height: 6), const Text('مركز حماية البيانات', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)), const SizedBox(height: 7), Text('كل نسخة تحمل هوية منظومة ${systemName(type)} ولا تُستعاد على منظومة مختلفة', style: TextStyle(color: Colors.white.withValues(alpha: .84), fontSize: 11))])), Container(width: 61, height: 61, decoration: BoxDecoration(color: _reportSurface.withValues(alpha: .14), borderRadius: BorderRadius.circular(20)), child: Icon(Icons.shield_rounded, color: _reportSurface, size: 34))])),
+      Container(padding: const EdgeInsets.all(21), decoration: BoxDecoration(gradient: const LinearGradient(colors: [_reportOliveDark, _reportOlive]), borderRadius: BorderRadius.circular(27)), child: Row(children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(station, style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 12)), const SizedBox(height: 6), const Text('مركز حماية البيانات', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)), const SizedBox(height: 7), Text('كل نسخة تحمل هوية منظومة ${systemName(type)} ولا تُستعاد على منظومة مختلفة', style: TextStyle(color: Colors.white.withValues(alpha: .84), fontSize: 11))])), Container(width: 61, height: 61, decoration: BoxDecoration(color: Colors.white.withValues(alpha: .14), borderRadius: BorderRadius.circular(20)), child: const Icon(Icons.shield_rounded, color: Colors.white, size: 34))])),
       const SizedBox(height: 14),
       GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 2.45, children: [_badge(Icons.lock_rounded, 'نوع المنظومة', systemName(type), _reportOliveDark), _badge(Icons.schema_rounded, 'إصدار قاعدة البيانات', '$schemaVersion', _blue), _badge(Icons.verified_user_rounded, 'حالة القفل', 'ثابت بعد التثبيت', _reportGreen), _badge(Icons.history_rounded, 'العمليات المسجلة', '${history.length}', _reportOrange)]),
       const SizedBox(height: 14),
-      Container(padding: const EdgeInsets.all(17), decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(22), border: Border.all(color: _reportLine)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [Icon(Icons.backup_rounded, color: _reportOliveDark), const SizedBox(width: 8), const Text('إدارة النسخ', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: _reportInk)), const Spacer(), if (busy) const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))]), const SizedBox(height: 8), Text('أنشئ نسخة قبل تحديث التطبيق أو صيانة قاعدة البيانات. يتم فحص سلامة SQLite والجداول والعلاقات قبل اعتماد النسخة.', style: TextStyle(color: _reportInk.withValues(alpha: .62), fontSize: 11, height: 1.45)), const SizedBox(height: 14), Wrap(spacing: 9, runSpacing: 9, children: [FilledButton.icon(onPressed: busy ? null : () => backup(), icon: Icon(Icons.share_rounded), label: const Text('إنشاء ومشاركة')), OutlinedButton.icon(onPressed: busy ? null : () => backup(saveToLocation: true), icon: Icon(Icons.save_alt_rounded), label: const Text('حفظ في الجهاز')), OutlinedButton.icon(onPressed: busy ? null : restore, style: OutlinedButton.styleFrom(foregroundColor: _reportOrange), icon: Icon(Icons.restore_rounded), label: const Text('استعادة نسخة'))])])),
+      Container(padding: const EdgeInsets.all(17), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22), border: Border.all(color: _reportLine)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [const Icon(Icons.backup_rounded, color: _reportOliveDark), const SizedBox(width: 8), const Text('إدارة النسخ', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: _reportInk)), const Spacer(), if (busy) const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))]), const SizedBox(height: 8), Text('أنشئ نسخة قبل تحديث التطبيق أو صيانة قاعدة البيانات. يتم فحص سلامة SQLite والجداول والعلاقات قبل اعتماد النسخة.', style: TextStyle(color: _reportInk.withValues(alpha: .62), fontSize: 11, height: 1.45)), const SizedBox(height: 14), Wrap(spacing: 9, runSpacing: 9, children: [FilledButton.icon(onPressed: busy ? null : () => backup(), icon: const Icon(Icons.share_rounded), label: const Text('إنشاء ومشاركة')), OutlinedButton.icon(onPressed: busy ? null : () => backup(saveToLocation: true), icon: const Icon(Icons.save_alt_rounded), label: const Text('حفظ في الجهاز')), OutlinedButton.icon(onPressed: busy ? null : restore, style: OutlinedButton.styleFrom(foregroundColor: _reportOrange), icon: const Icon(Icons.restore_rounded), label: const Text('استعادة نسخة'))])])),
       const SizedBox(height: 14),
-      Container(padding: const EdgeInsets.all(17), decoration: BoxDecoration(color: _reportOrange.withValues(alpha: .08), borderRadius: BorderRadius.circular(19), border: Border.all(color: _reportOrange.withValues(alpha: .22))), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(Icons.warning_amber_rounded, color: _reportOrange), const SizedBox(width: 9), Expanded(child: Text('الاستعادة تستبدل البيانات الحالية بعد إنشاء نقطة رجوع تلقائية. لا يمكن استعادة نسخة من نوع منظومة مختلف.', style: TextStyle(color: _reportInk.withValues(alpha: .75), fontSize: 11, fontWeight: FontWeight.w800, height: 1.45)))])),
+      Container(padding: const EdgeInsets.all(17), decoration: BoxDecoration(color: _reportOrange.withValues(alpha: .08), borderRadius: BorderRadius.circular(19), border: Border.all(color: _reportOrange.withValues(alpha: .22))), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [const Icon(Icons.warning_amber_rounded, color: _reportOrange), const SizedBox(width: 9), Expanded(child: Text('الاستعادة تستبدل البيانات الحالية بعد إنشاء نقطة رجوع تلقائية. لا يمكن استعادة نسخة من نوع منظومة مختلف.', style: TextStyle(color: _reportInk.withValues(alpha: .75), fontSize: 11, fontWeight: FontWeight.w800, height: 1.45)))])),
       const SizedBox(height: 20),
-      Row(children: [Icon(Icons.history_rounded, color: _reportOliveDark), const SizedBox(width: 8), const Text('سجل العمليات', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900, color: _reportInk)), const Spacer(), IconButton(onPressed: busy ? null : load, icon: Icon(Icons.refresh_rounded))]),
+      Row(children: [const Icon(Icons.history_rounded, color: _reportOliveDark), const SizedBox(width: 8), const Text('سجل العمليات', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900, color: _reportInk)), const Spacer(), IconButton(onPressed: busy ? null : load, icon: const Icon(Icons.refresh_rounded))]),
       const SizedBox(height: 8),
       if (history.isEmpty) const EmptyView('لا توجد عمليات نسخ أو استعادة بعد') else ...[for (final x in history.take(50)) _historyCard(x)],
     ]));
