@@ -3190,9 +3190,13 @@ void main() {
       final solar = (await db.query('SELECT * FROM irrigations WHERE id=?', args: [solarId])).single;
       expect(diesel['hybrid_source'], 'diesel');
       expect(diesel['hybrid_diesel_hourly_rate_snapshot'], 9000);
+      expect(diesel['solar_hourly_rate_snapshot'], 0);
+      expect(diesel['third_type_hourly_rate_snapshot'], 0);
       expect(diesel['total_amount'], 9000);
       expect(solar['hybrid_source'], 'solar');
       expect(solar['solar_hourly_rate_snapshot'], 6000);
+      expect(solar['hybrid_diesel_hourly_rate_snapshot'], 0);
+      expect(solar['third_type_hourly_rate_snapshot'], 0);
       expect(solar['cloud_minutes'], 15);
       expect(solar['chargeable_minutes'], 45);
       expect(solar['total_amount'], 4500);
