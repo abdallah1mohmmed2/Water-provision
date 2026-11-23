@@ -4832,7 +4832,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                             OutlinedButton.icon(
                                               onPressed: () => sendAccountSummary(x),
                                               icon: const Icon(Icons.send_rounded),
-                                              label: const Text('إرسال الحساب'),
+                                              label: const Text('إرسال الحساب المختصر'),
                                             ),
                                           ],
                                         ),
