@@ -311,7 +311,7 @@ void main() {
       payType: 'fixed',
     );
     final cashBefore = await cashboxBalance(1);
-    final date = DateTime(2026, 4, 12);
+    final date = DateTime.now();
     await svc.addPreviousPartyDebt(
       partyType: 'worker',
       partyId: worker,
