@@ -149,6 +149,41 @@ void main() {
       },
     );
   }
+  for (final type in ['beneficiary', 'worker', 'partner']) {
+    test('$type: station issue increases party debt and cancellation restores balance', () async {
+      final beforeStock = await repo.dieselStock();
+      await receive(type, 12);
+      expect(await service.balance(1, type, ids[type]!), 12);
+      expect(await repo.dieselStock(), beforeStock + 12);
+      final issueId = await service.issueToParty(
+        station: 1,
+        user: 1,
+        type: type,
+        person: ids[type]!,
+        liters: 5.5,
+        date: DateTime(2026, 2, 11),
+        requestId: 'issue-$type-${sequence++}',
+        notes: 'تسليم سابق من المنظومة للطرف',
+      );
+      expect(await service.balance(1, type, ids[type]!), 6.5);
+      expect(await repo.dieselStock(), beforeStock + 6.5);
+      final issue = (await app.query('diesel_movements', where: 'id=?', whereArgs: [issueId])).single;
+      expect(issue['kind'], 'consumption');
+      expect(issue['party_receipt'], 1);
+      expect(issue['date'], startsWith('2026-02-11'));
+      await repo.accounting.cancelDieselMovement(issueId, 1, 'إلغاء تسليم سابق');
+      expect(await service.balance(1, type, ids[type]!), 12);
+      expect(await repo.dieselStock(), beforeStock + 12);
+      final reversal = (await app.query(
+        'diesel_movements',
+        where: 'reversal_of=?',
+        whereArgs: [issueId],
+      )).single;
+      expect(reversal['kind'], 'consumption');
+      expect(reversal['liters'], -5.5);
+    });
+  }
+
   test(
     'future irrigation consumes only excess after settling previous advance',
     () async {
