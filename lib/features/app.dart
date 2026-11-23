@@ -4778,20 +4778,6 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                               ),
                                             ),
                                           ),
-                                          PopupMenuButton<String>(
-                                            onSelected: (v) {
-                                              if (v == 'edit') edit(x);
-                                              if (v == 'delete' &&
-                                                  widget.manager) {
-                                                remove(x);
-                                              }
-                                            },
-                                            itemBuilder: (_) => [
-  const PopupMenuItem(value: 'edit', child: Text('تعديل بيانات المستفيد')),
-  if (widget.manager)
-    const PopupMenuItem(value: 'delete', child: Text('حذف')),
-],
-                                          ),
                                         ],
                                       ),
                                       const SizedBox(height: 10),
@@ -10358,138 +10344,6 @@ class _WorkersState extends State<WorkersPage> {
     }
   }
 
-  Future<void> transaction(Map<String, Object?> x) async {
-    final a = TextEditingController(), h = TextEditingController();
-    String type = 'accrual';
-    final methods = await widget.r.paymentMethods();
-    if (!mounted) return;
-    final cashM = methods.where((m) => m['type'] == 'cash').toList();
-    int? pm =
-        (cashM.isNotEmpty
-                ? cashM.first
-                : (methods.isNotEmpty ? methods.first : null))?['id']
-            as int?;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (c, s) => AlertDialog(
-          title: Text('حركة العامل: ${x['name']}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                initialValue: type,
-                items: const [
-                  DropdownMenuItem(
-                    value: 'accrual',
-                    child: Text('إضافة استحقاق'),
-                  ),
-                  DropdownMenuItem(value: 'payment', child: Text('دفع مستحق')),
-                ],
-                onChanged: (v) => s(() => type = v!),
-                decoration: const InputDecoration(labelText: 'نوع الحركة'),
-              ),
-              if (type == 'payment' && methods.isNotEmpty)
-                DropdownButtonFormField<int>(
-                  initialValue: pm,
-                  items: [
-                    for (final m in methods)
-                      DropdownMenuItem(
-                        value: m['id'] as int,
-                        child: Text('${m['name']}'),
-                      ),
-                  ],
-                  onChanged: (v) => s(() => pm = v),
-                  decoration: const InputDecoration(labelText: 'طريقة الدفع'),
-                ),
-              TextField(
-                controller: a,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'المبلغ'),
-              ),
-              if (type == 'accrual')
-                TextField(
-                  controller: h,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'عدد الساعات'),
-                ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('إلغاء'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(c, int.tryParse(a.text) != null),
-              child: const Text('حفظ'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (ok == true) {
-      if (!mounted) return;
-      final transactionAt = AppClock.now();
-      final previousBalance = type == 'payment'
-          ? await _messageBalanceForParty(widget.r, 'worker', x['id'] as int)
-          : 0;
-      if (!mounted) return;
-      int? paymentId;
-      if (!await runGuarded(
-        context,
-        () async {
-          paymentId = await widget.r.workerTransaction(
-            workerId: x['id'] as int,
-            type: type,
-            amount: int.parse(a.text),
-            hours: type == 'accrual' ? (double.tryParse(h.text) ?? 0) : 0,
-            paymentMethodId: type == 'payment' ? pm : null,
-            userId: widget.userId,
-          );
-        },
-      )) {
-        return;
-      }
-      await load();
-      if (type != 'payment' || !mounted) return;
-      final recipientName = x['name']?.toString() ?? 'العامل';
-      final amountValue = int.parse(a.text);
-      final currentBalance =
-          await _messageBalanceForParty(widget.r, 'worker', x['id'] as int);
-      final methodRows = pm == null
-          ? <Map<String, Object?>>[]
-          : await widget.r.db.rawQuery(
-              'SELECT name FROM payment_methods WHERE id=? LIMIT 1',
-              [pm],
-            );
-      final paymentMethodName = methodRows.isEmpty
-          ? '—'
-          : '${methodRows.first['name'] ?? '—'}';
-      final message = await _renderSavedMessageTemplate(
-        widget.r,
-        MessageTemplateService.paymentKey,
-        {
-          'اسم العميل': recipientName,
-          'التاريخ': MessageTime.dateTime(transactionAt),
-          'رقم السند': paymentId == null ? '—' : '$paymentId',
-          'المبلغ': money(amountValue),
-          'طريقة الدفع': paymentMethodName,
-          'البيان': 'صرف مستحقات العامل',
-          'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: 'worker'),
-          'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: 'worker'),
-        },
-      );
-      if (!mounted) return;
-      await ManualMessageService.offerChoices(
-        context,
-        title: 'تم دفع مستحق العامل',
-        recipientName: recipientName,
-        phone: x['phone']?.toString() ?? '',
-        message: message,
-      );    }
-  }
-
   Future<void> editWorker(Map<String, Object?> x) async {
     final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
     if (!mounted) {
@@ -10964,21 +10818,6 @@ class _WorkersState extends State<WorkersPage> {
                                                   ),
                                                 ),
                                               ),
-                                              PopupMenuButton<String>(
-                                                onSelected: (v) {
-                                                  if (v == 'edit') {
-                                                    editWorker(x);
-                                                  }
-                                                  if (v == 'delete') {
-                                                    deleteWorker(x);
-                                                  }
-                                                },
-                                                itemBuilder: (_) => [
-  const PopupMenuItem(value: 'edit', child: Text('تعديل بيانات العامل')),
-  if (widget.manager)
-    const PopupMenuItem(value: 'delete', child: Text('حذف')),
-],
-                                              ),
                                             ],
                                           ),
                                           const SizedBox(height: 12),
@@ -11015,23 +10854,10 @@ style: TextStyle(
                                       const SizedBox(height: 8),
                                           Align(
                                             alignment: Alignment.centerLeft,
-                                            child: Wrap(
-                                              spacing: 8,
-                                              runSpacing: 8,
-                                              children: [
-                                                OutlinedButton.icon(
-                                                  onPressed: () => transaction(x),
-                                                  icon: const Icon(
-                                                    Icons.account_balance_wallet_outlined,
-                                                  ),
-                                                  label: const Text('حركة العامل'),
-                                                ),
-                                                OutlinedButton.icon(
-                                                  onPressed: () => sendAccountSummary(x),
-                                                  icon: const Icon(Icons.send_rounded),
-                                                  label: const Text('إرسال الحساب'),
-                                                ),
-                                              ],
+                                            child: OutlinedButton.icon(
+                                              onPressed: () => sendAccountSummary(x),
+                                              icon: const Icon(Icons.send_rounded),
+                                              label: const Text('إرسال الحساب المختصر'),
                                             ),
                                           ),
                                         ],
@@ -11258,114 +11084,28 @@ class _PartnersState extends State<PartnersPage> {
     }
   }
 
-  Future<void> pay(Map<String, Object?> x) async {
-    final methods = await widget.r.paymentMethods();
-    final cash = await widget.r.cashboxes();
-    if (!mounted) return;
-    if (methods.isEmpty || cash.isEmpty) {
-      msg('أضف طريقة دفع وصندوقًا أولًا');
-      return;
-    }
-    int? pm = methods.first['id'] as int;
-    int? cb = cashboxForMethod(methods, cash, pm, null);
-    final amount = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (c, s) => AlertDialog(
-          title: Text('دفع مستحق: ${x['name']}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: amount,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'المبلغ'),
-              ),
-              ...methodCashboxFields(
-                methods: methods,
-                cash: cash,
-                method: pm,
-                cb: cb,
-                onChanged: (m, b) => s(() {
-                  pm = m;
-                  cb = b;
-                }),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: const Text('إلغاء'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(
-                c,
-                int.tryParse(amount.text) != null && int.parse(amount.text) > 0,
-              ),
-              child: const Text('دفع'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (ok == true) {
-      try {
-        final amountValue = int.parse(amount.text);
-        final transactionAt = AppClock.now();
-        final previousBalance = await _messageBalanceForParty(
-          widget.r,
-          'partner',
-          x['id'] as int,
-        );
-        final paymentId = await widget.r.accounting.payPartner(
-          partnerId: x['id'] as int,
-          amount: amountValue,
-          paymentMethodId: pm!,
-          cashboxId: cb!,
-          userId: widget.userId,
-        );
-        await load();
-        if (!mounted) return;
-        final recipientName = x['name']?.toString() ?? 'الشريك';
-        final currentBalance = await _messageBalanceForParty(
-          widget.r,
-          'partner',
-          x['id'] as int,
-        );
-        final methodRows = await widget.r.db.rawQuery(
-          'SELECT name FROM payment_methods WHERE id=? LIMIT 1',
-          [pm],
-        );
-        final paymentMethodName = methodRows.isEmpty
-            ? '—'
-            : '${methodRows.first['name'] ?? '—'}';
-        final message = await _renderSavedMessageTemplate(
-          widget.r,
-          MessageTemplateService.paymentKey,
-          {
-            'اسم العميل': recipientName,
-            'التاريخ': MessageTime.dateTime(transactionAt),
-            'رقم السند': '$paymentId',
-            'المبلغ': money(amountValue),
-            'طريقة الدفع': paymentMethodName,
-            'البيان': 'صرف مستحقات الشريك',
-            'الرصيد السابق': _messageBalanceLabel(previousBalance, partyType: 'partner'),
-            'الرصيد الحالي': _messageBalanceLabel(currentBalance, partyType: 'partner'),
-          },
-        );
-        if (!mounted) return;
-        await ManualMessageService.offerChoices(
-          context,
-          title: 'تم دفع مستحق الشريك',
+  Future<void> sendAccountSummary(Map<String, Object?> x) async {
+    try {
+      final id = x['id'] as int;
+      final balanceData = await widget.r.accounting.partnerBalance(id);
+      if (!mounted) return;
+      final recipientName = x['name']?.toString() ?? 'الشريك';
+      await ManualMessageService.offerChoices(
+        context,
+        title: 'إرسال كشف حساب مختصر',
+        recipientName: recipientName,
+        phone: x['phone']?.toString() ?? '',
+        message: ManualMessageService.accountSummaryMessage(
           recipientName: recipientName,
-          phone: x['phone']?.toString() ?? '',
-          message: message,
-        );
-      } catch (e) {
-        msg(friendlyError(e));
-      }
+          partyLabel: 'الشريك',
+          balanceLabel: AccountingCalculations.partyDueLabel(
+            balanceData['balance'] ?? 0,
+          ),
+          asOf: AppClock.now(),
+        ),
+      );
+    } catch (e) {
+      msg(friendlyError(e));
     }
   }
 
@@ -11634,21 +11374,6 @@ class _PartnersState extends State<PartnersPage> {
                                                   ),
                                                 ),
                                               ),
-                                              PopupMenuButton<String>(
-                                                onSelected: (v) {
-                                                  if (v == 'edit') {
-                                                    editPartner(x);
-                                                  }
-                                                  if (v == 'delete') {
-                                                    deletePartner(x);
-                                                  }
-                                                },
-                                                itemBuilder: (_) => [
-  const PopupMenuItem(value: 'edit', child: Text('تعديل بيانات الشريك')),
-  if (widget.manager)
-    const PopupMenuItem(value: 'delete', child: Text('حذف')),
-],
-                                              ),
                                             ],
                                           ),
                                           const SizedBox(height: 12),
@@ -11690,20 +11415,16 @@ style: TextStyle(
                                               Expanded(
                                                 child: OutlinedButton.icon(
                                                   onPressed: () => share(x),
-                                                  icon: const Icon(
-                                                    Icons.add_chart,
-                                                  ),
+                                                  icon: const Icon(Icons.add_chart),
                                                   label: const Text('استحقاق'),
                                                 ),
                                               ),
                                               const SizedBox(width: 8),
                                               Expanded(
                                                 child: OutlinedButton.icon(
-                                                  onPressed: () => pay(x),
-                                                  icon: const Icon(
-                                                    Icons.payments,
-                                                  ),
-                                                  label: const Text('دفع'),
+                                                  onPressed: () => sendAccountSummary(x),
+                                                  icon: const Icon(Icons.send_rounded),
+                                                  label: const Text('إرسال الحساب المختصر'),
                                                 ),
                                               ),
                                             ],
