@@ -209,7 +209,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                             const SizedBox(height: 8),
                             TextField(controller: manualPaid, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المسلّم خلال هذا الشهر', suffixText: 'ريال', border: OutlineInputBorder())),
                             const SizedBox(height: 5),
-                            Text('أدخل هنا ما سلّمه المحاسب خارج سجلات المدفوعات؛ المبالغ المسجلة في التطبيق محسوبة تلقائياً أعلاه.', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                            Text('أدخل هنا ما سلّمه المحاسب خارج سجلات المدفوعات؛ المبالغ المسجلة في التطبيق محسوبة تلقائياً أعلاه.', key: null, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                             if (!hasPrevious) ...[
                               const SizedBox(height: 14),
                               const Text('الرصيد الافتتاحي عند أول استخدام', style: TextStyle(fontWeight: FontWeight.w800)),
