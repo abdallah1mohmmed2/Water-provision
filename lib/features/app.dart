@@ -3444,7 +3444,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 IconButton(
                   tooltip: 'إلغاء المديونية بعكس القيد',
                   onPressed: () => cancelPriorDebt(history[i]),
-                  icon: const Icon(Icons.undo_rounded, color: Colors.red),
+                  icon: const Icon(Icons.undo_rounded, color: SaqiaTheme.reportError),
                 ),
               ],
             ],
@@ -3473,8 +3473,8 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
   }
 
   Color balanceColor(int b) => widget.kind == 'beneficiary'
-      ? (b > 0 ? Colors.red : _green)
-      : (b > 0 ? Colors.orange : (b < 0 ? Colors.red : _green));
+      ? (b > 0 ? SaqiaTheme.reportError : _green)
+      : (b > 0 ? SaqiaTheme.reportWarning : (b < 0 ? SaqiaTheme.reportError : _green));
 
   Future<void> pickDetailDate(bool fromDate) async {
     final picked = await showDatePicker(
@@ -3995,7 +3995,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                         'الرصيد',
                         AccountingCalculations.balanceLabel(balance),
                         Icons.account_balance_rounded,
-                        balance > 0 ? Colors.redAccent : _green,
+                        balance > 0 ? SaqiaTheme.reportError : _green,
                       ),
                     );
                   }
@@ -4660,7 +4660,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             alignment: Alignment.centerRight,
             child: Text(
               'القائمة والرصيد من خادم Shelf؛ التفاصيل وكشوف الحركات ما زالت تعتمد على بيانات الجهاز حتى ترحيلها.',
-              style: TextStyle(fontSize: 12, color: Colors.green),
+              style: TextStyle(fontSize: 12, color: SaqiaTheme.reportPositive),
             ),
           )
         else if (widget.r.serverSessionActive)
@@ -4668,13 +4668,13 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
             alignment: Alignment.centerRight,
             child: Text(
               'الخادم غير متاح حالياً؛ تُعرض آخر بيانات محلية محفوظة. قد لا تشمل تغييرات الأجهزة الأخرى.',
-              style: TextStyle(fontSize: 12, color: Colors.orange),
+              style: TextStyle(fontSize: 12, color: SaqiaTheme.reportWarning),
             ),
           ),
         if (loadError != null)
           Align(
             alignment: Alignment.centerRight,
-            child: Text(loadError!, style: const TextStyle(color: Colors.red)),
+            child: Text(loadError!, style: const TextStyle(color: SaqiaTheme.reportError)),
           ),
         const SizedBox(height: 10),
         if (loading) const LinearProgressIndicator(),
@@ -4724,7 +4724,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                         ListTile(
                                           leading: const Icon(
                                             Icons.delete_outline,
-                                            color: Colors.red,
+                                            color: SaqiaTheme.reportError,
                                           ),
                                           title: const Text('حذف'),
                                           onTap: () {
@@ -4808,7 +4808,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                         AccountingCalculations.balanceLabel(b),
                                         style: TextStyle(
                                           fontWeight: FontWeight.w900,
-                                          color: b > 0 ? Colors.red : _green,
+                                          color: b > 0 ? SaqiaTheme.reportError : _green,
                                         ),
                                       ),
                                       const SizedBox(height: 10),
@@ -6766,7 +6766,7 @@ int? parseClock(String raw) {
                   Metric('الديزل المستهلك', "${DieselQuantity.format(p['ديزل مستهلك']!)} لتر", _purple),
                   if (partyType == 'beneficiary') ...[
                     Metric('من رصيد المستفيد', "${DieselQuantity.format(p['ديزل من الرصيد']!)} لتر", _cyan),
-                    Metric('سلفة ديزل عينية', "${DieselQuantity.format(p['ديزل سلفة']!)} لتر", Colors.orange),
+                    Metric('سلفة ديزل عينية', "${DieselQuantity.format(p['ديزل سلفة']!)} لتر", SaqiaTheme.reportWarning),
                   ],
                 ],
                 if (type == 'solar' && cloudMin > 0) Metric('خصم الغيم', '$cloudMin دقيقة', _cyan),
@@ -6782,7 +6782,7 @@ int? parseClock(String raw) {
                   'حالة الرصيد بعد العملية',
                   _balLabel(p['حالة الرصيد']!.round()),
                   _balanceOwed(p['حالة الرصيد']!.round())
-                      ? Colors.orange
+                      ? SaqiaTheme.reportWarning
                       : _green,
                 ),
                 ],
@@ -7436,7 +7436,7 @@ class _IrrigationsState extends State<IrrigationsPage> {
                                       onPressed: () => cancelIrrigationRow(x),
                                       icon: const Icon(
                                         Icons.cancel_outlined,
-                                        color: Colors.red,
+                                        color: SaqiaTheme.reportError,
                                       ),
                                     ),
                                   ),
@@ -7797,7 +7797,7 @@ class _SessionsState extends State<SessionsPage> {
                                   onPressed: () => stop(x['id'] as int),
                                   icon: const Icon(
                                     Icons.stop_circle,
-                                    color: Colors.red,
+                                    color: SaqiaTheme.reportError,
                                   ),
                                 ),
                               if (running)
@@ -8346,7 +8346,7 @@ class _QueueState extends State<QueueBookingPage> {
                                           IconButton(
                                             tooltip: 'إلغاء الحجز',
                                             onPressed: () => cancelBooking(entries[i]),
-                                            icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                                            icon: const Icon(Icons.cancel_outlined, color: SaqiaTheme.reportError),
                                           ),
                                         ],
                                       ] else ...[
@@ -8676,7 +8676,7 @@ class _DieselState extends State<DieselPage> {
                   title: const Text('المخزون الحالي'),
                   subtitle: Text('${stock.toStringAsFixed(2)} لتر'),
                   trailing: warning?['warning'] == true
-                      ? const Icon(Icons.warning_amber, color: Colors.orange)
+                      ? const Icon(Icons.warning_amber, color: SaqiaTheme.reportWarning)
                       : Icon(Icons.check_circle, color: _green),
                 ),
               ),
@@ -8719,7 +8719,7 @@ class _DieselState extends State<DieselPage> {
                               IconButton(
                                 tooltip: 'إلغاء الحركة',
                                 onPressed: () => cancelMove(x),
-                                icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                                icon: const Icon(Icons.cancel_outlined, color: SaqiaTheme.reportError),
                               ),
                             ],
                           ],
@@ -9356,7 +9356,7 @@ class _PaymentsState extends State<PaymentsPage> {
                             onPressed: () => cancelPay(x),
                             icon: const Icon(
                               Icons.cancel_outlined,
-                              color: Colors.red,
+                              color: SaqiaTheme.reportError,
                             ),
                           ),
                         ReportPdfLongPress(
@@ -9846,7 +9846,7 @@ class _CashboxesState extends State<CashboxesPage> {
                   IconButton(
                     tooltip: 'حذف',
                     onPressed: () => deleteBox(x),
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    icon: const Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
                   ),
                   const Icon(Icons.open_in_new),
                 ],
@@ -9885,7 +9885,7 @@ class _CashboxesState extends State<CashboxesPage> {
                   IconButton(
                     tooltip: 'حذف',
                     onPressed: () => deleteMethod(x),
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    icon: const Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
                   ),
                   const Icon(Icons.open_in_new),
                 ],
@@ -10193,7 +10193,7 @@ class _ExpensesState extends State<ExpensesPage> {
                         IconButton(
                           tooltip: 'إلغاء المصروف',
                           onPressed: () => cancelExp(x),
-                          icon: const Icon(Icons.cancel_outlined, color: Colors.red),
+                          icon: const Icon(Icons.cancel_outlined, color: SaqiaTheme.reportError),
                         ),
                     ],
                   ),
@@ -10635,7 +10635,7 @@ class _WorkersState extends State<WorkersPage> {
             ),
             if (widget.manager)
               ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              leading: const Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
               title: const Text('حذف'),
               onTap: () {
                 Navigator.pop(c);
@@ -10998,7 +10998,7 @@ class _WorkersState extends State<WorkersPage> {
 style: TextStyle(
   fontWeight: FontWeight.w900,
   color: ((x['balance'] as num?)?.round() ?? 0) < 0
-      ? Colors.red
+      ? SaqiaTheme.reportError
       : _green,
 ),
                                           ),
@@ -11506,7 +11506,7 @@ class _PartnersState extends State<PartnersPage> {
             ),
             if (widget.manager)
               ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              leading: const Icon(Icons.delete_outline, color: SaqiaTheme.reportError),
               title: const Text('حذف'),
               onTap: () {
                 Navigator.pop(c);
@@ -11670,7 +11670,7 @@ class _PartnersState extends State<PartnersPage> {
 style: TextStyle(
   fontWeight: FontWeight.w900,
   color: ((x['balance'] as num?)?.round() ?? 0) < 0
-      ? Colors.red
+      ? SaqiaTheme.reportError
       : _green,
 ),
                                           ),
