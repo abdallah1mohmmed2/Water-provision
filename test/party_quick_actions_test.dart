@@ -255,16 +255,20 @@ void main() {
         await tester.pumpAndSettle();
         final startPicker = find.byKey(const ValueKey('quick-time-picker-start'));
         expect(startPicker, findsOneWidget);
-        expect(tester.widget<AlertDialog>(startPicker).backgroundColor,
-            const Color(0xFFE8F3FF));
+        expect(
+          tester.widget<AlertDialog>(startPicker).backgroundColor,
+          Theme.of(tester.element(startPicker)).colorScheme.primaryContainer,
+        );
         await tester.tap(find.descendant(
           of: startPicker, matching: find.text('تأكيد الوقت')));
         await tester.pumpAndSettle();
 
         final endPicker = find.byKey(const ValueKey('quick-time-picker-end'));
         expect(endPicker, findsOneWidget);
-        expect(tester.widget<AlertDialog>(endPicker).backgroundColor,
-            const Color(0xFFE6F5EB));
+        expect(
+          tester.widget<AlertDialog>(endPicker).backgroundColor,
+          Theme.of(tester.element(endPicker)).colorScheme.secondaryContainer,
+        );
         final cloudShortcut = find.byKey(const ValueKey('quick-end-cloud-button'));
         if (system == 'diesel') {
           expect(cloudShortcut, findsNothing);
