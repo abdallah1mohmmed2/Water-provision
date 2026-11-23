@@ -178,6 +178,7 @@ class _SyncConnectionPanelState extends State<SyncConnectionPanel> {
               ),
               const SizedBox(height: 4),
               Text(
+                key: null,
                 'استخدم HTTPS في الخادم المنشور. لا تحفظ كلمة المرور؛ يُحفظ رمز جلسة الخادم في التخزين الآمن للجهاز.',
                 style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
