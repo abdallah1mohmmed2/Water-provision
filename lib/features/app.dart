@@ -2133,6 +2133,7 @@ class _DashboardState extends State<DashboardPage> {
             Icon(Icons.assessment_rounded, color: neon),
             const SizedBox(width: 8),
             Expanded(
+              key: null,
               child: Text(
                 'التقارير المهمة',
                 style: TextStyle(color: scheme.onSurface, fontSize: 17, fontWeight: FontWeight.w900),
@@ -3699,6 +3700,7 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            key: null,
             children: [
               Icon(Icons.water_drop_rounded, color: _cyan),
               SizedBox(width: 10),
@@ -5332,7 +5334,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, dialogSetState) => AlertDialog(
           backgroundColor: Theme.of(context).colorScheme.tertiaryContainer,
-          title: Text('إضافة غيم / حساب وقت التوقف',
+          title: Text('إضافة غيم / حساب وقت التوقف', key: null,
               style: TextStyle(color: Theme.of(context).colorScheme.onTertiaryContainer, fontWeight: FontWeight.w900)),
           content: SingleChildScrollView(
             child: SizedBox(
@@ -6791,6 +6793,7 @@ int? parseClock(String raw) {
             Card(
               color: _green.withValues(alpha: .08),
               child: ListTile(
+                key: null,
                 leading: Icon(Icons.check_circle, color: _green),
                 title: Text('تم الحفظ بنجاح'),
                 subtitle: Text(
@@ -7781,6 +7784,7 @@ class _SessionsState extends State<SessionsPage> {
                                   child: Text(
                                     elapsed(x['actual_start']),
                                     style: TextStyle(
+                                      fontFamily: null,
                                       fontSize: 18,
                                       fontWeight: FontWeight.w900,
                                       color: _cyan,
@@ -13110,6 +13114,7 @@ SizedBox(height:14),if(_hasPaymentMethodFilter) Padding(padding:EdgeInsets.only(
       Icon(Icons.view_agenda_rounded, color: _reportOliveDark),
       const SizedBox(width: 8),
       Expanded(
+        key: null,
         child: Text(
           'تفاصيل السجلات',
           style: TextStyle(
@@ -13414,13 +13419,14 @@ class _DebtsReportState extends State<DebtsReportPage>{
             children: [
               Text('${x['name'] ?? 'غير محدد'}',
                   style: TextStyle(
+                    fontFamily: null,
                     color: _reportInk, fontWeight: FontWeight.w900, fontSize: 16)),
               const SizedBox(height: 4),
               Text('$partyLabel — ${x['phone'] ?? 'بدون هاتف'}',
                   style: TextStyle(
                     color: _reportInk.withValues(alpha: .55), fontSize: 11)),
               const SizedBox(height: 8),
-              Text('فتح تفاصيل الحساب',
+              Text('فتح تفاصيل الحساب', key: null,
                   style: TextStyle(
                     color: _reportOliveDark, fontSize: 10, fontWeight: FontWeight.w800)),
             ],
@@ -14098,6 +14104,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                               ? 'عرض التقرير: سعر الدقيقة الخاص'
                               : 'عرض التقرير: سعر الساعة العام',
                           style: TextStyle(
+                            fontFamily: null,
                             color: _reportOliveDark, fontWeight: FontWeight.w800),
                         ),
                       ),
@@ -14642,6 +14649,7 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
                   maxLines: 1,
                   softWrap: false,
                   style: TextStyle(
+                    fontFamily: null,
                     color: _reportInk,
                     fontSize: 18,
                     fontWeight: FontWeight.w900,
@@ -15335,7 +15343,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                         padding: const EdgeInsets.all(21),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [_reportOliveDark, _reportOlive],
+                            colors: <Color>[_reportOliveDark, _reportOlive],
                           ),
                           borderRadius: BorderRadius.circular(27),
                         ),
@@ -15412,6 +15420,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                 ListTile(
                                   dense: true,
                                   leading: Icon(
+                                    key: null,
                                     Icons.person_outline_rounded,
                                     color: _reportOliveDark,
                                   ),
@@ -15526,6 +15535,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                                           ? 'نسبة ملكية ${p['ownership_percentage'] ?? 0}%'
                                           : '${p['shares_count'] ?? 0} حصص',
                                       style: TextStyle(
+                                        fontFamily: null,
                                         fontWeight: FontWeight.w900,
                                         color: _reportInk,
                                         fontSize: 17,
@@ -15584,6 +15594,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                           Icon(Icons.timeline_rounded, color: _reportOliveDark),
                           const SizedBox(width: 8),
                           Text(
+                            key: null,
                             'سجل الحركات',
                             style: TextStyle(
                               fontWeight: FontWeight.w900,
@@ -15612,6 +15623,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Column(
+                            key: null,
                             children: [
                               Icon(Icons.inbox_rounded, size: 42, color: _reportOlive),
                               SizedBox(height: 8),
