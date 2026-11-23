@@ -581,7 +581,7 @@ class _LocalSecurityGateState extends State<AdminLoginPage> {
                           borderRadius: BorderRadius.circular(26),
                           gradient: LinearGradient(colors: [SaqiaTheme.accent(AppPrefs.current.themeKey), SaqiaTheme.accent(AppPrefs.current.themeKey).withValues(alpha: .72)]),
                         ),
-                        child: Icon(Icons.shield_rounded, size: 44, color: _reportSurface),
+                        child: Icon(Icons.shield_rounded, size: 44, color: Colors.white),
                       ),
                       const SizedBox(height: 18),
                       Text(AppPrefs.current.appName, textAlign: TextAlign.center,
@@ -1539,7 +1539,7 @@ class _DashboardCircularMenu extends StatelessWidget {
           const Row(children: [
             Icon(Icons.bolt_rounded, color: Color(0xFF39FFB6)),
             SizedBox(width: 8),
-            Expanded(child: Text('العمليات السريعة', style: TextStyle(color: _reportSurface, fontWeight: FontWeight.w900, fontSize: 17))),
+            Expanded(child: Text('العمليات السريعة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17))),
           ]),
           const SizedBox(height: 14),
           GridView.builder(
@@ -1577,7 +1577,7 @@ class _DashboardCircularMenu extends StatelessWidget {
                           textAlign: TextAlign.center,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: _reportSurface, fontSize: 10, fontWeight: FontWeight.w700),
+                          style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
                         ),
                       ],
                     ),
@@ -1754,7 +1754,7 @@ class _QuickActionOrbState extends State<QuickActionOrb>
                               padding: const EdgeInsets.symmetric(horizontal: 12),
                               child: Row(
                                 children: [
-                                  Icon(actions[i].icon, color: _reportSurface, size: 22),
+                                  Icon(actions[i].icon, color: Colors.white, size: 22),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
@@ -2133,7 +2133,7 @@ class _DashboardState extends State<DashboardPage> {
             const Expanded(
               child: Text(
                 'التقارير المهمة',
-                style: TextStyle(color: _reportSurface, fontSize: 17, fontWeight: FontWeight.w900),
+                style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900),
               ),
             ),
             Text('6 تقارير', style: TextStyle(color: cyan.withValues(alpha: .8), fontSize: 10)),
@@ -2141,7 +2141,7 @@ class _DashboardState extends State<DashboardPage> {
           const SizedBox(height: 8),
           Text(
             'افتح التقرير المطلوب مباشرة أو اطبعه بصيغة PDF.',
-            style: TextStyle(color: _reportSurface.withValues(alpha: .60), fontSize: 11),
+            style: TextStyle(color: Colors.white.withValues(alpha: .60), fontSize: 11),
           ),
           const SizedBox(height: 10),
           for (final item in items)
@@ -2161,10 +2161,10 @@ class _DashboardState extends State<DashboardPage> {
                       Expanded(
                         child: Text(
                           item.$1,
-                          style: TextStyle(color: _reportSurface, fontWeight: FontWeight.w700, fontSize: 12),
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
                         ),
                       ),
-                      Icon(Icons.arrow_forward_ios_rounded, color: _reportSurface.withValues(alpha: .55), size: 15),
+                      Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withValues(alpha: .55), size: 15),
                     ]),
                   ),
                 ),
@@ -2237,7 +2237,7 @@ class _DashboardState extends State<DashboardPage> {
               style: TextStyle(color: muted, fontSize: 11, fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
             Text(value, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: _reportSurface, fontSize: 19, fontWeight: FontWeight.w900)),
+              style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900)),
           ],
         ),
       );
@@ -2260,7 +2260,7 @@ class _DashboardState extends State<DashboardPage> {
             child: Icon(icon, color: color)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: TextStyle(color: _reportSurface, fontWeight: FontWeight.w900)),
+            Text(title, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
             const SizedBox(height: 5),
             Text(subtitle, style: TextStyle(color: muted, fontSize: 11, height: 1.45)),
           ])),
@@ -2302,7 +2302,7 @@ class _DashboardState extends State<DashboardPage> {
                     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       const Text('لوحة التحكم', style: TextStyle(color: neon, fontSize: 12, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 7),
-                      const Text('مرحباً بك في منظومة', style: TextStyle(color: _reportSurface, fontSize: 23, fontWeight: FontWeight.w900)),
+                      const Text('مرحباً بك في منظومة', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 7),
                       Text(
                         stationName.isNotEmpty ? stationName : SystemConfig.displayNameFor(systemType),
@@ -2312,7 +2312,7 @@ class _DashboardState extends State<DashboardPage> {
                       ),
                       const SizedBox(height: 7),
                       Text('ملخص التشغيل والعمليات اليومية في مكان واحد',
-                        style: TextStyle(color: _reportSurface.withValues(alpha: .72), fontSize: 11, height: 1.5)),
+                        style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 11, height: 1.5)),
                     ])),
                     Container(width: 57, height: 57,
                       decoration: BoxDecoration(shape: BoxShape.circle,
@@ -2324,7 +2324,7 @@ class _DashboardState extends State<DashboardPage> {
                 ),
                 const SizedBox(height: 20),
                 const Row(children: [
-                  Expanded(child: Text('ملخص التشغيل', style: TextStyle(color: _reportSurface, fontSize: 17, fontWeight: FontWeight.w900))),
+                  Expanded(child: Text('ملخص التشغيل', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900))),
                   Icon(Icons.swipe_rounded, color: cyan, size: 18),
                   SizedBox(width: 5),
                   Text('اسحب', style: TextStyle(color: muted, fontSize: 10)),
@@ -2408,7 +2408,7 @@ class _DashboardState extends State<DashboardPage> {
                     Text(
                       'اسحب يمينًا أو يسارًا للتبديل بين القائمة والتقارير',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: _reportSurface.withValues(alpha: .55), fontSize: 10),
+                      style: TextStyle(color: Colors.white.withValues(alpha: .55), fontSize: 10),
                     ),
                   ],
                 ),
@@ -2416,7 +2416,7 @@ class _DashboardState extends State<DashboardPage> {
                 Row(children: [
                   Container(width: 4, height: 22, decoration: BoxDecoration(color: neon, borderRadius: BorderRadius.circular(4))),
                   const SizedBox(width: 9),
-                  const Text('حالة التشغيل', style: TextStyle(color: _reportSurface, fontSize: 17, fontWeight: FontWeight.w900)),
+                  const Text('حالة التشغيل', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
                 ]),
                 const SizedBox(height: 11),
                 statusPanel(
@@ -14077,13 +14077,13 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                         ),
                         child: Row(children: [
                           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('تقارير التحصيل والتشغيل', style: TextStyle(color: _reportSurface.withValues(alpha: .72), fontSize: 12)),
+                            Text('تقارير التحصيل والتشغيل', style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 12)),
                             const SizedBox(height: 6),
-                            const Text('تقرير الفواتير', style: TextStyle(color: _reportSurface, fontSize: 24, fontWeight: FontWeight.w900)),
+                            const Text('تقرير الفواتير', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
                             const SizedBox(height: 7),
-                            Text('عرض الساعات والمبالغ المسلّمة لكل سقاية', style: TextStyle(color: _reportSurface.withValues(alpha: .84), fontSize: 11)),
+                            Text('عرض الساعات والمبالغ المسلّمة لكل سقاية', style: TextStyle(color: Colors.white.withValues(alpha: .84), fontSize: 11)),
                           ])),
-                          Icon(Icons.receipt_long_rounded, color: _reportSurface, size: 44),
+                          Icon(Icons.receipt_long_rounded, color: Colors.white, size: 44),
                         ]),
                       ),
                       const SizedBox(height: 14),
@@ -16018,7 +16018,7 @@ class _SettingsState extends State<SettingsPage> {
                     radius: 9,
                     backgroundColor: SaqiaTheme.accent(key),
                     child: selected == key
-                        ? Icon(Icons.check, size: 12, color: _reportSurface)
+                        ? Icon(Icons.check, size: 12, color: Colors.white)
                         : null,
                   ),
                   label: Text(SaqiaTheme.name(key)),
@@ -16597,11 +16597,11 @@ class _SettingsState extends State<SettingsPage> {
     ),
     child: Row(children: [
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('مركز التحكم', style: TextStyle(color: _reportSurface.withValues(alpha: .72), fontSize: 12)),
+        Text('مركز التحكم', style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 12)),
         const SizedBox(height: 6),
-        Text(s['station_name'] ?? 'إعدادات المحطة', style: TextStyle(color: _reportSurface, fontSize: 24, fontWeight: FontWeight.w900)),
+        Text(s['station_name'] ?? 'إعدادات المحطة', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
         const SizedBox(height: 7),
-        Text('اضبط التشغيل والتسعير والتنبيهات والمحاسبة من مكان واحد', style: TextStyle(color: _reportSurface.withValues(alpha: .84), fontSize: 11)),
+        Text('اضبط التشغيل والتسعير والتنبيهات والمحاسبة من مكان واحد', style: TextStyle(color: Colors.white.withValues(alpha: .84), fontSize: 11)),
         const SizedBox(height: 14),
         Wrap(spacing: 7, runSpacing: 7, children: [
           _settingBadge(Icons.water_drop_rounded, settingDisplay('system_type', s['system_type'] ?? 'diesel')),
@@ -16612,7 +16612,7 @@ class _SettingsState extends State<SettingsPage> {
       Container(width: 66, height: 66, decoration: BoxDecoration(color: _reportSurface.withValues(alpha: .14), borderRadius: BorderRadius.circular(22)), child: Icon(Icons.tune_rounded, color: _reportSurface, size: 34)),
     ]),
   );
-  Widget _settingBadge(IconData icon, String text) => Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7), decoration: BoxDecoration(color: _reportSurface.withValues(alpha: .14), borderRadius: BorderRadius.circular(11)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 14, color: _reportSurface), const SizedBox(width: 5), Text(text, style: TextStyle(color: _reportSurface, fontSize: 10, fontWeight: FontWeight.w800))]));
+  Widget _settingBadge(IconData icon, String text) => Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7), decoration: BoxDecoration(color: _reportSurface.withValues(alpha: .14), borderRadius: BorderRadius.circular(11)), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 14, color: _reportSurface), const SizedBox(width: 5), Text(text, style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))]));
 
   @override
   Widget build(BuildContext c) {
@@ -17016,7 +17016,7 @@ class _BackupState extends State<BackupPage> {
     final type = settings['system_type'] ?? 'diesel';
     final station = settings['station_name'] ?? 'المحطة الحالية';
     return PageFrame(title: 'النسخ الاحتياطي والاستعادة', subtitle: 'نسخ SQLite واستعادتها مع التحقق من سلامة الملف', child: ListView(children: [
-      Container(padding: const EdgeInsets.all(21), decoration: BoxDecoration(gradient: LinearGradient(colors: [_reportOliveDark, _reportOlive]), borderRadius: BorderRadius.circular(27)), child: Row(children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(station, style: TextStyle(color: _reportSurface.withValues(alpha: .72), fontSize: 12)), const SizedBox(height: 6), const Text('مركز حماية البيانات', style: TextStyle(color: _reportSurface, fontSize: 23, fontWeight: FontWeight.w900)), const SizedBox(height: 7), Text('كل نسخة تحمل هوية منظومة ${systemName(type)} ولا تُستعاد على منظومة مختلفة', style: TextStyle(color: _reportSurface.withValues(alpha: .84), fontSize: 11))])), Container(width: 61, height: 61, decoration: BoxDecoration(color: _reportSurface.withValues(alpha: .14), borderRadius: BorderRadius.circular(20)), child: Icon(Icons.shield_rounded, color: _reportSurface, size: 34))])),
+      Container(padding: const EdgeInsets.all(21), decoration: BoxDecoration(gradient: LinearGradient(colors: [_reportOliveDark, _reportOlive]), borderRadius: BorderRadius.circular(27)), child: Row(children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(station, style: TextStyle(color: Colors.white.withValues(alpha: .72), fontSize: 12)), const SizedBox(height: 6), const Text('مركز حماية البيانات', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)), const SizedBox(height: 7), Text('كل نسخة تحمل هوية منظومة ${systemName(type)} ولا تُستعاد على منظومة مختلفة', style: TextStyle(color: Colors.white.withValues(alpha: .84), fontSize: 11))])), Container(width: 61, height: 61, decoration: BoxDecoration(color: _reportSurface.withValues(alpha: .14), borderRadius: BorderRadius.circular(20)), child: Icon(Icons.shield_rounded, color: _reportSurface, size: 34))])),
       const SizedBox(height: 14),
       GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 2.45, children: [_badge(Icons.lock_rounded, 'نوع المنظومة', systemName(type), _reportOliveDark), _badge(Icons.schema_rounded, 'إصدار قاعدة البيانات', '$schemaVersion', _blue), _badge(Icons.verified_user_rounded, 'حالة القفل', 'ثابت بعد التثبيت', _reportGreen), _badge(Icons.history_rounded, 'العمليات المسجلة', '${history.length}', _reportOrange)]),
       const SizedBox(height: 14),
