@@ -281,7 +281,10 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.text('إضافة غيم / حساب وقت التوقف'), findsOneWidget);
           final dialogs = tester.widgetList<AlertDialog>(find.byType(AlertDialog));
-          expect(dialogs.last.backgroundColor, const Color(0xFFF2EAFB));
+          expect(
+            dialogs.last.backgroundColor,
+            Theme.of(tester.element(cloudShortcut)).colorScheme.tertiaryContainer,
+          );
           await tester.tap(find.text('إلغاء'));
           await tester.pumpAndSettle();
         }
