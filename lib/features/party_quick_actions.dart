@@ -78,6 +78,8 @@ class PartyQuickActions extends StatelessWidget {
     required this.partyId,
     required this.name,
     required this.onNewIrrigation,
+    this.onDieselDelivery,
+    this.dieselEnabled = false,
     super.key,
   }) : assert(partyType == 'beneficiary' ||
              partyType == 'worker' || partyType == 'partner');
@@ -87,6 +89,8 @@ class PartyQuickActions extends StatelessWidget {
   final int partyId;
   final String name;
   final VoidCallback onNewIrrigation;
+  final VoidCallback? onDieselDelivery;
+  final bool dieselEnabled;
 
   Future<void> _report(String report) {
     if (report == 'diesel') {
@@ -118,6 +122,13 @@ class PartyQuickActions extends StatelessWidget {
           icon: const Icon(Icons.water_drop_rounded),
           label: const Text('سقاية جديدة'),
         ),
+        if (dieselEnabled && onDieselDelivery != null)
+          OutlinedButton.icon(
+            key: ValueKey('party-diesel-delivery-$partyType-$partyId'),
+            onPressed: onDieselDelivery,
+            icon: const Icon(Icons.local_gas_station_outlined),
+            label: const Text('إضافة تسليم ديزل'),
+          ),
         OutlinedButton.icon(
           onPressed: () => showPartyPdfChoices(
             context, name: name, generate: _report),
