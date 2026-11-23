@@ -50,7 +50,9 @@ jobs:
         run: python3 tooling/prepare_firebase_dart_defines.py
 
       - name: تحليل Flutter
-        run: flutter analyze
+        # Match the repository's validated CI policy: info-level lints are non-fatal,
+        # while analyzer errors and warnings still fail the release build.
+        run: flutter analyze --no-fatal-infos
 
       - name: اختبارات Flutter
         run: flutter test
