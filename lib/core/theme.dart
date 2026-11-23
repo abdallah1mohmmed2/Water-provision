@@ -64,9 +64,6 @@ class SaqiaTheme {
       onSurface: const Color(0xff253023),
       surfaceContainerHighest: const Color(0xffeceee5),
     );
-    final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(16),
-    );
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
