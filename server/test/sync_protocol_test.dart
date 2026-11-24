@@ -1783,6 +1783,11 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       'booking_requests': <String>[],
     };
 
+    // Keep the exact submitted payload for the idempotency replay below.
+    // Reusing an event ID with a different payload must be rejected, not
+    // treated as a duplicate.
+    final hybridPayloads = <String, Map<String, dynamic>>{};
+
     Future<Map<String, dynamic>> createHybrid({
       required String eventId,
       required String globalId,
@@ -1819,6 +1824,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
         'work_difference_snapshot': 0,
         '_derived_global_ids': hybridEffects(cloudCount: cloudMinutes == 0 ? 0 : 1),
       };
+      hybridPayloads[globalId] = hybridPayload;
       return postEvents(stationOneToken, [{
         'event_id': eventId,
         'entity_type': 'irrigations',
@@ -1927,10 +1933,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       'entity_key': 'irrigations:88880000-0000-4000-8000-000000000002',
       'operation': 'create',
       'base_version': 0,
-      'payload': {
-        ...payload,
-        '_global_id': '88880000-0000-4000-8000-000000000002',
-      },
+      'payload': hybridPayloads['88880000-0000-4000-8000-000000000002']!,
     }]);
     expect((hybridReplay['results'] as List).single['status'], 'duplicate');
     expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 6);
