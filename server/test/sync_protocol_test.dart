@@ -1762,6 +1762,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     // station-scoped unique key or depending on fixture insertion order.
     database.execute("INSERT INTO station_settings(station_id,key,value) VALUES"
       "(1,'hybrid_diesel_hourly_rate','8000'),"
+      "(1,'diesel_liters_per_hour','2'),"
       "(1,'solar_hourly_rate','9000'),"
       "(1,'third_type_hourly_rate','7000'),"
       "(1,'work_price_difference_enabled','false') "
@@ -1771,11 +1772,11 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       final suffix = (hybridSequence++).toRadixString(16).padLeft(12, '0');
       return '88888888-8888-4888-8888-$suffix';
     }
-    Map<String, List<String>> hybridEffects({required int cloudCount}) => {
+    Map<String, List<String>> hybridEffects({required int cloudCount, int dieselCount = 0}) => {
       'cloud_periods': List.generate(cloudCount, (_) => hybridId()),
       'worker_transactions': List.generate(1, (_) => hybridId()),
       'partner_transactions': List.generate(1, (_) => hybridId()),
-      'diesel_movements': <String>[],
+      'diesel_movements': List.generate(dieselCount, (_) => hybridId()),
       'journal_entries': List.generate(3, (_) => hybridId()),
       'journal_lines': List.generate(6, (_) => hybridId()),
       'irrigation_sessions': <String>[],
@@ -1822,7 +1823,10 @@ test('legacy beneficiary rows receive a stable global identity on first API read
         'work_price_enabled_snapshot': 0,
         'work_minute_rate_snapshot': 0,
         'work_difference_snapshot': 0,
-        '_derived_global_ids': hybridEffects(cloudCount: cloudMinutes == 0 ? 0 : 1),
+        '_derived_global_ids': hybridEffects(
+          cloudCount: cloudMinutes == 0 ? 0 : 1,
+          dieselCount: source == 'diesel' ? 2 : 0,
+        ),
       };
       hybridPayloads[globalId] = hybridPayload;
       return postEvents(stationOneToken, [{
@@ -1849,6 +1853,13 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       "SELECT * FROM irrigations WHERE start_datetime='2026-11-08T16:00:00.000'").single;
     expect(hybridDiesel['hybrid_source'], 'diesel');
     expect(hybridDiesel['hybrid_diesel_hourly_rate_snapshot'], 8000);
+    expect(hybridDiesel['diesel_liters_per_hour_snapshot'], 2);
+    final hybridDieselMoves = database.select(
+      "SELECT kind,liters FROM diesel_movements WHERE irrigation_id=? ORDER BY id",
+      [hybridDiesel['id']],
+    );
+    expect(hybridDieselMoves.map((row) => row['kind']).toList(), ['advance', 'consumption']);
+    expect(hybridDieselMoves.last['liters'], 2);
     expect(hybridDiesel['solar_hourly_rate_snapshot'], 0);
     expect(hybridDiesel['third_type_hourly_rate_snapshot'], 0);
     expect(hybridDiesel['cloud_minutes'], 0);
@@ -1888,6 +1899,11 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(hybridSolar['hybrid_source'], 'solar');
     expect(hybridSolar['hybrid_diesel_hourly_rate_snapshot'], 0);
     expect(hybridSolar['solar_hourly_rate_snapshot'], 9000);
+    expect(hybridSolar['diesel_liters_per_hour_snapshot'], 0);
+    expect(database.select(
+      'SELECT id FROM diesel_movements WHERE irrigation_id=?',
+      [hybridSolar['id']],
+    ), isEmpty);
     expect(hybridSolar['cloud_minutes'], 10);
     expect(hybridSolar['chargeable_minutes'], 50);
     expect(hybridSolar['water_amount'], 7500);
