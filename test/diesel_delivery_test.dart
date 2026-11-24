@@ -540,7 +540,7 @@ void main() {
         '15',
       );
       await tester.pump();
-      expect(find.text('بعد التسليم: عليه 5 لتر'), findsOneWidget);
+      expect(find.text('بعد الحركة: عليه 5 لتر'), findsOneWidget);
       await tester.tap(find.text('حفظ تسليم الديزل'));
       await tester.pump();
       await waitForUi(
@@ -596,7 +596,7 @@ void main() {
         );
         expect(typeSelector.initialValue, type);
         final personSelector = tester.widget<DropdownButtonFormField<int>>(
-          find.byType(DropdownButtonFormField<int>),
+          find.byType(DropdownButtonFormField<int>).first,
         );
         expect(personSelector.initialValue, target);
         expect(find.text('إضافة تسليم ديزل'), findsOneWidget);
