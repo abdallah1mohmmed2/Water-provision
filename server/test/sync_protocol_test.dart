@@ -1795,7 +1795,6 @@ test('legacy beneficiary rows receive a stable global identity on first API read
         'paid_amount': 0,
         'work_price_enabled_snapshot': 0,
         'work_minute_rate_snapshot': 0,
-        'work_base_water_amount_snapshot': 0,
         'work_difference_snapshot': 0,
         '_derived_global_ids': hybridEffects(cloudCount: cloudMinutes == 0 ? 0 : 1),
       };
