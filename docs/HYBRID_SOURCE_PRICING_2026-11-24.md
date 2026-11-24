@@ -149,3 +149,56 @@
 - أصبح الاختبار يقارن لقطة السعر الثالث فقط لسجلات equivalent_hybrid، ويؤكد بصورة صريحة أن السقايات الهجينة الجديدة تحمل لقطة المصدر المحدد فقط، وأن لقطة السعر الثالث تظل صفراً فيها. أما السجلات التاريخية بلا مصدر فيظل اختبار الخادم المخصص يتحقق من استمرار لقطة السعر الثالث القديمة.
 - ظهر كذلك أن اختبار عرض صفحة الديزل يحتاج Material/Scaffold ancestor؛ أضيف Scaffold في شجرة الاختبار بدلاً من تغيير صفحة التطبيق.
 - هذه التعديلات تجعل المقارنة تختبر حقول التسعير ذات الصلة ولا تتجاهل أي لقطة مصدر هجينة. يلزم التحقق عبر تشغيل Actions على الرأس الجديد.
+
+
+## نتائج التحقق الفعلية على commit 9a740044 — 2026-11-24
+
+### حالة الفرع وطلب السحب
+- المستودع: abdallah1mohmmed2/Water-provision
+- الفرع: feature/unified-theme-system
+- رأس الفرع وقت التحقق: 9a74004431a63b199853e4dd49386537b06763ff
+- PR #39: Open + Draft، وغير مدمج. الفرع المستهدف ما زال feature/firebase-station-foundation.
+- لم يتم الدمج إلى main أو إلى أي فرع آخر، ولم تتغير حالة PR.
+
+### نتائج GitHub Actions على رأس الفرع نفسه
+- Build #1170 — run ID 45461185252: Success.
+  - اختبارات الخادم: 105 passed.
+  - Flutter Analyze: Success.
+  - اختبارات Flutter: 345 passed.
+  - التحقق من تقرير LCOV: Success.
+  - بناء Android Debug APK ورفع Artifact: Success.
+  - SonarQube Scan في هذا المسار: Success.
+- SonarCloud #1120 — run ID 45461185052: Success.
+  - اختبارات Flutter: 345 passed.
+  - رفع تقرير LCOV: Success.
+  - SonarCloud Scan: ANALYSIS SUCCESSFUL.
+  - لوحة التحليل: https://sonarcloud.io/dashboard?id=abdallah1mohmmed2_Water-provision&pullRequest=39
+- Build Flutter APK #1528 — run ID 45461168535: Success.
+  - اختبارات الخادم: 105 passed.
+  - Flutter Analyze: Success.
+  - اختبارات Flutter: 345 passed.
+  - تجهيز Android NDK ومصدر SQLite الموثق بـ SHA3: Success.
+  - بناء Android Release: Success.
+  - ضغط APK والتحقق من سلامة الملف: Success.
+  - رفع Artifact: Success.
+
+### Artifact إصدار Android
+- الاسم: Saqia-App-Release-ZIP
+- Artifact ID: 14953721096
+- الحجم: 36,769,294 bytes
+- SHA-256: 2601ec0f12351a936c9eafd55b3b95f9bb4c348f7a8b1296e218473e3f839f17
+- تاريخ الانتهاء: 2027-02-22 18:35:26 UTC
+- رابط التنزيل: https://github.com/abdallah1mohmmed2/Water-provision/actions/runs/45461168535/artifacts/14953721096
+- رابط ZIP عبر GitHub API: https://api.github.com/repos/abdallah1mohmmed2/Water-provision/actions/artifacts/14953721096/zip
+- تحقق GitHub Actions من SHA-256 للملف المرفوع، وأكد اكتمال رفع 36,769,294 bytes.
+- Artifact Debug إضافي: Saqia-App-Debug، ID 14954281169، الحجم 95,426,665 bytes.
+
+### توضيح نطاق تغييرات الخادم
+- العبارة السابقة في هذا الملف التي تفيد بعدم تغيير قاعدة الخادم أو المزامنة كانت تصف مرحلة أقدم، ولم تعد تصف كامل حالة الفرع.
+- التغييرات السابقة الخاصة بالميزة شملت server/lib/server.dart للتحقق من hybrid_source واختيار السعر وحساب الغيم وحفظ لقطات الأسعار وإسقاطها إلى Inbox، كما شملت server/lib/irrigation_mutations.dart لإعادة الاحتساب عند التعديل، واختبارات server/test/sync_protocol_test.dart.
+- لم تُعدّل إعدادات Firebase السحابية أو قواعد Firestore في دفعات إصلاح الاختبارات الحالية؛ اختبارات توافق إعداد Firebase نجحت.
+- لا توجد إعادة تسعير تلقائية للسجلات القديمة. السجلات الهجينة التاريخية التي لا تحتوي hybrid_source تستمر باستخدام third_type_hourly_rate_snapshot، بينما السجلات الجديدة تحفظ لقطة المصدر المحدد.
+
+### حدود التحقق
+- لم يتم تثبيت APK على هاتف فعلي أو إجراء اختبار يدوي على جهاز؛ التحقق المثبت هنا هو GitHub Actions والاختبارات والبناء والتحقق من Artifact.
+- لا توجد إخفاقات في تشغيلات Build وSonarCloud وAPK المذكورة أعلاه على commit 9a740044.
