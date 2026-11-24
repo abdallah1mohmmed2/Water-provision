@@ -1767,6 +1767,12 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       "(1,'third_type_hourly_rate','7000'),"
       "(1,'work_price_difference_enabled','false') "
       "ON CONFLICT(station_id,key) DO UPDATE SET value=excluded.value");
+    final beneficiaryFuelColumns = database.select('PRAGMA table_info(beneficiaries)')
+        .map((row) => row['name'].toString()).toSet();
+    if (!beneficiaryFuelColumns.contains('opening_diesel_liters')) {
+      database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_diesel_liters REAL NOT NULL DEFAULT 0');
+    }
+    database.execute('UPDATE beneficiaries SET opening_diesel_liters=20 WHERE id=1');
     var hybridSequence = 1;
     String hybridId() {
       final suffix = (hybridSequence++).toRadixString(16).padLeft(12, '0');
@@ -1825,7 +1831,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
         'work_difference_snapshot': 0,
         '_derived_global_ids': hybridEffects(
           cloudCount: cloudMinutes == 0 ? 0 : 1,
-          dieselCount: source == 'diesel' ? 2 : 0,
+          dieselCount: source == 'diesel' ? 1 : 0,
         ),
       };
       hybridPayloads[globalId] = hybridPayload;
@@ -1858,8 +1864,8 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       "SELECT kind,liters FROM diesel_movements WHERE irrigation_id=? ORDER BY id",
       [hybridDiesel['id']],
     );
-    expect(hybridDieselMoves.map((row) => row['kind']).toList(), ['advance', 'consumption']);
-    expect(hybridDieselMoves.last['liters'], 2);
+    expect(hybridDieselMoves.map((row) => row['kind']).toList(), ['consumption']);
+    expect(hybridDieselMoves.single['liters'], 2);
     expect(hybridDiesel['solar_hourly_rate_snapshot'], 0);
     expect(hybridDiesel['third_type_hourly_rate_snapshot'], 0);
     expect(hybridDiesel['cloud_minutes'], 0);
