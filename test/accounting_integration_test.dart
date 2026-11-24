@@ -3145,7 +3145,7 @@ void main() {
   });
 
   test('النوع الثالث يستخدم سعر مصدر التشغيل المختار ويحفظ لقطته', () async {
-    final keys = ['system_type', 'solar_hourly_rate', 'hybrid_diesel_hourly_rate', 'work_price_difference_enabled'];
+    final keys = ['system_type', 'solar_hourly_rate', 'hybrid_diesel_hourly_rate', 'diesel_liters_per_hour', 'work_price_difference_enabled'];
     final previous = <String, String>{};
     for (final key in keys) {
       final rows = await db.query('SELECT value FROM settings WHERE key=?', args: [key]);
@@ -3154,6 +3154,7 @@ void main() {
     try {
       await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
       await db.update('settings', {'value': '6000'}, 'key=?', ['solar_hourly_rate']);
+      await db.update('settings', {'value': '2'}, 'key=?', ['diesel_liters_per_hour']);
       await db.insert('settings', {'key': 'work_price_difference_enabled', 'value': 'false', 'updated_at': DateTime.now().toIso8601String()}, conflictAlgorithm: ConflictAlgorithm.replace);
       await db.insert('settings', {
         'key': 'hybrid_diesel_hourly_rate',
@@ -3163,11 +3164,13 @@ void main() {
       final start = DateTime(2048, 5, 6, 8);
       final dieselParty = await db.insert('beneficiaries', {
         'name': 'مستفيد اختبار ديزل النوع الثالث',
+        'diesel_liters_per_hour': 2.0,
         'created_at': start.toIso8601String(),
         'updated_at': start.toIso8601String(),
       });
       final solarParty = await db.insert('beneficiaries', {
         'name': 'مستفيد اختبار شمسي النوع الثالث',
+        'diesel_liters_per_hour': 2.0,
         'created_at': start.toIso8601String(),
         'updated_at': start.toIso8601String(),
       });
@@ -3193,6 +3196,10 @@ void main() {
       expect(diesel['solar_hourly_rate_snapshot'], 0);
       expect(diesel['third_type_hourly_rate_snapshot'], 0);
       expect(diesel['total_amount'], 9000);
+      expect(diesel['diesel_liters_per_hour_snapshot'], 2);
+      final dieselMoves = await db.query('SELECT kind,liters FROM diesel_movements WHERE irrigation_id=? ORDER BY id', args: [dieselId]);
+      expect(dieselMoves.map((row) => row['kind']).toList(), ['advance', 'consumption']);
+      expect(dieselMoves.map((row) => row['liters']).toList(), [2, 2]);
       expect(solar['hybrid_source'], 'solar');
       expect(solar['solar_hourly_rate_snapshot'], 6000);
       expect(solar['hybrid_diesel_hourly_rate_snapshot'], 0);
@@ -3200,6 +3207,8 @@ void main() {
       expect(solar['cloud_minutes'], 15);
       expect(solar['chargeable_minutes'], 45);
       expect(solar['total_amount'], 4500);
+      expect(solar['diesel_liters_per_hour_snapshot'], 0);
+      expect(await db.query('SELECT id FROM diesel_movements WHERE irrigation_id=?', args: [solarId]), isEmpty);
     } finally {
       for (final entry in previous.entries) {
         if (entry.value.isNotEmpty) {
