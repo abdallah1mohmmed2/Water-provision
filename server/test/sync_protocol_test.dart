@@ -1468,6 +1468,13 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     final response = await postEvents(stationOneToken,[event]);
     final irrigationResult = (response['results'] as List).single;
     expect(irrigationResult['status'],'accepted', reason: irrigationResult.toString());
+    // The server is constructed before this test creates its legacy business
+    // tables. Sync-create must therefore apply the additive P1 migration at
+    // the command boundary, not rely only on constructor-time migration.
+    final irrigationColumns = database.select('PRAGMA table_info(irrigations)')
+        .map((row) => row['name'].toString()).toSet();
+    expect(irrigationColumns, contains('hybrid_source'));
+    expect(irrigationColumns, contains('hybrid_diesel_hourly_rate_snapshot'));
     final irrigation = database.select('SELECT * FROM irrigations WHERE station_id=1').single;
     expect(irrigation['minutes'],60);
     expect(irrigation['cloud_minutes'],10);
