@@ -1915,7 +1915,7 @@ void main() {
     expect(await cashboxBalance(1), baselineCash);
   });
 
-  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 35', () async {
+  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 36', () async {
     final opened = await db.db;
     await opened.execute('PRAGMA user_version=17');
     await db.close();
@@ -1937,7 +1937,7 @@ void main() {
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 35);
+    expect((version.single.values.single as num).toInt(), 36);
     final dieselColumns = (await upgraded.rawQuery('PRAGMA table_info(diesel_movements)')).map((r) => r['name']).toSet();
     expect(dieselColumns, containsAll({'worker_id','partner_id','party_receipt','request_id'}));
     final irrigationColumns = (await upgraded.rawQuery(

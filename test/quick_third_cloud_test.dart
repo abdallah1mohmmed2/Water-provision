@@ -9,13 +9,23 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory folder;
   final db = AppDatabase.instance;
+  late AccountingService accounting;
 
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
-    folder = await Directory.systemTemp.createTemp('third-cloud-irrigation-');
+    folder = await Directory.systemTemp.createTemp('hybrid-source-pricing-');
     await databaseFactory.setDatabasesPath(folder.path);
     await db.db;
+    accounting = AccountingService(db);
+    await db.update('settings', {'value': 'equivalent_hybrid'},
+        'key=?', ['system_type']);
+    await db.update('settings', {'value': '6000'},
+        'key=?', ['hybrid_diesel_hourly_rate']);
+    await db.update('settings', {'value': '6000'},
+        'key=?', ['solar_hourly_rate']);
+    await db.update('settings', {'value': '6000'},
+        'key=?', ['third_type_hourly_rate']);
   });
 
   tearDownAll(() async {
@@ -23,69 +33,127 @@ void main() {
     await folder.delete(recursive: true);
   });
 
-  test('third-type cloud is recorded but does not discount the charge', () async {
-    await db.update('settings', {'value': 'equivalent_hybrid'},
-        'key=?', ['system_type']);
-    await db.update('settings', {'value': '6000'},
-        'key=?', ['third_type_hourly_rate']);
+  Future<int> beneficiary(String name, DateTime start) => db.insert('beneficiaries', {
+    'station_id': 1,
+    'name': name,
+    'created_at': start.toIso8601String(),
+    'updated_at': start.toIso8601String(),
+  });
 
+  List<Map<String, String>> cloudPeriod(DateTime start) => [
+    {
+      'start': start.add(const Duration(minutes: 10)).toIso8601String(),
+      'end': start.add(const Duration(minutes: 25)).toIso8601String(),
+    },
+  ];
+
+  test('hybrid diesel uses its own hourly rate and never applies cloud minutes', () async {
     final start = DateTime(2050, 4, 12, 8);
-    final beneficiary = await db.insert('beneficiaries', {
-      'station_id': 1,
-      'name': 'مستفيد النوع الثالث',
-      'created_at': start.toIso8601String(),
-      'updated_at': start.toIso8601String(),
-    });
-    final id = await AccountingService(db).recordIrrigation(
+    final owner = await beneficiary('مستفيد هجين ديزل', start);
+    final id = await accounting.recordIrrigation(
       stationId: 1,
       pumpId: 1,
-      beneficiaryId: beneficiary,
+      beneficiaryId: owner,
       start: start,
       end: start.add(const Duration(hours: 1)),
       systemType: 'equivalent_hybrid',
+      hybridSource: 'diesel',
       waterRate: 0,
       litersPerHour: 0,
       dieselPrice: 0,
-      solarRate: 0,
+      solarRate: 6000,
       thirdRate: 6000,
-      cloudMinutes: 0,
-      cloudPeriods: [
-        {
-          'start': start.add(const Duration(minutes: 10)).toIso8601String(),
-          'end': start.add(const Duration(minutes: 25)).toIso8601String(),
-        },
-      ],
+      cloudMinutes: 15,
+      cloudPeriods: cloudPeriod(start),
       paidAmount: 0,
     );
 
     final row = (await db.query(
-      'SELECT cloud_minutes,chargeable_minutes,total_amount,water_amount '
+      'SELECT hybrid_source,hybrid_diesel_hourly_rate_snapshot,solar_hourly_rate_snapshot,'
+      'third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,total_amount,water_amount '
       'FROM irrigations WHERE id=?',
       args: [id],
     )).single;
-    expect(row['cloud_minutes'], 15);
+    expect(row['hybrid_source'], 'diesel');
+    expect(row['hybrid_diesel_hourly_rate_snapshot'], 6000);
+    expect(row['solar_hourly_rate_snapshot'], 0);
+    expect(row['third_type_hourly_rate_snapshot'], 0);
+    expect(row['cloud_minutes'], 0);
     expect(row['chargeable_minutes'], 60);
     expect(row['total_amount'], 6000);
     expect(row['water_amount'], 6000);
-    final periods = await db.query(
-      'SELECT minutes FROM cloud_periods WHERE irrigation_id=?',
+    expect(await db.query(
+      'SELECT id FROM cloud_periods WHERE irrigation_id=?',
       args: [id],
-    );
-    expect(periods.length, 1);
-    expect(periods.single['minutes'], 15);
+    ), isEmpty);
 
-    await AccountingService(db).updateIrrigationBasic(
+    await accounting.updateIrrigationBasic(
       id: id,
       start: start,
       end: start.add(const Duration(hours: 2)),
       userId: 1,
     );
     final edited = (await db.query(
-      'SELECT cloud_minutes,chargeable_minutes,total_amount '
-      'FROM irrigations WHERE id=?', args: [id],
+      'SELECT cloud_minutes,chargeable_minutes,total_amount FROM irrigations WHERE id=?',
+      args: [id],
     )).single;
-    expect(edited['cloud_minutes'], 15);
+    expect(edited['cloud_minutes'], 0);
     expect(edited['chargeable_minutes'], 120);
     expect(edited['total_amount'], 12000);
+  });
+
+  test('hybrid solar reuses solar rate and discounts recorded cloud minutes', () async {
+    final start = DateTime(2050, 4, 13, 8);
+    final owner = await beneficiary('مستفيد هجين شمسي', start);
+    final id = await accounting.recordIrrigation(
+      stationId: 1,
+      pumpId: 1,
+      beneficiaryId: owner,
+      start: start,
+      end: start.add(const Duration(hours: 1)),
+      systemType: 'equivalent_hybrid',
+      hybridSource: 'solar',
+      waterRate: 0,
+      litersPerHour: 0,
+      dieselPrice: 0,
+      solarRate: 6000,
+      thirdRate: 6000,
+      cloudMinutes: 15,
+      cloudPeriods: cloudPeriod(start),
+      paidAmount: 0,
+    );
+
+    final row = (await db.query(
+      'SELECT hybrid_source,hybrid_diesel_hourly_rate_snapshot,solar_hourly_rate_snapshot,'
+      'cloud_minutes,chargeable_minutes,total_amount,water_amount '
+      'FROM irrigations WHERE id=?',
+      args: [id],
+    )).single;
+    expect(row['hybrid_source'], 'solar');
+    expect(row['hybrid_diesel_hourly_rate_snapshot'], 0);
+    expect(row['solar_hourly_rate_snapshot'], 6000);
+    expect(row['cloud_minutes'], 15);
+    expect(row['chargeable_minutes'], 45);
+    expect(row['total_amount'], 4500);
+    expect(row['water_amount'], 4500);
+    final periods = await db.query(
+      'SELECT minutes FROM cloud_periods WHERE irrigation_id=?',
+      args: [id],
+    );
+    expect(periods.single['minutes'], 15);
+
+    await accounting.updateIrrigationBasic(
+      id: id,
+      start: start,
+      end: start.add(const Duration(hours: 2)),
+      userId: 1,
+    );
+    final edited = (await db.query(
+      'SELECT cloud_minutes,chargeable_minutes,total_amount FROM irrigations WHERE id=?',
+      args: [id],
+    )).single;
+    expect(edited['cloud_minutes'], 15);
+    expect(edited['chargeable_minutes'], 105);
+    expect(edited['total_amount'], 10500);
   });
 }

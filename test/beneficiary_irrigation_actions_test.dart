@@ -68,6 +68,7 @@ void main() {
       start: DateTime(start.year, start.month, start.day, atHour),
       end: DateTime(start.year, start.month, start.day, atHour + 1),
       systemType: type,
+      hybridSource: type == 'equivalent_hybrid' ? 'solar' : null,
       waterRate: 6000,
       litersPerHour: 2,
       dieselPrice: 0,

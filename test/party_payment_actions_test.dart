@@ -37,14 +37,21 @@ void main() {
           find.byType(DropdownButtonFormField<int>));
         expect(selectors.first.initialValue, 7);
         expect(find.text(debt ? 'إضافة مديونية سابقة' : 'تسجيل دفعة'), findsOneWidget);
-        if (debt && kind == 'worker') {
-          expect(find.textContaining('تاريخ المديونية:'), findsOneWidget);
-          expect(find.text('عليه للمحطة — العامل مدين'), findsOneWidget);
+        if (debt && (kind == 'worker' || kind == 'partner')) {
+          if (kind == 'worker') {
+            expect(find.textContaining('تاريخ المديونية:'), findsOneWidget);
+            expect(find.text('عليه للمحطة — العامل مدين'), findsOneWidget);
+          } else {
+            expect(find.textContaining('تاريخ المديونية:'), findsNothing);
+            expect(find.text('عليه للمحطة — الشريك مدين'), findsOneWidget);
+          }
+          final direction = find.byType(DropdownButtonFormField<String>);
+          expect(direction, findsOneWidget);
+          await tester.tap(direction);
+          await tester.pumpAndSettle();
           expect(find.text('له على المحطة — المحطة مدينة'), findsOneWidget);
-        } else if (debt && kind == 'partner') {
-          expect(find.text('عليه للمحطة — الشريك مدين'), findsOneWidget);
-          expect(find.text('له على المحطة — المحطة مدينة'), findsOneWidget);
-          expect(find.textContaining('تاريخ المديونية:'), findsNothing);
+          await tester.tap(find.text('له على المحطة — المحطة مدينة'));
+          await tester.pumpAndSettle();
         } else {
           expect(find.textContaining('تاريخ المديونية:'), findsNothing);
           expect(find.text('اتجاه الرصيد *'), findsNothing);

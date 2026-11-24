@@ -60,6 +60,7 @@ void main() {
           for (final setting in {
             'system_type': system,
             'solar_hourly_rate': '6000',
+            'hybrid_diesel_hourly_rate': '6000',
             'third_type_hourly_rate': '6000',
             'diesel_hourly_water_rate': '6000',
             'diesel_liters_per_hour': '2',
@@ -191,6 +192,7 @@ void main() {
           start: now,
           end: now.add(const Duration(hours: 1)),
           systemType: system,
+          hybridSource: system == 'equivalent_hybrid' ? 'diesel' : null,
           waterRate: 6000,
           litersPerHour: 2,
           dieselPrice: 500,

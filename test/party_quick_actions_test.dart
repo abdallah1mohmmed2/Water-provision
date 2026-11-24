@@ -251,6 +251,17 @@ void main() {
         await waitFor(tester, () =>
             find.text('بطاقة وقت التشغيل').evaluate().isNotEmpty);
         await tester.pumpAndSettle();
+        if (system == 'equivalent_hybrid') {
+          final sourceSelector = find.byWidgetPredicate(
+            (widget) => widget is DropdownButtonFormField<String> &&
+                widget.decoration.labelText == 'مصدر تشغيل هذه السقاية',
+          );
+          expect(sourceSelector, findsOneWidget);
+          await tester.tap(sourceSelector);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('طاقة شمسية').last);
+          await tester.pumpAndSettle();
+        }
         await tester.tap(find.textContaining('بداية التشغيل:'));
         await tester.pumpAndSettle();
         final startPicker = find.byKey(const ValueKey('quick-time-picker-start'));

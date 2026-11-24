@@ -284,7 +284,7 @@ void main() {
         '15',
       );
       await tester.pump();
-      expect(find.text('بعد التسليم: له 15 لتر'), findsOneWidget);
+      expect(find.text('بعد الحركة: له 15 لتر'), findsOneWidget);
       await tester.tap(find.text('حفظ تسليم الديزل'));
       await tester.pump();
       for (
@@ -312,7 +312,7 @@ void main() {
   testWidgets(
     'hybrid system exposes the existing diesel page and delivery action',
     (tester) async {
-      await repo.setSetting('system_type', 'equivalent_hybrid');
+      await tester.runAsync(() => repo.setSetting('system_type', 'equivalent_hybrid'));
       tester.view.physicalSize = const Size(1000, 1600);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -435,7 +435,7 @@ void main() {
     }
   });
 
-  test('creation stores personal rates and version 34 upgrade preserves records', () async {
+  test('creation stores personal rates and version 34 upgrade preserves records through version 36', () async {
     final b = await repo.createBeneficiary(name: 'معدل مستفيد', dieselLitersPerHour: 5);
     final w = await repo.createWorker(name: 'معدل عامل', payType: 'fixed', dieselLitersPerHour: 4.65);
     final p = await repo.createPartner(name: 'معدل شريك', mode: 'shares', shares: 1, dieselLitersPerHour: 4.5);
@@ -449,7 +449,7 @@ void main() {
     await db.execute('PRAGMA user_version=34');
     await app.close();
     final upgraded = await app.db;
-    expect(await upgraded.getVersion(), 35);
+    expect(await upgraded.getVersion(), 36);
     for (final entry in {'beneficiaries': b, 'workers': w, 'partners': p}.entries) {
       final row = (await app.query(entry.key, where: 'id=?', whereArgs: [entry.value])).single;
       expect(row['diesel_liters_per_hour'], isNull);
@@ -592,7 +592,7 @@ void main() {
           () => find.text('الاسم').evaluate().isNotEmpty,
         );
         final typeSelector = tester.widget<DropdownButtonFormField<String>>(
-          find.byType(DropdownButtonFormField<String>),
+          find.byType(DropdownButtonFormField<String>).first,
         );
         expect(typeSelector.initialValue, type);
         final personSelector = tester.widget<DropdownButtonFormField<int>>(
