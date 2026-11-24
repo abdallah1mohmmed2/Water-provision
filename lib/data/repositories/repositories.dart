@@ -2859,7 +2859,8 @@ class StationRepository {
     final args = <Object?>[];
     final currentSettings = await settings();
     final currentSystemType = currentSettings['system_type'] ?? 'diesel';
-    if (key == 'diesel_inventory' && currentSystemType != 'diesel') {
+    if (key == 'diesel_inventory' &&
+        !const ['diesel', 'equivalent_hybrid'].contains(currentSystemType)) {
       throw StateError('تقرير الديزل غير متاح لأن المنظومة الحالية ليست ديزل');
     }
     final allSystems = systemType == 'all';
