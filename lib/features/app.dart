@@ -10325,6 +10325,7 @@ class _WorkersState extends State<WorkersPage> {
   Timer? _searchDebounce;
   int _searchGeneration = 0;
   bool dieselSystem = false;
+  bool dieselDeliveryEnabled = false;
 
   Future<void> load() async {
     final generation = ++_searchGeneration;
@@ -10912,7 +10913,7 @@ class _WorkersState extends State<WorkersPage> {
                                             partyType: 'worker',
                                             partyId: x['id'] as int,
                                             name: '${x['name']}',
-                                             dieselEnabled: dieselSystem,
+                                             dieselEnabled: dieselDeliveryEnabled,
                                              onDieselDelivery: () async {
                                                await Navigator.of(context).push(
                                                  MaterialPageRoute<void>(
@@ -11034,6 +11035,7 @@ class _PartnersState extends State<PartnersPage> {
   Timer? _searchDebounce;
   int _searchGeneration = 0;
   bool dieselSystem = false;
+  bool dieselDeliveryEnabled = false;
 
   Future<void> load() async {
     final generation = ++_searchGeneration;
@@ -11052,7 +11054,10 @@ class _PartnersState extends State<PartnersPage> {
   Future<void> _loadDieselSystem() async {
     final settings = await widget.r.settings();
     if (!mounted) return;
-    setState(() => dieselSystem = settings['system_type'] == 'diesel');
+    setState(() {
+      dieselSystem = settings['system_type'] == 'diesel';
+      dieselDeliveryEnabled = const ['diesel', 'equivalent_hybrid'].contains(settings['system_type']);
+    });
   }
 
   @override
@@ -11490,7 +11495,7 @@ class _PartnersState extends State<PartnersPage> {
                                             partyType: 'partner',
                                             partyId: x['id'] as int,
                                             name: '${x['name']}',
-                                             dieselEnabled: dieselSystem,
+                                             dieselEnabled: dieselDeliveryEnabled,
                                              onDieselDelivery: () async {
                                                await Navigator.of(context).push(
                                                  MaterialPageRoute<void>(
