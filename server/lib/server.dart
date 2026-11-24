@@ -3339,7 +3339,7 @@ void _applyPartyDieselReceipt({
     if (owner.isEmpty) {
       throw StateError('صاحب السقاية لا يتبع المحطة');
     }
-    final litersPerHour = system == 'diesel'
+    final litersPerHour = system == 'diesel' || hybridDiesel
         ? PartyDieselRate.resolve(owner.first['diesel_liters_per_hour'], double.tryParse(settings['diesel_liters_per_hour'] ?? '0') ?? 0)
         : 0.0;
     // Diesel price never participates in irrigation invoices or accruals.
@@ -3358,6 +3358,11 @@ void _applyPartyDieselReceipt({
             start: start, end: end, hourlyRate: waterRate,
             cloudMinutes: cloudMinutes, rounding: rounding,
             partialHour: partialHour)
+        : hybridDiesel
+        ? AccountingCalculations.diesel(
+            start: start, end: end, hourlyWaterRate: waterRate,
+            litersPerHour: litersPerHour, dieselPrice: 0,
+            cloudMinutes: 0, rounding: rounding, partialHour: partialHour)
         : AccountingCalculations.equivalent(
             start: start, end: end, hourlyRate: waterRate,
             rounding: rounding, partialHour: partialHour);
@@ -3367,7 +3372,7 @@ void _applyPartyDieselReceipt({
     var shortageLiters = 0.0;
     // Beneficiary's in-kind balance determines the number of liters to
     // advance, never a fuel invoice or a monetary debt.
-    if (system == 'diesel' && partyType == 'beneficiary' && liters > 0) {
+    if ((system == 'diesel' || hybridDiesel) && partyType == 'beneficiary' && liters > 0) {
       _ensurePartyDieselSchema();
       if (!_hasTable('diesel_movements')) {
         throw StateError('دفتر الديزل غير متاح لاحتساب رصيد المستفيد');
@@ -3664,7 +3669,7 @@ void _applyPartyDieselReceipt({
       ]);
     }
 
-    if (system == 'diesel' && liters > 0) {
+    if ((system == 'diesel' || hybridDiesel) && liters > 0) {
       if (partyType == 'beneficiary' && shortageLiters > 0) {
         db.execute(
           'INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
