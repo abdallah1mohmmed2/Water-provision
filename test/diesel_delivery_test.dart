@@ -119,6 +119,57 @@ void main() {
       );
   Future<num> scalar(String sql) async =>
       (await app.query(sql)).single.values.first as num;
+
+  test('hybrid diesel source records liters and solar source records none', () async {
+    await repo.setSetting('system_type', 'equivalent_hybrid');
+    await repo.setSetting('hybrid_diesel_hourly_rate', '8000');
+    await repo.setSetting('solar_hourly_rate', '7000');
+    await repo.setSetting('diesel_liters_per_hour', '10');
+
+    Future<int> hybridIrrigation(String source, DateTime start) =>
+        repo.accounting.recordIrrigation(
+          stationId: 1,
+          pumpId: 1,
+          beneficiaryId: ids['beneficiary'],
+          start: start,
+          end: start.add(const Duration(minutes: 30)),
+          systemType: 'equivalent_hybrid',
+          waterRate: 0,
+          litersPerHour: 0,
+          dieselPrice: 0,
+          solarRate: 7000,
+          thirdRate: 0,
+          hybridSource: source,
+          cloudMinutes: 0,
+          paidAmount: 0,
+          userId: 1,
+        );
+
+    final dieselId = await hybridIrrigation('diesel', DateTime(2026, 2, 1, 8));
+    final dieselRow = (await app.query(
+      'irrigations', where: 'id=?', whereArgs: [dieselId],
+    )).single;
+    expect(dieselRow['hybrid_source'], 'diesel');
+    expect(dieselRow['diesel_liters_per_hour_snapshot'], 10);
+    expect(dieselRow['hybrid_diesel_hourly_rate_snapshot'], 8000);
+    final dieselMoves = await app.query(
+      "diesel_movements",
+      where: "irrigation_id=? AND kind='consumption'",
+      whereArgs: [dieselId],
+    );
+    expect(dieselMoves, hasLength(1));
+    expect(dieselMoves.single['liters'], 5);
+
+    final solarId = await hybridIrrigation('solar', DateTime(2026, 2, 2, 8));
+    final solarRow = (await app.query(
+      'irrigations', where: 'id=?', whereArgs: [solarId],
+    )).single;
+    expect(solarRow['hybrid_source'], 'solar');
+    expect(solarRow['diesel_liters_per_hour_snapshot'], 0);
+    expect(await app.query(
+      'diesel_movements', where: 'irrigation_id=?', whereArgs: [solarId],
+    ), isEmpty);
+  });
   for (final type in ['beneficiary', 'worker', 'partner']) {
     test(
       '$type: receipt settles debt, excess becomes credit, cancellation restores debt',
