@@ -661,29 +661,51 @@ void main() {
     );
   }
 
-  for (final system in ['solar', 'equivalent_hybrid']) {
-    testWidgets('beneficiary card hides diesel delivery for $system', (
-      tester,
-    ) async {
-      largeView(tester);
-      await tester.runAsync(() => repo.setSetting('system_type', system));
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: BeneficiariesPage(repo, userId: 1, manager: true),
-          ),
+  testWidgets('beneficiary card hides diesel delivery for solar', (
+    tester,
+  ) async {
+    largeView(tester);
+    await tester.runAsync(() => repo.setSetting('system_type', 'solar'));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BeneficiariesPage(repo, userId: 1, manager: true),
         ),
-      );
-      await waitForUi(
-        tester,
-        () => find.text('شخص الاختبار').evaluate().isNotEmpty,
-      );
-      expect(find.text('شخص الاختبار'), findsOneWidget);
-      expect(find.text('إضافة تسليم ديزل'), findsNothing);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
-  }
+      ),
+    );
+    await waitForUi(
+      tester,
+      () => find.text('شخص الاختبار').evaluate().isNotEmpty,
+    );
+    expect(find.text('شخص الاختبار'), findsOneWidget);
+    expect(find.text('إضافة تسليم ديزل'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('beneficiary card exposes diesel delivery for equivalent_hybrid', (
+    tester,
+  ) async {
+    largeView(tester);
+    await tester.runAsync(
+      () => repo.setSetting('system_type', 'equivalent_hybrid'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BeneficiariesPage(repo, userId: 1, manager: true),
+        ),
+      ),
+    );
+    await waitForUi(
+      tester,
+      () => find.text('شخص الاختبار').evaluate().isNotEmpty,
+    );
+    expect(find.text('شخص الاختبار'), findsOneWidget);
+    expect(find.text('إضافة تسليم ديزل'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets(
     'missing initial beneficiary fails closed without choosing somebody else',
     (tester) async {
