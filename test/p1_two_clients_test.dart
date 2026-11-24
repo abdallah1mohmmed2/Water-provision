@@ -271,7 +271,7 @@ void main() {
             'SELECT kind,COUNT(*) n,ROUND(SUM(liters),6) liters,SUM(amount) amount FROM diesel_movements GROUP BY kind ORDER BY kind',
           ),
           'irrigation': await db.query(
-            'SELECT start_datetime,end_datetime,system_type,hybrid_source,hybrid_diesel_hourly_rate_snapshot,solar_hourly_rate_snapshot,third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,total_amount,paid_amount,status FROM irrigations',
+            "SELECT start_datetime,end_datetime,system_type,hybrid_source,hybrid_diesel_hourly_rate_snapshot,solar_hourly_rate_snapshot,CASE WHEN system_type='equivalent_hybrid' THEN third_type_hourly_rate_snapshot ELSE 0 END legacy_third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,total_amount,paid_amount,status FROM irrigations",
           ),
         };
         Map<String, dynamic> event(Map<String, Object?> row) => {
@@ -284,6 +284,18 @@ void main() {
           'payload': jsonDecode(row['payload'] as String),
         };
         await settle(first);
+        if (system == 'equivalent_hybrid') {
+          final saved = (await db.query(
+            'SELECT hybrid_source,hybrid_diesel_hourly_rate_snapshot,solar_hourly_rate_snapshot,third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,total_amount FROM irrigations',
+          )).single;
+          expect(saved['hybrid_source'], hybridSource);
+          expect(saved['hybrid_diesel_hourly_rate_snapshot'], hybridSource == 'diesel' ? 6000 : 0);
+          expect(saved['solar_hourly_rate_snapshot'], hybridSource == 'solar' ? 6000 : 0);
+          expect(saved['third_type_hourly_rate_snapshot'], 0);
+          expect(saved['cloud_minutes'], cloudApplies ? 20 : 0);
+          expect(saved['chargeable_minutes'], cloudApplies ? 40 : 60);
+          expect(saved['total_amount'], cloudApplies ? 4000 : 6000);
+        }
         final initialState = await financialState();
         await db.close();
         await databaseFactory.setDatabasesPath(peer.path);

@@ -343,7 +343,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
-        MaterialApp(home: DieselPage(_HybridDieselRepository(app), userId: 1)),
+        MaterialApp(home: Scaffold(body: DieselPage(_HybridDieselRepository(app), userId: 1))),
       );
       await tester.pumpAndSettle();
       expect(find.text('إضافة تسليم ديزل'), findsOneWidget);
