@@ -457,21 +457,26 @@ class _P1Mutations {
               rounding: rounding,
               partialHour: partialHour,
             )
-          : AccountingCalculations.equivalent(
-              start: start,
-              end: end,
-              hourlyRate: hybridDiesel
-                  ? (old['hybrid_diesel_hourly_rate_snapshot'] as num?)?.toInt() ?? 0
-                  : (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
-              allowMidnightCrossing: allowMidnight,
-              rounding: rounding,
-              partialHour: partialHour,
-            );
+          : hybridDiesel
+              ? AccountingCalculations.diesel(
+                  start: start, end: end,
+                  hourlyWaterRate: (old['hybrid_diesel_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  litersPerHour: (old['diesel_liters_per_hour_snapshot'] as num?)?.toDouble() ?? 0,
+                  dieselPrice: 0, cloudMinutes: 0,
+                  allowMidnightCrossing: allowMidnight,
+                  rounding: rounding, partialHour: partialHour,
+                )
+              : AccountingCalculations.equivalent(
+                  start: start, end: end,
+                  hourlyRate: (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  allowMidnightCrossing: allowMidnight,
+                  rounding: rounding, partialHour: partialHour,
+                );
       // In-kind diesel shortage is liters only, not a financial charge.
       var shortageLiters = 0.0;
       final partyTypeForDiesel = '${old['party_type'] ?? 'beneficiary'}';
       final dieselBeneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
-      if (type == 'diesel' &&
+      if ((type == 'diesel' || hybridDiesel) &&
           partyTypeForDiesel == 'beneficiary' &&
           result.dieselLiters > 0) {
         final stockRows = tx.rawQuery(_beneficiaryDieselStockSql, [
@@ -739,7 +744,7 @@ class _P1Mutations {
         orderBy: 'id',
       );
       _reverseIrrigationDieselTx(tx, id, userId, 'تعديل السقاية');
-      if (type == 'diesel' && result.dieselLiters > 0) {
+      if ((type == 'diesel' || hybridDiesel) && result.dieselLiters > 0) {
         if (partyType == 'beneficiary' && shortageLiters > 0) {
           tx.insert('diesel_movements', {
             'station_id': old['station_id'],
