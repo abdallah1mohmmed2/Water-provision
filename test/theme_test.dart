@@ -44,5 +44,89 @@ void main() {
       expect(dark.inputDecorationTheme.filled, isTrue);
       expect(dark.colorScheme.onSurface, const Color(0xfff0f3ed));
     });
+
+    test('all five palettes propagate to interactive component accents', () {
+      for (final key in keys) {
+        final accent = SaqiaTheme.accent(key);
+        final light = SaqiaTheme.light(themeKey: key);
+        final dark = SaqiaTheme.dark(themeKey: key);
+        final darkAccent = Color.lerp(accent, Colors.white, .22)!;
+        final darkSecondary = Color.lerp(
+          SaqiaTheme.secondary(key),
+          Colors.white,
+          .22,
+        )!;
+
+        expect(light.colorScheme.primary, accent, reason: key);
+        expect(light.colorScheme.secondary, SaqiaTheme.secondary(key), reason: key);
+        expect(dark.colorScheme.primary, darkAccent, reason: key);
+        expect(dark.colorScheme.secondary, darkSecondary, reason: key);
+
+        for (final theme in [light, dark]) {
+          final expected = identical(theme, light) ? accent : darkAccent;
+          expect(
+            theme.filledButtonTheme.style!.backgroundColor!.resolve({}),
+            expected,
+            reason: '$key filled button',
+          );
+          expect(
+            theme.outlinedButtonTheme.style!.foregroundColor!.resolve({}),
+            expected,
+            reason: '$key outlined button',
+          );
+          expect(
+            theme.textButtonTheme.style!.foregroundColor!.resolve({}),
+            expected,
+            reason: '$key text button',
+          );
+          expect(theme.listTileTheme.iconColor, expected, reason: '$key list tile');
+          expect(
+            theme.checkboxTheme.fillColor!.resolve({WidgetState.selected}),
+            expected,
+            reason: '$key checkbox',
+          );
+          expect(
+            theme.radioTheme.fillColor!.resolve({WidgetState.selected}),
+            expected,
+            reason: '$key radio',
+          );
+          expect(
+            theme.switchTheme.trackColor!.resolve({WidgetState.selected}),
+            expected.withValues(alpha: .55),
+            reason: '$key switch',
+          );
+          expect(
+            theme.chipTheme.selectedColor,
+            expected.withValues(alpha: identical(theme, light) ? .14 : .2),
+            reason: '$key chip',
+          );
+          expect(
+            theme.navigationBarTheme.indicatorColor,
+            expected.withValues(alpha: identical(theme, light) ? .14 : .22),
+            reason: '$key navigation indicator',
+          );
+          expect(theme.progressIndicatorTheme.color, expected, reason: '$key progress');
+        }
+      }
+    });
+
+    test('light and dark modal surfaces stay consistent for every palette', () {
+      for (final key in keys) {
+        final light = SaqiaTheme.light(themeKey: key);
+        final dark = SaqiaTheme.dark(themeKey: key);
+
+        expect(light.scaffoldBackgroundColor, const Color(0xfff4f5ef));
+        expect(light.cardTheme.color, Colors.white);
+        expect(light.dialogTheme.backgroundColor, Colors.white);
+        expect(light.bottomSheetTheme.backgroundColor, Colors.white);
+        expect(light.popupMenuTheme.color, Colors.white);
+
+        expect(dark.scaffoldBackgroundColor, const Color(0xff111815));
+        expect(dark.cardTheme.color, const Color(0xff1c2522));
+        expect(dark.dialogTheme.backgroundColor, const Color(0xff202b26));
+        expect(dark.bottomSheetTheme.backgroundColor, const Color(0xff202b26));
+        expect(dark.popupMenuTheme.color, const Color(0xff202b26));
+      }
+    });
   });
 }
