@@ -1472,7 +1472,10 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       'payload': {...payload, 'total_amount': 1},
     }]);
     expect((staleSnapshot['results'] as List).single['status'], 'rejected');
-    expect(database.select('SELECT * FROM irrigations'), isEmpty);
+    // The migration fixture deliberately inserted legacy irrigation id=90.
+    // A rejected event must preserve that row while creating no row for this event.
+    expect(database.select('SELECT id FROM irrigations WHERE id=90'), hasLength(1));
+    expect(database.select("SELECT id FROM irrigations WHERE start_datetime='2026-11-08T08:00:00.000'"), isEmpty);
     expect(database.select('SELECT * FROM journal_entries'), isEmpty);
     final response = await postEvents(stationOneToken,[event]);
     final irrigationResult = (response['results'] as List).single;
