@@ -4474,16 +4474,60 @@ void _applyPartyDieselReceipt({
       FROM sync_event_log
       WHERE station_id=? AND server_sequence>? AND source_device<>? AND status='accepted'
       ORDER BY server_sequence LIMIT 100''',[station,after,device]);
-    final events = rows.map((row) => <String,Object?>{
-      'server_sequence':row['server_sequence'],
-      'event_id':row['event_id'],
-      'entity_type':row['entity_type'],
-      'entity_key':row['entity_key'],
-      'operation':row['operation'],
-      'payload':jsonDecode(row['payload_json'] as String),
-      'base_version':row['base_version'],
-      'server_version':row['server_version'],
-      'source_device':row['source_device'],
+    final events = rows.map((row) {
+      final payload = Map<String, Object?>.from(
+        jsonDecode(row['payload_json'] as String) as Map,
+      );
+      // Irrigation prices and totals are recalculated by the server. Return
+      // those persisted values in the inbox projection so peer devices never
+      // hydrate client-supplied (or absent) tariff snapshots as authoritative.
+      if (row['entity_type'] == 'irrigations' &&
+          const {'create', 'update'}.contains(row['operation'])) {
+        final globalId = (payload['_global_id'] ?? '').toString();
+        if (globalId.isNotEmpty) {
+          final authoritative = db.select('''
+            SELECT i.system_type, i.hybrid_source,
+              i.water_hourly_rate_snapshot,
+              i.hybrid_diesel_hourly_rate_snapshot,
+              i.solar_hourly_rate_snapshot,
+              i.third_type_hourly_rate_snapshot,
+              i.diesel_liters_per_hour_snapshot, i.diesel_price_snapshot,
+              i.minutes, i.cloud_minutes, i.chargeable_minutes,
+              i.water_amount, i.diesel_amount, i.total_amount
+            FROM sync_entity_links l
+            JOIN irrigations i
+              ON i.id=l.local_id AND i.station_id=l.station_id
+            WHERE l.station_id=? AND l.entity_type='irrigations'
+              AND l.global_id=? LIMIT 1
+          ''', [station, globalId]);
+          if (authoritative.isNotEmpty) {
+            final saved = authoritative.first;
+            for (final key in const [
+              'system_type', 'hybrid_source',
+              'water_hourly_rate_snapshot',
+              'hybrid_diesel_hourly_rate_snapshot',
+              'solar_hourly_rate_snapshot',
+              'third_type_hourly_rate_snapshot',
+              'diesel_liters_per_hour_snapshot', 'diesel_price_snapshot',
+              'minutes', 'cloud_minutes', 'chargeable_minutes',
+              'water_amount', 'diesel_amount', 'total_amount',
+            ]) {
+              payload[key] = saved[key];
+            }
+          }
+        }
+      }
+      return <String, Object?>{
+        'server_sequence':row['server_sequence'],
+        'event_id':row['event_id'],
+        'entity_type':row['entity_type'],
+        'entity_key':row['entity_key'],
+        'operation':row['operation'],
+        'payload':payload,
+        'base_version':row['base_version'],
+        'server_version':row['server_version'],
+        'source_device':row['source_device'],
+      };
     }).toList();
     final high = db.select(
       'SELECT COALESCE(MAX(server_sequence),0) AS cursor FROM sync_event_log WHERE station_id=?',
