@@ -1735,6 +1735,175 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     }]);
     expect((staleOff['results'] as List).single['status'], 'rejected');
     expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 2);
+
+    // Exercise the hybrid-source contract through the real sync endpoint:
+    // values are recalculated by the server, stored as immutable snapshots,
+    // and projected back to another device.
+    database.execute("UPDATE pumps SET system_type='equivalent_hybrid' WHERE id=1");
+    database.execute("INSERT INTO station_settings(station_id,key,value) VALUES"
+      "(1,'hybrid_diesel_hourly_rate','8000'),"
+      "(1,'solar_hourly_rate','9000'),"
+      "(1,'third_type_hourly_rate','7000'),"
+      "(1,'work_price_difference_enabled','false')");
+    final originalEffects = payload['_derived_global_ids'] as Map;
+    var hybridSequence = 1;
+    String hybridId() {
+      final suffix = (hybridSequence++).toRadixString(16).padLeft(12, '0');
+      return '88888888-8888-4888-8888-$suffix';
+    }
+    Map<String, List<String>> hybridEffects({required int cloudCount}) => {
+      'cloud_periods': List.generate(cloudCount, (_) => hybridId()),
+      'worker_transactions': List.generate(1, (_) => hybridId()),
+      'partner_transactions': List.generate(1, (_) => hybridId()),
+      'diesel_movements': <String>[],
+      'journal_entries': List.generate(3, (_) => hybridId()),
+      'journal_lines': List.generate(6, (_) => hybridId()),
+      'irrigation_sessions': <String>[],
+      'queue_entries': <String>[],
+      'booking_requests': <String>[],
+    };
+
+    Future<Map<String, dynamic>> createHybrid({
+      required String eventId,
+      required String globalId,
+      required String start,
+      required String end,
+      String? source,
+      required int cloudMinutes,
+    }) async {
+      final cloud = cloudMinutes == 0 ? <Map<String, dynamic>>[] : [
+        {
+          'start_datetime': start.replaceFirst('18:00', '18:20'),
+          'end_datetime': start.replaceFirst('18:00', '18:30'),
+        },
+      ];
+      final hybridPayload = <String, dynamic>{
+        ...payload,
+        '_global_id': globalId,
+        'session_id': null,
+        '_global_refs': {
+          'pump_id': {'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+          'beneficiary_id': {'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+        },
+        'system_type': 'equivalent_hybrid',
+        if (source != null) 'hybrid_source': source,
+        'start_datetime': start,
+        'end_datetime': end,
+        'cloud_minutes': cloudMinutes,
+        'cloud_periods': cloud,
+        'paid_amount': 0,
+        'work_price_enabled_snapshot': 0,
+        'work_minute_rate_snapshot': 0,
+        'work_base_water_amount_snapshot': 0,
+        'work_difference_snapshot': 0,
+        '_derived_global_ids': hybridEffects(cloudCount: cloudMinutes == 0 ? 0 : 1),
+      };
+      return postEvents(stationOneToken, [{
+        'event_id': eventId,
+        'entity_type': 'irrigations',
+        'entity_key': 'irrigations:$globalId',
+        'operation': 'create',
+        'base_version': 0,
+        'payload': hybridPayload,
+      }]);
+    }
+
+    final hybridDieselResponse = await createHybrid(
+      eventId: '88880000-0000-4000-8000-000000000001',
+      globalId: '88880000-0000-4000-8000-000000000002',
+      start: '2026-11-08T16:00:00.000',
+      end: '2026-11-08T17:00:00.000',
+      source: 'diesel',
+      cloudMinutes: 0,
+    );
+    expect((hybridDieselResponse['results'] as List).single['status'], 'accepted',
+      reason: '$hybridDieselResponse');
+    final hybridDiesel = database.select(
+      "SELECT * FROM irrigations WHERE start_datetime='2026-11-08T16:00:00.000'").single;
+    expect(hybridDiesel['hybrid_source'], 'diesel');
+    expect(hybridDiesel['hybrid_diesel_hourly_rate_snapshot'], 8000);
+    expect(hybridDiesel['solar_hourly_rate_snapshot'], 0);
+    expect(hybridDiesel['third_type_hourly_rate_snapshot'], 0);
+    expect(hybridDiesel['cloud_minutes'], 0);
+    expect(hybridDiesel['chargeable_minutes'], 60);
+    expect(hybridDiesel['water_amount'], 8000);
+    expect(hybridDiesel['total_amount'], 8000);
+    final hybridDieselInbox = await getInbox(stationOneToken, device: 'device-c');
+    final dieselProjection = (hybridDieselInbox['events'] as List)
+        .cast<Map>().firstWhere((e) => e['entity_type'] == 'irrigations' &&
+          (e['payload'] as Map)['_global_id'] == '88880000-0000-4000-8000-000000000002');
+    expect((dieselProjection['payload'] as Map)['hybrid_source'], 'diesel');
+    expect((dieselProjection['payload'] as Map)['hybrid_diesel_hourly_rate_snapshot'], 8000);
+
+    final hybridSolarResponse = await createHybrid(
+      eventId: '88880000-0000-4000-8000-000000000003',
+      globalId: '88880000-0000-4000-8000-000000000004',
+      start: '2026-11-08T18:00:00.000',
+      end: '2026-11-08T19:00:00.000',
+      source: 'solar',
+      cloudMinutes: 10,
+    );
+    expect((hybridSolarResponse['results'] as List).single['status'], 'accepted',
+      reason: '$hybridSolarResponse');
+    final hybridSolar = database.select(
+      "SELECT * FROM irrigations WHERE start_datetime='2026-11-08T18:00:00.000'").single;
+    expect(hybridSolar['hybrid_source'], 'solar');
+    expect(hybridSolar['hybrid_diesel_hourly_rate_snapshot'], 0);
+    expect(hybridSolar['solar_hourly_rate_snapshot'], 9000);
+    expect(hybridSolar['cloud_minutes'], 10);
+    expect(hybridSolar['chargeable_minutes'], 50);
+    expect(hybridSolar['water_amount'], 7500);
+    expect(hybridSolar['total_amount'], 7500);
+    expect(database.select(
+      'SELECT COUNT(*) n FROM cloud_periods WHERE irrigation_id=?',
+      [hybridSolar['id']]).single['n'], 1);
+    final solarProjection = await getInbox(stationOneToken, device: 'device-d');
+    final solarRoot = (solarProjection['events'] as List).cast<Map>().firstWhere(
+      (e) => e['entity_type'] == 'irrigations' &&
+        (e['payload'] as Map)['_global_id'] == '88880000-0000-4000-8000-000000000004');
+    expect((solarRoot['payload'] as Map)['hybrid_source'], 'solar');
+    expect((solarRoot['payload'] as Map)['solar_hourly_rate_snapshot'], 9000);
+
+    // Old queued hybrid events omit hybrid_source and must retain the legacy
+    // third-type tariff snapshot rather than being silently re-priced.
+    final legacyHybridResponse = await createHybrid(
+      eventId: '88880000-0000-4000-8000-000000000005',
+      globalId: '88880000-0000-4000-8000-000000000006',
+      start: '2026-11-08T20:00:00.000',
+      end: '2026-11-08T21:00:00.000',
+      cloudMinutes: 0,
+    );
+    expect((legacyHybridResponse['results'] as List).single['status'], 'accepted',
+      reason: '$legacyHybridResponse');
+    final legacyHybrid = database.select(
+      "SELECT * FROM irrigations WHERE start_datetime='2026-11-08T20:00:00.000'").single;
+    expect(legacyHybrid['hybrid_source'], isNull);
+    expect(legacyHybrid['third_type_hourly_rate_snapshot'], 7000);
+    expect(legacyHybrid['hybrid_diesel_hourly_rate_snapshot'], 0);
+    expect(legacyHybrid['solar_hourly_rate_snapshot'], 0);
+    expect(legacyHybrid['chargeable_minutes'], 60);
+    expect(legacyHybrid['water_amount'], 7000);
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 5);
+    final irrigationLedger = database.select("""
+      SELECT COUNT(*) n, SUM(debit) debit, SUM(credit) credit
+      FROM journal_lines
+    """).single;
+    expect(irrigationLedger['debit'], irrigationLedger['credit']);
+    final hybridReplay = await postEvents(stationOneToken, [{
+      'event_id': '88880000-0000-4000-8000-000000000001',
+      'entity_type': 'irrigations',
+      'entity_key': 'irrigations:88880000-0000-4000-8000-000000000002',
+      'operation': 'create',
+      'base_version': 0,
+      'payload': {
+        ...payload,
+        '_global_id': '88880000-0000-4000-8000-000000000002',
+      },
+    }]);
+    expect((hybridReplay['results'] as List).single['status'], 'duplicate');
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 5);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'], 12);
+    expect(originalEffects.keys, containsAll(['cloud_periods', 'journal_lines']));
   });
 
   for (final type in ['beneficiary','worker','partner']) {
