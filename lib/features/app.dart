@@ -4325,6 +4325,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   bool loading = true;
   bool sourceFromServer = false;
   bool dieselSystem = false;
+  bool dieselDeliveryEnabled = false;
   String? loadError;
   Timer? _debounce;
   int _seq = 0;
@@ -4343,6 +4344,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
         setState(() {
           rows = x;
           dieselSystem = settings['system_type'] == 'diesel';
+          dieselDeliveryEnabled = const ['diesel', 'equivalent_hybrid'].contains(settings['system_type']);
           sourceFromServer = widget.r.beneficiariesFromServer;
         });
       }
@@ -4756,7 +4758,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                         partyType: 'beneficiary',
                                         partyId: x['id'] as int,
                                         name: '${x['name']}',
-                                        dieselEnabled: dieselSystem,
+                                        dieselEnabled: dieselDeliveryEnabled,
                                         onDieselDelivery: () async {
                                           await Navigator.of(context).push(
                                             MaterialPageRoute<void>(
@@ -10341,7 +10343,10 @@ class _WorkersState extends State<WorkersPage> {
   Future<void> _loadDieselSystem() async {
     final settings = await widget.r.settings();
     if (!mounted) return;
-    setState(() => dieselSystem = settings['system_type'] == 'diesel');
+    setState(() {
+      dieselSystem = settings['system_type'] == 'diesel';
+      dieselDeliveryEnabled = const ['diesel', 'equivalent_hybrid'].contains(settings['system_type']);
+    });
   }
 
   @override
@@ -12577,7 +12582,7 @@ class _ReportsState extends State<ReportsPage> {
     'beneficiary_detailed'=>'تفاصيل حركات المستفيد والسقايات والدفعات',
     'beneficiary_stats'=>'عدد السقايات والدقائق والإجمالي لكل مستفيد',
     'needy'=>'المستفيدون المحتاجون وأرصدتهم الحالية',
-    'diesel_inventory'=>'حركة مخزون الديزل والكميات والتكلفة',
+    'diesel_inventory'=>'إضافة الديزل وتسليمه واستهلاكه وحركة الرصيد',
     'activity_overview'=>'ملخص العمليات والدقائق والإيرادات',
     'oil_status'=>'إجمالي استهلاك الزيت والشحم',
     'debts'=>'ترتيب أرصدة المستفيدين من الأعلى إلى الأقل',
@@ -12591,7 +12596,9 @@ class _ReportsState extends State<ReportsPage> {
     'partner_profit_distribution'=>'صافي الربح بعد المصروفات والعمال وتوزيعه على الشركاء',
     _=>'معاينة البيانات والفلاتر والطباعة',
   };
-  bool _allowedReport(String k) => currentType == 'diesel' || (k != 'diesel_inventory' && k != 'oil_status');
+  bool _allowedReport(String k) => k == 'diesel_inventory'
+      ? const ['diesel', 'equivalent_hybrid'].contains(currentType)
+      : currentType == 'diesel' || k != 'oil_status';
   Widget _reportCard(String k){final title=ReportService.titles[k]??'تقرير';return Container(padding:EdgeInsets.all(18),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(22),border:Border.all(color:_reportLine),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .08),blurRadius:18,offset:Offset(0,7))]),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(_icon(k),color:_reportOliveDark)),SizedBox(width:12),Expanded(child:Text(title,softWrap:true,style:TextStyle(fontWeight:FontWeight.w900,fontSize:16,color:_reportInk))),Icon(Icons.swipe_rounded,size:20,color:_reportOlive)]),SizedBox(height:14),Expanded(child:Align(alignment:Alignment.topRight,child:Text(_description(k),softWrap:true,style:TextStyle(color:_reportInk.withValues(alpha: .72),fontSize:13,height:1.5)))),SizedBox(height:10),Row(children:[Expanded(child:OutlinedButton.icon(onPressed:()=>previewR(k),style:OutlinedButton.styleFrom(foregroundColor:_reportOliveDark,side:BorderSide(color:_reportLine),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(12))),icon:Icon(Icons.visibility_outlined,size:18),label:Text('معاينة كاملة'))),SizedBox(width:10),ReportPdfLongPress(
   enabled: true,
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => printR(k)),
