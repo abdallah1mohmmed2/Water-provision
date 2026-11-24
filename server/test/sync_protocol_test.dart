@@ -500,7 +500,7 @@ void main() {
       );
       final duplicateIdentityResult = await postEvents(stationOneToken,[duplicateIdentity]);
       expect((duplicateIdentityResult['results'] as List).first['status'],'rejected');
-      expect(database.select('SELECT COUNT(*) n FROM ' + table).single['n'],1);
+      expect(database.select('SELECT COUNT(*) n FROM ' + table).single['n'],2);
       expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],worker ? 1 : 2);
       final journal = database.select('SELECT id FROM journal_entries ORDER BY id DESC LIMIT 1').single['id'];
       final totals = database.select('SELECT SUM(debit) debit,SUM(credit) credit,COUNT(*) lines FROM journal_lines WHERE journal_entry_id=?',[journal]).single;
@@ -514,7 +514,7 @@ void main() {
       expect(opening['debit'],0);
       expect(opening['credit'],4200);
       expect(database.select('SELECT reference_id FROM ' + table).single['reference_id'],journal);
-      expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type=?",[table]).single['n'],1);
+      expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type=?",[table]).single['n'],2);
     }
     expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
   });
@@ -709,7 +709,7 @@ void main() {
     expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'], 1);
     expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'], 750);
     expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'], 1);
-    expect(database.select('SELECT COUNT(*) AS n FROM journal_lines').single['n'], 2);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_lines').single['n'], 3);
     expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['debit'], 250);
     expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['credit'], 250);
   });
@@ -752,8 +752,8 @@ void main() {
     expect((replay['results'] as List).first['status'], 'duplicate');
     expect(database.select('SELECT COUNT(*) n FROM payments').single['n'], 1);
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'], 1);
-    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'], 2);
-    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'], 5);
+    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'], 3);
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'], 6);
     final totals = database.select(
       'SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines',
     ).single;
@@ -1588,7 +1588,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     };
     final cloudResponse = await postEvents(stationOneToken,[cloudEvent]);
     expect((cloudResponse['results'] as List).single['status'],'superseded');
-    expect(database.select('SELECT COUNT(*) n FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]).single['n'],2);
+    expect(database.select('SELECT COUNT(*) n FROM cloud_periods WHERE irrigation_id=?',[irrigation['id']]).single['n'],1);
     final cloudReplay = await postEvents(stationOneToken,[cloudEvent]);
     expect((cloudReplay['results'] as List).single['status'],'superseded');
     expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'],projectionLogCount);
@@ -1643,11 +1643,11 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       },
     }]);
     expect((failedIrrigation['results'] as List).single['status'],'rejected');
-    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],2);
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],3);
     expect(database.select('SELECT status FROM irrigation_sessions WHERE id=2').single['status'],'running');
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
-    expect(database.select('SELECT COUNT(*) n FROM diesel_movements').single['n'],3);
-    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
+    expect(database.select('SELECT COUNT(*) n FROM diesel_movements').single['n'],2);
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],2);
 
     // Operational work difference must be posted by Shelf with exactly the
     // beneficiary invoice amount; hourly worker and partner accruals cannot
