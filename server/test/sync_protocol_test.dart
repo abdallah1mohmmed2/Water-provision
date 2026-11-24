@@ -1757,11 +1757,15 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     // values are recalculated by the server, stored as immutable snapshots,
     // and projected back to another device.
     database.execute("UPDATE pumps SET system_type='equivalent_hybrid' WHERE id=1");
+    // The shared fixture may already seed station settings. Upsert the
+    // exact values required by this scenario without violating the
+    // station-scoped unique key or depending on fixture insertion order.
     database.execute("INSERT INTO station_settings(station_id,key,value) VALUES"
       "(1,'hybrid_diesel_hourly_rate','8000'),"
       "(1,'solar_hourly_rate','9000'),"
       "(1,'third_type_hourly_rate','7000'),"
-      "(1,'work_price_difference_enabled','false')");
+      "(1,'work_price_difference_enabled','false') "
+      "ON CONFLICT(station_id,key) DO UPDATE SET value=excluded.value");
     var hybridSequence = 1;
     String hybridId() {
       final suffix = (hybridSequence++).toRadixString(16).padLeft(12, '0');
