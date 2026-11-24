@@ -128,5 +128,35 @@ void main() {
         expect(dark.popupMenuTheme.color, const Color(0xff202b26));
       }
     });
+
+    test('all accent palettes maintain accessible filled-button contrast', () {
+      double contrastRatio(Color first, Color second) {
+        final a = first.computeLuminance();
+        final b = second.computeLuminance();
+        final lighter = a > b ? a : b;
+        final darker = a > b ? b : a;
+        return (lighter + .05) / (darker + .05);
+      }
+
+      for (final key in keys) {
+        final light = SaqiaTheme.light(themeKey: key);
+        final dark = SaqiaTheme.dark(themeKey: key);
+        final lightForeground =
+            light.filledButtonTheme.style!.foregroundColor!.resolve({})!;
+        final darkForeground =
+            dark.filledButtonTheme.style!.foregroundColor!.resolve({})!;
+
+        expect(
+          contrastRatio(light.colorScheme.primary, lightForeground),
+          greaterThanOrEqualTo(4.5),
+          reason: '$key light filled button',
+        );
+        expect(
+          contrastRatio(dark.colorScheme.primary, darkForeground),
+          greaterThanOrEqualTo(4.5),
+          reason: '$key dark filled button',
+        );
+      }
+    });
   });
 }
