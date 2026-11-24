@@ -500,7 +500,7 @@ void main() {
       );
       final duplicateIdentityResult = await postEvents(stationOneToken,[duplicateIdentity]);
       expect((duplicateIdentityResult['results'] as List).first['status'],'rejected');
-      expect(database.select('SELECT COUNT(*) n FROM ' + table).single['n'],1);
+      expect(database.select('SELECT COUNT(*) n FROM ' + table).single['n'],2);
       expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],worker ? 1 : 2);
       final journal = database.select('SELECT id FROM journal_entries ORDER BY id DESC LIMIT 1').single['id'];
       final totals = database.select('SELECT SUM(debit) debit,SUM(credit) credit,COUNT(*) lines FROM journal_lines WHERE journal_entry_id=?',[journal]).single;
@@ -514,7 +514,7 @@ void main() {
       expect(opening['debit'],0);
       expect(opening['credit'],4200);
       expect(database.select('SELECT reference_id FROM ' + table).single['reference_id'],journal);
-      expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type=?",[table]).single['n'],1);
+      expect(database.select("SELECT COUNT(*) n FROM sync_entity_links WHERE entity_type=?",[table]).single['n'],2);
     }
     expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'],777);
   });
@@ -709,7 +709,7 @@ void main() {
     expect(database.select('SELECT COUNT(*) AS n FROM payments').single['n'], 1);
     expect(database.select('SELECT current_balance FROM cashboxes WHERE id=1').single['current_balance'], 750);
     expect(database.select('SELECT COUNT(*) AS n FROM journal_entries').single['n'], 1);
-    expect(database.select('SELECT COUNT(*) AS n FROM journal_lines').single['n'], 2);
+    expect(database.select('SELECT COUNT(*) AS n FROM journal_lines').single['n'], 3);
     expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['debit'], 250);
     expect(database.select('SELECT SUM(debit) AS debit,SUM(credit) AS credit FROM journal_lines').single['credit'], 250);
   });
@@ -752,8 +752,8 @@ void main() {
     expect((replay['results'] as List).first['status'], 'duplicate');
     expect(database.select('SELECT COUNT(*) n FROM payments').single['n'], 1);
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'], 1);
-    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'], 2);
-    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'], 5);
+    expect(database.select('SELECT COUNT(*) n FROM journal_lines').single['n'], 3);
+    expect(database.select('SELECT COUNT(*) n FROM sync_event_log').single['n'], 6);
     final totals = database.select(
       'SELECT SUM(debit) debit,SUM(credit) credit FROM journal_lines',
     ).single;
@@ -1355,6 +1355,15 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     database.execute("CREATE TABLE worker_transactions(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,worker_id INTEGER NOT NULL,date TEXT NOT NULL,type TEXT NOT NULL,hours REAL NOT NULL DEFAULT 0,rate_snapshot REAL NOT NULL DEFAULT 0,percentage_snapshot REAL NOT NULL DEFAULT 0,amount INTEGER NOT NULL,reference_type TEXT,reference_id INTEGER,notes TEXT,created_by INTEGER)");
     database.execute("CREATE TABLE partner_transactions(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,partner_id INTEGER NOT NULL,date TEXT NOT NULL,type TEXT NOT NULL,amount INTEGER NOT NULL,ownership_snapshot REAL,reference_type TEXT,reference_id INTEGER,notes TEXT,created_by INTEGER)");
     database.execute("CREATE TABLE irrigations(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,pump_id INTEGER NOT NULL,beneficiary_id INTEGER,worker_id INTEGER,partner_id INTEGER,party_type TEXT NOT NULL,date TEXT NOT NULL,start_datetime TEXT NOT NULL,end_datetime TEXT NOT NULL,minutes INTEGER NOT NULL,system_type TEXT NOT NULL,water_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,diesel_liters_per_hour_snapshot REAL NOT NULL DEFAULT 0,diesel_price_snapshot INTEGER NOT NULL DEFAULT 0,solar_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,third_type_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,work_minute_rate_snapshot INTEGER NOT NULL DEFAULT 0,work_price_enabled_snapshot INTEGER NOT NULL DEFAULT 0,work_base_water_amount_snapshot INTEGER NOT NULL DEFAULT 0,work_difference_snapshot INTEGER NOT NULL DEFAULT 0,cloud_minutes INTEGER NOT NULL DEFAULT 0,chargeable_minutes INTEGER NOT NULL,water_amount INTEGER NOT NULL DEFAULT 0,diesel_amount INTEGER NOT NULL DEFAULT 0,total_amount INTEGER NOT NULL DEFAULT 0,paid_amount INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL,created_by INTEGER,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)");
+    // Preserve a pre-existing financial row when the receiving server adds
+    // the hybrid columns to this legacy schema at sync-command time.
+    database.execute("""INSERT INTO irrigations(
+      id,station_id,pump_id,beneficiary_id,party_type,date,start_datetime,end_datetime,
+      minutes,system_type,chargeable_minutes,water_amount,total_amount,status,created_at,updated_at
+    ) VALUES(90,1,1,1,'beneficiary','2026-11-07',
+      '2026-11-07T07:00:00.000','2026-11-07T08:00:00.000',
+      60,'equivalent_hybrid',60,1234,1234,'posted',
+      '2026-11-07T08:00:00.000','2026-11-07T08:00:00.000')""");
     database.execute("CREATE TABLE irrigation_sessions(id INTEGER PRIMARY KEY AUTOINCREMENT,beneficiary_id INTEGER NOT NULL,queue_entry_id INTEGER,booking_id INTEGER,pump_id INTEGER NOT NULL,planned_start TEXT,actual_start TEXT,actual_end TEXT,status TEXT NOT NULL,timer_started_at TEXT,timer_stopped_at TEXT,diesel_before REAL DEFAULT 0,diesel_consumed REAL DEFAULT 0,diesel_after REAL DEFAULT 0,diesel_warning_shown INTEGER NOT NULL DEFAULT 0,postponement_reason TEXT,notes TEXT)");
     database.execute("ALTER TABLE irrigations ADD COLUMN session_id INTEGER");
     database.execute("ALTER TABLE irrigations ADD COLUMN queue_entry_id INTEGER");
@@ -1475,7 +1484,12 @@ test('legacy beneficiary rows receive a stable global identity on first API read
         .map((row) => row['name'].toString()).toSet();
     expect(irrigationColumns, contains('hybrid_source'));
     expect(irrigationColumns, contains('hybrid_diesel_hourly_rate_snapshot'));
-    final irrigation = database.select('SELECT * FROM irrigations WHERE station_id=1').single;
+    final irrigation = database.select("SELECT * FROM irrigations WHERE start_datetime='2026-11-08T08:00:00.000'").single;
+    final preservedLegacy = database.select('SELECT water_amount,total_amount,hybrid_source,hybrid_diesel_hourly_rate_snapshot FROM irrigations WHERE id=90').single;
+    expect(preservedLegacy['water_amount'], 1234);
+    expect(preservedLegacy['total_amount'], 1234);
+    expect(preservedLegacy['hybrid_source'], isNull);
+    expect(preservedLegacy['hybrid_diesel_hourly_rate_snapshot'], 0);
     expect(irrigation['minutes'],60);
     expect(irrigation['cloud_minutes'],10);
     expect(irrigation['chargeable_minutes'],60); // Diesel billing is not reduced by cloud periods.
@@ -1894,7 +1908,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(legacyHybrid['solar_hourly_rate_snapshot'], 0);
     expect(legacyHybrid['chargeable_minutes'], 60);
     expect(legacyHybrid['water_amount'], 7000);
-    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 5);
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 6);
     final irrigationLedger = database.select("""
       SELECT COUNT(*) n, SUM(debit) debit, SUM(credit) credit
       FROM journal_lines
