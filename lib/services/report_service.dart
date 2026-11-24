@@ -71,7 +71,7 @@ class ReportService {
     'beneficiary_detailed': 'كشف الحساب المفصل للمستفيد',
     'beneficiary_stats': 'إحصائيات المستفيدين',
     'needy': 'المستفيدون المحتاجون',
-    'diesel_inventory': 'مخزون الديزل',
+    'diesel_inventory': 'حركة الديزل: الإضافة والتسليم والاستهلاك',
     'activity_overview': 'نظرة عامة على النشاط',
     'oil_status': 'حالة الزيت',
     'debts': 'مديونيات المستفيدين',
@@ -255,7 +255,8 @@ class ReportService {
     }
     final settings = await repo.settings();
     final currentType = settings['system_type'] ?? 'diesel';
-    if (key == 'diesel_inventory' && currentType != 'diesel') {
+    if (key == 'diesel_inventory' &&
+        !const ['diesel', 'equivalent_hybrid'].contains(currentType)) {
       throw StateError('تقرير الديزل غير متاح لأن المنظومة الحالية ليست ديزل');
     }
     systemType ??= currentType;
