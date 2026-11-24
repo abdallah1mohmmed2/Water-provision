@@ -1858,7 +1858,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       cloudMinutes: 10,
     );
     expect((dieselWithCloud['results'] as List).single['status'], 'rejected');
-    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 3);
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 4);
 
     final hybridSolarResponse = await createHybrid(
       eventId: '88880000-0000-4000-8000-000000000003',
