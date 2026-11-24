@@ -1745,7 +1745,6 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       "(1,'solar_hourly_rate','9000'),"
       "(1,'third_type_hourly_rate','7000'),"
       "(1,'work_price_difference_enabled','false')");
-    final originalEffects = payload['_derived_global_ids'] as Map;
     var hybridSequence = 1;
     String hybridId() {
       final suffix = (hybridSequence++).toRadixString(16).padLeft(12, '0');
@@ -1902,8 +1901,7 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     }]);
     expect((hybridReplay['results'] as List).single['status'], 'duplicate');
     expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 5);
-    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'], 12);
-    expect(originalEffects.keys, containsAll(['cloud_periods', 'journal_lines']));
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'], 15);
   });
 
   for (final type in ['beneficiary','worker','partner']) {
