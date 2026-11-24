@@ -275,6 +275,39 @@ void main() {
       );
     },
   );
+  test(
+    'hybrid diesel inventory report includes stock additions and party movements',
+    () async {
+      await repo.setSetting('system_type', 'equivalent_hybrid');
+      await receive('worker', 7.5);
+      await app.insert('diesel_movements', {
+        'station_id': 1,
+        'kind': 'receipt',
+        'liters': 30.0,
+        'unit_price': 0,
+        'amount': 0,
+        'date': '2026-02-12',
+        'notes': 'إضافة ديزل للمخزون',
+        'created_by': 1,
+      });
+      await app.insert('diesel_movements', {
+        'station_id': 1,
+        'worker_id': ids['worker'],
+        'kind': 'consumption',
+        'liters': 2.5,
+        'unit_price': 0,
+        'amount': 0,
+        'date': '2026-02-13',
+        'notes': 'استهلاك ديزل',
+        'created_by': 1,
+      });
+      final rows = await repo.report('diesel_inventory');
+      expect(rows.map((row) => row['kind']),
+          containsAll(['receipt', 'consumption']));
+      expect(rows.any((row) => row['party_receipt'] == 1), isTrue);
+    },
+  );
+
   testWidgets(
     'delivery screen saves liters for selected beneficiary with balance preview',
     (tester) async {
