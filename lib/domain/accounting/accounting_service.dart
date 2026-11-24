@@ -1224,7 +1224,9 @@ class AccountingService {
     if (owner.isEmpty) {
       throw StateError('صاحب السقاية لا يتبع المحطة');
     }
-    final effectiveLiters = effectiveType == 'diesel'
+    final dieselSourceSelected = effectiveType == 'diesel' ||
+        (effectiveType == 'equivalent_hybrid' && hybridSource == 'diesel');
+    final effectiveLiters = dieselSourceSelected
         ? PartyDieselRate.resolve(owner.first['diesel_liters_per_hour'], double.tryParse(set['diesel_liters_per_hour'] ?? '0') ?? 0)
         : 0.0;
     // Irrigation diesel is an in-kind quantity, not a billed fuel product.
@@ -1313,10 +1315,18 @@ class AccountingService {
                 cloudMinutes: effectiveCloud, allowMidnightCrossing: allowMidnight,
                 rounding: rounding, partialHour: partialHour,
               )
+            : effectiveType == 'equivalent_hybrid' && hybridSource == 'diesel'
+            ? AccountingCalculations.diesel(
+                start: start, end: endDt,
+                hourlyWaterRate: effectiveHybridDieselRate,
+                litersPerHour: effectiveLiters, dieselPrice: 0, cloudMinutes: 0,
+                allowMidnightCrossing: allowMidnight,
+                rounding: rounding, partialHour: partialHour,
+              )
             : AccountingCalculations.equivalent(
             start: start,
             end: endDt,
-            hourlyRate: effectiveType == 'equivalent_hybrid' ? effectiveHybridDieselRate : effectiveThirdRate,
+            hourlyRate: effectiveThirdRate,
             allowMidnightCrossing: allowMidnight,
             rounding: rounding,
             partialHour: partialHour,
@@ -1393,7 +1403,7 @@ class AccountingService {
       // Shortages become a quantity-only advance without financial debt.
       var shortageLiters = 0.0;
       if (partyType == 'beneficiary' &&
-          effectiveType == 'diesel' && calc.dieselLiters > 0) {
+          dieselSourceSelected && calc.dieselLiters > 0) {
         final br = await tx.rawQuery(_beneficiaryDieselStockSql, [
           beneficiaryId, beneficiaryId, beneficiaryId,
         ]);
@@ -1566,7 +1576,7 @@ class AccountingService {
           'created_by': userId,
         });
       }
-      if (effectiveType == 'diesel' && calc.dieselLiters > 0) {
+      if (dieselSourceSelected && calc.dieselLiters > 0) {
         if (partyType == 'beneficiary' && shortageLiters > 0) {
           await tx.insert('diesel_movements', {
             'station_id': stationId,
@@ -3210,11 +3220,18 @@ class AccountingService {
                   allowMidnightCrossing: allowMidnight,
                   rounding: rounding, partialHour: partialHour,
                 )
+              : hybridDiesel
+              ? AccountingCalculations.diesel(
+                  start: start, end: end,
+                  hourlyWaterRate: (old['hybrid_diesel_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  litersPerHour: (old['diesel_liters_per_hour_snapshot'] as num?)?.toDouble() ?? 0,
+                  dieselPrice: 0, cloudMinutes: 0,
+                  allowMidnightCrossing: allowMidnight,
+                  rounding: rounding, partialHour: partialHour,
+                )
               : AccountingCalculations.equivalent(
                   start: start, end: end,
-                  hourlyRate: hybridDiesel
-                      ? (old['hybrid_diesel_hourly_rate_snapshot'] as num?)?.toInt() ?? 0
-                      : (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  hourlyRate: (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
                   allowMidnightCrossing: allowMidnight,
                   rounding: rounding, partialHour: partialHour,
                 );
@@ -3222,7 +3239,7 @@ class AccountingService {
       var shortageLiters = 0.0;
       final partyTypeForDiesel = '${old['party_type'] ?? 'beneficiary'}';
       final dieselBeneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
-      if (type == 'diesel' && partyTypeForDiesel == 'beneficiary' && result.dieselLiters > 0) {
+      if ((type == 'diesel' || hybridDiesel) && partyTypeForDiesel == 'beneficiary' && result.dieselLiters > 0) {
         final stockRows = await tx.rawQuery(_beneficiaryDieselStockSql, [
           dieselBeneficiaryId, dieselBeneficiaryId, dieselBeneficiaryId,
         ]);
@@ -3406,7 +3423,7 @@ class AccountingService {
       final oldDieselMoves = await tx.query('diesel_movements',
         where: 'irrigation_id=?', whereArgs: [id], orderBy: 'id');
       await _reverseIrrigationDieselTx(tx, id, userId, 'تعديل السقاية');
-      if (type == 'diesel' && result.dieselLiters > 0) {
+      if ((type == 'diesel' || hybridDiesel) && result.dieselLiters > 0) {
         if (partyType == 'beneficiary' && shortageLiters > 0) {
           await tx.insert('diesel_movements', {
             'station_id': old['station_id'],
