@@ -14,6 +14,32 @@ import 'package:saqia_station/data/repositories/repositories.dart';
 import 'package:saqia_station/domain/maintenance/diesel_delivery_service.dart';
 import 'package:saqia_station/features/diesel_delivery_page.dart';
 
+class _HybridDieselRepository extends StationRepository {
+  _HybridDieselRepository(super.db);
+
+  @override
+  Future<Map<String, Object?>> systemConfiguration() async => {
+    'system_type': 'equivalent_hybrid',
+    'pump_id': 1,
+    'pump_name': 'مضخة الاختبار',
+  };
+
+  @override
+  Future<List<Map<String, Object?>>> diesel({String search = ''}) async => [];
+
+  @override
+  Future<List<Map<String, Object?>>> beneficiaries([String q = '']) async => [];
+
+  @override
+  Future<List<Map<String, Object?>>> cashboxes() async => [];
+
+  @override
+  Future<double> dieselStock() async => 0;
+
+  @override
+  Future<Map<String, Object?>> dieselWarning() async => {'warning': false};
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final app = AppDatabase.instance;
@@ -312,18 +338,14 @@ void main() {
   testWidgets(
     'hybrid system exposes the existing diesel page and delivery action',
     (tester) async {
-      await tester.runAsync(() => repo.setSetting('system_type', 'equivalent_hybrid'));
       tester.view.physicalSize = const Size(1000, 1600);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(MaterialApp(home: DieselPage(repo, userId: 1)));
-      for (var i = 0; i < 100 && find.text('إضافة تسليم ديزل').evaluate().isEmpty; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 20)),
-        );
-        await tester.pump();
-      }
+      await tester.pumpWidget(
+        MaterialApp(home: DieselPage(_HybridDieselRepository(app), userId: 1)),
+      );
+      await tester.pumpAndSettle();
       expect(find.text('إضافة تسليم ديزل'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
