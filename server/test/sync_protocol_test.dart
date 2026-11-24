@@ -1770,10 +1770,12 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       String? source,
       required int cloudMinutes,
     }) async {
+      final cloudStart = DateTime.parse(start).add(const Duration(minutes: 20));
+      final cloudEnd = DateTime.parse(start).add(const Duration(minutes: 30));
       final cloud = cloudMinutes == 0 ? <Map<String, dynamic>>[] : [
         {
-          'start_datetime': start.replaceFirst('18:00', '18:20'),
-          'end_datetime': start.replaceFirst('18:00', '18:30'),
+          'start_datetime': cloudStart.toIso8601String(),
+          'end_datetime': cloudEnd.toIso8601String(),
         },
       ];
       final hybridPayload = <String, dynamic>{
@@ -1833,6 +1835,17 @@ test('legacy beneficiary rows receive a stable global identity on first API read
           (e['payload'] as Map)['_global_id'] == '88880000-0000-4000-8000-000000000002');
     expect((dieselProjection['payload'] as Map)['hybrid_source'], 'diesel');
     expect((dieselProjection['payload'] as Map)['hybrid_diesel_hourly_rate_snapshot'], 8000);
+
+    final dieselWithCloud = await createHybrid(
+      eventId: '88880000-0000-4000-8000-000000000007',
+      globalId: '88880000-0000-4000-8000-000000000008',
+      start: '2026-11-08T17:00:00.000',
+      end: '2026-11-08T18:00:00.000',
+      source: 'diesel',
+      cloudMinutes: 10,
+    );
+    expect((dieselWithCloud['results'] as List).single['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 3);
 
     final hybridSolarResponse = await createHybrid(
       eventId: '88880000-0000-4000-8000-000000000003',
