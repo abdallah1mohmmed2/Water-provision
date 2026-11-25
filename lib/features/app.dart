@@ -13690,7 +13690,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       return '${row['party_name'] ?? ''} ${row['notes'] ?? ''}'.toLowerCase().contains(query);
     }).toList();
     int compare(Map<String, Object?> a, Map<String, Object?> b) {
-      if (sortKey == 'party_name' || sortKey == 'notes') {
+      if (sortKey == 'party_name' || sortKey == 'notes' || sortKey == 'hybrid_source') {
         return '${a[sortKey] ?? ''}'.toLowerCase().compareTo('${b[sortKey] ?? ''}'.toLowerCase());
       }
       if (sortKey == 'start_datetime' || sortKey == 'end_datetime') {
@@ -13951,7 +13951,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
 
   bool get _showInvoiceCloud => DieselReportColumns.invoiceHasCloud(visible, _reportSystemType);
   List<String> get _invoiceColumnKeys => [
-    'invoice_id', 'party_name', 'start_datetime', 'end_datetime', 'minutes',
+    'invoice_id', 'party_name',
+    if (_reportSystemType == 'equivalent_hybrid') 'hybrid_source',
+    'start_datetime', 'end_datetime', 'minutes',
     if (_showInvoiceCloud) 'cloud_minutes',
     'total_amount', 'paid_amount', 'notes',
   ];
@@ -14124,7 +14126,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                               columns: [
                                 DataColumn(label: const Text('م'), onSort: _sort),
                                 DataColumn(label: const Text('اسم المستفيد'), onSort: _sort),
-                                if (isHybridType3) const DataColumn(label: Text('المصدر')),
+                                if (isHybridType3) DataColumn(label: const Text('المصدر'), onSort: _sort),
                                 DataColumn(label: const Text('من'), onSort: _sort),
                                 DataColumn(label: const Text('إلى'), onSort: _sort),
                                 DataColumn(label: const Text('إجمالي الدقائق'), onSort: _sort),
