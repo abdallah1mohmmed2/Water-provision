@@ -1729,7 +1729,7 @@ class ReportService {
       reportTitleOverride: reportTitleOverride,
       fileNameOverride: fileNameOverride,
     );
-    if (bytes.isEmpty {
+    if (bytes.isEmpty) {
       throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');
     }
     await ReportPdfPreviewService.open(
