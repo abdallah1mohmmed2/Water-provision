@@ -9218,7 +9218,6 @@ class _PaymentsState extends State<PaymentsPage> {
         : target == 'worker'
             ? 'العامل'
             : 'الشريك';
-    final balanceMeaning = 'سيُسجّل المبلغ على $partyLabel لصالح المحطة، دون قبض أو صرف.';
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -9297,10 +9296,9 @@ class _PaymentsState extends State<PaymentsPage> {
               ),
             ),
             Text(
-              (partyDebtDirection == 'party_owes'
-                      ? 'سيُضاف المبلغ إلى ما على $partyLabel للمحطة.'
-                      : 'سيُضاف المبلغ إلى مستحقات $partyLabel على المحطة.')
-                  : balanceMeaning,
+              partyDebtDirection == 'party_owes'
+                  ? 'سيُضاف المبلغ إلى ما على $partyLabel للمحطة.'
+                  : 'سيُضاف المبلغ إلى مستحقات $partyLabel على المحطة.',
             ),
             const Text('لا تُسجّل العملية قبضًا أو صرفًا، ولا تؤثر على الصندوق.'),
           ],
