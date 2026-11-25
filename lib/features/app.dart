@@ -1991,6 +1991,8 @@ class _DashboardState extends State<DashboardPage> {
   }
 
   Future<void> _openDashboardReport(String key) async {
+    final cfg=await widget.r.settings();
+    if(cfg['system_type']=='equivalent_hybrid'&&key=='partner_profit_distribution'){if(!mounted)return;Navigator.push(context,MaterialPageRoute(builder:(_)=>HybridPartnersOverviewReportPage(widget.r)));return;}
     // افتح شاشة التقرير التفاعلية المقصودة، وليس شاشة الإدارة العامة أو PDF.
     switch (key) {
       case 'partner_accounts':
@@ -12554,6 +12556,7 @@ class _ReportsState extends State<ReportsPage> {
     }
     if (k == 'partner_profit_distribution') {
       if (!mounted) return;
+      if(currentType=='equivalent_hybrid'){Navigator.push(context,MaterialPageRoute(builder:(_)=>HybridPartnersOverviewReportPage(widget.r,initialFrom:from,initialTo:to)));return;}
       Navigator.push(context, MaterialPageRoute(builder: (_) => PartnerProfitDistributionPage(widget.r, initialFrom: from, initialTo: to)));
       return;
     }
@@ -15099,6 +15102,8 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
     to=d;
   }});await _load();}}
   Future<void> _print() async {
+    final cfg=await widget.r.settings();
+    if(cfg['system_type']=='equivalent_hybrid'){await _printHybridPartnerPdf();return;}
     if (selectedId == null || partner == null || partner!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('اختر الشريك أولاً لطباعة كشف حسابه')),
@@ -15222,6 +15227,29 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
         );
       }
     }
+  }
+  Future<void> _printHybridPartnerPdf() async {
+    if(selectedId==null||partner==null||partner!.isEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('اختر الشريك أولاً')));return;}
+    try{
+      final p=partner!;final cfg=await widget.r.settings();final station=await widget.r.accounting.currentStationId();
+      final start=from==null?null:DateTime(from!.year,from!.month,from!.day);final end=to==null?null:DateTime(to!.year,to!.month,to!.day+1);
+      final args=<Object?>[station,selectedId];var f='';if(start!=null){f+=' AND date(i.date)>=date(?)';args.add(start.toIso8601String());}if(end!=null){f+=' AND date(i.date)<date(?)';args.add(end.toIso8601String());}
+      final ir=await widget.r.db.rawQuery('''SELECT i.system_type,COUNT(*) operations,COALESCE(SUM(i.chargeable_minutes),SUM(i.minutes)) minutes,COALESCE(SUM(i.total_amount),0) amount FROM irrigations i WHERE i.station_id=? AND i.partner_id=? AND i.party_type='partner' AND COALESCE(i.status,'')!='cancelled' $f GROUP BY i.system_type''',args);
+      int agg(String source,String field)=>ir.where((x)=>'${x['system_type']}'==source).fold<int>(0,(s,x)=>s+_n(x[field]));
+      final fin=rows.where((x)=>!const {'partner_irrigation_info','opening_balance','carried_balance','current_balance'}.contains(x['type'])).toList().reversed;
+      final lh=fin.fold<int>(0,(s,x)=>s+_n(x['lah']));final ah=fin.fold<int>(0,(s,x)=>s+_n(x['alayh']));
+      final table=<List<String>>[];for(final x in fin){table.add([_date(x['date']),'${x['description']??_type(x['type'])}',_n(x['lah'])==0?'—':money(_n(x['lah'])),_n(x['alayh'])==0?'—':money(_n(x['alayh'])),PartyStatementBalanceDisplay.format(x,money:(v)=>NumberFormat('#,##0').format(v))]);}
+      final close=rows.where((x)=>x['type']=='partner_profit_total').firstOrNull;final now=AppClock.now();String fmt(int v)=>NumberFormat('#,##0').format(v);
+      await OfficialReportTemplate.preview(rightHeader1:cfg['station_name']??'منظومة السقيا',rightHeader2:cfg['organization_name']??'الإدارة المالية',rightHeader3:'النوع الثالث — شمسي وديزل',date:DateFormat('yyyy/MM/dd').format(now),refNumber:'HP-${DateFormat('yyMMdd-HHmm').format(now)}',attachments:'الفترة: ${from==null?'من البداية':DateFormat('yyyy/MM/dd').format(from!)} إلى ${to==null?'حتى اليوم':DateFormat('yyyy/MM/dd').format(to!)}',reportTitle:'كشف حساب الشريك — ${p['name']??''}',summaryBoxes:[
+        StatBoxData(number:'1',title:'سقايات شمسي',value:'${agg('solar','operations')} • ${(agg('solar','minutes')/60).toStringAsFixed(2)} ساعة',isBlueTint:true),
+        StatBoxData(number:'2',title:'قيمة شمسي',value:'${fmt(agg('solar','amount'))} ريال'),
+        StatBoxData(number:'3',title:'سقايات ديزل',value:'${agg('diesel','operations')} • ${(agg('diesel','minutes')/60).toStringAsFixed(2)} ساعة',isBlueTint:true),
+        StatBoxData(number:'4',title:'قيمة ديزل',value:'${fmt(agg('diesel','amount'))} ريال'),
+        StatBoxData(number:'5',title:'له بالحركات',value:'${fmt(lh)} ريال'),StatBoxData(number:'6',title:'عليه بالحركات',value:'${fmt(ah)} ريال',isBlueTint:true),
+        StatBoxData(number:'7',title:'رصيد نهاية الفترة',value:PartyStatementBalanceDisplay.format(close??{'balance':0},money:(v)=>fmt(v)),isLarge:true),
+        StatBoxData(number:'8',title:'الرصيد الحالي',value:PartyStatementBalanceDisplay.format({'balance':_n(summary['balance'])},money:(v)=>fmt(v)),
+      )],columns:const ['التاريخ','البيان','له','عليه','الرصيد'],rows:table,footerTotalRow:['الإجمالي','','${fmt(lh)}','${fmt(ah)}',PartyStatementBalanceDisplay.format(close??{'balance':0},money:(v)=>fmt(v))],pageFormat:PdfPageFormat.a4.landscape,minTableRows:6);
+    }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
   }
   Map<String,Object?>? get partner=>selectedId==null?null:partners.cast<Map<String,Object?>>().firstWhere((x)=>x['id']==selectedId,orElse:()=>{});
   int _n(Object? v)=>(v as num?)?.round()??0;
@@ -17030,4 +17058,31 @@ class _DebouncedSearchFieldState extends State<DebouncedSearchField> {
         onChanged: _handleChanged,
         decoration: widget.decoration,
       );
+}
+
+
+class HybridPartnersOverviewReportPage extends StatefulWidget {
+  final StationRepository r;final DateTime? initialFrom,initialTo;
+  const HybridPartnersOverviewReportPage(this.r,{this.initialFrom,this.initialTo,super.key});
+  @override State<HybridPartnersOverviewReportPage> createState()=>_HybridPartnersOverviewState();
+}
+class _HybridPartnersOverviewState extends State<HybridPartnersOverviewReportPage>{
+  List<Map<String,Object?>> data=[];DateTime? from,to;bool loading=true;String? error;String search='';
+  int n(Object? x)=>(x as num?)?.round()??0;String m(int x)=>NumberFormat('#,##0').format(x);String d(DateTime? x)=>x==null?'—':'${x.day}/${x.month}/${x.year}';
+  @override void initState(){super.initState();from=widget.initialFrom;to=widget.initialTo;load();}
+  Future<void> pick(bool start)async{final v=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(v!=null){setState(()=>start?from=v:to=v);load();}}
+  Future<void> load()async{setState(()=>loading=true);try{final station=await widget.r.accounting.currentStationId();final ps=await widget.r.partners(includeInactive:true);final start=from==null?null:DateTime(from!.year,from!.month,from!.day);final end=to==null?null:DateTime(to!.year,to!.month,to!.day+1);final out=<Map<String,Object?>>[];
+    for(final p in ps){final id=(p['id'] as num).toInt();final report=await widget.r.report('partner_accounts',partnerId:id,from:from,to:to);final closing=report.where((x)=>x['type']=='partner_profit_total').firstOrNull;final sum=await widget.r.partyFinancialSummary('partner',id);final tx=await widget.r.partnerTransactions(id);var ph=0,pa=0;
+      for(final t in tx){if(const {'opening_balance','carried_balance','current_balance'}.contains(t['type']))continue;final dt=DateTime.tryParse('${t['date']??''});if(start!=null&&(dt==null||dt.isBefore(start)))continue;if(end!=null&&(dt==null||!dt.isBefore(end)))continue;final v=n(t['signed_amount']);if(v>0)ph+=v;else if(v<0)pa-=v;}
+      final args=<Object?>[station,id];var filter='';if(start!=null){filter+=' AND date(i.date)>=date(?)';args.add(start.toIso8601String());}if(end!=null){filter+=' AND date(i.date)<date(?)';args.add(end.toIso8601String());}
+      final ir=await widget.r.db.rawQuery('''SELECT i.system_type,COUNT(*) operations,COALESCE(SUM(i.chargeable_minutes),SUM(i.minutes)) minutes,COALESCE(SUM(i.total_amount),0) amount FROM irrigations i WHERE i.station_id=? AND i.partner_id=? AND i.party_type='partner' AND COALESCE(i.status,'')!='cancelled' $filter GROUP BY i.system_type''',args);
+      int agg(String src,String field)=>ir.where((x)=>'${x['system_type']}'==src).fold<int>(0,(s,x)=>s+n(x[field]));
+      out.add({...p,'balance':n(sum['balance']),'periodBalance':n(closing?['balance']),'periodLah':ph,'periodAlayh':pa,'solarMinutes':agg('solar','minutes'),'solarAmount':agg('solar','amount'),'dieselMinutes':agg('diesel','minutes'),'dieselAmount':agg('diesel','amount')});
+    }if(mounted)setState(()=>data=out);}catch(e){if(mounted)setState(()=>error=friendlyError(e));}if(mounted)setState(()=>loading=false);}
+  List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return q.isEmpty?data:data.where((x)=>'${x['name']??''}'.toLowerCase().contains(q)).toList();}
+  Future<void> printReport()async{try{final has=data.where((x)=>n(x['balance'])>0).fold<int>(0,(s,x)=>s+n(x['balance']));final owes=data.where((x)=>n(x['balance'])<0).fold<int>(0,(s,x)=>s+n(x['balance']).abs());final solar=data.fold<int>(0,(s,x)=>s+n(x['solarAmount']));final diesel=data.fold<int>(0,(s,x)=>s+n(x['dieselAmount']));final ph=data.fold<int>(0,(s,x)=>s+n(x['periodLah']));final pa=data.fold<int>(0,(s,x)=>s+n(x['periodAlayh']));final table=<List<String>>[for(final x in data)['${x['name']??''}',m(n(x['solarAmount'])),(n(x['solarMinutes'])/60).toStringAsFixed(2),m(n(x['dieselAmount'])),(n(x['dieselMinutes'])/60).toStringAsFixed(2),n(x['balance'])>=0?'له ${m(n(x['balance']))}':'عليه ${m(n(x['balance']).abs())}']];final now=AppClock.now();
+    await OfficialReportTemplate.preview(rightHeader1:'منظومة السقيا',rightHeader2:'الإدارة المالية',rightHeader3:'تقرير النوع الثالث',date:DateFormat('yyyy/MM/dd').format(now),refNumber:'HG-${DateFormat('yyMMdd-HHmm').format(now)}',attachments:'الفترة: ${from==null?'من البداية':DateFormat('yyyy/MM/dd').format(from!)} إلى ${to==null?'حتى اليوم':DateFormat('yyyy/MM/dd').format(to!)}',reportTitle:'التقرير العام للشركاء',summaryBoxes:[StatBoxData(number:'1',title:'عدد الشركاء',value:'${data.length}'),StatBoxData(number:'2',title:'إجمالي له الآن',value:'${m(has)} ريال',isBlueTint:true),StatBoxData(number:'3',title:'إجمالي عليه الآن',value:'${m(owes)} ريال'),StatBoxData(number:'4',title:'سقايات شمسي',value:'${m(solar)} ريال',isBlueTint:true),StatBoxData(number:'5',title:'سقايات ديزل',value:'${m(diesel)} ريال'),StatBoxData(number:'6',title:'له الفترة',value:'${m(ph)} ريال'),StatBoxData(number:'7',title:'عليه الفترة',value:'${m(pa)} ريال',isBlueTint:true)],columns:const ['الشريك','شمسي ريال','شمسي ساعات','ديزل ريال','ديزل ساعات','الرصيد الحالي'],rows:table,footerTotalRow:['الإجمالي',m(solar),(data.fold<int>(0,(s,x)=>s+n(x['solarMinutes']))/60).toStringAsFixed(2),m(diesel),(data.fold<int>(0,(s,x)=>s+n(x['dieselMinutes']))/60).toStringAsFixed(2),'له ${m(has)} / عليه ${m(owes)}'],pageFormat:PdfPageFormat.a4.landscape,minTableRows:5);
+  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  Widget card(Map<String,Object?> x){final b=n(x['balance']);final color=b>=0?_reportGreen:_reportOrange;return Card(color:_reportSurface,child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[Text('${x['name']??''}',style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),Text('${b>=0?'له':'عليه'} ${m(b.abs())} ريال',style:TextStyle(color:color,fontWeight:FontWeight.w800)),Text('شمسي ${m(n(x['solarAmount']))} • ${(n(x['solarMinutes'])/60).toStringAsFixed(2)} ساعة'),Text('ديزل ${m(n(x['dieselAmount']))} • ${(n(x['dieselMinutes'])/60).toStringAsFixed(2)} ساعة'),Text('له الفترة ${m(n(x['periodLah']))} • عليه الفترة ${m(n(x['periodAlayh']))}'),TextButton(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>PartnerAccountsReportPage(widget.r,initialPartnerId:x['id'] as int,initialFrom:from,initialTo:to,autoSelectPeriod:false))),child:const Text('فتح التقرير الفردي'))]));}
+  @override Widget build(BuildContext context){final has=data.where((x)=>n(x['balance'])>0).fold<int>(0,(s,x)=>s+n(x['balance']));final owes=data.where((x)=>n(x['balance'])<0).fold<int>(0,(s,x)=>s+n(x['balance']).abs());final solar=data.fold<int>(0,(s,x)=>s+n(x['solarAmount']));final diesel=data.fold<int>(0,(s,x)=>s+n(x['dieselAmount']));return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(title:const Text('التقرير العام للشركاء'),actions:[IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:printReport,icon:const Icon(Icons.picture_as_pdf))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.all(14),children:[Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(18)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('ملخص النوع الثالث',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:20)),Text('${data.length} شريك',style:const TextStyle(color:Colors.white)),Text('له ${m(has)} • عليه ${m(owes)}',style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w800)),Text('شمسي ${m(solar)} • ديزل ${m(diesel)}',style:const TextStyle(color:Colors.white))])),Wrap(spacing:8,children:[OutlinedButton(onPressed:()=>pick(true),child:Text(from==null?'من تاريخ':'من ${d(from)}')),OutlinedButton(onPressed:()=>pick(false),child:Text(to==null?'إلى تاريخ':'إلى ${d(to)}')),if(from!=null||to!=null)TextButton(onPressed:(){setState(()=>from=to=null);load();},child:const Text('مسح'))]),TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث الشريك')),if(visible.isEmpty)const EmptyView('لا يوجد شركاء')else ...visible.map(card)])));}
 }
