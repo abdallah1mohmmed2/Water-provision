@@ -5988,8 +5988,8 @@ int? parseClock(String raw) {
                         decoration: const InputDecoration(labelText: 'مصدر تشغيل هذه السقاية', border: OutlineInputBorder()),
                         items: const [DropdownMenuItem(value: 'diesel', child: Text('ديزل')), DropdownMenuItem(value: 'solar', child: Text('طاقة شمسية'))],
                         onChanged: hybridSource == null ? (value) { setState(() { hybridSource = value; if (value == 'diesel') { cloudPeriods.clear(); cloudQuickController.clear(); quickCloudMode = false; } }); dialogSetState(() {}); } : null,
-                        if (settings['third_type_cross_source_overlap_enabled'] == 'true') const Padding(padding: EdgeInsets.only(top: 6), child: Text('تداخل الديزل والشمس مسموح فقط عند اختلاف المصدر. السقايات من المصدر نفسه لا تتداخل.', style: TextStyle(fontSize: 12))),
                       ),
+                      if (settings['third_type_cross_source_overlap_enabled'] == 'true') const Padding(padding: EdgeInsets.only(top: 6), child: Text('تداخل الديزل والشمس مسموح فقط عند اختلاف المصدر. السقايات من المصدر نفسه لا تتداخل.', style: TextStyle(fontSize: 12))),
                     ],
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
