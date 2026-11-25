@@ -3218,4 +3218,55 @@ void main() {
     }
   });
 
+
+  test('استحقاق عمال النوع الثالث يتبع مصدر السقاية ويفصل حسابات الأجور', () async {
+    final keys = ['system_type', 'solar_hourly_rate', 'hybrid_diesel_hourly_rate'];
+    final previous = <String, String>{};
+    for (final key in keys) {
+      final rows = await db.query('SELECT value FROM settings WHERE key=?', args: [key]);
+      previous[key] = rows.isEmpty ? '' : '${rows.first['value']}';
+    }
+    try {
+      await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
+      await db.update('settings', {'value': '6000'}, 'key=?', ['solar_hourly_rate']);
+      await db.update('settings', {'value': '6000'}, 'key=?', ['hybrid_diesel_hourly_rate']);
+      await db.update('workers', {'active': 0}, 'id>? ', [0]);
+      await db.update('partners', {'active': 0}, 'id>? ', [0]);
+      final repo = StationRepository(db);
+      final solarWorker = await repo.createWorker(name: 'عامل شمسي مصدر', payType: 'hourly', hourlyRate: 700, sourceAffiliation: 'solar');
+      final dieselWorker = await repo.createWorker(name: 'عامل ديزل مصدر', payType: 'hourly', hourlyRate: 700, sourceAffiliation: 'diesel');
+      final sharedWorker = await repo.createWorker(name: 'عامل مشترك مصدر', payType: 'hourly', hourlyRate: 700, sourceAffiliation: 'shared');
+      final solarBeneficiary = await repo.createBeneficiary(name: 'مستفيد مصدر شمسي');
+      final dieselBeneficiary = await repo.createBeneficiary(name: 'مستفيد مصدر ديزل');
+      final start = DateTime(2049, 6, 12, 8);
+      await svc.recordIrrigation(
+        stationId: 1, pumpId: 1, beneficiaryId: solarBeneficiary,
+        start: start, end: start.add(const Duration(hours: 1)),
+        systemType: 'equivalent_hybrid', waterRate: 0, litersPerHour: 0,
+        dieselPrice: 0, solarRate: 0, thirdRate: 0, hybridSource: 'solar',
+        cloudMinutes: 0, paidAmount: 0,
+      );
+      await svc.recordIrrigation(
+        stationId: 1, pumpId: 1, beneficiaryId: dieselBeneficiary,
+        start: start.add(const Duration(hours: 2)),
+        end: start.add(const Duration(hours: 3)),
+        systemType: 'equivalent_hybrid', waterRate: 0, litersPerHour: 0,
+        dieselPrice: 0, solarRate: 0, thirdRate: 0, hybridSource: 'diesel',
+        cloudMinutes: 0, paidAmount: 0,
+      );
+      expect((await svc.workerBalance(solarWorker))['balance'], 700);
+      expect((await svc.workerBalance(dieselWorker))['balance'], 700);
+      expect((await svc.workerBalance(sharedWorker))['balance'], 1400);
+      expect(await accountNet('5040'), 700);
+      expect(await accountNet('5050'), 700);
+      expect(await accountNet('5000'), 1400);
+    } finally {
+      for (final entry in previous.entries) {
+        if (entry.value.isNotEmpty) {
+          await db.update('settings', {'value': entry.value}, 'key=?', [entry.key]);
+        }
+      }
+    }
+  });
+
 }
