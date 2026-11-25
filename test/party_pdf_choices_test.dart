@@ -26,7 +26,7 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.text('كشف حساب هذا الشخص'), findsOneWidget);
           if (hybridSystem) {
-            expect(find.text('سقايات الشمسية لهذا الشخص'), findsOneWidget);
+            expect(find.text('السقايات الشمسية لهذا الشخص'), findsOneWidget);
             expect(find.text('سقايات الديزل لهذا الشخص'), findsOneWidget);
             expect(find.text('سقايات هذا الشخص'), findsNothing);
           } else {
