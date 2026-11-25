@@ -2,7 +2,7 @@ name: Flutter Analyze
 
 on:
   push:
-    branches: [ "main", "master", "test/all-open-prs", "feature/firebase-station-foundation" ]
+    branches: [ "main", "master", "test/all-open-prs", "feature/firebase-station-foundation", "feature/complementary-changes" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
