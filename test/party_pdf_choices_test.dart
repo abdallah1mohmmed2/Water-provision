@@ -8,31 +8,40 @@ void main() {
       (tester) async {
     for (final type in ['beneficiary', 'worker', 'partner']) {
       for (final dieselEnabled in [false, true]) {
-        await tester.pumpWidget(MaterialApp(
-          home: Scaffold(
-            body: PartyQuickActions(
-              repository: StationRepository(),
-              partyType: type,
-              partyId: 10,
-              name: 'اختبار',
-              dieselEnabled: dieselEnabled,
-              onNewIrrigation: () {},
+        for (final hybridSystem in [false, true]) {
+          await tester.pumpWidget(MaterialApp(
+            home: Scaffold(
+              body: PartyQuickActions(
+                repository: StationRepository(),
+                partyType: type,
+                partyId: 10,
+                name: 'اختبار',
+                dieselEnabled: dieselEnabled,
+                hybridSystem: hybridSystem,
+                onNewIrrigation: () {},
+              ),
             ),
-          ),
-        ));
-        await tester.tap(find.text('PDF'));
-        await tester.pumpAndSettle();
-        expect(find.text('سقايات هذا الشخص'), findsOneWidget);
-        expect(find.text('كشف حساب هذا الشخص'), findsOneWidget);
-        if (dieselEnabled) {
-          expect(find.text('المسلّم والمستهلك والمتبقي من الديزل'),
-              findsOneWidget);
-        } else {
-          expect(find.text('المسلّم والمستهلك والمتبقي من الديزل'),
-              findsNothing);
+          ));
+          await tester.tap(find.text('PDF'));
+          await tester.pumpAndSettle();
+          expect(find.text('كشف حساب هذا الشخص'), findsOneWidget);
+          if (hybridSystem) {
+            expect(find.text('سقايات الشمسية لهذا الشخص'), findsOneWidget);
+            expect(find.text('سقايات الديزل لهذا الشخص'), findsOneWidget);
+            expect(find.text('سقايات هذا الشخص'), findsNothing);
+          } else {
+            expect(find.text('سقايات هذا الشخص'), findsOneWidget);
+            expect(find.text('سقايات الشمسية لهذا الشخص'), findsNothing);
+            expect(find.text('سقايات الديزل لهذا الشخص'), findsNothing);
+          }
+          if (dieselEnabled) {
+            expect(find.text('المسلّم والمستهلك والمتبقي من الديزل'), findsOneWidget);
+          } else {
+            expect(find.text('المسلّم والمستهلك والمتبقي من الديزل'), findsNothing);
+          }
+          await tester.tapAt(const Offset(12, 12));
+          await tester.pumpAndSettle();
         }
-        await tester.tapAt(const Offset(12, 12));
-        await tester.pumpAndSettle();
       }
     }
   });
