@@ -4395,7 +4395,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   }
 
   Future<void> add() async {
-    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    final dieselEnabled = PartyDieselRate.enabledForSystemType((await widget.r.settings())['system_type']);
     if (!mounted) {
       return;
     }
@@ -4483,7 +4483,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   }
 
   Future<void> edit(Map<String, Object?> x) async {
-    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    final dieselEnabled = PartyDieselRate.enabledForSystemType((await widget.r.settings())['system_type']);
     if (!mounted) {
       return;
     }
@@ -10369,7 +10369,7 @@ class _WorkersState extends State<WorkersPage> {
   }
 
   Future<void> add() async {
-    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    final dieselEnabled = PartyDieselRate.enabledForSystemType((await widget.r.settings())['system_type']);
     if (!mounted) {
       return;
     }
@@ -10480,7 +10480,7 @@ class _WorkersState extends State<WorkersPage> {
   }
 
   Future<void> editWorker(Map<String, Object?> x) async {
-    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    final dieselEnabled = PartyDieselRate.enabledForSystemType((await widget.r.settings())['system_type']);
     if (!mounted) {
       return;
     }
@@ -11082,7 +11082,7 @@ class _PartnersState extends State<PartnersPage> {
   }
 
   Future<void> add() async {
-    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    final dieselEnabled = PartyDieselRate.enabledForSystemType((await widget.r.settings())['system_type']);
     if (!mounted) {
       return;
     }
@@ -11274,7 +11274,7 @@ class _PartnersState extends State<PartnersPage> {
   }
 
   Future<void> editPartner(Map<String, Object?> x) async {
-    final dieselEnabled = (await widget.r.settings())['system_type'] == 'diesel';
+    final dieselEnabled = PartyDieselRate.enabledForSystemType((await widget.r.settings())['system_type']);
     if (!mounted) {
       return;
     }
