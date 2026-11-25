@@ -9236,7 +9236,8 @@ class _PaymentsState extends State<PaymentsPage> {
               onChanged: (v) => setDialogState(() => partyId = v),
               decoration: InputDecoration(labelText: 'اختر $partyLabel *'),
             ),
-            DropdownButtonFormField<String>(
+            if (target == 'worker' || target == 'partner')
+              DropdownButtonFormField<String>(
                 initialValue: partyDebtDirection,
                 decoration: const InputDecoration(
                   labelText: 'اتجاه الرصيد *',
@@ -9296,9 +9297,11 @@ class _PaymentsState extends State<PaymentsPage> {
               ),
             ),
             Text(
-              partyDebtDirection == 'party_owes'
-                  ? 'سيُضاف المبلغ إلى ما على $partyLabel للمحطة.'
-                  : 'سيُضاف المبلغ إلى مستحقات $partyLabel على المحطة.',
+              target == 'beneficiary'
+                  ? 'سيُضاف المبلغ إلى ما على المستفيد للمحطة.'
+                  : partyDebtDirection == 'party_owes'
+                      ? 'سيُضاف المبلغ إلى ما على $partyLabel للمحطة.'
+                      : 'سيُضاف المبلغ إلى مستحقات $partyLabel على المحطة.',
             ),
             const Text('لا تُسجّل العملية قبضًا أو صرفًا، ولا تؤثر على الصندوق.'),
           ],
