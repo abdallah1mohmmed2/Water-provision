@@ -17091,9 +17091,65 @@ class _HybridPartnersOverviewState extends State<HybridPartnersOverviewReportPag
       out.add({...p,'balance':n(sum['balance']),'periodBalance':n(closing?['balance']),'periodLah':ph,'periodAlayh':pa,'solarMinutes':agg('solar','minutes'),'solarAmount':agg('solar','amount'),'dieselMinutes':agg('diesel','minutes'),'dieselAmount':agg('diesel','amount')});
     }if(mounted)setState(()=>data=out);}catch(e){if(mounted)setState(()=>error=friendlyError(e));}if(mounted)setState(()=>loading=false);}
   List<Map<String,Object?>> get visible{final q=search.trim().toLowerCase();return q.isEmpty?data:data.where((x)=>'${x['name']??''}'.toLowerCase().contains(q)).toList();}
-  Future<void> printReport()async{try{final has=data.where((x)=>n(x['balance'])>0).fold<int>(0,(s,x)=>s+n(x['balance']));final owes=data.where((x)=>n(x['balance'])<0).fold<int>(0,(s,x)=>s+n(x['balance']).abs());final solar=data.fold<int>(0,(s,x)=>s+n(x['solarAmount']));final diesel=data.fold<int>(0,(s,x)=>s+n(x['dieselAmount']));final ph=data.fold<int>(0,(s,x)=>s+n(x['periodLah']));final pa=data.fold<int>(0,(s,x)=>s+n(x['periodAlayh']));final table=<List<String>>[for(final x in data)['${x['name']??''}',m(n(x['solarAmount'])),(n(x['solarMinutes'])/60).toStringAsFixed(2),m(n(x['dieselAmount'])),(n(x['dieselMinutes'])/60).toStringAsFixed(2),n(x['periodBalance'])>=0?'له ${m(n(x['periodBalance']))}':'عليه ${m(n(x['periodBalance']).abs())}',n(x['balance'])>=0?'له ${m(n(x['balance']))}':'عليه ${m(n(x['balance']).abs())}']];final now=AppClock.now();
-    await OfficialReportTemplate.preview(rightHeader1:'منظومة السقيا',rightHeader2:'الإدارة المالية',rightHeader3:'تقرير النوع الثالث',date:DateFormat('yyyy/MM/dd').format(now),refNumber:'HG-${DateFormat('yyMMdd-HHmm').format(now)}',attachments:'الفترة: ${from==null?'من البداية':DateFormat('yyyy/MM/dd').format(from!)} إلى ${to==null?'حتى اليوم':DateFormat('yyyy/MM/dd').format(to!)}',reportTitle:'التقرير العام للشركاء',summaryBoxes:[StatBoxData(number:'1',title:'عدد الشركاء',value:'${data.length}'),StatBoxData(number:'2',title:'إجمالي له الآن',value:'${m(has)} ريال',isBlueTint:true),StatBoxData(number:'3',title:'إجمالي عليه الآن',value:'${m(owes)} ريال'),StatBoxData(number:'4',title:'سقايات شمسي',value:'${m(solar)} ريال',isBlueTint:true),StatBoxData(number:'5',title:'سقايات ديزل',value:'${m(diesel)} ريال'),StatBoxData(number:'6',title:'له الفترة',value:'${m(ph)} ريال'),StatBoxData(number:'7',title:'عليه الفترة',value:'${m(pa)} ريال',isBlueTint:true)],columns:const ['الشريك','شمسي ريال','شمسي ساعات','ديزل ريال','ديزل ساعات','رصيد نهاية الفترة','الرصيد الحالي'],rows:table,footerTotalRow:['الإجمالي',m(solar),(data.fold<int>(0,(s,x)=>s+n(x['solarMinutes']))/60).toStringAsFixed(2),m(diesel),(data.fold<int>(0,(s,x)=>s+n(x['dieselMinutes']))/60).toStringAsFixed(2),'له ${m(has)} / عليه ${m(owes)}'],pageFormat:PdfPageFormat.a4.landscape,minTableRows:5);
-  }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}}
+  Future<void> printReport() async {
+    try {
+      final has = data.where((x) => n(x['balance']) > 0).fold<int>(0, (s, x) => s + n(x['balance']));
+      final owes = data.where((x) => n(x['balance']) < 0).fold<int>(0, (s, x) => s + n(x['balance']).abs());
+      final solar = data.fold<int>(0, (s, x) => s + n(x['solarAmount']));
+      final diesel = data.fold<int>(0, (s, x) => s + n(x['dieselAmount']));
+      final ph = data.fold<int>(0, (s, x) => s + n(x['periodLah']));
+      final pa = data.fold<int>(0, (s, x) => s + n(x['periodAlayh']));
+      final table = <List<String>>[
+        for (final x in data)
+          [
+            '${x['name'] ?? ''}',
+            m(n(x['solarAmount'])),
+            (n(x['solarMinutes']) / 60).toStringAsFixed(2),
+            m(n(x['dieselAmount'])),
+            (n(x['dieselMinutes']) / 60).toStringAsFixed(2),
+            n(x['periodBalance']) >= 0
+                ? 'له ${m(n(x['periodBalance']))}'
+                : 'عليه ${m(n(x['periodBalance']).abs())}',
+            n(x['balance']) >= 0
+                ? 'له ${m(n(x['balance']))}'
+                : 'عليه ${m(n(x['balance']).abs())}',
+          ],
+      ];
+      final now = AppClock.now();
+      await OfficialReportTemplate.preview(
+        rightHeader1: 'منظومة السقيا',
+        rightHeader2: 'الإدارة المالية',
+        rightHeader3: 'تقرير النوع الثالث',
+        date: DateFormat('yyyy/MM/dd').format(now),
+        refNumber: 'HG-${DateFormat('yyMMdd-HHmm').format(now)}',
+        attachments: 'الفترة: ${from == null ? 'من البداية' : DateFormat('yyyy/MM/dd').format(from!)} إلى ${to == null ? 'حتى اليوم' : DateFormat('yyyy/MM/dd').format(to!)}',
+        reportTitle: 'التقرير العام للشركاء',
+        summaryBoxes: [
+          StatBoxData(number: '1', title: 'عدد الشركاء', value: '${data.length}'),
+          StatBoxData(number: '2', title: 'إجمالي له الآن', value: '${m(has)} ريال', isBlueTint: true),
+          StatBoxData(number: '3', title: 'إجمالي عليه الآن', value: '${m(owes)} ريال'),
+          StatBoxData(number: '4', title: 'سقايات شمسي', value: '${m(solar)} ريال', isBlueTint: true),
+          StatBoxData(number: '5', title: 'سقايات ديزل', value: '${m(diesel)} ريال'),
+          StatBoxData(number: '6', title: 'له الفترة', value: '${m(ph)} ريال'),
+          StatBoxData(number: '7', title: 'عليه الفترة', value: '${m(pa)} ريال', isBlueTint: true),
+        ],
+        columns: const ['الشريك', 'شمسي ريال', 'شمسي ساعات', 'ديزل ريال', 'ديزل ساعات', 'رصيد نهاية الفترة', 'الرصيد الحالي'],
+        rows: table,
+        footerTotalRow: [
+          'الإجمالي',
+          m(solar),
+          (data.fold<int>(0, (s, x) => s + n(x['solarMinutes'])) / 60).toStringAsFixed(2),
+          m(diesel),
+          (data.fold<int>(0, (s, x) => s + n(x['dieselMinutes'])) / 60).toStringAsFixed(2),
+          'له ${m(has)} / عليه ${m(owes)}',
+        ],
+        pageFormat: PdfPageFormat.a4.landscape,
+        minTableRows: 5,
+      );
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
+    }
+  }
   Widget card(Map<String,Object?> x){final b=n(x['balance']);final color=b>=0?_reportGreen:_reportOrange;return Card(color:_reportSurface,child:Padding(padding:const EdgeInsets.all(12),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[Text('${x['name']??''}',style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),Text('${b>=0?'له':'عليه'} ${m(b.abs())} ريال',style:TextStyle(color:color,fontWeight:FontWeight.w800)),Text('شمسي ${m(n(x['solarAmount']))} • ${(n(x['solarMinutes'])/60).toStringAsFixed(2)} ساعة'),Text('ديزل ${m(n(x['dieselAmount']))} • ${(n(x['dieselMinutes'])/60).toStringAsFixed(2)} ساعة'),Text('رصيد نهاية الفترة: ${n(x['periodBalance'])>=0?'له':'عليه'} ${m(n(x['periodBalance']).abs())}'),Text('له الفترة ${m(n(x['periodLah']))} • عليه الفترة ${m(n(x['periodAlayh']))}'),TextButton(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>PartnerAccountsReportPage(widget.r,initialPartnerId:x['id'] as int,initialFrom:from,initialTo:to,autoSelectPeriod:false))),child:const Text('فتح التقرير الفردي'))]));}
   @override Widget build(BuildContext context){final has=data.where((x)=>n(x['balance'])>0).fold<int>(0,(s,x)=>s+n(x['balance']));final owes=data.where((x)=>n(x['balance'])<0).fold<int>(0,(s,x)=>s+n(x['balance']).abs());final solar=data.fold<int>(0,(s,x)=>s+n(x['solarAmount']));final diesel=data.fold<int>(0,(s,x)=>s+n(x['dieselAmount']));return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(title:const Text('التقرير العام للشركاء'),actions:[IconButton(onPressed:load,icon:const Icon(Icons.refresh)),IconButton(onPressed:printReport,icon:const Icon(Icons.picture_as_pdf))]),body:loading?const Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:const EdgeInsets.all(14),children:[Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(18)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('ملخص النوع الثالث',style:TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:20)),Text('${data.length} شريك',style:const TextStyle(color:Colors.white)),Text('له ${m(has)} • عليه ${m(owes)}',style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w800)),Text('شمسي ${m(solar)} • ديزل ${m(diesel)}',style:const TextStyle(color:Colors.white))])),Wrap(spacing:8,children:[OutlinedButton(onPressed:()=>pick(true),child:Text(from==null?'من تاريخ':'من ${d(from)}')),OutlinedButton(onPressed:()=>pick(false),child:Text(to==null?'إلى تاريخ':'إلى ${d(to)}')),if(from!=null||to!=null)TextButton(onPressed:(){setState(()=>from=to=null);load();},child:const Text('مسح'))]),TextField(onChanged:(v)=>setState(()=>search=v),decoration:const InputDecoration(labelText:'بحث الشريك')),if(visible.isEmpty)const EmptyView('لا يوجد شركاء')else ...visible.map(card)])));}
 }
