@@ -152,7 +152,7 @@ class ReportService {
     };
     final person = await repo.db.rawQuery('SELECT name FROM $table WHERE id=? LIMIT 1', [partyId]);
     final name = person.isEmpty ? 'غير محدد' : '${person.first['name'] ?? 'غير محدد'}';
-    final label = source == 'solar' ? 'شمسي' : 'ديزل';
+    final label = source == 'solar' ? 'السقايات الشمسية' : 'سقايات الديزل';
     await printPdf(
       'irrigations',
       systemType: 'equivalent_hybrid',
@@ -163,8 +163,8 @@ class ReportService {
       to: to,
       sourceRows: filtered,
       hybridSource: source,
-      reportTitleOverride: 'سقايات $label — $name',
-      fileNameOverride: 'سقايات $label $name',
+      reportTitleOverride: '$label — $name',
+      fileNameOverride: '$label $name',
     );
   }
 
