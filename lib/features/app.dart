@@ -9237,8 +9237,7 @@ class _PaymentsState extends State<PaymentsPage> {
               onChanged: (v) => setDialogState(() => partyId = v),
               decoration: InputDecoration(labelText: 'اختر $partyLabel *'),
             ),
-            if (target == 'worker' || target == 'partner')
-              DropdownButtonFormField<String>(
+            DropdownButtonFormField<String>(
                 initialValue: partyDebtDirection,
                 decoration: const InputDecoration(
                   labelText: 'اتجاه الرصيد *',
@@ -9259,8 +9258,7 @@ class _PaymentsState extends State<PaymentsPage> {
                   }
                 },
               ),
-            if (target == 'worker')
-              OutlinedButton.icon(
+            OutlinedButton.icon(
                 onPressed: () async {
                   final picked = await showDatePicker(
                     context: d,
@@ -9299,8 +9297,7 @@ class _PaymentsState extends State<PaymentsPage> {
               ),
             ),
             Text(
-              target == 'worker' || target == 'partner'
-                  ? (partyDebtDirection == 'party_owes'
+              (partyDebtDirection == 'party_owes'
                       ? 'سيُضاف المبلغ إلى ما على $partyLabel للمحطة.'
                       : 'سيُضاف المبلغ إلى مستحقات $partyLabel على المحطة.')
                   : balanceMeaning,
@@ -9323,9 +9320,8 @@ class _PaymentsState extends State<PaymentsPage> {
         partyType: target,
         partyId: partyId!,
         amount: int.parse(amount.text),
-        date: target == 'worker' ? debtDate : AppClock.now(),
-        partyOwesStation:
-            target == 'beneficiary' || partyDebtDirection == 'party_owes',
+        date: debtDate,
+        partyOwesStation: partyDebtDirection == 'party_owes',
         notes: notes.text.trim(),
         userId: widget.userId,
       ),
