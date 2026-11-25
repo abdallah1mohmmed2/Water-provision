@@ -20,6 +20,7 @@ class SaqiaServer {
   SaqiaServer(this.db, {required this.jwtSecret}) {
     _ensureFinancialStationOwnership();
     _ensurePartyDieselSchema();
+    _ensureWorkerSourceSchema();
     _ensureLoginRateLimitTable();
     _ensureSyncTables();
     _ensureP1Schema();
@@ -304,6 +305,7 @@ class SaqiaServer {
     catch(e){try{db.execute('ROLLBACK');}catch(_){} return _json({'error':'فشلت العملية الذرية: $e'},status:422);}
   }
   int _accountId(String code){final r=db.select('SELECT id FROM accounts WHERE code=? LIMIT 1',[code]);if(r.isEmpty)throw StateError('الحساب غير موجود: $code');return r.first['id'] as int;}
+  String _workerExpenseCode(int station,int workerId) { final s=_settingsForStation(station); if(s['system_type']!='equivalent_hybrid')return '5000'; final r=db.select('SELECT source_affiliation FROM workers WHERE id=? AND station_id=? LIMIT 1',[workerId,station]); final x=r.isEmpty?'shared':'${r.first['source_affiliation']??'shared'}'; return x=='solar'?'5040':x=='diesel'?'5050':'5000'; }
   void _ensureSyncTables() {
     db.execute('''CREATE TABLE IF NOT EXISTS sync_entity_versions (
       station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
@@ -1251,6 +1253,16 @@ void _ensurePartyFuelRates() {
   }
 }
 
+void _ensureWorkerSourceSchema() {
+  if (!_hasTable('workers')) return;
+  final columns = db.select('PRAGMA table_info(workers)').map((r) => '${r['name']}').toSet();
+  if (!columns.contains('source_affiliation')) db.execute("ALTER TABLE workers ADD COLUMN source_affiliation TEXT NOT NULL DEFAULT 'shared'");
+  db.execute("UPDATE workers SET source_affiliation='shared' WHERE source_affiliation IS NULL OR source_affiliation NOT IN ('solar','diesel','shared')");
+  for (final row in const [['5040','مصروف أجور العمال الشمسية','expense'],['5050','مصروف أجور عمال الديزل','expense']]) {
+    if (db.select('SELECT id FROM accounts WHERE code=? LIMIT 1',[row[0]]).isEmpty) db.execute('INSERT INTO accounts(code,name,type) VALUES(?,?,?)',row);
+  }
+}
+
 void _ensurePartyDieselSchema() {
   _ensurePartyFuelRates();
   if (!_hasTable('diesel_movements')) {
@@ -1785,7 +1797,7 @@ void _applyPartyDieselReceipt({
       date: date,
       userId: userId,
       lines: [
-        {'account_id': _accountId('5000'), 'worker_id': workerId,
+        {'account_id': _accountId(_workerExpenseCode(station,workerId)), 'worker_id': workerId,
          'debit': amountValue, 'credit': 0},
         {'account_id': _syncWorkerAccountId(workerId), 'worker_id': workerId,
          'debit': 0, 'credit': amountValue},
@@ -1998,7 +2010,7 @@ void _applyPartyDieselReceipt({
         description:'استحقاق راتب ثابت للعامل',
         referenceType:'worker',referenceId:id,date:posted,userId:userId,
         lines:[
-          {'account_id':_accountId('5000'),'worker_id':workerId,
+          {'account_id':_accountId(_workerExpenseCode(station,workerId)),'worker_id':workerId,
            'debit':amount,'credit':0},
           {'account_id':_syncWorkerAccountId(workerId),'worker_id':workerId,
            'debit':0,'credit':amount},
@@ -2206,7 +2218,7 @@ void _applyPartyDieselReceipt({
         referenceType:'worker',referenceId:movementId,
         date:date,userId:userId,
         lines:[
-          {'account_id':_accountId('5000'),'worker_id':workerId,
+          {'account_id':_accountId(_workerExpenseCode(station,workerId)),'worker_id':workerId,
            'debit':amount,'credit':0},
           {'account_id':_syncWorkerAccountId(workerId),'worker_id':workerId,
            'debit':0,'credit':amount},
@@ -2509,9 +2521,9 @@ void _applyPartyDieselReceipt({
     final rev = db.select(
       "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
     final general = db.select(
-      "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
+      "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code NOT IN ('5000','5040','5050') THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
     final worker = db.select(
-      "SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
+      "SELECT COALESCE(SUM(CASE WHEN a.code IN ('5000','5040','5050') THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
     // A beneficiary's special-minute-rate surplus is not part of the
     // hourly basis for partners' PERIODIC profit distribution either.
     // The fixtures/old schemas may lack the V33 snapshots.
@@ -5063,7 +5075,7 @@ void _applyPartyDieselReceipt({
     return _json({'id':expenseId});}
   Future<Response> _expenseCreate(Request r,Map<String,dynamic> c) => _atomic(() => _expenseCreateUnsafe(r,c));
   Future<Response> _workers(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM workers WHERE active=1 AND station_id=? ORDER BY name',[_stationId(c)])));
-  Future<Response> _workerCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final name='${b['name']??''}'.trim();if(name.isEmpty)return _json({'error':'اسم العامل مطلوب'},status:422);db.execute('INSERT INTO workers(station_id,name,phone,job_title,pay_type,fixed_salary,hourly_rate,percentage_rate,active) VALUES(?,?,?,?,?,?,?,?,1)',[_stationId(c),name,b['phone'],b['job_title'],b['pay_type']??'hourly',b['fixed_salary']??0,b['hourly_rate']??0,b['percentage_rate']??0]);_audit(c['userId'] as int,'create','workers',db.lastInsertRowId);return _json({'id':db.lastInsertRowId});}
+  Future<Response> _workerCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final name='${b['name']??''}'.trim();if(name.isEmpty)return _json({'error':'اسم العامل مطلوب'},status:422);db.execute('INSERT INTO workers(station_id,name,phone,job_title,pay_type,source_affiliation,fixed_salary,hourly_rate,percentage_rate,active) VALUES(?,?,?,?,?,?,?,?,?,1)',[_stationId(c),name,b['phone'],b['job_title'],b['pay_type']??'hourly',const {'solar','diesel','shared'}.contains(b['source_affiliation'])?b['source_affiliation']:'shared',b['fixed_salary']??0,b['hourly_rate']??0,b['percentage_rate']??0]);_audit(c['userId'] as int,'create','workers',db.lastInsertRowId);return _json({'id':db.lastInsertRowId});}
   Future<Response> _workerTransactionUnsafe(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);_requireOwn('workers',id,_stationId(c),'العامل');final b=await _body(r);final type='${b['type']??'accrual'}';final amount=(b['amount'] as num?)?.round()??0;if(!const{'accrual','salary','payment'}.contains(type))throw StateError('نوع الحركة غير مدعوم');if(amount<=0)throw StateError('المبلغ يجب أن يكون أكبر من صفر');final now=DateTime.now().toIso8601String();db.execute('INSERT INTO worker_transactions(station_id,worker_id,date,type,hours,rate_snapshot,percentage_snapshot,amount,cashbox_id,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[_stationId(c),id,now,type,b['hours']??0,b['rate_snapshot']??0,b['percentage_snapshot']??0,b['amount'],b['cashbox_id'],b['notes'],c['userId']]);final txId=db.lastInsertRowId;if(type=='payment'){final cb=(b['cashbox_id'] as num?)?.toInt()??1;_requireOwn('cashboxes',cb,_stationId(c),'الصندوق');final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cb]).first['current_balance'] as num).round();/* الصندوق حساب للصراف ويُسمح بأن يصبح رصيده سالبًا؛ لا نمنع الصرف بسبب الرصيد. */db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cb]);_journal(description:'دفع عامل',referenceType:'worker_payment',referenceId:txId,lines:[{'account_id':_accountId('2100'),'worker_id':id,'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else{_journal(description:'استحقاق عامل',referenceType:'worker',referenceId:txId,lines:[{'account_id':_accountId('5000'),'worker_id':id,'debit':amount,'credit':0},{'account_id':_accountId('2100'),'worker_id':id,'debit':0,'credit':amount}],userId:c['userId']);}return _json({'id':txId});}
   Future<Response> _workerTransaction(Request r,Map<String,dynamic> c) => _atomic(() => _workerTransactionUnsafe(r,c));
   Future<Response> _partners(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM partners WHERE active=1 AND station_id=? ORDER BY name',[_stationId(c)])));

@@ -10379,6 +10379,7 @@ class _WorkersState extends State<WorkersPage> {
         salary = TextEditingController(),
         percent = TextEditingController();
     String type = 'hourly';
+    String sourceAffiliation = 'shared';
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -10394,6 +10395,7 @@ class _WorkersState extends State<WorkersPage> {
               ),
               ContactPhoneField(controller: phone, labelText: 'الهاتف'),
               if (dieselEnabled) PartyDieselRateField(fuelRate),
+              if (hybridSystem) DropdownButtonFormField<String>(initialValue: sourceAffiliation, items: const [DropdownMenuItem(value: 'solar', child: Text('شمسي فقط')), DropdownMenuItem(value: 'diesel', child: Text('ديزل فقط')), DropdownMenuItem(value: 'shared', child: Text('مشترك — من الدخل العام'))], onChanged: (v) => s(() => sourceAffiliation = v ?? 'shared'), decoration: const InputDecoration(labelText: 'مصدر استحقاق العامل')),
               TextField(
                 controller: open,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -10469,6 +10471,7 @@ class _WorkersState extends State<WorkersPage> {
           fixedSalary: int.tryParse(salary.text) ?? 0,
           hourlyRate: int.tryParse(rate.text) ?? 0,
           percentageRate: double.tryParse(percent.text) ?? 0,
+          sourceAffiliation: hybridSystem ? sourceAffiliation : 'shared',
           userId: widget.userId,
         ),
       )) {
@@ -10487,6 +10490,7 @@ class _WorkersState extends State<WorkersPage> {
     final n = TextEditingController(text: '${x['name'] ?? ''}'),
         phone = TextEditingController(text: '${x['phone'] ?? ''}');
     String type = '${x['pay_type'] ?? 'hourly'}';
+    String sourceAffiliation = '${x['source_affiliation'] ?? 'shared'}';
     final rate = TextEditingController(text: '${x['hourly_rate'] ?? 0}'),
         salary = TextEditingController(text: '${x['fixed_salary'] ?? 0}'),
         pct = TextEditingController(text: '${x['percentage_rate'] ?? 0}');
@@ -10505,6 +10509,7 @@ class _WorkersState extends State<WorkersPage> {
               ),
               ContactPhoneField(controller: phone, labelText: 'الهاتف'),
               if (dieselEnabled) PartyDieselRateField(fuelRate),
+              if (hybridSystem) DropdownButtonFormField<String>(initialValue: sourceAffiliation, items: const [DropdownMenuItem(value: 'solar', child: Text('شمسي فقط')), DropdownMenuItem(value: 'diesel', child: Text('ديزل فقط')), DropdownMenuItem(value: 'shared', child: Text('مشترك — من الدخل العام'))], onChanged: (v) => s(() => sourceAffiliation = v ?? 'shared'), decoration: const InputDecoration(labelText: 'مصدر استحقاق العامل')),
               DropdownButtonFormField<String>(
                 initialValue: type,
                 items: const [
@@ -10566,6 +10571,7 @@ class _WorkersState extends State<WorkersPage> {
         'fixed_salary': int.tryParse(salary.text) ?? 0,
         'hourly_rate': int.tryParse(rate.text) ?? 0,
         'percentage_rate': double.tryParse(pct.text) ?? 0,
+        if (hybridSystem) 'source_affiliation': sourceAffiliation,
       }, widget.userId))) {
         return;
       }

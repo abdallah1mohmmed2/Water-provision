@@ -31,7 +31,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 36,
+      version: 37,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -253,6 +253,11 @@ class AppDatabase {
       if (!columns.any((row) => row['name'] == 'hybrid_diesel_hourly_rate_snapshot')) {
         await d.execute('ALTER TABLE irrigations ADD COLUMN hybrid_diesel_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0');
       }
+    }
+    if (oldV < 37) {
+      final columns = await d.rawQuery('PRAGMA table_info(workers)');
+      if (!columns.any((row) => row['name'] == 'source_affiliation')) await d.execute("ALTER TABLE workers ADD COLUMN source_affiliation TEXT NOT NULL DEFAULT 'shared'");
+      await d.execute("UPDATE workers SET source_affiliation='shared' WHERE source_affiliation IS NULL OR source_affiliation NOT IN ('solar','diesel','shared')");
     }
     if (oldV < 19) {
       await d.execute(

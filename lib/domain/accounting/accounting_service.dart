@@ -116,6 +116,8 @@ class AccountingService {
   }
 
   static const Map<String, (String, String)> _autoAccounts = {
+    '5040': ('مصروف أجور العمال الشمسية', 'expense'),
+    '5050': ('مصروف أجور عمال الديزل', 'expense'),
     '3200': ('حصص الشركاء من الأرباح', 'equity'),
     '3300': ('الأرباح المبقاة', 'equity'),
   };
@@ -2466,10 +2468,25 @@ class AccountingService {
     );
   }, captureSyncTables: const {'cashbox_transfers'});
 
+  Future<String> _workerExpenseCodeTx(Transaction tx, int workerId) async {
+    final settings = await tx.rawQuery("SELECT value FROM settings WHERE key='system_type' LIMIT 1");
+    if (settings.isEmpty || '${settings.first['value']}' != 'equivalent_hybrid') return '5000';
+    final rows = await tx.query('workers', columns: ['source_affiliation'], where: 'id=?', whereArgs: [workerId], limit: 1);
+    if (rows.isEmpty) throw StateError('العامل غير موجود');
+    return switch ('${rows.first['source_affiliation'] ?? 'shared'}') { 'solar' => '5040', 'diesel' => '5050', _ => '5000' };
+  }
+
   Future<int> _accrueWorkerIrrigationTx(Transaction tx, {required int workerId, required int irrigationId,
     required int amount, required double hours, required DateTime date, int? userId}) async {
-    final w = await tx.query('workers', columns: ['pay_type','hourly_rate','percentage_rate'], where: 'id=?', whereArgs: [workerId], limit: 1);
+    final w = await tx.query('workers', columns: ['pay_type','hourly_rate','percentage_rate','source_affiliation'], where: 'id=?', whereArgs: [workerId], limit: 1);
     if (w.isEmpty) throw StateError('العامل المنفّذ غير موجود');
+    final system = await tx.rawQuery("SELECT value FROM settings WHERE key='system_type' LIMIT 1");
+    if (system.isNotEmpty && '${system.first['value']}' == 'equivalent_hybrid') {
+      final irrigation = await tx.query('irrigations', columns: ['hybrid_source'], where: 'id=?', whereArgs: [irrigationId], limit: 1);
+      final affiliation = '${w.first['source_affiliation'] ?? 'shared'}';
+      final source = irrigation.isEmpty ? '' : '${irrigation.first['hybrid_source'] ?? ''}';
+      if ((affiliation == 'solar' && source != 'solar') || (affiliation == 'diesel' && source != 'diesel')) return 0;
+    }
     final payType = '${w.first['pay_type']}';
     final entitlement = AccountingCalculations.workerIrrigationEntitlement(payType: payType,
       irrigationAmount: amount, hours: hours, hourlyRate: (w.first['hourly_rate'] as num?)?.round() ?? 0,
@@ -2481,7 +2498,7 @@ class AccountingService {
       'type': 'irrigation', 'hours': hours, 'rate_snapshot': w.first['hourly_rate'],
       'percentage_snapshot': w.first['percentage_rate'], 'amount': payableEntitlement, 'reference_type': 'irrigation',
       'reference_id': irrigationId, 'notes': payType == 'hourly' ? 'استحقاق بالساعة من السقاية' : 'استحقاق نسبة من السقاية', 'created_by': userId});
-    final exp = await _accountIdTx(tx, '5000'), payable = await _workerAccountIdTx(tx, workerId);
+    final exp = await _accountIdTx(tx, await _workerExpenseCodeTx(tx, workerId)), payable = await _workerAccountIdTx(tx, workerId);
     await _entry(tx, description: 'أجر العامل عن السقاية $irrigationId', referenceType: 'worker', referenceId: id,
       userId: userId, date: date, lines: [{'account_id': exp, 'worker_id': workerId, 'debit': payableEntitlement, 'credit': 0},
       {'account_id': payable, 'worker_id': workerId, 'debit': 0, 'credit': payableEntitlement}]);
@@ -2606,7 +2623,7 @@ class AccountingService {
         if (rootIds['worker_transactions']!.isEmpty) {
           rootIds['worker_transactions']!.add(id);
         }
-        final exp = await _accountIdTx(tx, '5000'), payable = await _workerAccountIdTx(tx, wid);
+        final exp = await _accountIdTx(tx, await _workerExpenseCodeTx(tx, wid)), payable = await _workerAccountIdTx(tx, wid);
         await _entry(tx, description: 'راتب العامل الشهري', referenceType: 'worker', referenceId: id, userId: userId, date: accrualDate, stationId: stationId, lines: [{'account_id': exp, 'worker_id': wid, 'debit': amount, 'credit': 0}, {'account_id': payable, 'worker_id': wid, 'debit': 0, 'credit': amount}]);
         count++;
       }
@@ -2629,11 +2646,11 @@ class AccountingService {
         args,
       );
       final general = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
+        "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code NOT IN ('5000','5040','5050') THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
         args,
       );
       final worker = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
+        "SELECT COALESCE(SUM(CASE WHEN a.code IN ('5000','5040','5050') THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
         args,
       );
       // The work-price surplus is real beneficiary income but NOT part of

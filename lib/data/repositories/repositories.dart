@@ -226,6 +226,7 @@ class StationRepository {
     String? notes,
     int? userId,
     double? dieselLitersPerHour,
+    String sourceAffiliation = 'shared',
   }) async {
     PartyDieselRate.validate(dieselLitersPerHour);
     if (name.trim().isEmpty) throw ArgumentError('اسم المستفيد مطلوب');
@@ -1652,6 +1653,7 @@ class StationRepository {
     if (percentageRate < 0 || percentageRate > 100) {
       throw ArgumentError('نسبة أجر العامل يجب أن تكون بين صفر و100');
     }
+    if (!{'solar', 'diesel', 'shared'}.contains(sourceAffiliation)) throw ArgumentError('مصدر استحقاق العامل غير صالح');
     final stationId = await accounting.currentStationId();
     final id = await db.transaction((tx) async {
       final newId = await tx.insert('workers', {
@@ -1661,6 +1663,7 @@ class StationRepository {
         'phone': phone,
         'job_title': title,
         'pay_type': payType,
+        'source_affiliation': sourceAffiliation,
         'fixed_salary': fixedSalary,
         'hourly_rate': hourlyRate,
         'percentage_rate': percentageRate,
@@ -1689,7 +1692,7 @@ class StationRepository {
 
   static const Set<String> _workerEditable = {
     'diesel_liters_per_hour',
-    'name', 'phone', 'job_title', 'pay_type', 'fixed_salary', 'hourly_rate',
+    'name', 'phone', 'job_title', 'pay_type', 'source_affiliation', 'fixed_salary', 'hourly_rate',
     'percentage_rate', 'notes',
   };
   static const Set<String> _partnerEditable = {
@@ -1718,6 +1721,8 @@ class StationRepository {
       if (!{'fixed', 'hourly', 'percentage'}.contains(payType)) {
         throw ArgumentError('نوع أجر العامل غير صالح');
       }
+      final source = '${values['source_affiliation'] ?? old['source_affiliation'] ?? 'shared'}';
+      if (!{'solar', 'diesel', 'shared'}.contains(source)) throw ArgumentError('مصدر استحقاق العامل غير صالح');
       if (fixedSalary < 0 || hourlyRate < 0) {
         throw ArgumentError('الراتب الثابت وأجر الساعة لا يمكن أن يكونا سالبين');
       }
