@@ -4326,6 +4326,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   bool sourceFromServer = false;
   bool dieselSystem = false;
   bool dieselDeliveryEnabled = false;
+  bool hybridSystem = false;
   String? loadError;
   Timer? _debounce;
   int _seq = 0;
@@ -4344,6 +4345,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
         setState(() {
           rows = x;
           dieselSystem = settings['system_type'] == 'diesel';
+          hybridSystem = settings['system_type'] == 'equivalent_hybrid';
           dieselDeliveryEnabled = const ['diesel', 'equivalent_hybrid'].contains(settings['system_type']);
           sourceFromServer = widget.r.beneficiariesFromServer;
         });
@@ -4759,6 +4761,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                         partyId: x['id'] as int,
                                         name: '${x['name']}',
                                         dieselEnabled: dieselDeliveryEnabled,
+                                        hybridSystem: hybridSystem,
                                         onDieselDelivery: () async {
                                           await Navigator.of(context).push(
                                             MaterialPageRoute<void>(
@@ -10326,6 +10329,7 @@ class _WorkersState extends State<WorkersPage> {
   int _searchGeneration = 0;
   bool dieselSystem = false;
   bool dieselDeliveryEnabled = false;
+  bool hybridSystem = false;
 
   Future<void> load() async {
     final generation = ++_searchGeneration;
@@ -10346,6 +10350,7 @@ class _WorkersState extends State<WorkersPage> {
     if (!mounted) return;
     setState(() {
       dieselSystem = settings['system_type'] == 'diesel';
+      hybridSystem = settings['system_type'] == 'equivalent_hybrid';
       dieselDeliveryEnabled = const ['diesel', 'equivalent_hybrid'].contains(settings['system_type']);
     });
   }
@@ -10914,6 +10919,7 @@ class _WorkersState extends State<WorkersPage> {
                                             partyId: x['id'] as int,
                                             name: '${x['name']}',
                                              dieselEnabled: dieselDeliveryEnabled,
+                                             hybridSystem: hybridSystem,
                                              onDieselDelivery: () async {
                                                await Navigator.of(context).push(
                                                  MaterialPageRoute<void>(
@@ -11036,6 +11042,7 @@ class _PartnersState extends State<PartnersPage> {
   int _searchGeneration = 0;
   bool dieselSystem = false;
   bool dieselDeliveryEnabled = false;
+  bool hybridSystem = false;
 
   Future<void> load() async {
     final generation = ++_searchGeneration;
@@ -11056,6 +11063,7 @@ class _PartnersState extends State<PartnersPage> {
     if (!mounted) return;
     setState(() {
       dieselSystem = settings['system_type'] == 'diesel';
+      hybridSystem = settings['system_type'] == 'equivalent_hybrid';
       dieselDeliveryEnabled = const ['diesel', 'equivalent_hybrid'].contains(settings['system_type']);
     });
   }
@@ -11496,6 +11504,7 @@ class _PartnersState extends State<PartnersPage> {
                                             partyId: x['id'] as int,
                                             name: '${x['name']}',
                                              dieselEnabled: dieselDeliveryEnabled,
+                                             hybridSystem: hybridSystem,
                                              onDieselDelivery: () async {
                                                await Navigator.of(context).push(
                                                  MaterialPageRoute<void>(
