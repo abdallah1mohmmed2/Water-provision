@@ -1070,6 +1070,7 @@ class StationRepository {
     int cloudMinutes = 0,
     int? operatorWorkerId,
     int? userId,
+    String? hybridSource,
   }) async {
     final s = (await db.rawQuery(
       'SELECT * FROM irrigation_sessions WHERE id=?',
@@ -1098,6 +1099,7 @@ class StationRepository {
       dieselPrice: int.tryParse(set['diesel_price_per_liter'] ?? '0') ?? 0,
       solarRate: int.tryParse(set['solar_hourly_rate'] ?? '0') ?? 0,
       thirdRate: int.tryParse(set['third_type_hourly_rate'] ?? '0') ?? 0,
+      hybridSource: hybridSource,
       cloudMinutes: cloudMinutes,
       paidAmount: 0,
       queueId: s['queue_entry_id'] as int?,
@@ -2602,6 +2604,12 @@ class StationRepository {
   }
 
   Future<void> setSetting(String key, String value) async {
+    if (const {'solar_hourly_rate','hybrid_diesel_hourly_rate'}.contains(key)) {
+      final rate = int.tryParse(value);
+      if (rate == null || rate < 0 || rate > 1000000) {
+        throw ArgumentError('سعر ساعة التشغيل يجب أن يكون رقماً صحيحاً من صفر إلى مليون');
+      }
+    }
     if (key == 'work_minute_rate') {
       final rate = int.tryParse(value);
       if (rate == null || rate < 0 || rate > 1000000) {
@@ -2638,11 +2646,20 @@ class StationRepository {
       }
     }
     final api = SyncCoordinator.instance.apiClient;
-    if (api != null && const {
-      'work_minute_rate',
-      'work_price_difference_enabled',
-    }.contains(key)) {
-      await api.put('/settings', {key: value});
+    const serverPricingKeys = {
+      'diesel_hourly_water_rate', 'diesel_liters_per_hour', 'diesel_price_per_liter',
+      'solar_hourly_rate', 'third_type_hourly_rate', 'hybrid_diesel_hourly_rate',
+      'rounding', 'partial_hour', 'allow_midnight_crossing',
+      'work_minute_rate', 'work_price_difference_enabled',
+    };
+    if (api != null && serverPricingKeys.contains(key)) {
+      final current = await settings();
+      final changes = <String, String>{};
+      for (final settingKey in serverPricingKeys) {
+        final nextValue = settingKey == key ? value : current[settingKey];
+        if (nextValue != null) changes[settingKey] = nextValue;
+      }
+      await api.put('/settings', changes);
     }
     await db.insert('settings', {
       'key': key,
@@ -2842,7 +2859,8 @@ class StationRepository {
     final args = <Object?>[];
     final currentSettings = await settings();
     final currentSystemType = currentSettings['system_type'] ?? 'diesel';
-    if (key == 'diesel_inventory' && currentSystemType != 'diesel') {
+    if (key == 'diesel_inventory' &&
+        !const ['diesel', 'equivalent_hybrid'].contains(currentSystemType)) {
       throw StateError('تقرير الديزل غير متاح لأن المنظومة الحالية ليست ديزل');
     }
     final allSystems = systemType == 'all';
@@ -2906,6 +2924,8 @@ class StationRepository {
                       COALESCE(i.solar_hourly_rate_snapshot,0) solar_hourly_rate_snapshot,
                       COALESCE(i.water_hourly_rate_snapshot,0) water_hourly_rate_snapshot,
                       COALESCE(i.third_type_hourly_rate_snapshot,0) third_type_hourly_rate_snapshot,
+                      COALESCE(i.hybrid_source,'') hybrid_source,
+                      COALESCE(i.hybrid_diesel_hourly_rate_snapshot,0) hybrid_diesel_hourly_rate_snapshot,
                       COALESCE(i.work_minute_rate_snapshot,0) work_minute_rate_snapshot,
                       COALESCE(i.work_price_enabled_snapshot,0) work_price_enabled_snapshot,
                       COALESCE(i.work_base_water_amount_snapshot,0) work_base_water_amount_snapshot,
@@ -2947,6 +2967,7 @@ class StationRepository {
           return db.rawQuery(
             '''SELECT i.id irrigation_id,i.beneficiary_id,COALESCE(b.name,wk.name,pt.name,'غير محدد') party_name,
                       i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.paid_amount,i.total_amount,
+                      COALESCE(i.hybrid_source,'') hybrid_source,
                       (SELECT COALESCE(SUM(dm.liters),0) FROM diesel_movements dm WHERE dm.irrigation_id=i.id AND dm.station_id=i.station_id AND dm.kind='consumption') diesel_consumption_liters,
                       COALESCE(i.cloud_minutes,0) cloud_minutes,
                       CASE WHEN COALESCE(i.cloud_minutes,0)>0 THEN 'discounted' ELSE 'none' END cloud_status
@@ -3273,6 +3294,7 @@ class StationRepository {
             """SELECT i.beneficiary_id,i.minutes,i.chargeable_minutes,i.system_type,
                       i.work_minute_rate_snapshot,i.water_hourly_rate_snapshot,
                       i.solar_hourly_rate_snapshot,i.third_type_hourly_rate_snapshot,
+                      i.hybrid_source,i.hybrid_diesel_hourly_rate_snapshot,
                       i.diesel_amount,i.total_amount
                FROM irrigations i
                WHERE i.beneficiary_id IN ($placeholders)

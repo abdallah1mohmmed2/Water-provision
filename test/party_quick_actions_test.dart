@@ -83,7 +83,7 @@ void main() {
       testWidgets('PDF choice report=$report share=$share uses same callback', (tester) async {
         final calls = <(String, bool)>[];
         await tester.pumpWidget(MaterialApp(home: Scaffold(body: Builder(builder: (context) => TextButton(
-          onPressed: () => showPartyPdfChoices(context, name: 'الشخص المحدد', generate: (water) async {
+          onPressed: () => showPartyPdfChoices(context, name: 'الشخص المحدد', dieselEnabled: true, hybridSystem: false, generate: (water) async {
             calls.add((water, ReportPdfPreviewService.sharingFromLongPress));
           }),
           child: const Text('PDF'),
@@ -251,20 +251,35 @@ void main() {
         await waitFor(tester, () =>
             find.text('بطاقة وقت التشغيل').evaluate().isNotEmpty);
         await tester.pumpAndSettle();
+        if (system == 'equivalent_hybrid') {
+          final sourceSelector = find.byWidgetPredicate(
+            (widget) => widget is DropdownButtonFormField<String> &&
+                widget.decoration.labelText == 'مصدر تشغيل هذه السقاية',
+          );
+          expect(sourceSelector, findsOneWidget);
+          await tester.tap(sourceSelector);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('طاقة شمسية').last);
+          await tester.pumpAndSettle();
+        }
         await tester.tap(find.textContaining('بداية التشغيل:'));
         await tester.pumpAndSettle();
         final startPicker = find.byKey(const ValueKey('quick-time-picker-start'));
         expect(startPicker, findsOneWidget);
-        expect(tester.widget<AlertDialog>(startPicker).backgroundColor,
-            const Color(0xFFE8F3FF));
+        expect(
+          tester.widget<AlertDialog>(startPicker).backgroundColor,
+          Theme.of(tester.element(startPicker)).colorScheme.primaryContainer,
+        );
         await tester.tap(find.descendant(
           of: startPicker, matching: find.text('تأكيد الوقت')));
         await tester.pumpAndSettle();
 
         final endPicker = find.byKey(const ValueKey('quick-time-picker-end'));
         expect(endPicker, findsOneWidget);
-        expect(tester.widget<AlertDialog>(endPicker).backgroundColor,
-            const Color(0xFFE6F5EB));
+        expect(
+          tester.widget<AlertDialog>(endPicker).backgroundColor,
+          Theme.of(tester.element(endPicker)).colorScheme.secondaryContainer,
+        );
         final cloudShortcut = find.byKey(const ValueKey('quick-end-cloud-button'));
         if (system == 'diesel') {
           expect(cloudShortcut, findsNothing);
@@ -273,11 +288,15 @@ void main() {
           await tester.pumpAndSettle();
         } else {
           expect(cloudShortcut, findsOneWidget);
+          // Capture the active theme before opening the modal route: the
+          // underlying shortcut is offstage while the cloud dialog is shown.
+          final expectedCloudColor =
+              Theme.of(tester.element(endPicker)).colorScheme.tertiaryContainer;
           await tester.tap(cloudShortcut);
           await tester.pumpAndSettle();
           expect(find.text('إضافة غيم / حساب وقت التوقف'), findsOneWidget);
           final dialogs = tester.widgetList<AlertDialog>(find.byType(AlertDialog));
-          expect(dialogs.last.backgroundColor, const Color(0xFFF2EAFB));
+          expect(dialogs.last.backgroundColor, expectedCloudColor);
           await tester.tap(find.text('إلغاء'));
           await tester.pumpAndSettle();
         }

@@ -11,6 +11,8 @@ Future<void> showPartyPdfChoices(
   BuildContext context, {
   required String name,
   required PartyReportCallback generate,
+  required bool dieselEnabled,
+  required bool hybridSystem,
 }) => showModalBottomSheet<void>(
   context: context,
   showDragHandle: true,
@@ -35,13 +37,16 @@ Future<void> showPartyPdfChoices(
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             Text(name, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            for (final report in const ['irrigations', 'statement', 'diesel'])
+            for (final report in hybridSystem
+                ? ['solar_irrigations', 'diesel_irrigations', 'statement', if (dieselEnabled) 'diesel']
+                : ['irrigations', 'statement', if (dieselEnabled) 'diesel'])
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: ReportPdfLongPress(
@@ -50,12 +55,14 @@ Future<void> showPartyPdfChoices(
                   child: OutlinedButton.icon(
                     onPressed: () => open(report),
                     icon: Icon(switch (report) {
-                      'irrigations' => Icons.water_drop_outlined,
+                      'irrigations' || 'solar_irrigations' || 'diesel_irrigations' => Icons.water_drop_outlined,
                       'diesel' => Icons.local_gas_station_outlined,
                       _ => Icons.receipt_long_outlined,
                     }),
                     label: Text(switch (report) {
                       'irrigations' => 'سقايات هذا الشخص',
+                      'solar_irrigations' => 'السقايات الشمسية لهذا الشخص',
+                      'diesel_irrigations' => 'سقايات الديزل لهذا الشخص',
                       'diesel' => 'المسلّم والمستهلك والمتبقي من الديزل',
                       _ => 'كشف حساب هذا الشخص',
                     }),
@@ -64,7 +71,8 @@ Future<void> showPartyPdfChoices(
               ),
             const Text('اضغط للعرض، أو اضغط مطولًا للمشاركة',
                 textAlign: TextAlign.center),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -78,6 +86,9 @@ class PartyQuickActions extends StatelessWidget {
     required this.partyId,
     required this.name,
     required this.onNewIrrigation,
+    this.onDieselDelivery,
+    this.dieselEnabled = false,
+    this.hybridSystem = false,
     super.key,
   }) : assert(partyType == 'beneficiary' ||
              partyType == 'worker' || partyType == 'partner');
@@ -87,8 +98,18 @@ class PartyQuickActions extends StatelessWidget {
   final int partyId;
   final String name;
   final VoidCallback onNewIrrigation;
+  final VoidCallback? onDieselDelivery;
+  final bool dieselEnabled;
+  final bool hybridSystem;
 
   Future<void> _report(String report) {
+    if (report == 'solar_irrigations' || report == 'diesel_irrigations') {
+      return ReportService(repository).printHybridPartyIrrigationsPdf(
+        partyType: partyType,
+        partyId: partyId,
+        source: report == 'solar_irrigations' ? 'solar' : 'diesel',
+      );
+    }
     if (report == 'diesel') {
       return ReportService(repository).printPartyDieselPdf(
         partyType: partyType, partyId: partyId);
@@ -118,9 +139,21 @@ class PartyQuickActions extends StatelessWidget {
           icon: const Icon(Icons.water_drop_rounded),
           label: const Text('سقاية جديدة'),
         ),
+        if (dieselEnabled && onDieselDelivery != null)
+          OutlinedButton.icon(
+            key: ValueKey('party-diesel-delivery-$partyType-$partyId'),
+            onPressed: onDieselDelivery,
+            icon: const Icon(Icons.local_gas_station_outlined),
+            label: const Text('إضافة تسليم ديزل'),
+          ),
         OutlinedButton.icon(
           onPressed: () => showPartyPdfChoices(
-            context, name: name, generate: _report),
+            context,
+            name: name,
+            generate: _report,
+            dieselEnabled: dieselEnabled,
+            hybridSystem: hybridSystem,
+          ),
           icon: const Icon(Icons.picture_as_pdf_rounded),
           label: const Text('PDF'),
         ),

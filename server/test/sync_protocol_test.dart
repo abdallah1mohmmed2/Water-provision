@@ -1355,6 +1355,15 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     database.execute("CREATE TABLE worker_transactions(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,worker_id INTEGER NOT NULL,date TEXT NOT NULL,type TEXT NOT NULL,hours REAL NOT NULL DEFAULT 0,rate_snapshot REAL NOT NULL DEFAULT 0,percentage_snapshot REAL NOT NULL DEFAULT 0,amount INTEGER NOT NULL,reference_type TEXT,reference_id INTEGER,notes TEXT,created_by INTEGER)");
     database.execute("CREATE TABLE partner_transactions(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,partner_id INTEGER NOT NULL,date TEXT NOT NULL,type TEXT NOT NULL,amount INTEGER NOT NULL,ownership_snapshot REAL,reference_type TEXT,reference_id INTEGER,notes TEXT,created_by INTEGER)");
     database.execute("CREATE TABLE irrigations(id INTEGER PRIMARY KEY AUTOINCREMENT,station_id INTEGER NOT NULL,pump_id INTEGER NOT NULL,beneficiary_id INTEGER,worker_id INTEGER,partner_id INTEGER,party_type TEXT NOT NULL,date TEXT NOT NULL,start_datetime TEXT NOT NULL,end_datetime TEXT NOT NULL,minutes INTEGER NOT NULL,system_type TEXT NOT NULL,water_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,diesel_liters_per_hour_snapshot REAL NOT NULL DEFAULT 0,diesel_price_snapshot INTEGER NOT NULL DEFAULT 0,solar_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,third_type_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0,work_minute_rate_snapshot INTEGER NOT NULL DEFAULT 0,work_price_enabled_snapshot INTEGER NOT NULL DEFAULT 0,work_base_water_amount_snapshot INTEGER NOT NULL DEFAULT 0,work_difference_snapshot INTEGER NOT NULL DEFAULT 0,cloud_minutes INTEGER NOT NULL DEFAULT 0,chargeable_minutes INTEGER NOT NULL,water_amount INTEGER NOT NULL DEFAULT 0,diesel_amount INTEGER NOT NULL DEFAULT 0,total_amount INTEGER NOT NULL DEFAULT 0,paid_amount INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL,created_by INTEGER,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)");
+    // Preserve a pre-existing financial row when the receiving server adds
+    // the hybrid columns to this legacy schema at sync-command time.
+    database.execute("""INSERT INTO irrigations(
+      id,station_id,pump_id,beneficiary_id,party_type,date,start_datetime,end_datetime,
+      minutes,system_type,chargeable_minutes,water_amount,total_amount,status,created_at,updated_at
+    ) VALUES(90,1,1,1,'beneficiary','2026-11-07',
+      '2026-11-07T07:00:00.000','2026-11-07T08:00:00.000',
+      60,'equivalent_hybrid',60,1234,1234,'posted',
+      '2026-11-07T08:00:00.000','2026-11-07T08:00:00.000')""");
     database.execute("CREATE TABLE irrigation_sessions(id INTEGER PRIMARY KEY AUTOINCREMENT,beneficiary_id INTEGER NOT NULL,queue_entry_id INTEGER,booking_id INTEGER,pump_id INTEGER NOT NULL,planned_start TEXT,actual_start TEXT,actual_end TEXT,status TEXT NOT NULL,timer_started_at TEXT,timer_stopped_at TEXT,diesel_before REAL DEFAULT 0,diesel_consumed REAL DEFAULT 0,diesel_after REAL DEFAULT 0,diesel_warning_shown INTEGER NOT NULL DEFAULT 0,postponement_reason TEXT,notes TEXT)");
     database.execute("ALTER TABLE irrigations ADD COLUMN session_id INTEGER");
     database.execute("ALTER TABLE irrigations ADD COLUMN queue_entry_id INTEGER");
@@ -1463,12 +1472,27 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       'payload': {...payload, 'total_amount': 1},
     }]);
     expect((staleSnapshot['results'] as List).single['status'], 'rejected');
-    expect(database.select('SELECT * FROM irrigations'), isEmpty);
+    // The migration fixture deliberately inserted legacy irrigation id=90.
+    // A rejected event must preserve that row while creating no row for this event.
+    expect(database.select('SELECT id FROM irrigations WHERE id=90'), hasLength(1));
+    expect(database.select("SELECT id FROM irrigations WHERE start_datetime='2026-11-08T08:00:00.000'"), isEmpty);
     expect(database.select('SELECT * FROM journal_entries'), isEmpty);
     final response = await postEvents(stationOneToken,[event]);
     final irrigationResult = (response['results'] as List).single;
     expect(irrigationResult['status'],'accepted', reason: irrigationResult.toString());
-    final irrigation = database.select('SELECT * FROM irrigations WHERE station_id=1').single;
+    // The server is constructed before this test creates its legacy business
+    // tables. Sync-create must therefore apply the additive P1 migration at
+    // the command boundary, not rely only on constructor-time migration.
+    final irrigationColumns = database.select('PRAGMA table_info(irrigations)')
+        .map((row) => row['name'].toString()).toSet();
+    expect(irrigationColumns, contains('hybrid_source'));
+    expect(irrigationColumns, contains('hybrid_diesel_hourly_rate_snapshot'));
+    final irrigation = database.select("SELECT * FROM irrigations WHERE start_datetime='2026-11-08T08:00:00.000'").single;
+    final preservedLegacy = database.select('SELECT water_amount,total_amount,hybrid_source,hybrid_diesel_hourly_rate_snapshot FROM irrigations WHERE id=90').single;
+    expect(preservedLegacy['water_amount'], 1234);
+    expect(preservedLegacy['total_amount'], 1234);
+    expect(preservedLegacy['hybrid_source'], isNull);
+    expect(preservedLegacy['hybrid_diesel_hourly_rate_snapshot'], 0);
     expect(irrigation['minutes'],60);
     expect(irrigation['cloud_minutes'],10);
     expect(irrigation['chargeable_minutes'],60); // Diesel billing is not reduced by cloud periods.
@@ -1622,11 +1646,11 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       },
     }]);
     expect((failedIrrigation['results'] as List).single['status'],'rejected');
-    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],2);
     expect(database.select('SELECT status FROM irrigation_sessions WHERE id=2').single['status'],'running');
     expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'],3);
     expect(database.select('SELECT COUNT(*) n FROM diesel_movements').single['n'],2);
-    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],1);
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'],2);
 
     // Operational work difference must be posted by Shelf with exactly the
     // beneficiary invoice amount; hourly worker and partner accruals cannot
@@ -1727,7 +1751,215 @@ test('legacy beneficiary rows receive a stable global identity on first API read
       },
     }]);
     expect((staleOff['results'] as List).single['status'], 'rejected');
-    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 2);
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 3);
+
+    // Exercise the hybrid-source contract through the real sync endpoint:
+    // values are recalculated by the server, stored as immutable snapshots,
+    // and projected back to another device.
+    database.execute("UPDATE pumps SET system_type='equivalent_hybrid' WHERE id=1");
+    // The shared fixture may already seed station settings. Upsert the
+    // exact values required by this scenario without violating the
+    // station-scoped unique key or depending on fixture insertion order.
+    database.execute("INSERT INTO station_settings(station_id,key,value) VALUES"
+      "(1,'hybrid_diesel_hourly_rate','8000'),"
+      "(1,'diesel_liters_per_hour','2'),"
+      "(1,'solar_hourly_rate','9000'),"
+      "(1,'third_type_hourly_rate','7000'),"
+      "(1,'work_price_difference_enabled','false') "
+      "ON CONFLICT(station_id,key) DO UPDATE SET value=excluded.value");
+    final beneficiaryFuelColumns = database.select('PRAGMA table_info(beneficiaries)')
+        .map((row) => row['name'].toString()).toSet();
+    if (!beneficiaryFuelColumns.contains('opening_diesel_liters')) {
+      database.execute('ALTER TABLE beneficiaries ADD COLUMN opening_diesel_liters REAL NOT NULL DEFAULT 0');
+    }
+    database.execute('UPDATE beneficiaries SET opening_diesel_liters=20 WHERE id=1');
+    var hybridSequence = 1;
+    String hybridId() {
+      final suffix = (hybridSequence++).toRadixString(16).padLeft(12, '0');
+      return '88888888-8888-4888-8888-$suffix';
+    }
+    Map<String, List<String>> hybridEffects({required int cloudCount, int dieselCount = 0}) => {
+      'cloud_periods': List.generate(cloudCount, (_) => hybridId()),
+      'worker_transactions': List.generate(1, (_) => hybridId()),
+      'partner_transactions': List.generate(1, (_) => hybridId()),
+      'diesel_movements': List.generate(dieselCount, (_) => hybridId()),
+      'journal_entries': List.generate(3, (_) => hybridId()),
+      'journal_lines': List.generate(6, (_) => hybridId()),
+      'irrigation_sessions': <String>[],
+      'queue_entries': <String>[],
+      'booking_requests': <String>[],
+    };
+
+    // Keep the exact submitted payload for the idempotency replay below.
+    // Reusing an event ID with a different payload must be rejected, not
+    // treated as a duplicate.
+    final hybridPayloads = <String, Map<String, dynamic>>{};
+
+    Future<Map<String, dynamic>> createHybrid({
+      required String eventId,
+      required String globalId,
+      required String start,
+      required String end,
+      String? source,
+      required int cloudMinutes,
+    }) async {
+      final cloudStart = DateTime.parse(start).add(const Duration(minutes: 20));
+      final cloudEnd = DateTime.parse(start).add(const Duration(minutes: 30));
+      final cloud = cloudMinutes == 0 ? <Map<String, dynamic>>[] : [
+        {
+          'start_datetime': cloudStart.toIso8601String(),
+          'end_datetime': cloudEnd.toIso8601String(),
+        },
+      ];
+      final hybridPayload = <String, dynamic>{
+        ...payload,
+        '_global_id': globalId,
+        'session_id': null,
+        '_global_refs': {
+          'pump_id': {'table':'pumps','global_id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc'},
+          'beneficiary_id': {'table':'beneficiaries','global_id':'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'},
+        },
+        'system_type': 'equivalent_hybrid',
+        if (source != null) 'hybrid_source': source,
+        'start_datetime': start,
+        'end_datetime': end,
+        'cloud_minutes': cloudMinutes,
+        'cloud_periods': cloud,
+        'paid_amount': 0,
+        'work_price_enabled_snapshot': 0,
+        'work_minute_rate_snapshot': 0,
+        'work_difference_snapshot': 0,
+        '_derived_global_ids': hybridEffects(
+          cloudCount: cloudMinutes == 0 ? 0 : 1,
+          dieselCount: source == 'diesel' ? 1 : 0,
+        ),
+      };
+      hybridPayloads[globalId] = hybridPayload;
+      return postEvents(stationOneToken, [{
+        'event_id': eventId,
+        'entity_type': 'irrigations',
+        'entity_key': 'irrigations:$globalId',
+        'operation': 'create',
+        'base_version': 0,
+        'payload': hybridPayload,
+      }]);
+    }
+
+    final hybridDieselResponse = await createHybrid(
+      eventId: '88880000-0000-4000-8000-000000000001',
+      globalId: '88880000-0000-4000-8000-000000000002',
+      start: '2026-11-08T16:00:00.000',
+      end: '2026-11-08T17:00:00.000',
+      source: 'diesel',
+      cloudMinutes: 0,
+    );
+    expect((hybridDieselResponse['results'] as List).single['status'], 'accepted',
+      reason: '$hybridDieselResponse');
+    final hybridDiesel = database.select(
+      "SELECT * FROM irrigations WHERE start_datetime='2026-11-08T16:00:00.000'").single;
+    expect(hybridDiesel['hybrid_source'], 'diesel');
+    expect(hybridDiesel['hybrid_diesel_hourly_rate_snapshot'], 8000);
+    expect(hybridDiesel['diesel_liters_per_hour_snapshot'], 2);
+    final hybridDieselMoves = database.select(
+      "SELECT kind,liters FROM diesel_movements WHERE irrigation_id=? ORDER BY id",
+      [hybridDiesel['id']],
+    );
+    expect(hybridDieselMoves.map((row) => row['kind']).toList(), ['consumption']);
+    expect(hybridDieselMoves.single['liters'], 2);
+    expect(hybridDiesel['solar_hourly_rate_snapshot'], 0);
+    expect(hybridDiesel['third_type_hourly_rate_snapshot'], 0);
+    expect(hybridDiesel['cloud_minutes'], 0);
+    expect(hybridDiesel['chargeable_minutes'], 60);
+    expect(hybridDiesel['water_amount'], 8000);
+    expect(hybridDiesel['total_amount'], 8000);
+    final hybridDieselInbox = await getInbox(stationOneToken, device: 'device-c');
+    final dieselProjection = (hybridDieselInbox['events'] as List)
+        .cast<Map>().firstWhere((e) => e['entity_type'] == 'irrigations' &&
+          (e['payload'] as Map)['_global_id'] == '88880000-0000-4000-8000-000000000002');
+    expect((dieselProjection['payload'] as Map)['hybrid_source'], 'diesel');
+    expect((dieselProjection['payload'] as Map)['hybrid_diesel_hourly_rate_snapshot'], 8000);
+
+    final dieselWithCloud = await createHybrid(
+      eventId: '88880000-0000-4000-8000-000000000007',
+      globalId: '88880000-0000-4000-8000-000000000008',
+      start: '2026-11-08T17:00:00.000',
+      end: '2026-11-08T18:00:00.000',
+      source: 'diesel',
+      cloudMinutes: 10,
+    );
+    expect((dieselWithCloud['results'] as List).single['status'], 'rejected');
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 4);
+
+    final hybridSolarResponse = await createHybrid(
+      eventId: '88880000-0000-4000-8000-000000000003',
+      globalId: '88880000-0000-4000-8000-000000000004',
+      start: '2026-11-08T18:00:00.000',
+      end: '2026-11-08T19:00:00.000',
+      source: 'solar',
+      cloudMinutes: 10,
+    );
+    expect((hybridSolarResponse['results'] as List).single['status'], 'accepted',
+      reason: '$hybridSolarResponse');
+    final hybridSolar = database.select(
+      "SELECT * FROM irrigations WHERE start_datetime='2026-11-08T18:00:00.000'").single;
+    expect(hybridSolar['hybrid_source'], 'solar');
+    expect(hybridSolar['hybrid_diesel_hourly_rate_snapshot'], 0);
+    expect(hybridSolar['solar_hourly_rate_snapshot'], 9000);
+    expect(hybridSolar['diesel_liters_per_hour_snapshot'], 0);
+    expect(database.select(
+      'SELECT id FROM diesel_movements WHERE irrigation_id=?',
+      [hybridSolar['id']],
+    ), isEmpty);
+    expect(hybridSolar['cloud_minutes'], 10);
+    expect(hybridSolar['chargeable_minutes'], 50);
+    expect(hybridSolar['water_amount'], 7500);
+    expect(hybridSolar['total_amount'], 7500);
+    expect(database.select(
+      'SELECT COUNT(*) n FROM cloud_periods WHERE irrigation_id=?',
+      [hybridSolar['id']]).single['n'], 1);
+    final solarProjection = await getInbox(stationOneToken, device: 'device-d');
+    final solarRoot = (solarProjection['events'] as List).cast<Map>().firstWhere(
+      (e) => e['entity_type'] == 'irrigations' &&
+        (e['payload'] as Map)['_global_id'] == '88880000-0000-4000-8000-000000000004');
+    expect((solarRoot['payload'] as Map)['hybrid_source'], 'solar');
+    expect((solarRoot['payload'] as Map)['solar_hourly_rate_snapshot'], 9000);
+
+    // Old queued hybrid events omit hybrid_source and must retain the legacy
+    // third-type tariff snapshot rather than being silently re-priced.
+    final legacyHybridResponse = await createHybrid(
+      eventId: '88880000-0000-4000-8000-000000000005',
+      globalId: '88880000-0000-4000-8000-000000000006',
+      start: '2026-11-08T20:00:00.000',
+      end: '2026-11-08T21:00:00.000',
+      cloudMinutes: 0,
+    );
+    expect((legacyHybridResponse['results'] as List).single['status'], 'accepted',
+      reason: '$legacyHybridResponse');
+    final legacyHybrid = database.select(
+      "SELECT * FROM irrigations WHERE start_datetime='2026-11-08T20:00:00.000'").single;
+    expect(legacyHybrid['hybrid_source'], isNull);
+    expect(legacyHybrid['third_type_hourly_rate_snapshot'], 7000);
+    expect(legacyHybrid['hybrid_diesel_hourly_rate_snapshot'], 0);
+    expect(legacyHybrid['solar_hourly_rate_snapshot'], 0);
+    expect(legacyHybrid['chargeable_minutes'], 60);
+    expect(legacyHybrid['water_amount'], 7000);
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 6);
+    final irrigationLedger = database.select("""
+      SELECT COUNT(*) n, SUM(debit) debit, SUM(credit) credit
+      FROM journal_lines
+    """).single;
+    expect(irrigationLedger['debit'], irrigationLedger['credit']);
+    final hybridReplay = await postEvents(stationOneToken, [{
+      'event_id': '88880000-0000-4000-8000-000000000001',
+      'entity_type': 'irrigations',
+      'entity_key': 'irrigations:88880000-0000-4000-8000-000000000002',
+      'operation': 'create',
+      'base_version': 0,
+      'payload': hybridPayloads['88880000-0000-4000-8000-000000000002']!,
+    }]);
+    expect((hybridReplay['results'] as List).single['status'], 'duplicate');
+    expect(database.select('SELECT COUNT(*) n FROM irrigations').single['n'], 6);
+    expect(database.select('SELECT COUNT(*) n FROM journal_entries').single['n'], 15);
   });
 
   for (final type in ['beneficiary','worker','partner']) {

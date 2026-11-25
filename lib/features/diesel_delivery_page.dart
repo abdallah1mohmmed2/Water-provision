@@ -9,13 +9,22 @@ import '../domain/maintenance/diesel_delivery_service.dart';
 class DieselDeliveryPage extends StatefulWidget {
   final StationRepository repo;
   final int userId;
+  final String initialPartyType;
+  final int? initialPartyId;
+  @Deprecated('Use initialPartyType and initialPartyId')
   final int? initialBeneficiaryId;
   const DieselDeliveryPage(
     this.repo, {
     required this.userId,
+    this.initialPartyType = 'beneficiary',
+    this.initialPartyId,
     this.initialBeneficiaryId,
     super.key,
-  });
+  }) : assert(
+         initialPartyType == 'beneficiary' ||
+             initialPartyType == 'worker' ||
+             initialPartyType == 'partner',
+       );
   @override
   State<DieselDeliveryPage> createState() => _DieselDeliveryPageState();
 }
@@ -23,7 +32,9 @@ class DieselDeliveryPage extends StatefulWidget {
 class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
   late final service = DieselDeliveryService(widget.repo.db);
   final liters = TextEditingController(), notes = TextEditingController();
-  String type = 'beneficiary', request = const Uuid().v4();
+  late String type;
+  String direction = 'from_party';
+  String request = const Uuid().v4();
   int? person, station;
   double? balance;
   DateTime date = AppClock.now();
@@ -40,6 +51,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
   @override
   void initState() {
     super.initState();
+    type = widget.initialPartyType;
     _loadPeople(useInitial: true);
   }
 
@@ -70,10 +82,12 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
       if (!mounted || token != generation) {
         return;
       }
-      final initial = useInitial ? widget.initialBeneficiaryId : null;
+      final initial = useInitial
+          ? widget.initialPartyId ?? widget.initialBeneficiaryId
+          : null;
       if (initial != null && !rows.any((row) => row['id'] == initial)) {
         throw StateError(
-          'المستفيد المحدد غير موجود في بيانات المحطة الحالية؛ حدّث بيانات المستفيدين',
+          'الطرف المحدد غير موجود في بيانات المحطة الحالية؛ حدّث بيانات الأطراف',
         );
       }
       setState(() {
@@ -141,16 +155,29 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
       error = null;
     });
     try {
-      await service.receive(
-        station: station!,
-        user: widget.userId,
-        type: type,
-        person: person!,
-        liters: amount,
-        date: date,
-        requestId: request,
-        notes: notes.text.trim(),
-      );
+      if (direction == 'from_party') {
+        await service.receive(
+          station: station!,
+          user: widget.userId,
+          type: type,
+          person: person!,
+          liters: amount,
+          date: date,
+          requestId: request,
+          notes: notes.text.trim(),
+        );
+      } else {
+        await service.issueToParty(
+          station: station!,
+          user: widget.userId,
+          type: type,
+          person: person!,
+          liters: amount,
+          date: date,
+          requestId: request,
+          notes: notes.text.trim(),
+        );
+      }
       request = const Uuid().v4();
       liters.clear();
       notes.clear();
@@ -231,11 +258,13 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const Text(
-              'ديزل يسلّمه الشخص للمنظومة. يُسدّد ما عليه من لترات، ويُضاف الفائض إلى رصيده. لا يُشترط وجود مخزون ولا يُسجّل مبلغ مالي.',
+            Text(
+              direction == 'from_party'
+                  ? 'ديزل يسلّمه الطرف للمنظومة: يُخصم من الكمية المستحقة عليه، ويُضاف الفائض إلى رصيده. العملية باللترات فقط دون مبلغ مالي.'
+                  : 'ديزل تسلّمه المنظومة للطرف: تُضاف الكمية إلى ما عليه من لترات. العملية باللترات فقط دون مبلغ مالي.',
             ),
             if (error != null)
-              Text(error!, style: const TextStyle(color: Colors.red)),
+              Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
             if (enabled) ...[
               DropdownButtonFormField<String>(
                 initialValue: type,
@@ -251,6 +280,23 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
                         setState(() => type = v!);
                         _loadPeople();
                       },
+              ),
+              DropdownButtonFormField<String>(
+                initialValue: direction,
+                decoration: const InputDecoration(labelText: 'اتجاه حركة الديزل'),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'from_party',
+                    child: Text('الطرف يسلّم ديزل للمنظومة (له / تسديد ما عليه)'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'to_party',
+                    child: Text('المنظومة تسلّم ديزل للطرف (عليه / استلام منه)'),
+                  ),
+                ],
+                onChanged: busy
+                    ? null
+                    : (value) => setState(() => direction = value!),
               ),
               DropdownButtonFormField<int>(
                 key: ValueKey('$type/$person/${people.length}'),
@@ -277,8 +323,8 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                decoration: const InputDecoration(
-                  labelText: 'الكمية المستلمة باللترات',
+                decoration: InputDecoration(
+                  labelText: direction == 'from_party' ? 'الكمية المستلمة باللترات' : 'الكمية المسلّمة للطرف باللترات',
                   helperText: 'مثال: 5.75 — منزلتان عشريتان كحد أقصى',
                 ),
                 onChanged: (_) => setState(() {}),
@@ -287,7 +333,7 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
                   amount != null &&
                   amount.isFinite &&
                   amount > 0)
-                Text('بعد التسليم: ${balanceText(balance! + amount)}'),
+                Text('بعد الحركة: ${balanceText(balance! + (direction == 'from_party' ? amount : -amount))}'),
               ListTile(
                 title: const Text('تاريخ التسليم'),
                 subtitle: Text('${date.year}-${date.month}-${date.day}'),
@@ -328,15 +374,17 @@ class _DieselDeliveryPageState extends State<DieselDeliveryPage> {
                 child: Text(busy ? 'جارٍ الحفظ…' : 'حفظ تسليم الديزل'),
               ),
               const Divider(),
-              const Text('تسليمات الطرف المختار'),
+              const Text('سجل حركات الديزل للطرف المختار'),
               for (final row in movements)
                 ListTile(
                   title: Text(
-                    '${quantity((row['liters'] as num).toDouble())} لتر • ${(row['liters'] as num) < 0
-                        ? 'عكس تسليم'
+                    '${quantity((row['liters'] as num).toDouble())} لتر • ${row['reversal_of'] != null
+                        ? 'حركة عكسية'
                         : row['cancelled'] == 1
                         ? 'ملغى'
-                        : 'تسليم'}',
+                        : row['kind'] == 'consumption'
+                        ? 'من المنظومة للطرف'
+                        : 'من الطرف للمنظومة'}',
                   ),
                   subtitle: Text('${row['date']} • ${row['notes'] ?? ''}'),
                   trailing:

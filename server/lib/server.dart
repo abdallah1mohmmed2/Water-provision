@@ -3226,6 +3226,10 @@ void _applyPartyDieselReceipt({
     required int station, required String entityKey, required Map payload,
     required String now, required int? userId, required String? role,
   }) {
+    // Some installations/tests create the business tables after the server
+    // object is constructed. Re-run the additive, idempotent migration at the
+    // command boundary so the hybrid-source columns exist before validation.
+    _ensureP1Schema();
     if (role != 'manager' && role != 'accountant') throw StateError('صلاحية المستخدم لا تسمح بترحيل السقايات');
     final globalId = (payload['_global_id'] ?? '').toString();
     final valid = globalId.length == 36 && RegExp(r'^[0-9a-fA-F-]{36}').hasMatch(globalId) && globalId[8] == '-' && globalId[13] == '-' && globalId[18] == '-' && globalId[23] == '-' && globalId[14] == '4' && '89abAB'.contains(globalId[19]);
@@ -3287,6 +3291,18 @@ void _applyPartyDieselReceipt({
     if (minutes <= 0 || minutes > 1440) throw StateError('مدة السقاية خارج النطاق المسموح');
     final system = (payload['system_type'] ?? pump.first['system_type'] ?? settings['system_type'] ?? 'diesel').toString();
     if (!const {'diesel','solar','equivalent_hybrid'}.contains(system) || system != pump.first['system_type'].toString()) throw StateError('نوع النظام لا يطابق نوع المضخة');
+    // A missing field denotes an already-queued legacy command. New clients
+    // always include the field and must explicitly choose diesel or solar.
+    final hasHybridSource = payload.containsKey('hybrid_source');
+    final hybridSource = system == 'equivalent_hybrid' && hasHybridSource
+        ? '${payload['hybrid_source'] ?? ''}' : null;
+    if (system == 'equivalent_hybrid' && hasHybridSource &&
+        !const {'diesel', 'solar'}.contains(hybridSource)) {
+      throw StateError('مصدر تشغيل النوع الثالث مطلوب ويجب أن يكون ديزل أو طاقة شمسية');
+    }
+    if (system != 'equivalent_hybrid' && payload['hybrid_source'] != null) {
+      throw StateError('مصدر التشغيل الإضافي متاح للنوع الثالث فقط');
+    }
     final rawCloud = payload['cloud_periods'];
     if (rawCloud != null && rawCloud is! List) throw StateError('فترات الغيم غير صالحة');
     final cloudPeriods = rawCloud == null ? <Map>[] : rawCloud.map((x) { if (x is! Map) throw StateError('فترة غيم غير صالحة'); return x; }).toList();
@@ -3302,8 +3318,20 @@ void _applyPartyDieselReceipt({
     }
     final cloudReported = (payload['cloud_minutes'] as num?)?.toInt() ?? cloudMinutes;
     if (cloudReported != cloudMinutes || cloudMinutes > minutes) throw StateError('مجموع فترات الغيم لا يطابق دقائق الغيم أو يتجاوز مدة السقاية');
-    final chargeable = system == 'solar' ? minutes-cloudMinutes : minutes;
-    final waterRate = system == 'diesel' ? (int.tryParse(settings['diesel_hourly_water_rate'] ?? '0') ?? 0) : system == 'solar' ? (int.tryParse(settings['solar_hourly_rate'] ?? '0') ?? 0) : (int.tryParse(settings['third_type_hourly_rate'] ?? '0') ?? 0);
+    final hybridSolar = system == 'equivalent_hybrid' && hybridSource == 'solar';
+    final hybridDiesel = system == 'equivalent_hybrid' && hybridSource == 'diesel';
+    if (hybridDiesel && cloudMinutes > 0) {
+      throw StateError('فترات الغيم لا تطبق عند اختيار تشغيل الديزل');
+    }
+    final cloudApplies = system == 'solar' || hybridSolar;
+    final chargeable = cloudApplies ? minutes-cloudMinutes : minutes;
+    final waterRate = system == 'diesel'
+        ? (int.tryParse(settings['diesel_hourly_water_rate'] ?? '0') ?? 0)
+        : system == 'solar' || hybridSolar
+            ? (int.tryParse(settings['solar_hourly_rate'] ?? '0') ?? 0)
+            : hybridDiesel
+                ? (int.tryParse(settings['hybrid_diesel_hourly_rate'] ?? '0') ?? 0)
+                : (int.tryParse(settings['third_type_hourly_rate'] ?? '0') ?? 0);
     _ensurePartyFuelRates();
     final ownerTable = const {'beneficiary':'beneficiaries', 'worker':'workers', 'partner':'partners'}[partyType]!;
     final ownerId = partyType == 'beneficiary' ? beneficiaryId : partyType == 'worker' ? workerId : partnerId;
@@ -3311,7 +3339,7 @@ void _applyPartyDieselReceipt({
     if (owner.isEmpty) {
       throw StateError('صاحب السقاية لا يتبع المحطة');
     }
-    final litersPerHour = system == 'diesel'
+    final litersPerHour = system == 'diesel' || hybridDiesel
         ? PartyDieselRate.resolve(owner.first['diesel_liters_per_hour'], double.tryParse(settings['diesel_liters_per_hour'] ?? '0') ?? 0)
         : 0.0;
     // Diesel price never participates in irrigation invoices or accruals.
@@ -3325,11 +3353,16 @@ void _applyPartyDieselReceipt({
             start: start, end: end, hourlyWaterRate: waterRate,
             litersPerHour: litersPerHour, dieselPrice: dieselPrice,
             cloudMinutes: 0, rounding: rounding, partialHour: partialHour)
-        : system == 'solar'
+        : system == 'solar' || hybridSolar
         ? AccountingCalculations.solar(
             start: start, end: end, hourlyRate: waterRate,
             cloudMinutes: cloudMinutes, rounding: rounding,
             partialHour: partialHour)
+        : hybridDiesel
+        ? AccountingCalculations.diesel(
+            start: start, end: end, hourlyWaterRate: waterRate,
+            litersPerHour: litersPerHour, dieselPrice: 0,
+            cloudMinutes: 0, rounding: rounding, partialHour: partialHour)
         : AccountingCalculations.equivalent(
             start: start, end: end, hourlyRate: waterRate,
             rounding: rounding, partialHour: partialHour);
@@ -3339,7 +3372,7 @@ void _applyPartyDieselReceipt({
     var shortageLiters = 0.0;
     // Beneficiary's in-kind balance determines the number of liters to
     // advance, never a fuel invoice or a monetary debt.
-    if (system == 'diesel' && partyType == 'beneficiary' && liters > 0) {
+    if ((system == 'diesel' || hybridDiesel) && partyType == 'beneficiary' && liters > 0) {
       _ensurePartyDieselSchema();
       if (!_hasTable('diesel_movements')) {
         throw StateError('دفتر الديزل غير متاح لاحتساب رصيد المستفيد');
@@ -3421,15 +3454,18 @@ void _applyPartyDieselReceipt({
     if (db.select("SELECT 1 FROM irrigations WHERE station_id=? AND pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",[station,pumpId,endText,startText]).isNotEmpty) throw StateError('وقت السقاية يتداخل مع تشغيل آخر للمضخة');
     if (!_hasTable('cloud_periods') || !_hasTable('diesel_movements')) throw StateError('جداول الغيم والديزل غير متاحة');
     final columns = db.select('PRAGMA table_info(irrigations)').map((r)=>r['name'].toString()).toSet();
-    final required = {'station_id','pump_id','beneficiary_id','worker_id','partner_id','party_type','date','start_datetime','end_datetime','minutes','system_type','water_hourly_rate_snapshot','diesel_liters_per_hour_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot','cloud_minutes','chargeable_minutes','water_amount','diesel_amount','total_amount','paid_amount','status','created_by','created_at','updated_at'};
+    final required = {'station_id','pump_id','beneficiary_id','worker_id','partner_id','party_type','date','start_datetime','end_datetime','minutes','system_type','hybrid_source','hybrid_diesel_hourly_rate_snapshot','water_hourly_rate_snapshot','diesel_liters_per_hour_snapshot','diesel_price_snapshot','solar_hourly_rate_snapshot','third_type_hourly_rate_snapshot','cloud_minutes','chargeable_minutes','water_amount','diesel_amount','total_amount','paid_amount','status','created_by','created_at','updated_at'};
     if (!required.every(columns.contains)) throw StateError('مخطط السقايات لا يدعم الترحيل الآمن');
     final irrigationValues=<String,Object?>{
       'station_id':station,'pump_id':pumpId,'beneficiary_id':beneficiaryId,
       'worker_id':workerId,'partner_id':partnerId,'party_type':partyType,
       'date':startText.substring(0,10),'start_datetime':startText,'end_datetime':endText,'minutes':minutes,
-      'system_type':system,'water_hourly_rate_snapshot':system=='diesel'?waterRate:0,
+      'system_type':system,'hybrid_source':hybridSource,
+      'hybrid_diesel_hourly_rate_snapshot':hybridDiesel?waterRate:0,
+      'water_hourly_rate_snapshot':system=='diesel'?waterRate:0,
       'diesel_liters_per_hour_snapshot':litersPerHour,'diesel_price_snapshot':dieselPrice,
-      'solar_hourly_rate_snapshot':system=='solar'?waterRate:0,'third_type_hourly_rate_snapshot':system=='equivalent_hybrid'?waterRate:0,
+      'solar_hourly_rate_snapshot':system=='solar'||hybridSolar?waterRate:0,
+      'third_type_hourly_rate_snapshot':system=='equivalent_hybrid'&&!hasHybridSource?waterRate:0,
       'cloud_minutes':cloudMinutes,'chargeable_minutes':chargeable,'water_amount':billedWater,
       'diesel_amount':dieselAmount,'total_amount':total,'paid_amount':0,'status':'posted',
       'created_by':userId,'created_at':now,'updated_at':now,
@@ -3633,7 +3669,7 @@ void _applyPartyDieselReceipt({
       ]);
     }
 
-    if (system == 'diesel' && liters > 0) {
+    if ((system == 'diesel' || hybridDiesel) && liters > 0) {
       if (partyType == 'beneficiary' && shortageLiters > 0) {
         db.execute(
           'INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)',
@@ -3674,8 +3710,14 @@ void _applyPartyDieselReceipt({
     final refs = payload['_global_refs'];
     if (refs is! Map) throw StateError('مرجع السقاية العالمي مفقود لفترة الغيم');
     final irrigationId = _resolveSyncReference(station:station,entityType:'irrigations',column:'irrigation_id',references:refs);
-    final parent = db.select("SELECT start_datetime,end_datetime FROM irrigations WHERE id=? AND station_id=? AND status='posted' LIMIT 1",[irrigationId,station]);
+    final parent = db.select("SELECT start_datetime,end_datetime,system_type,hybrid_source FROM irrigations WHERE id=? AND station_id=? AND status='posted' LIMIT 1",[irrigationId,station]);
     if (parent.isEmpty) throw StateError('السقاية المرتبطة بفترة الغيم غير موجودة أو غير مرحلة');
+    if (parent.first['system_type'] == 'equivalent_hybrid' && parent.first['hybrid_source'] == 'diesel') {
+      throw StateError('لا يمكن إضافة فترات غيم لسقاية النوع الثالث التي تعمل بالديزل');
+    }
+    if (parent.first['system_type'] == 'diesel') {
+      throw StateError('فترات الغيم غير متاحة لمنظومة الديزل');
+    }
     final startText = (payload['start_datetime'] ?? '').toString();
     final endText = (payload['end_datetime'] ?? '').toString();
     final start = DateTime.tryParse(startText);
@@ -4437,16 +4479,60 @@ void _applyPartyDieselReceipt({
       FROM sync_event_log
       WHERE station_id=? AND server_sequence>? AND source_device<>? AND status='accepted'
       ORDER BY server_sequence LIMIT 100''',[station,after,device]);
-    final events = rows.map((row) => <String,Object?>{
-      'server_sequence':row['server_sequence'],
-      'event_id':row['event_id'],
-      'entity_type':row['entity_type'],
-      'entity_key':row['entity_key'],
-      'operation':row['operation'],
-      'payload':jsonDecode(row['payload_json'] as String),
-      'base_version':row['base_version'],
-      'server_version':row['server_version'],
-      'source_device':row['source_device'],
+    final events = rows.map((row) {
+      final payload = Map<String, Object?>.from(
+        jsonDecode(row['payload_json'] as String) as Map,
+      );
+      // Irrigation prices and totals are recalculated by the server. Return
+      // those persisted values in the inbox projection so peer devices never
+      // hydrate client-supplied (or absent) tariff snapshots as authoritative.
+      if (row['entity_type'] == 'irrigations' &&
+          const {'create', 'update'}.contains(row['operation'])) {
+        final globalId = (payload['_global_id'] ?? '').toString();
+        if (globalId.isNotEmpty) {
+          final authoritative = db.select('''
+            SELECT i.system_type, i.hybrid_source,
+              i.water_hourly_rate_snapshot,
+              i.hybrid_diesel_hourly_rate_snapshot,
+              i.solar_hourly_rate_snapshot,
+              i.third_type_hourly_rate_snapshot,
+              i.diesel_liters_per_hour_snapshot, i.diesel_price_snapshot,
+              i.minutes, i.cloud_minutes, i.chargeable_minutes,
+              i.water_amount, i.diesel_amount, i.total_amount
+            FROM sync_entity_links l
+            JOIN irrigations i
+              ON i.id=l.local_id AND i.station_id=l.station_id
+            WHERE l.station_id=? AND l.entity_type='irrigations'
+              AND l.global_id=? LIMIT 1
+          ''', [station, globalId]);
+          if (authoritative.isNotEmpty) {
+            final saved = authoritative.first;
+            for (final key in const [
+              'system_type', 'hybrid_source',
+              'water_hourly_rate_snapshot',
+              'hybrid_diesel_hourly_rate_snapshot',
+              'solar_hourly_rate_snapshot',
+              'third_type_hourly_rate_snapshot',
+              'diesel_liters_per_hour_snapshot', 'diesel_price_snapshot',
+              'minutes', 'cloud_minutes', 'chargeable_minutes',
+              'water_amount', 'diesel_amount', 'total_amount',
+            ]) {
+              payload[key] = saved[key];
+            }
+          }
+        }
+      }
+      return <String, Object?>{
+        'server_sequence':row['server_sequence'],
+        'event_id':row['event_id'],
+        'entity_type':row['entity_type'],
+        'entity_key':row['entity_key'],
+        'operation':row['operation'],
+        'payload':payload,
+        'base_version':row['base_version'],
+        'server_version':row['server_version'],
+        'source_device':row['source_device'],
+      };
     }).toList();
     final high = db.select(
       'SELECT COALESCE(MAX(server_sequence),0) AS cursor FROM sync_event_log WHERE station_id=?',
@@ -4549,6 +4635,30 @@ void _applyPartyDieselReceipt({
       ...old,
       for(final e in changes.entries) e.key:'${e.value}',
     };
+    for (final key in const ['solar_hourly_rate','hybrid_diesel_hourly_rate','third_type_hourly_rate','diesel_hourly_water_rate','diesel_price_per_liter']) {
+      final value = merged[key];
+      if (value != null) {
+        final rate = int.tryParse(value);
+        if (rate == null || rate < 0 || rate > 1000000) {
+          return _json({'error':'سعر الساعة أو الوقود $key غير صالح'},status:422);
+        }
+      }
+    }
+    final litersPerHour = merged['diesel_liters_per_hour'];
+    if (litersPerHour != null) {
+      final rate = double.tryParse(litersPerHour);
+      if (rate == null || !rate.isFinite || rate < 0 || rate > 1000000) {
+        return _json({'error':'معدل استهلاك الديزل غير صالح'},status:422);
+      }
+    }
+    if (merged['rounding'] != null && !const {'nearest','up','down'}.contains(merged['rounding'])) {
+      return _json({'error':'سياسة التقريب غير صالحة'},status:422);
+    }
+    for (final key in const ['partial_hour','allow_midnight_crossing']) {
+      if (merged[key] != null && !const {'true','false'}.contains(merged[key])) {
+        return _json({'error':'إعداد $key غير صالح'},status:422);
+      }
+    }
     final newMinuteRate=int.tryParse(merged['work_minute_rate'] ?? '0');
     if (newMinuteRate == null || newMinuteRate < 0 || newMinuteRate > 1000000) {
       return _json({'error':'سعر الدقيقة الخاص غير صالح'},status:422);

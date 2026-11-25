@@ -71,7 +71,7 @@ class ReportService {
     'beneficiary_detailed': 'كشف الحساب المفصل للمستفيد',
     'beneficiary_stats': 'إحصائيات المستفيدين',
     'needy': 'المستفيدون المحتاجون',
-    'diesel_inventory': 'مخزون الديزل',
+    'diesel_inventory': 'حركة الديزل: الإضافة والتسليم والاستهلاك',
     'activity_overview': 'نظرة عامة على النشاط',
     'oil_status': 'حالة الزيت',
     'debts': 'مديونيات المستفيدين',
@@ -117,6 +117,56 @@ class ReportService {
   'ledger': ['date', 'account_name', 'journal_entry_id', 'description', 'alayh', 'lah', 'balance'],
 };
 
+
+  /// Source-filtered irrigation PDF for a person in the hybrid system.
+  /// Legacy hybrid rows without a source are excluded rather than misclassified.
+  Future<void> printHybridPartyIrrigationsPdf({
+    required String partyType,
+    required int partyId,
+    required String source,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    if (!const ['beneficiary', 'worker', 'partner'].contains(partyType) ||
+        partyId <= 0 || !const ['solar', 'diesel'].contains(source)) {
+      throw ArgumentError('نوع الطرف أو المصدر غير صالح');
+    }
+    final settings = await repo.settings();
+    if (settings['system_type'] != 'equivalent_hybrid') {
+      throw StateError('تقارير المصدر المنفصلة متاحة للنوع الثالث فقط');
+    }
+    final rows = await repo.report(
+      'irrigations',
+      beneficiaryId: partyType == 'beneficiary' ? partyId : null,
+      workerId: partyType == 'worker' ? partyId : null,
+      partnerId: partyType == 'partner' ? partyId : null,
+      systemType: 'equivalent_hybrid',
+      from: from,
+      to: to,
+    );
+    final filtered = rows.where((row) => row['hybrid_source'] == source).toList();
+    final table = switch (partyType) {
+      'beneficiary' => 'beneficiaries',
+      'worker' => 'workers',
+      _ => 'partners',
+    };
+    final person = await repo.db.rawQuery('SELECT name FROM $table WHERE id=? LIMIT 1', [partyId]);
+    final name = person.isEmpty ? 'غير محدد' : '${person.first['name'] ?? 'غير محدد'}';
+    final label = source == 'solar' ? 'السقايات الشمسية' : 'سقايات الديزل';
+    await printPdf(
+      'irrigations',
+      systemType: 'equivalent_hybrid',
+      beneficiaryId: partyType == 'beneficiary' ? partyId : null,
+      workerId: partyType == 'worker' ? partyId : null,
+      partnerId: partyType == 'partner' ? partyId : null,
+      from: from,
+      to: to,
+      sourceRows: filtered,
+      hybridSource: source,
+      reportTitleOverride: '$label — $name',
+      fileNameOverride: '$label $name',
+    );
+  }
 
   /// A third per-person PDF: liters issued, consumed and the exact signed
   /// balance, including reversals. No money or stock is posted by this reader.
@@ -248,6 +298,8 @@ class ReportService {
     String? category,
     String? status,
     List<Map<String, Object?>>? sourceRows,
+    String? hybridSource,
+    String? reportTitleOverride,
   }) async {
     final started = AppClock.now();
     if (!titles.containsKey(key) || !reportColumns.containsKey(key)) {
@@ -255,7 +307,8 @@ class ReportService {
     }
     final settings = await repo.settings();
     final currentType = settings['system_type'] ?? 'diesel';
-    if (key == 'diesel_inventory' && currentType != 'diesel') {
+    if (key == 'diesel_inventory' &&
+        !const ['diesel', 'equivalent_hybrid'].contains(currentType)) {
       throw StateError('تقرير الديزل غير متاح لأن المنظومة الحالية ليست ديزل');
     }
     systemType ??= currentType;
@@ -307,10 +360,14 @@ class ReportService {
     };
     final dieselOnly = DieselReportColumns.dieselOnly(rows, systemType);
     final fuelReport = const ['irrigations', 'beneficiary_detailed'].contains(key);
-    final expectedHeaders = fuelReport
-        ? DieselReportColumns.select(reportColumns[key]!, dieselOnly: dieselOnly,
-            hasDiesel: rows.any((row) => row['system_type'] == 'diesel'))
-        : reportColumns[key] ?? <String>[];
+    final expectedHeaders = hybridSource == 'diesel' && key == 'irrigations'
+        ? ['party_name', 'start_datetime', 'end_datetime', 'minutes', 'paid_amount', 'total_amount', 'diesel_consumption_liters']
+        : hybridSource == 'solar' && key == 'irrigations'
+            ? ['party_name', 'start_datetime', 'end_datetime', 'minutes', 'paid_amount', 'total_amount', 'cloud_minutes', 'cloud_status']
+            : fuelReport
+                ? DieselReportColumns.select(reportColumns[key]!, dieselOnly: dieselOnly,
+                    hasDiesel: rows.any((row) => row['system_type'] == 'diesel'))
+                : reportColumns[key] ?? <String>[];
     // Empty reports keep the configured columns so the official template can
     // render a useful empty-state table instead of failing on zero columns.
     final sourceHeaders = rows.isEmpty
@@ -348,6 +405,7 @@ class ReportService {
               'total_amount': 'القيمة الإجمالية',
               'cloud_minutes': 'الغيم',
               'cloud_status': 'حالة الخصم',
+              'diesel_consumption_liters': 'استهلاك الديزل (لتر)',
             }[header] ?? _fieldName(header))
           : _fieldName(header);
       return _shapeArabic(label);
@@ -445,10 +503,10 @@ class ReportService {
           title: 'إجمالي الدقائق',
           value: '${money(sumOf('minutes'))} د',
         ),
-      if (fuelReport && (dieselOnly || rows.any((row) => row['system_type'] == 'diesel')))
+      if (fuelReport && (dieselOnly || hybridSource == 'diesel' || rows.any((row) => row['system_type'] == 'diesel')))
         StatBoxData(number: '3D', title: 'استهلاك الديزل (لتر)',
           value: DieselQuantity.format(sumOf('diesel_consumption_liters'))),
-      if ((!fuelReport || !dieselOnly) && rows.any((row) => row.containsKey('cloud_minutes')))
+      if ((!fuelReport || (!dieselOnly && hybridSource != 'diesel')) && rows.any((row) => row.containsKey('cloud_minutes')))
         StatBoxData(
           number: '3',
           title: 'إجمالي الغيم',
@@ -529,9 +587,9 @@ class ReportService {
       ],
     ];
 
-    final reportTitle = personName == null
+    final reportTitle = reportTitleOverride ?? (personName == null
         ? titles[key]!
-        : '${titles[key]} — $personName';
+        : '${titles[key]} — $personName');
     final reportNumber = 'R-${DateFormat('yyMMdd-HHmm').format(started)}';
     final filterText = _filters(
       from,
@@ -863,11 +921,15 @@ class ReportService {
     List<Map<String, Object?>>? rows,
     DateTime? from,
     DateTime? to,
+    String? hybridSourceFilter,
   }) async {
     final sourceRows = rows ?? await repo.report('invoices', from: from, to: to);
+    final selectedRows = hybridSourceFilter == null
+        ? sourceRows
+        : sourceRows.where((row) => row['hybrid_source'] == hybridSourceFilter).toList();
     // بعض مسارات المعاينة القديمة تمرر beneficiary_name أو رقم السقاية فقط،
     // لذلك لا نعتمد على party_name القادم من الشاشة وحده.
-    final data = sourceRows
+    final data = selectedRows
         .map((row) => <String, Object?>{...row})
         .toList(growable: false);
     final irrigationIds = data
@@ -956,7 +1018,9 @@ class ReportService {
     // تبقى دقائق السقاية الأصلية محفوظة ويظل الملخص العام كما هو.
     int invoiceNetMinutes(Map<String, Object?> row) {
       final minutes = n(row['minutes']).clamp(0, 100000000).toInt();
-      if ('${row['system_type'] ?? ''}' != 'solar') return minutes;
+      final isSolar = '${row['system_type'] ?? ''}' == 'solar' ||
+          ('${row['system_type'] ?? ''}' == 'equivalent_hybrid' && row['hybrid_source'] == 'solar');
+      if (!isSolar) return minutes;
       return (minutes - n(row['cloud_minutes'])).clamp(0, 100000000).toInt();
     }
     String duration(Object? value) =>
@@ -977,15 +1041,24 @@ class ReportService {
     final totalMinutes =
         data.fold<int>(0, (sum, row) => sum + n(row['minutes']));
     final totalCloudMinutes = data.fold<int>(0, (sum, row) =>
-        sum + ('${row['system_type'] ?? ''}' == 'solar' ? n(row['cloud_minutes']) : 0));
+        sum + (('${row['system_type'] ?? ''}' == 'solar' ||
+            ('${row['system_type'] ?? ''}' == 'equivalent_hybrid' && row['hybrid_source'] == 'solar'))
+            ? n(row['cloud_minutes']) : 0));
     final useSpecialMinuteRate =
         settings['work_price_report_display_special_rate'] == 'true';
     final partialHour = settings['partial_hour'] != 'false';
-    int hourlyRate(Map<String, Object?> row) => switch ('${row['system_type'] ?? ''}') {
-      'solar' => n(row['solar_hourly_rate_snapshot']),
-      'equivalent_hybrid' => n(row['third_type_hourly_rate_snapshot']),
-      _ => n(row['water_hourly_rate_snapshot']),
-    };
+    int hourlyRate(Map<String, Object?> row) {
+      final type = '${row['system_type'] ?? ''}';
+      if (type == 'solar' || (type == 'equivalent_hybrid' && row['hybrid_source'] == 'solar')) {
+        return n(row['solar_hourly_rate_snapshot']);
+      }
+      if (type == 'equivalent_hybrid') {
+        return row['hybrid_source'] == 'diesel'
+            ? n(row['hybrid_diesel_hourly_rate_snapshot'])
+            : n(row['third_type_hourly_rate_snapshot']); // historical records
+      }
+      return n(row['water_hourly_rate_snapshot']);
+    }
     int reportAmount(Map<String, Object?> row, {required bool beforeCloud}) {
       final minutes = n(beforeCloud
           ? row['minutes']
@@ -1045,10 +1118,12 @@ class ReportService {
         [
           '${i + 1}',
           display(data[i]['party_name']),
+          if (settings['system_type'] == 'equivalent_hybrid')
+            display(data[i]['hybrid_source'] == 'solar' ? 'شمسي' : data[i]['hybrid_source'] == 'diesel' ? 'ديزل' : 'غير محدد'),
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
           '${invoiceNetMinutes(data[i])}',
-          if (showInvoiceCloud) data[i]['system_type'] == 'diesel' ? '—' : '${n(data[i]['cloud_minutes'])}',
+          if (showInvoiceCloud) data[i]['system_type'] == 'diesel' || (data[i]['system_type'] == 'equivalent_hybrid' && data[i]['hybrid_source'] == 'diesel') ? '—' : '${n(data[i]['cloud_minutes'])}',
           money(reportAmount(data[i], beforeCloud: false)),
           money(data[i]['paid_amount']),
           if (dieselInvoices) DieselQuantity.format((data[i]['diesel_consumption_liters'] as num?) ?? 0),
@@ -1063,7 +1138,7 @@ class ReportService {
       date: dateFormat.format(now),
       refNumber: 'INV-${DateFormat('yyyyMMdd-HHmmss').format(now)}',
       attachments: 'عدد الفواتير: ${data.length}',
-      reportTitle: 'تقرير الفواتير',
+      reportTitle: hybridSourceFilter == 'solar' ? 'تقرير فواتير السقايات الشمسية' : hybridSourceFilter == 'diesel' ? 'تقرير فواتير سقايات الديزل' : 'تقرير الفواتير',
       summaryBoxes: [
         StatBoxData(
           number: '1',
@@ -1130,6 +1205,7 @@ class ReportService {
       columns: [
         'م',
         'المستفيد / العامل / الشريك',
+        if (settings['system_type'] == 'equivalent_hybrid') 'مصدر التشغيل',
         'من',
         'إلى',
         'إجمالي الدقائق',
@@ -1143,18 +1219,19 @@ class ReportService {
       footerTotalRow: [
         '',
         'الإجمالي',
+        if (settings['system_type'] == 'equivalent_hybrid') '',
         '',
         '',
         duration(data.fold<int>(0, (sum, row) => sum + invoiceNetMinutes(row))),
         if (showInvoiceCloud) duration(data.fold<int>(0, (sum, row) =>
-            sum + (row['system_type'] == 'diesel' ? 0 : n(row['cloud_minutes'])))),
+            sum + ((row['system_type'] == 'diesel' || (row['system_type'] == 'equivalent_hybrid' && row['hybrid_source'] == 'diesel')) ? 0 : n(row['cloud_minutes'])))),
         money(totalAmount),
         money(totalPaid),
         if (dieselInvoices) DieselQuantity.format(totalFuel),
         'المتبقي: ${money(remaining)}',
       ],
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
-      fileName: 'تقرير-الفواتير.pdf',
+      fileName: hybridSourceFilter == 'solar' ? 'تقرير-فواتير-شمسي.pdf' : hybridSourceFilter == 'diesel' ? 'تقرير-فواتير-ديزل.pdf' : 'تقرير-الفواتير.pdf',
       minTableRows: 7,
       pageFormat: PdfPageFormat.a4.landscape,
       preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
@@ -1166,8 +1243,9 @@ class ReportService {
     List<Map<String, Object?>>? rows,
     DateTime? from,
     DateTime? to,
+    String? hybridSourceFilter,
   }) async {
-    final bytes = await invoicesPdf(rows: rows, from: from, to: to);
+    final bytes = await invoicesPdf(rows: rows, from: from, to: to, hybridSourceFilter: hybridSourceFilter);
     await ReportPdfPreviewService.open(
       bytes: bytes,
       suggestedName: 'تقرير الفواتير',
@@ -1178,8 +1256,9 @@ class ReportService {
     List<Map<String, Object?>>? rows,
     DateTime? from,
     DateTime? to,
+    String? hybridSourceFilter,
   }) async {
-    final bytes = await invoicesPdf(rows: rows, from: from, to: to);
+    final bytes = await invoicesPdf(rows: rows, from: from, to: to, hybridSourceFilter: hybridSourceFilter);
     await ReportPdfPreviewService.open(
       bytes: bytes,
       suggestedName: 'تقرير الفواتير',
@@ -1618,6 +1697,9 @@ class ReportService {
     String? category,
     String? status,
     List<Map<String, Object?>>? sourceRows,
+    String? hybridSource,
+    String? reportTitleOverride,
+    String? fileNameOverride,
   }) async {
     if (key == 'beneficiary_statement' && beneficiaryId != null) {
       await printBeneficiaryStatementOfficial(
@@ -1633,12 +1715,14 @@ class ReportService {
     }
     // The existing PDF generator keeps the report's data, totals, layout
     // and filters unchanged. Only the presentation/export UI is unified.
-    final suggestedName = await _reportFileName(
-      key,
-      beneficiaryId: beneficiaryId,
-      workerId: workerId,
-      partnerId: partnerId,
-    );
+    final suggestedName = fileNameOverride == null
+        ? await _reportFileName(
+            key,
+            beneficiaryId: beneficiaryId,
+            workerId: workerId,
+            partnerId: partnerId,
+          )
+        : _pdfFileName(fileNameOverride);
     final bytes = await pdf(
       key,
       from: from,
@@ -1652,6 +1736,8 @@ class ReportService {
       category: category,
       status: status,
       sourceRows: sourceRows,
+      hybridSource: hybridSource,
+      reportTitleOverride: reportTitleOverride,
     );
     if (bytes.isEmpty) {
       throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');

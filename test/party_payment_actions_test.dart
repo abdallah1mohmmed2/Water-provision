@@ -37,6 +37,20 @@ void main() {
           find.byType(DropdownButtonFormField<int>));
         expect(selectors.first.initialValue, 7);
         expect(find.text(debt ? 'إضافة مديونية سابقة' : 'تسجيل دفعة'), findsOneWidget);
+        if (debt) {
+          expect(find.textContaining('تاريخ المديونية:'), findsOneWidget);
+          expect(find.text('عليه للمحطة — ${kind == 'beneficiary' ? 'المستفيد' : kind == 'worker' ? 'العامل' : 'الشريك'} مدين'), findsOneWidget);
+          final direction = find.byType(DropdownButtonFormField<String>);
+          expect(direction, findsOneWidget);
+          await tester.tap(direction);
+          await tester.pumpAndSettle();
+          expect(find.text('له على المحطة — المحطة مدينة'), findsOneWidget);
+          await tester.tap(find.text('له على المحطة — المحطة مدينة'));
+          await tester.pumpAndSettle();
+        } else {
+          expect(find.textContaining('تاريخ المديونية:'), findsNothing);
+          expect(find.text('اتجاه الرصيد *'), findsNothing);
+        }
         if (!debt) {
           final type = tester.widget<DropdownButtonFormField<String>>(
             find.byType(DropdownButtonFormField<String>));

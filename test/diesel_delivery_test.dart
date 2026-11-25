@@ -1,7 +1,7 @@
 import 'package:saqia_station/services/irrigation_message_fuel_service.dart';
 import 'package:saqia_station/features/party_diesel_balance.dart';
 import 'package:saqia_station/core/diesel_quantity.dart';
-import 'package:saqia_station/features/app.dart' show BeneficiariesPage;
+import 'package:saqia_station/features/app.dart' show BeneficiariesPage, WorkersPage, PartnersPage, DieselPage;
 
 import 'dart:convert';
 import 'dart:io';
@@ -13,6 +13,32 @@ import 'package:saqia_station/data/local/database.dart';
 import 'package:saqia_station/data/repositories/repositories.dart';
 import 'package:saqia_station/domain/maintenance/diesel_delivery_service.dart';
 import 'package:saqia_station/features/diesel_delivery_page.dart';
+
+class _HybridDieselRepository extends StationRepository {
+  _HybridDieselRepository(super.db);
+
+  @override
+  Future<Map<String, Object?>> systemConfiguration() async => {
+    'system_type': 'equivalent_hybrid',
+    'pump_id': 1,
+    'pump_name': 'مضخة الاختبار',
+  };
+
+  @override
+  Future<List<Map<String, Object?>>> diesel({String search = ''}) async => [];
+
+  @override
+  Future<List<Map<String, Object?>>> beneficiaries([String q = '']) async => [];
+
+  @override
+  Future<List<Map<String, Object?>>> cashboxes() async => [];
+
+  @override
+  Future<double> dieselStock() async => 0;
+
+  @override
+  Future<Map<String, Object?>> dieselWarning() async => {'warning': false};
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -93,6 +119,57 @@ void main() {
       );
   Future<num> scalar(String sql) async =>
       (await app.query(sql)).single.values.first as num;
+
+  test('hybrid diesel source records liters and solar source records none', () async {
+    await repo.setSetting('system_type', 'equivalent_hybrid');
+    await repo.setSetting('hybrid_diesel_hourly_rate', '8000');
+    await repo.setSetting('solar_hourly_rate', '7000');
+    await repo.setSetting('diesel_liters_per_hour', '10');
+
+    Future<int> hybridIrrigation(String source, DateTime start) =>
+        repo.accounting.recordIrrigation(
+          stationId: 1,
+          pumpId: 1,
+          beneficiaryId: ids['beneficiary'],
+          start: start,
+          end: start.add(const Duration(minutes: 30)),
+          systemType: 'equivalent_hybrid',
+          waterRate: 0,
+          litersPerHour: 0,
+          dieselPrice: 0,
+          solarRate: 7000,
+          thirdRate: 0,
+          hybridSource: source,
+          cloudMinutes: 0,
+          paidAmount: 0,
+          userId: 1,
+        );
+
+    final dieselId = await hybridIrrigation('diesel', DateTime(2026, 2, 1, 8));
+    final dieselRow = (await app.query(
+      'irrigations', where: 'id=?', whereArgs: [dieselId],
+    )).single;
+    expect(dieselRow['hybrid_source'], 'diesel');
+    expect(dieselRow['diesel_liters_per_hour_snapshot'], 10);
+    expect(dieselRow['hybrid_diesel_hourly_rate_snapshot'], 8000);
+    final dieselMoves = await app.query(
+      "diesel_movements",
+      where: "irrigation_id=? AND kind='consumption'",
+      whereArgs: [dieselId],
+    );
+    expect(dieselMoves, hasLength(1));
+    expect(dieselMoves.single['liters'], 5);
+
+    final solarId = await hybridIrrigation('solar', DateTime(2026, 2, 2, 8));
+    final solarRow = (await app.query(
+      'irrigations', where: 'id=?', whereArgs: [solarId],
+    )).single;
+    expect(solarRow['hybrid_source'], 'solar');
+    expect(solarRow['diesel_liters_per_hour_snapshot'], 0);
+    expect(await app.query(
+      'diesel_movements', where: 'irrigation_id=?', whereArgs: [solarId],
+    ), isEmpty);
+  });
   for (final type in ['beneficiary', 'worker', 'partner']) {
     test(
       '$type: receipt settles debt, excess becomes credit, cancellation restores debt',
@@ -149,6 +226,41 @@ void main() {
       },
     );
   }
+  for (final type in ['beneficiary', 'worker', 'partner']) {
+    test('$type: station issue increases party debt and cancellation restores balance', () async {
+      final beforeStock = await repo.dieselStock();
+      await receive(type, 12);
+      expect(await service.balance(1, type, ids[type]!), 12);
+      expect(await repo.dieselStock(), beforeStock + 12);
+      final issueId = await service.issueToParty(
+        station: 1,
+        user: 1,
+        type: type,
+        person: ids[type]!,
+        liters: 5.5,
+        date: DateTime(2026, 2, 11),
+        requestId: 'issue-$type-${sequence++}',
+        notes: 'تسليم سابق من المنظومة للطرف',
+      );
+      expect(await service.balance(1, type, ids[type]!), 6.5);
+      expect(await repo.dieselStock(), beforeStock + 6.5);
+      final issue = (await app.query('diesel_movements', where: 'id=?', whereArgs: [issueId])).single;
+      expect(issue['kind'], 'consumption');
+      expect(issue['party_receipt'], 1);
+      expect(issue['date'], startsWith('2026-02-11'));
+      await repo.accounting.cancelDieselMovement(issueId, 1, 'إلغاء تسليم سابق');
+      expect(await service.balance(1, type, ids[type]!), 12);
+      expect(await repo.dieselStock(), beforeStock + 12);
+      final reversal = (await app.query(
+        'diesel_movements',
+        where: 'reversal_of=?',
+        whereArgs: [issueId],
+      )).single;
+      expect(reversal['kind'], 'consumption');
+      expect(reversal['liters'], -5.5);
+    });
+  }
+
   test(
     'future irrigation consumes only excess after settling previous advance',
     () async {
@@ -203,14 +315,50 @@ void main() {
       );
       await repo.setSetting('system_type', 'solar');
       await expectLater(receive('worker', 5), throwsStateError);
+      await repo.setSetting('system_type', 'equivalent_hybrid');
+      await receive('worker', 5);
+      expect(await service.balance(1, 'worker', ids['worker']!), 10);
       expect(
         await scalar(
           "SELECT COUNT(*) FROM diesel_movements WHERE party_receipt=1",
         ),
-        1,
+        2,
       );
     },
   );
+  test(
+    'hybrid diesel inventory report includes stock additions and party movements',
+    () async {
+      await repo.setSetting('system_type', 'equivalent_hybrid');
+      await receive('worker', 7.5);
+      await app.insert('diesel_movements', {
+        'station_id': 1,
+        'kind': 'receipt',
+        'liters': 30.0,
+        'unit_price': 0,
+        'amount': 0,
+        'date': '2026-02-12',
+        'notes': 'إضافة ديزل للمخزون',
+        'created_by': 1,
+      });
+      await app.insert('diesel_movements', {
+        'station_id': 1,
+        'worker_id': ids['worker'],
+        'kind': 'consumption',
+        'liters': 2.5,
+        'unit_price': 0,
+        'amount': 0,
+        'date': '2026-02-13',
+        'notes': 'استهلاك ديزل',
+        'created_by': 1,
+      });
+      final rows = await repo.report('diesel_inventory');
+      expect(rows.map((row) => row['kind']),
+          containsAll(['receipt', 'consumption']));
+      expect(rows.any((row) => row['party_receipt'] == 1), isTrue);
+    },
+  );
+
   testWidgets(
     'delivery screen saves liters for selected beneficiary with balance preview',
     (tester) async {
@@ -246,7 +394,7 @@ void main() {
         '15',
       );
       await tester.pump();
-      expect(find.text('بعد التسليم: له 15 لتر'), findsOneWidget);
+      expect(find.text('بعد الحركة: له 15 لتر'), findsOneWidget);
       await tester.tap(find.text('حفظ تسليم الديزل'));
       await tester.pump();
       for (
@@ -271,6 +419,23 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+  testWidgets(
+    'hybrid system exposes the existing diesel page and delivery action',
+    (tester) async {
+      tester.view.physicalSize = const Size(1000, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: DieselPage(_HybridDieselRepository(app), userId: 1))),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('إضافة تسليم ديزل'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   test(
     'v33 diesel rows survive migration and gain nullable party fields',
     () async {
@@ -376,7 +541,7 @@ void main() {
     }
   });
 
-  test('creation stores personal rates and version 34 upgrade preserves records', () async {
+  test('creation stores personal rates and version 34 upgrade preserves records through version 36', () async {
     final b = await repo.createBeneficiary(name: 'معدل مستفيد', dieselLitersPerHour: 5);
     final w = await repo.createWorker(name: 'معدل عامل', payType: 'fixed', dieselLitersPerHour: 4.65);
     final p = await repo.createPartner(name: 'معدل شريك', mode: 'shares', shares: 1, dieselLitersPerHour: 4.5);
@@ -390,7 +555,7 @@ void main() {
     await db.execute('PRAGMA user_version=34');
     await app.close();
     final upgraded = await app.db;
-    expect(await upgraded.getVersion(), 35);
+    expect(await upgraded.getVersion(), 36);
     for (final entry in {'beneficiaries': b, 'workers': w, 'partners': p}.entries) {
       final row = (await app.query(entry.key, where: 'id=?', whereArgs: [entry.value])).single;
       expect(row['diesel_liters_per_hour'], isNull);
@@ -461,7 +626,7 @@ void main() {
           ),
         ),
       );
-      final button = find.byKey(ValueKey('beneficiary-diesel-$target'));
+      final button = find.byKey(ValueKey('party-diesel-delivery-beneficiary-$target'));
       await waitForUi(tester, () => button.evaluate().isNotEmpty);
       expect(button, findsOneWidget);
       await tester.ensureVisible(button);
@@ -481,7 +646,7 @@ void main() {
         '15',
       );
       await tester.pump();
-      expect(find.text('بعد التسليم: عليه 5 لتر'), findsOneWidget);
+      expect(find.text('بعد الحركة: عليه 5 لتر'), findsOneWidget);
       await tester.tap(find.text('حفظ تسليم الديزل'));
       await tester.pump();
       await waitForUi(
@@ -505,29 +670,93 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
-  for (final system in ['solar', 'equivalent_hybrid']) {
-    testWidgets('beneficiary card hides diesel delivery for $system', (
-      tester,
-    ) async {
-      largeView(tester);
-      await tester.runAsync(() => repo.setSetting('system_type', system));
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: BeneficiariesPage(repo, userId: 1, manager: true),
+  for (final type in ['worker', 'partner']) {
+    testWidgets(
+      '$type card opens diesel delivery for the selected person',
+      (tester) async {
+        largeView(tester);
+        final target = ids[type]!;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: type == 'worker'
+                  ? WorkersPage(repo, userId: 1, manager: true)
+                  : PartnersPage(repo, userId: 1, manager: true),
+            ),
           ),
-        ),
-      );
-      await waitForUi(
-        tester,
-        () => find.text('شخص الاختبار').evaluate().isNotEmpty,
-      );
-      expect(find.text('شخص الاختبار'), findsOneWidget);
-      expect(find.text('إضافة تسليم ديزل'), findsNothing);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+        );
+        final button = find.byKey(
+          ValueKey('party-diesel-delivery-$type-$target'),
+        );
+        await waitForUi(tester, () => button.evaluate().isNotEmpty);
+        expect(button, findsOneWidget);
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        await waitForUi(
+          tester,
+          () => find.text('الاسم').evaluate().isNotEmpty,
+        );
+        final typeSelector = tester.widget<DropdownButtonFormField<String>>(
+          find.byType(DropdownButtonFormField<String>).first,
+        );
+        expect(typeSelector.initialValue, type);
+        final personSelector = tester.widget<DropdownButtonFormField<int>>(
+          find.byType(DropdownButtonFormField<int>).first,
+        );
+        expect(personSelector.initialValue, target);
+        expect(find.text('إضافة تسليم ديزل'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
+
+  testWidgets('beneficiary card hides diesel delivery for solar', (
+    tester,
+  ) async {
+    largeView(tester);
+    await tester.runAsync(() => repo.setSetting('system_type', 'solar'));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BeneficiariesPage(repo, userId: 1, manager: true),
+        ),
+      ),
+    );
+    await waitForUi(
+      tester,
+      () => find.text('شخص الاختبار').evaluate().isNotEmpty,
+    );
+    expect(find.text('شخص الاختبار'), findsOneWidget);
+    expect(find.text('إضافة تسليم ديزل'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('beneficiary card exposes diesel delivery for equivalent_hybrid', (
+    tester,
+  ) async {
+    largeView(tester);
+    await tester.runAsync(
+      () => repo.setSetting('system_type', 'equivalent_hybrid'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BeneficiariesPage(repo, userId: 1, manager: true),
+        ),
+      ),
+    );
+    await waitForUi(
+      tester,
+      () => find.text('شخص الاختبار').evaluate().isNotEmpty,
+    );
+    expect(find.text('شخص الاختبار'), findsOneWidget);
+    expect(find.text('إضافة تسليم ديزل'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets(
     'missing initial beneficiary fails closed without choosing somebody else',
     (tester) async {
@@ -537,18 +766,19 @@ void main() {
           home: DieselDeliveryPage(
             repo,
             userId: 1,
-            initialBeneficiaryId: 999999,
+            initialPartyType: 'beneficiary',
+            initialPartyId: 999999,
           ),
         ),
       );
       await waitForUi(
         tester,
         () => find
-            .textContaining('المستفيد المحدد غير موجود')
+            .textContaining('الطرف المحدد غير موجود')
             .evaluate()
             .isNotEmpty,
       );
-      expect(find.textContaining('المستفيد المحدد غير موجود'), findsOneWidget);
+      expect(find.textContaining('الطرف المحدد غير موجود'), findsOneWidget);
       expect(find.text('حفظ تسليم الديزل'), findsNothing);
       expect(
         await tester.runAsync(

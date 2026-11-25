@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/theme.dart';
+
 import '../services/sync_coordinator.dart';
 
 class SyncConnectionPanel extends StatefulWidget {
@@ -98,9 +100,9 @@ class _SyncConnectionPanelState extends State<SyncConnectionPanel> {
                             ? Icons.cloud_done_rounded
                             : Icons.cloud_off_rounded,
                     color: state.error != null
-                        ? Colors.red
+                        ? Theme.of(context).colorScheme.error
                         : state.connected
-                            ? Colors.green
+                            ? SaqiaTheme.reportPositive
                             : Theme.of(context).colorScheme.outline,
                   ),
                 ],
@@ -113,7 +115,7 @@ class _SyncConnectionPanelState extends State<SyncConnectionPanel> {
                   style: Theme.of(context).textTheme.bodySmall),
               if (state.error != null) ...[
                 const SizedBox(height: 6),
-                Text(state.error!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                Text(state.error!, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 12)),
               ],
               const SizedBox(height: 12),
               TextField(
@@ -175,9 +177,10 @@ class _SyncConnectionPanelState extends State<SyncConnectionPanel> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 4),
-              const Text(
+              Text(
                 'استخدم HTTPS في الخادم المنشور. لا تحفظ كلمة المرور؛ يُحفظ رمز جلسة الخادم في التخزين الآمن للجهاز.',
-                style: TextStyle(fontSize: 11, color: Colors.grey),
+                key: null,
+                style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ],
           ),

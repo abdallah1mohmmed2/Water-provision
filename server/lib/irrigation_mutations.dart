@@ -423,9 +423,12 @@ class _P1Mutations {
         // Clamp it to the edited duration just as recordIrrigation does.
         cloud = cloud.clamp(0, end.difference(start).inMinutes).toInt();
       }
-      // Cloud stoppage is only billable for solar systems. Keep diesel and
-      // equivalent-system recalculation consistent with recordIrrigation.
-      final effectiveCloud = type == 'solar' ? cloud : 0;
+      // Hybrid solar sessions use the solar tariff and retain cloud discounts.
+      // Hybrid diesel sessions use their immutable diesel-hourly snapshot.
+      final hybridSource = '${old['hybrid_source'] ?? ''}';
+      final hybridSolar = type == 'equivalent_hybrid' && hybridSource == 'solar';
+      final hybridDiesel = type == 'equivalent_hybrid' && hybridSource == 'diesel';
+      final effectiveCloud = type == 'solar' || hybridSolar ? cloud : 0;
       final allowMidnight = cfg['allow_midnight_crossing'] == 'true';
       var result = type == 'diesel'
           ? AccountingCalculations.diesel(
@@ -443,7 +446,7 @@ class _P1Mutations {
               rounding: rounding,
               partialHour: partialHour,
             )
-          : type == 'solar'
+          : type == 'solar' || hybridSolar
           ? AccountingCalculations.solar(
               start: start,
               end: end,
@@ -454,21 +457,26 @@ class _P1Mutations {
               rounding: rounding,
               partialHour: partialHour,
             )
-          : AccountingCalculations.equivalent(
-              start: start,
-              end: end,
-              hourlyRate:
-                  (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ??
-                  0,
-              allowMidnightCrossing: allowMidnight,
-              rounding: rounding,
-              partialHour: partialHour,
-            );
+          : hybridDiesel
+              ? AccountingCalculations.diesel(
+                  start: start, end: end,
+                  hourlyWaterRate: (old['hybrid_diesel_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  litersPerHour: (old['diesel_liters_per_hour_snapshot'] as num?)?.toDouble() ?? 0,
+                  dieselPrice: 0, cloudMinutes: 0,
+                  allowMidnightCrossing: allowMidnight,
+                  rounding: rounding, partialHour: partialHour,
+                )
+              : AccountingCalculations.equivalent(
+                  start: start, end: end,
+                  hourlyRate: (old['third_type_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  allowMidnightCrossing: allowMidnight,
+                  rounding: rounding, partialHour: partialHour,
+                );
       // In-kind diesel shortage is liters only, not a financial charge.
       var shortageLiters = 0.0;
       final partyTypeForDiesel = '${old['party_type'] ?? 'beneficiary'}';
       final dieselBeneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
-      if (type == 'diesel' &&
+      if ((type == 'diesel' || hybridDiesel) &&
           partyTypeForDiesel == 'beneficiary' &&
           result.dieselLiters > 0) {
         final stockRows = tx.rawQuery(_beneficiaryDieselStockSql, [
@@ -736,7 +744,7 @@ class _P1Mutations {
         orderBy: 'id',
       );
       _reverseIrrigationDieselTx(tx, id, userId, 'تعديل السقاية');
-      if (type == 'diesel' && result.dieselLiters > 0) {
+      if ((type == 'diesel' || hybridDiesel) && result.dieselLiters > 0) {
         if (partyType == 'beneficiary' && shortageLiters > 0) {
           tx.insert('diesel_movements', {
             'station_id': old['station_id'],
@@ -1307,6 +1315,8 @@ extension _P1Sync on SaqiaServer {
       ['irrigations', 'work_price_enabled_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
       ['irrigations', 'work_base_water_amount_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
       ['irrigations', 'work_difference_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
+      ['irrigations', 'hybrid_source', 'TEXT'],
+      ['irrigations', 'hybrid_diesel_hourly_rate_snapshot', 'INTEGER NOT NULL DEFAULT 0'],
       ['payments', 'irrigation_id', 'INTEGER REFERENCES irrigations(id)'],
       [
         'diesel_movements',
@@ -1441,7 +1451,14 @@ extension _P1Sync on SaqiaServer {
       case 'solar':
         immutable.add('solar_hourly_rate_snapshot');
       case 'equivalent_hybrid':
-        immutable.add('third_type_hourly_rate_snapshot');
+        immutable.add('hybrid_source');
+        if (old['hybrid_source'] == 'solar') {
+          immutable.add('solar_hourly_rate_snapshot');
+        } else if (old['hybrid_source'] == 'diesel') {
+          immutable.add('hybrid_diesel_hourly_rate_snapshot');
+        } else {
+          immutable.add('third_type_hourly_rate_snapshot'); // historical records
+        }
     }
     for (final key in immutable) {
       // Older clients do not carry the V33 switch flag. It is safe to omit

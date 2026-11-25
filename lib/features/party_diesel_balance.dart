@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../core/theme.dart';
 import '../core/diesel_quantity.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/maintenance/diesel_delivery_service.dart';
@@ -29,6 +31,6 @@ class PartyDieselBalance extends StatelessWidget {
     padding: const EdgeInsets.symmetric(vertical: 8),
     child: Text(DieselQuantity.balanceLabel(balance),
       style: TextStyle(fontWeight: FontWeight.w900,
-        color: balance < 0 ? Colors.red : Colors.green)),
+        color: balance < 0 ? SaqiaTheme.reportNegative : SaqiaTheme.reportPositive)),
   );
 }

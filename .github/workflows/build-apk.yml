@@ -2,7 +2,7 @@ name: Build Flutter APK
 
 on:
   push:
-    branches: [ "test/all-open-prs", "experiment/main-based-2026-11-02", "feature/firebase-station-foundation" ]
+    branches: [ "test/all-open-prs", "experiment/main-based-2026-11-02", "feature/firebase-station-foundation", "feature/unified-theme-system" ]
   workflow_dispatch:
 
 jobs:
@@ -16,13 +16,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsqlite3-dev
 
-
       - name: إعداد بيئة Java مع التخزين المؤقت
         uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
-          cache: 'gradle' # يحفظ أدوات بناء الأندرويد لتسريعها في المرات القادمة
+          cache: 'gradle'
 
       - name: Cache Gradle wrapper and dependencies
         uses: gradle/actions/setup-gradle@v4
@@ -32,7 +31,7 @@ jobs:
         with:
           channel: stable
           flutter-version: '3.47.9'
-          cache: true # يحفظ بيئة فلاتر بالكامل لتجنب إعادة تحميلها
+          cache: true
 
       - name: جلب الحزم والمكتبات
         run: flutter pub get
@@ -51,7 +50,9 @@ jobs:
         run: python3 tooling/prepare_firebase_dart_defines.py
 
       - name: تحليل Flutter
-        run: flutter analyze
+        # Match the repository's validated CI policy: info-level lints are non-fatal,
+        # while analyzer errors and warnings still fail the release build.
+        run: flutter analyze --no-fatal-infos
 
       - name: اختبارات Flutter
         run: flutter test
@@ -78,7 +79,7 @@ jobs:
       - name: Prepare SHA3-verified Android SQLite source
         run: python3 tooling/prepare_android_sqlite.py
 
-      - name: بناء تطبيق الأندرويد (النسخة النهائية)
+      - name: بناء تطبيق الأندرويد (Release)
         run: |
           flutter build apk --release \
             --dart-define=SAQIA_FIREBASE_API_KEY="$SAQIA_FIREBASE_API_KEY" \
@@ -87,8 +88,24 @@ jobs:
             --dart-define=SAQIA_FIREBASE_PROJECT_ID="$SAQIA_FIREBASE_PROJECT_ID" \
             --dart-define=SAQIA_FIREBASE_STORAGE_BUCKET="$SAQIA_FIREBASE_STORAGE_BUCKET"
 
-      - name: حفظ ملف الـ APK لتمكين تحميله
+      - name: ضغط APK والتحقق من سلامة الملف
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+          mkdir -p dist
+          zip -9 -j dist/Saqia-App-Release.zip "$APK"
+          sha256sum dist/Saqia-App-Release.zip > dist/Saqia-App-Release.zip.sha256
+          unzip -t dist/Saqia-App-Release.zip
+          ls -lh "$APK" dist/Saqia-App-Release.zip dist/Saqia-App-Release.zip.sha256
+
+      - name: رفع نسخة Release المضغوطة كـ Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Saqia-App-Release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: Saqia-App-Release-ZIP
+          path: |
+            dist/Saqia-App-Release.zip
+            dist/Saqia-App-Release.zip.sha256
+          if-no-files-found: error
+          compression-level: 0

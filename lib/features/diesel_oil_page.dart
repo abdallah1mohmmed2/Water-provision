@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../core/theme.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/app_prefs.dart';
@@ -121,7 +123,7 @@ class _DieselOilCardState extends State<DieselOilCard>
     child: ListTile(
       leading: Icon(
         Icons.oil_barrel_outlined,
-        color: status?.state == 'due' ? Colors.red : Colors.orange.shade700,
+        color: status?.state == 'due' ? Theme.of(context).colorScheme.error : SaqiaTheme.reportNegative,
       ),
       title: const Text('زيت منظومة الديزل'),
       subtitle: Text(error ?? status?.message ?? 'جارٍ حساب ساعات السقاية…'),
@@ -394,7 +396,7 @@ class _DieselOilPageState extends State<DieselOilPage> {
                   padding: const EdgeInsets.all(12),
                   child: Text(
                     error!,
-                    style: const TextStyle(color: Colors.red),
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
                   ),
                 ),
               if (value == null)

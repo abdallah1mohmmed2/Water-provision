@@ -1163,6 +1163,7 @@ class AccountingService {
     required int dieselPrice,
     required int solarRate,
     required int thirdRate,
+    String? hybridSource,
     required int cloudMinutes,
     List<Map<String, String>> cloudPeriods = const [],
     required int paidAmount,
@@ -1223,13 +1224,20 @@ class AccountingService {
     if (owner.isEmpty) {
       throw StateError('صاحب السقاية لا يتبع المحطة');
     }
-    final effectiveLiters = effectiveType == 'diesel'
+    final dieselSourceSelected = effectiveType == 'diesel' ||
+        (effectiveType == 'equivalent_hybrid' && hybridSource == 'diesel');
+    final effectiveLiters = dieselSourceSelected
         ? PartyDieselRate.resolve(owner.first['diesel_liters_per_hour'], double.tryParse(set['diesel_liters_per_hour'] ?? '0') ?? 0)
         : 0.0;
     // Irrigation diesel is an in-kind quantity, not a billed fuel product.
     const effectiveDieselPrice = 0;
     final effectiveSolarRate = int.tryParse(set['solar_hourly_rate'] ?? '0') ?? 0;
+    final effectiveHybridDieselRate = int.tryParse(set['hybrid_diesel_hourly_rate'] ?? '0') ?? 0;
+    // Legacy rate remains read only for old records and legacy session paths.
     final effectiveThirdRate = int.tryParse(set['third_type_hourly_rate'] ?? '0') ?? 0;
+    if (effectiveType == 'equivalent_hybrid' && !const {'diesel', 'solar'}.contains(hybridSource)) {
+      throw StateError('حدد مصدر تشغيل السقاية: ديزل أو طاقة شمسية');
+    }
     final allowMidnight = set['allow_midnight_crossing'] == 'true';
     // عبور منتصف الليل: تُنقل النهاية لليوم التالي قبل أي فحص أو حفظ، حتى لا يُحفظ
     // end_datetime أصغر من البداية فيفسد فحص التعارض والتقارير.
@@ -1237,7 +1245,7 @@ class AccountingService {
         ? end.add(const Duration(days: 1))
         : end;
     final normalizedCloudPeriods = <Map<String, Object?>>[];
-    if (effectiveType != 'diesel' && cloudPeriods.isNotEmpty) {
+    if ((effectiveType == 'solar' || (effectiveType == 'equivalent_hybrid' && hybridSource == 'solar')) && cloudPeriods.isNotEmpty) {
       final parsed = <Map<String, Object?>>[];
       for (final period in cloudPeriods) {
         final ps = DateTime.tryParse(period['start'] ?? '');
@@ -1270,7 +1278,9 @@ class AccountingService {
     }
     // Cloud minutes are persisted for both non-diesel types, but only solar
     // discounts chargeable minutes. The third type retains its existing pricing.
-    final effectiveCloud = effectiveType != 'diesel'
+    final cloudApplies = effectiveType == 'solar' ||
+        (effectiveType == 'equivalent_hybrid' && hybridSource == 'solar');
+    final effectiveCloud = cloudApplies
         ? (normalizedCloudPeriods.isNotEmpty
             ? normalizedCloudPeriods.fold<int>(0, (sum, x) => sum + (x['minutes'] as int))
             : cloudMinutes.clamp(0, AccountingCalculations.minutesBetween(start, endDt, allowMidnightCrossing: allowMidnight)))
@@ -1299,7 +1309,21 @@ class AccountingService {
             rounding: rounding,
             partialHour: partialHour,
           )
-        : AccountingCalculations.equivalent(
+        : effectiveType == 'equivalent_hybrid' && hybridSource == 'solar'
+            ? AccountingCalculations.solar(
+                start: start, end: endDt, hourlyRate: effectiveSolarRate,
+                cloudMinutes: effectiveCloud, allowMidnightCrossing: allowMidnight,
+                rounding: rounding, partialHour: partialHour,
+              )
+            : effectiveType == 'equivalent_hybrid' && hybridSource == 'diesel'
+            ? AccountingCalculations.diesel(
+                start: start, end: endDt,
+                hourlyWaterRate: effectiveHybridDieselRate,
+                litersPerHour: effectiveLiters, dieselPrice: 0, cloudMinutes: 0,
+                allowMidnightCrossing: allowMidnight,
+                rounding: rounding, partialHour: partialHour,
+              )
+            : AccountingCalculations.equivalent(
             start: start,
             end: endDt,
             hourlyRate: effectiveThirdRate,
@@ -1379,7 +1403,7 @@ class AccountingService {
       // Shortages become a quantity-only advance without financial debt.
       var shortageLiters = 0.0;
       if (partyType == 'beneficiary' &&
-          effectiveType == 'diesel' && calc.dieselLiters > 0) {
+          dieselSourceSelected && calc.dieselLiters > 0) {
         final br = await tx.rawQuery(_beneficiaryDieselStockSql, [
           beneficiaryId, beneficiaryId, beneficiaryId,
         ]);
@@ -1417,6 +1441,8 @@ class AccountingService {
         'end_datetime': endDt.toIso8601String(),
         'minutes': calc.minutes,
         'system_type': effectiveType,
+        'hybrid_source': effectiveType == 'equivalent_hybrid' ? hybridSource : null,
+        'hybrid_diesel_hourly_rate_snapshot': effectiveType == 'equivalent_hybrid' && hybridSource == 'diesel' ? effectiveHybridDieselRate : 0,
         'water_hourly_rate_snapshot': effectiveWaterRate,
         'work_minute_rate_snapshot': partyType == 'beneficiary'
             ? workMinuteRate.clamp(0, 1000000).toInt() : 0,
@@ -1425,8 +1451,8 @@ class AccountingService {
         'work_difference_snapshot': workPriceEnabled ? workDifference : 0,
         'diesel_liters_per_hour_snapshot': effectiveLiters,
         'diesel_price_snapshot': effectiveDieselPrice,
-        'solar_hourly_rate_snapshot': effectiveSolarRate,
-        'third_type_hourly_rate_snapshot': effectiveThirdRate,
+        'solar_hourly_rate_snapshot': effectiveType == 'solar' || (effectiveType == 'equivalent_hybrid' && hybridSource == 'solar') ? effectiveSolarRate : 0,
+        'third_type_hourly_rate_snapshot': effectiveType == 'equivalent_hybrid' && hybridSource == null ? effectiveThirdRate : effectiveType == 'equivalent_hybrid' ? 0 : effectiveThirdRate,
         'cloud_minutes': effectiveType == 'equivalent_hybrid' ? effectiveCloud : calc.cloudMinutes,
         'chargeable_minutes': calc.chargeableMinutes,
         'water_amount': billedWater,
@@ -1550,7 +1576,7 @@ class AccountingService {
           'created_by': userId,
         });
       }
-      if (effectiveType == 'diesel' && calc.dieselLiters > 0) {
+      if (dieselSourceSelected && calc.dieselLiters > 0) {
         if (partyType == 'beneficiary' && shortageLiters > 0) {
           await tx.insert('diesel_movements', {
             'station_id': stationId,
@@ -3162,15 +3188,19 @@ class AccountingService {
         cloud = cloud.clamp(0, end.difference(start).inMinutes).toInt();
       }
       if (cloudMinutesOverride != null) {
-        if (type != 'solar') throw ArgumentError('تعديل الغيم متاح للسقاية الشمسية فقط');
+        if (type != 'solar' && !(type == 'equivalent_hybrid' && old['hybrid_source'] == 'solar')) {
+          throw ArgumentError('تعديل الغيم متاح للسقاية الشمسية فقط');
+        }
         if (cloudMinutesOverride < 0 || cloudMinutesOverride > end.difference(start).inMinutes) {
           throw ArgumentError('دقائق الغيم يجب أن تكون بين صفر ومدة السقاية');
         }
         cloud = cloudMinutesOverride;
       }
-      // Cloud stoppage is only billable for solar systems. Keep diesel and
-      // equivalent-system recalculation consistent with recordIrrigation.
-      final effectiveCloud = type == 'solar' ? cloud : 0;
+      // Cloud stoppage affects standalone solar and hybrid irrigations selected as solar.
+      final hybridSource = '${old['hybrid_source'] ?? ''}';
+      final hybridSolar = type == 'equivalent_hybrid' && hybridSource == 'solar';
+      final hybridDiesel = type == 'equivalent_hybrid' && hybridSource == 'diesel';
+      final effectiveCloud = type == 'solar' || hybridSolar ? cloud : 0;
       final allowMidnight = cfg['allow_midnight_crossing'] == 'true';
       var result = type == 'diesel'
           ? AccountingCalculations.diesel(
@@ -3182,11 +3212,20 @@ class AccountingService {
               allowMidnightCrossing: allowMidnight,
               rounding: rounding, partialHour: partialHour,
             )
-          : type == 'solar'
+          : type == 'solar' || hybridSolar
               ? AccountingCalculations.solar(
                   start: start, end: end,
                   hourlyRate: (old['solar_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
                   cloudMinutes: cloud,
+                  allowMidnightCrossing: allowMidnight,
+                  rounding: rounding, partialHour: partialHour,
+                )
+              : hybridDiesel
+              ? AccountingCalculations.diesel(
+                  start: start, end: end,
+                  hourlyWaterRate: (old['hybrid_diesel_hourly_rate_snapshot'] as num?)?.toInt() ?? 0,
+                  litersPerHour: (old['diesel_liters_per_hour_snapshot'] as num?)?.toDouble() ?? 0,
+                  dieselPrice: 0, cloudMinutes: 0,
                   allowMidnightCrossing: allowMidnight,
                   rounding: rounding, partialHour: partialHour,
                 )
@@ -3200,7 +3239,7 @@ class AccountingService {
       var shortageLiters = 0.0;
       final partyTypeForDiesel = '${old['party_type'] ?? 'beneficiary'}';
       final dieselBeneficiaryId = (old['beneficiary_id'] as num?)?.toInt();
-      if (type == 'diesel' && partyTypeForDiesel == 'beneficiary' && result.dieselLiters > 0) {
+      if ((type == 'diesel' || hybridDiesel) && partyTypeForDiesel == 'beneficiary' && result.dieselLiters > 0) {
         final stockRows = await tx.rawQuery(_beneficiaryDieselStockSql, [
           dieselBeneficiaryId, dieselBeneficiaryId, dieselBeneficiaryId,
         ]);
@@ -3384,7 +3423,7 @@ class AccountingService {
       final oldDieselMoves = await tx.query('diesel_movements',
         where: 'irrigation_id=?', whereArgs: [id], orderBy: 'id');
       await _reverseIrrigationDieselTx(tx, id, userId, 'تعديل السقاية');
-      if (type == 'diesel' && result.dieselLiters > 0) {
+      if ((type == 'diesel' || hybridDiesel) && result.dieselLiters > 0) {
         if (partyType == 'beneficiary' && shortageLiters > 0) {
           await tx.insert('diesel_movements', {
             'station_id': old['station_id'],
@@ -4078,13 +4117,14 @@ class AccountingService {
   }
 
   /// إضافة مديونية سابقة من مركز المدفوعات دون أي حركة صندوق.
-  /// لجميع الأطراف: المبلغ عليهم للمحطة. الأرصدة التاريخية المستحقة للأطراف لا تُمس.
+  /// يدعم العامل والشريك الاتجاهين؛ المستفيد تبقى مديونيته لصالح المحطة.
   Future<int> addPreviousPartyDebt({
     required String partyType,
     required int partyId,
     required int amount,
     required DateTime date,
     required String notes,
+    bool partyOwesStation = true,
     int? userId,
   }) async {
     if (amount <= 0) throw ArgumentError('قيمة المديونية يجب أن تكون أكبر من صفر');
@@ -4124,9 +4164,13 @@ class AccountingService {
           ? await _workerAccountIdTx(tx, partyId)
           : await _partnerAccountIdTx(tx, partyId);
       final openingEquity = await _accountIdTx(tx, '3000');
+      final partyPayable = !partyOwesStation;
+      final partyLabel = isWorker ? 'العامل' : 'الشريك';
       final entryId = await _entry(
         tx,
-        description: 'مديونية سابقة على ${isWorker ? 'العامل' : 'الشريك'} $name',
+        description: partyPayable
+            ? 'مستحقات سابقة لـ$partyLabel $name'
+            : 'مديونية سابقة على $partyLabel $name',
         referenceType: isWorker ? 'worker_opening' : 'partner_opening',
         referenceId: partyId,
         date: date,
@@ -4136,15 +4180,17 @@ class AccountingService {
           {
             'account_id': partyAccount,
             if (isWorker) 'worker_id': partyId else 'partner_id': partyId,
-            'debit': amount,
-            'credit': 0,
+            'debit': partyPayable ? 0 : amount,
+            'credit': partyPayable ? amount : 0,
             'memo': notes.trim(),
           },
           {
             'account_id': openingEquity,
-            'debit': 0,
-            'credit': amount,
-            'memo': 'مقابل مديونية سابقة على الطرف',
+            'debit': partyPayable ? amount : 0,
+            'credit': partyPayable ? 0 : amount,
+            'memo': partyPayable
+                ? 'مقابل مستحقات سابقة للطرف'
+                : 'مقابل مديونية سابقة على الطرف',
           },
         ],
       );
@@ -4153,7 +4199,7 @@ class AccountingService {
           'worker_id': partyId,
           'station_id': stationId,
           'date': date.toIso8601String(),
-          'type': 'previous_receivable',
+          'type': partyPayable ? 'opening_balance' : 'previous_receivable',
           'hours': 0,
           'rate_snapshot': 0,
           'percentage_snapshot': 0,
@@ -4168,7 +4214,7 @@ class AccountingService {
           'partner_id': partyId,
           'station_id': stationId,
           'date': date.toIso8601String(),
-          'type': 'previous_receivable',
+          'type': partyPayable ? 'opening_balance' : 'previous_receivable',
           'amount': amount,
           'ownership_snapshot': null,
           'reference_type': 'previous_debt',
@@ -4189,9 +4235,14 @@ class AccountingService {
           'amount': amount,
           'date': date.toIso8601String(),
           'notes': notes.trim(),
+          'balance_direction': partyPayable
+              ? (isWorker ? 'station_owes_worker' : 'station_owes_partner')
+              : 'party_owes_station',
           'reference_type': isWorker ? 'worker_opening' : 'partner_opening',
         },
-        reason: 'إضافة مديونية سابقة على الطرف دون حركة نقدية',
+        reason: partyPayable
+            ? 'إثبات مستحقات سابقة للطرف دون حركة نقدية'
+            : 'إضافة مديونية سابقة على الطرف دون حركة نقدية',
       );
       return entryId;
     }, captureSyncTables: {transactionTable});

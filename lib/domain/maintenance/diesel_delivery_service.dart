@@ -23,9 +23,9 @@ class DieselDeliveryService {
     );
     if (rows.isEmpty ||
         settings.isEmpty ||
-        settings.first['value'] != 'diesel') {
+        !['diesel', 'equivalent_hybrid'].contains(settings.first['value'])) {
       throw StateError(
-        'تسجيل تسليم الديزل متاح للمدير والمحاسب في منظومة الديزل فقط',
+        'تسجيل تسليم الديزل متاح للمدير والمحاسب في منظومة الديزل والنوع الثالث فقط',
       );
     }
   }
@@ -124,6 +124,65 @@ class DieselDeliveryService {
     }, captureSyncTables: const {'diesel_movements'});
   }
 
+  /// Records diesel issued by the station to a party. It decreases both
+  /// the party's diesel balance and station stock, without creating money entries.
+  Future<int> issueToParty({
+    required int station,
+    required int user,
+    required String type,
+    required int person,
+    required double liters,
+    required DateTime date,
+    required String requestId,
+    String? notes,
+  }) async {
+    if (!liters.isFinite ||
+        liters <= 0 ||
+        requestId.trim().isEmpty ||
+        !tables.containsKey(type)) {
+      throw ArgumentError('حدد الطرف وكمية لترات موجبة وصالحة');
+    }
+    return db.transaction((tx) async {
+      await authorize(tx, station, user);
+      final party = await tx.rawQuery(
+        'SELECT id FROM ${tables[type]} WHERE id=? AND station_id=?',
+        [person, station],
+      );
+      if (party.isEmpty) {
+        throw StateError('الطرف لا يتبع المحطة');
+      }
+      final closed = await tx.rawQuery(
+        "SELECT 1 FROM period_closures WHERE station_id=? AND status='locked' AND period_start<=? AND COALESCE(period_end_exclusive,period_end)>?",
+        [station, date.toIso8601String(), date.toIso8601String()],
+      );
+      if (closed.isNotEmpty) {
+        throw StateError('الفترة مقفلة');
+      }
+      final id = await tx.insert('diesel_movements', {
+        'station_id': station,
+        '${type}_id': person,
+        'kind': 'consumption',
+        'party_receipt': 1,
+        'liters': liters,
+        'unit_price': 0,
+        'amount': 0,
+        'date': date.toIso8601String(),
+        'notes': notes,
+        'created_by': user,
+        'request_id': requestId,
+      });
+      await db.auditTx(
+        tx,
+        userId: user,
+        operation: 'issue_party_diesel',
+        table: 'diesel_movements',
+        recordId: id,
+        newValues: {'liters': liters, 'type': type, 'person': person},
+      );
+      return id;
+    }, captureSyncTables: const {'diesel_movements'});
+  }
+
   Future<void> cancelOn(
     Transaction tx,
     Map<String, Object?> row,
@@ -147,7 +206,7 @@ class DieselDeliveryService {
       'beneficiary_id': row['beneficiary_id'],
       'worker_id': row['worker_id'],
       'partner_id': row['partner_id'],
-      'kind': 'receipt',
+      'kind': row['kind'],
       'party_receipt': 1,
       'liters': -(row['liters'] as num).toDouble(),
       'unit_price': 0,

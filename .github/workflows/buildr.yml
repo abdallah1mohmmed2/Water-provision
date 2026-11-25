@@ -61,7 +61,7 @@ jobs:
         run: python3 tooling/prepare_firebase_dart_defines.py
 
       - name: Analyze Flutter code
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: Run Flutter tests and collect coverage
         run: flutter test --coverage

@@ -304,6 +304,88 @@ void main() {
     }
   });
 
+  test('الدين السابق للعامل يدعم الاتجاهين دون حركة صندوق', () async {
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(
+      name: 'عامل دين سابق بالاتجاهين',
+      payType: 'fixed',
+    );
+    final cashBefore = await cashboxBalance(1);
+    final date = DateTime.now();
+    await svc.addPreviousPartyDebt(
+      partyType: 'worker',
+      partyId: worker,
+      amount: 50000,
+      date: date,
+      notes: 'دين سابق على العامل',
+      partyOwesStation: true,
+    );
+    expect((await svc.workerBalance(worker))['balance'], -50000);
+    await svc.addPreviousPartyDebt(
+      partyType: 'worker',
+      partyId: worker,
+      amount: 12000,
+      date: date,
+      notes: 'مستحق سابق للعامل',
+      partyOwesStation: false,
+    );
+    expect((await svc.workerBalance(worker))['balance'], -38000);
+    expect(await cashboxBalance(1), cashBefore);
+    final txs = await db.query(
+      "SELECT type,amount FROM worker_transactions WHERE worker_id=? AND reference_type='previous_debt' ORDER BY id",
+      args: [worker],
+    );
+    expect(txs.map((x) => x['type']).toList(),
+        ['previous_receivable', 'opening_balance']);
+    expect(txs.map((x) => x['amount']).toList(), [50000, 12000]);
+  });
+
+  test('الدين النقدي السابق للشريك يدعم الاتجاهين دون حركة صندوق', () async {
+    final repo = StationRepository(db);
+    final partner = await repo.createPartner(
+      name: 'شريك دين سابق بالاتجاهين',
+      mode: 'shares',
+      shares: 1,
+    );
+    final cashBefore = await cashboxBalance(1);
+    final date = DateTime.now();
+
+    await svc.addPreviousPartyDebt(
+      partyType: 'partner',
+      partyId: partner,
+      amount: 50000,
+      date: date,
+      notes: 'دين سابق على الشريك للمحطة',
+      partyOwesStation: true,
+    );
+    expect((await svc.partnerBalance(partner))['balance'], -50000);
+
+    await svc.addPreviousPartyDebt(
+      partyType: 'partner',
+      partyId: partner,
+      amount: 12000,
+      date: date,
+      notes: 'مستحق سابق للشريك على المحطة',
+      partyOwesStation: false,
+    );
+    expect((await svc.partnerBalance(partner))['balance'], -38000);
+    expect(await cashboxBalance(1), cashBefore);
+
+    final txs = await db.query(
+      "SELECT type,amount FROM partner_transactions WHERE partner_id=? AND reference_type='previous_debt' ORDER BY id",
+      args: [partner],
+    );
+    expect(txs.map((x) => x['type']).toList(),
+        ['previous_receivable', 'opening_balance']);
+    expect(txs.map((x) => x['amount']).toList(), [50000, 12000]);
+
+    final gl = await db.rawQuery(
+      "SELECT COALESCE(SUM(credit)-SUM(debit),0) balance FROM journal_lines WHERE partner_id=?",
+      [partner],
+    );
+    expect((gl.single['balance'] as num).round(), -38000);
+  });
+
   test('أرصدة الأطراف المنشأة عبر المستودع تظهر في الأستاذ والكشف', () async {
     final repo = StationRepository(db);
     final w = await repo.createWorker(name: 'عامل برصيد افتتاحي', payType: 'fixed', opening: 1200);
@@ -1833,7 +1915,7 @@ void main() {
     expect(await cashboxBalance(1), baselineCash);
   });
 
-  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 35', () async {
+  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 36', () async {
     final opened = await db.db;
     await opened.execute('PRAGMA user_version=17');
     await db.close();
@@ -1855,7 +1937,7 @@ void main() {
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 35);
+    expect((version.single.values.single as num).toInt(), 36);
     final dieselColumns = (await upgraded.rawQuery('PRAGMA table_info(diesel_movements)')).map((r) => r['name']).toSet();
     expect(dieselColumns, containsAll({'worker_id','partner_id','party_receipt','request_id'}));
     final irrigationColumns = (await upgraded.rawQuery(
@@ -3060,6 +3142,80 @@ void main() {
     final april = history.singleWhere((row) => row['month_key'] == '2098-04');
     expect(april['partner_profit'], 500);
     expect(april['closing_balance'], 200);
+  });
+
+  test('النوع الثالث يستخدم سعر مصدر التشغيل المختار ويحفظ لقطته', () async {
+    final keys = ['system_type', 'solar_hourly_rate', 'hybrid_diesel_hourly_rate', 'diesel_liters_per_hour', 'work_price_difference_enabled'];
+    final previous = <String, String>{};
+    for (final key in keys) {
+      final rows = await db.query('SELECT value FROM settings WHERE key=?', args: [key]);
+      previous[key] = rows.isEmpty ? '' : '${rows.first['value']}';
+    }
+    try {
+      await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
+      await db.update('settings', {'value': '6000'}, 'key=?', ['solar_hourly_rate']);
+      await db.update('settings', {'value': '2'}, 'key=?', ['diesel_liters_per_hour']);
+      await db.insert('settings', {'key': 'work_price_difference_enabled', 'value': 'false', 'updated_at': DateTime.now().toIso8601String()}, conflictAlgorithm: ConflictAlgorithm.replace);
+      await db.insert('settings', {
+        'key': 'hybrid_diesel_hourly_rate',
+        'value': '9000',
+        'updated_at': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final start = DateTime(2048, 5, 6, 8);
+      final dieselParty = await db.insert('beneficiaries', {
+        'name': 'مستفيد اختبار ديزل النوع الثالث',
+        'diesel_liters_per_hour': 2.0,
+        'created_at': start.toIso8601String(),
+        'updated_at': start.toIso8601String(),
+      });
+      final solarParty = await db.insert('beneficiaries', {
+        'name': 'مستفيد اختبار شمسي النوع الثالث',
+        'diesel_liters_per_hour': 2.0,
+        'created_at': start.toIso8601String(),
+        'updated_at': start.toIso8601String(),
+      });
+      final dieselId = await svc.recordIrrigation(
+        stationId: 1, pumpId: 1, beneficiaryId: dieselParty,
+        start: start, end: start.add(const Duration(hours: 1)),
+        systemType: 'equivalent_hybrid', waterRate: 0, litersPerHour: 0,
+        dieselPrice: 0, solarRate: 0, thirdRate: 0, hybridSource: 'diesel',
+        cloudMinutes: 0, paidAmount: 0,
+      );
+      final solarId = await svc.recordIrrigation(
+        stationId: 1, pumpId: 1, beneficiaryId: solarParty,
+        start: start.add(const Duration(hours: 2)),
+        end: start.add(const Duration(hours: 3)),
+        systemType: 'equivalent_hybrid', waterRate: 0, litersPerHour: 0,
+        dieselPrice: 0, solarRate: 0, thirdRate: 0, hybridSource: 'solar',
+        cloudMinutes: 15, paidAmount: 0,
+      );
+      final diesel = (await db.query('SELECT * FROM irrigations WHERE id=?', args: [dieselId])).single;
+      final solar = (await db.query('SELECT * FROM irrigations WHERE id=?', args: [solarId])).single;
+      expect(diesel['hybrid_source'], 'diesel');
+      expect(diesel['hybrid_diesel_hourly_rate_snapshot'], 9000);
+      expect(diesel['solar_hourly_rate_snapshot'], 0);
+      expect(diesel['third_type_hourly_rate_snapshot'], 0);
+      expect(diesel['total_amount'], 9000);
+      expect(diesel['diesel_liters_per_hour_snapshot'], 2);
+      final dieselMoves = await db.query('SELECT kind,liters FROM diesel_movements WHERE irrigation_id=? ORDER BY id', args: [dieselId]);
+      expect(dieselMoves.map((row) => row['kind']).toList(), ['advance', 'consumption']);
+      expect(dieselMoves.map((row) => row['liters']).toList(), [2, 2]);
+      expect(solar['hybrid_source'], 'solar');
+      expect(solar['solar_hourly_rate_snapshot'], 6000);
+      expect(solar['hybrid_diesel_hourly_rate_snapshot'], 0);
+      expect(solar['third_type_hourly_rate_snapshot'], 0);
+      expect(solar['cloud_minutes'], 15);
+      expect(solar['chargeable_minutes'], 45);
+      expect(solar['total_amount'], 4500);
+      expect(solar['diesel_liters_per_hour_snapshot'], 0);
+      expect(await db.query('SELECT id FROM diesel_movements WHERE irrigation_id=?', args: [solarId]), isEmpty);
+    } finally {
+      for (final entry in previous.entries) {
+        if (entry.value.isNotEmpty) {
+          await db.update('settings', {'value': entry.value}, 'key=?', [entry.key]);
+        }
+      }
+    }
   });
 
 }

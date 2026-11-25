@@ -14,15 +14,16 @@ import 'package:saqia_station/services/sync_inbox_applier.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   for (final scenario in [
-    ('solar', 'beneficiary'),
-    ('diesel', 'beneficiary'),
-    ('equivalent_hybrid', 'beneficiary'),
-    ('solar', 'worker'),
-    ('solar', 'partner'),
+    ('solar', 'beneficiary', null),
+    ('diesel', 'beneficiary', null),
+    ('equivalent_hybrid', 'beneficiary', 'diesel'),
+    ('equivalent_hybrid', 'beneficiary', 'solar'),
+    ('solar', 'worker', null),
+    ('solar', 'partner', null),
   ]) {
-    final (system, partyType) = scenario;
+    final (system, partyType, hybridSource) = scenario;
     test(
-      'P1 $system $partyType edits, reversals, replay and rollback across two clients',
+      'P1 $system ${hybridSource ?? 'default'} $partyType edits, reversals, replay and rollback across two clients',
       () async {
         HttpOverrides.global =
             null; // Real loopback HTTP, not the widget-test stub.
@@ -60,6 +61,7 @@ void main() {
           for (final setting in {
             'system_type': system,
             'solar_hourly_rate': '6000',
+            'hybrid_diesel_hourly_rate': '6000',
             'third_type_hourly_rate': '6000',
             'diesel_hourly_water_rate': '6000',
             'diesel_liters_per_hour': '2',
@@ -155,6 +157,8 @@ void main() {
         );
         final first = sync(api);
         final now = DateTime(2090, 1, 1, 8);
+        final cloudApplies = system == 'solar' ||
+            (system == 'equivalent_hybrid' && hybridSource == 'solar');
         final party = await db.insert('beneficiaries', {
           'name': 'P1 party',
           if (system == 'diesel') 'diesel_liters_per_hour': 4.65,
@@ -191,13 +195,14 @@ void main() {
           start: now,
           end: now.add(const Duration(hours: 1)),
           systemType: system,
+          hybridSource: hybridSource,
           waterRate: 6000,
           litersPerHour: 2,
           dieselPrice: 500,
           solarRate: 6000,
           thirdRate: 6000,
-          cloudMinutes: system == 'solar' ? 20 : 0,
-          cloudPeriods: system == 'solar'
+          cloudMinutes: cloudApplies ? 20 : 0,
+          cloudPeriods: cloudApplies
               ? [
                   {
                     'start': now
@@ -266,7 +271,7 @@ void main() {
             'SELECT kind,COUNT(*) n,ROUND(SUM(liters),6) liters,SUM(amount) amount FROM diesel_movements GROUP BY kind ORDER BY kind',
           ),
           'irrigation': await db.query(
-            'SELECT start_datetime,end_datetime,total_amount,paid_amount,status FROM irrigations',
+            "SELECT start_datetime,end_datetime,system_type,hybrid_source,hybrid_diesel_hourly_rate_snapshot,solar_hourly_rate_snapshot,CASE WHEN system_type='equivalent_hybrid' THEN third_type_hourly_rate_snapshot ELSE 0 END legacy_third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,total_amount,paid_amount,status FROM irrigations",
           ),
         };
         Map<String, dynamic> event(Map<String, Object?> row) => {
@@ -279,6 +284,18 @@ void main() {
           'payload': jsonDecode(row['payload'] as String),
         };
         await settle(first);
+        if (system == 'equivalent_hybrid') {
+          final saved = (await db.query(
+            'SELECT hybrid_source,hybrid_diesel_hourly_rate_snapshot,solar_hourly_rate_snapshot,third_type_hourly_rate_snapshot,cloud_minutes,chargeable_minutes,total_amount FROM irrigations',
+          )).single;
+          expect(saved['hybrid_source'], hybridSource);
+          expect(saved['hybrid_diesel_hourly_rate_snapshot'], hybridSource == 'diesel' ? 6000 : 0);
+          expect(saved['solar_hourly_rate_snapshot'], hybridSource == 'solar' ? 6000 : 0);
+          expect(saved['third_type_hourly_rate_snapshot'], 0);
+          expect(saved['cloud_minutes'], cloudApplies ? 20 : 0);
+          expect(saved['chargeable_minutes'], cloudApplies ? 40 : 60);
+          expect(saved['total_amount'], cloudApplies ? 4000 : 6000);
+        }
         final initialState = await financialState();
         await db.close();
         await databaseFactory.setDatabasesPath(peer.path);
@@ -301,13 +318,13 @@ void main() {
             'settings',
             {'value': '99999'},
             where:
-                "key IN ('solar_hourly_rate','diesel_hourly_water_rate','third_type_hourly_rate','diesel_price_per_liter')",
+                "key IN ('solar_hourly_rate','hybrid_diesel_hourly_rate','diesel_hourly_water_rate','third_type_hourly_rate','diesel_price_per_liter')",
           );
           await tx.update(
             'station_settings',
             {'value': '99999'},
             where:
-                "station_id=1 AND key IN ('solar_hourly_rate','diesel_hourly_water_rate','third_type_hourly_rate','diesel_price_per_liter')",
+                "station_id=1 AND key IN ('solar_hourly_rate','hybrid_diesel_hourly_rate','diesel_hourly_water_rate','third_type_hourly_rate','diesel_price_per_liter')",
           );
         }, captureSync: false);
         await svc.updateIrrigationBasic(
@@ -353,12 +370,14 @@ void main() {
         await authority.close();
         final alteredPrice =
             jsonDecode(jsonEncode(savedEvent)) as Map<String, dynamic>;
-        alteredPrice['payload'][system == 'diesel'
-                ? 'water_hourly_rate_snapshot'
-                : system == 'solar'
-                ? 'solar_hourly_rate_snapshot'
-                : 'third_type_hourly_rate_snapshot'] =
-            99999;
+        final snapshotKey = system == 'diesel'
+            ? 'water_hourly_rate_snapshot'
+            : system == 'solar' || hybridSource == 'solar'
+            ? 'solar_hourly_rate_snapshot'
+            : hybridSource == 'diesel'
+            ? 'hybrid_diesel_hourly_rate_snapshot'
+            : 'third_type_hourly_rate_snapshot';
+        alteredPrice['payload'][snapshotKey] = 99999;
         final invalidPrice =
             await api.post('/sync/events', {
                   'device_id': device,

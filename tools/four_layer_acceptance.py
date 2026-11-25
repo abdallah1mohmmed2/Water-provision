@@ -41,8 +41,13 @@ check('new irrigation diesel balance is conditional', "partyType == 'beneficiary
 check('settings diesel pricing is conditional', "(s['system_type'] ?? 'diesel') == 'diesel'" in app)
 check('settings diesel warning is conditional', "setTile('diesel_warning_percent'" in app and "== 'diesel'" in app)
 check('diesel page refuses solar', "if (!cfg.isDiesel)" in app and "عناصر الديزل غير متاحة" in app)
-check('reports hide diesel inventory on solar', "currentType == 'solar' && k == 'diesel_inventory'" in app)
-check('diesel inventory report is blocked at data layer', "key == 'diesel_inventory' && currentSystemType != 'diesel'" in repo)
+check('diesel delivery shortcuts are enabled for diesel and hybrid only',
+      "dieselDeliveryEnabled = const ['diesel', 'equivalent_hybrid'].contains(settings['system_type']);" in app and
+      'dieselEnabled: dieselDeliveryEnabled' in app)
+check('diesel inventory report is available for diesel and hybrid, not solar',
+      "const ['diesel', 'equivalent_hybrid'].contains(currentType)" in app and
+      "const ['diesel', 'equivalent_hybrid'].contains(currentSystemType)" in repo and
+      "const ['diesel', 'equivalent_hybrid'].contains(currentType)" in pdf)
 check('diesel stock is not read by solar session start', "set['system_type'] == 'diesel' ? await accounting.dieselStock()" in repo)
 
 # 3) PDF: explicit Arabic font usage, report columns, Arabic-safe enum display.

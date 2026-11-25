@@ -1,5 +1,10 @@
 /// Optional per-owner fuel rate. Null inherits the station setting.
 class PartyDieselRate {
+  /// Personal diesel-rate fields are applicable to diesel and hybrid systems,
+  /// but not solar-only stations.
+  static bool enabledForSystemType(Object? systemType) =>
+      systemType == 'diesel' || systemType == 'equivalent_hybrid';
+
   static double? validate(Object? value) {
     if (value == null) {
       return null;

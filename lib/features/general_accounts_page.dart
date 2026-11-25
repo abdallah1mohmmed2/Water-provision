@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../core/theme.dart';
 import 'package:sqflite/sqflite.dart';
 import '../core/app_clock.dart';
 import '../data/repositories/repositories.dart';
@@ -510,7 +512,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
                                 final receipt = row['type'] == 'receipt';
                                 return ListTile(
                                   dense: true,
-                                  leading: Icon(receipt ? Icons.south_west_rounded : Icons.north_east_rounded, color: receipt ? Colors.green : Colors.orange),
+                                  leading: Icon(receipt ? Icons.south_west_rounded : Icons.north_east_rounded, color: receipt ? SaqiaTheme.reportPositive : SaqiaTheme.reportNegative),
                                   title: Text('${receipt ? 'قبض' : 'صرف'} — ${_money((row['amount'] as num).toInt())} ريال'),
                                   subtitle: Text('${row['date']}\n${[row['reference_number'], row['notes']].where((x) => x != null && '$x'.trim().isNotEmpty).join(' • ')}'),
                                   isThreeLine: true,
