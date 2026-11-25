@@ -15046,7 +15046,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
   String? error;
   bool hybridSystem=false;
   Map<String,int> hybridSolar={};
-  Map<String,int> hybridDiesel={}
+  Map<String,int> hybridDiesel={};
 
   @override void initState(){
     super.initState();
