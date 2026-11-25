@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:saqia_station/data/local/database.dart';
 import 'package:saqia_station/domain/accounting/accounting_service.dart';
+import 'package:saqia_station/data/repositories/repositories.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -156,4 +157,37 @@ void main() {
     expect(edited['chargeable_minutes'], 105);
     expect(edited['total_amount'], 10500);
   });
+  test('party irrigation report rows expose hybrid source and diesel liters', () async {
+    final start = DateTime(2050, 4, 14, 8);
+    final owner = await beneficiary('تقرير مصدر هجين', start);
+    for (final source in ['solar', 'diesel']) {
+      await accounting.recordIrrigation(
+        stationId: 1,
+        pumpId: 1,
+        beneficiaryId: owner,
+        start: start.add(Duration(hours: source == 'solar' ? 0 : 2)),
+        end: start.add(Duration(hours: source == 'solar' ? 1 : 3)),
+        systemType: 'equivalent_hybrid',
+        hybridSource: source,
+        waterRate: 0,
+        litersPerHour: 0,
+        dieselPrice: 0,
+        solarRate: 6000,
+        thirdRate: 6000,
+        cloudMinutes: source == 'solar' ? 10 : 0,
+        cloudPeriods: source == 'solar' ? cloudPeriod(start) : const [],
+        paidAmount: 0,
+      );
+    }
+    final rows = await StationRepository(db).report(
+      'irrigations', beneficiaryId: owner, systemType: 'equivalent_hybrid');
+    expect(rows.map((row) => row['hybrid_source']).toSet(), {'solar', 'diesel'});
+    expect(rows.every((row) => row.containsKey('diesel_consumption_liters')), isTrue);
+    final solar = rows.singleWhere((row) => row['hybrid_source'] == 'solar');
+    final diesel = rows.singleWhere((row) => row['hybrid_source'] == 'diesel');
+    expect(solar['cloud_minutes'], 10);
+    expect(diesel['cloud_minutes'], 0);
+    expect(diesel['diesel_consumption_liters'], 0);
+  });
+
 }
