@@ -3536,11 +3536,15 @@ void _applyPartyDieselReceipt({
     var totalWorkerEntitlement = 0;
     if (_hasTable('workers')) {
       final workers = db.select(
-        "SELECT id,pay_type,hourly_rate,percentage_rate FROM workers WHERE station_id=? AND active=1 AND pay_type IN ('hourly','percentage') ORDER BY id",
+        "SELECT id,pay_type,hourly_rate,percentage_rate,source_affiliation FROM workers WHERE station_id=? AND active=1 AND pay_type IN ('hourly','percentage') ORDER BY id",
         [station],
       );
       for (final worker in workers) {
         final workerId = (worker['id'] as num).toInt();
+        final affiliation = '${worker['source_affiliation'] ?? 'shared'}';
+        if (system == 'equivalent_hybrid' &&
+            ((affiliation == 'solar' && hybridSource != 'solar') ||
+             (affiliation == 'diesel' && hybridSource != 'diesel'))) continue;
         final payType = worker['pay_type'].toString();
         final hourlyRate = (worker['hourly_rate'] as num?)?.round() ?? 0;
         final percentageRate = (worker['percentage_rate'] as num?)?.toDouble() ?? 0;
@@ -3566,7 +3570,7 @@ void _applyPartyDieselReceipt({
           userId: userId,
           date: start,
           lines: [
-            {'account_id': _accountId('5000'), 'worker_id': workerId, 'debit': amount, 'credit': 0},
+            {'account_id': _accountId(_workerExpenseCode(station,workerId)), 'worker_id': workerId, 'debit': amount, 'credit': 0},
             {'account_id': _syncWorkerAccountId(workerId), 'worker_id': workerId, 'debit': 0, 'credit': amount},
           ],
         );

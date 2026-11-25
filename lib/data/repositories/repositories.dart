@@ -226,7 +226,6 @@ class StationRepository {
     String? notes,
     int? userId,
     double? dieselLitersPerHour,
-    String sourceAffiliation = 'shared',
   }) async {
     PartyDieselRate.validate(dieselLitersPerHour);
     if (name.trim().isEmpty) throw ArgumentError('اسم المستفيد مطلوب');
@@ -1641,6 +1640,7 @@ class StationRepository {
     int opening = 0,
     int? userId,
     double? dieselLitersPerHour,
+    String sourceAffiliation = 'shared',
   }) async {
     PartyDieselRate.validate(dieselLitersPerHour);
     if (name.trim().isEmpty) throw ArgumentError('اسم العامل مطلوب');
