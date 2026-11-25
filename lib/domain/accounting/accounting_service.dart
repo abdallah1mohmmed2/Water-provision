@@ -1386,7 +1386,7 @@ class AccountingService {
           set['third_type_cross_source_overlap_enabled'] == 'true';
       final overlap = crossSourceOverlapEnabled
           ? await tx.rawQuery(
-              "SELECT id FROM irrigations WHERE pump_id=? AND status!='cancelled' AND system_type='equivalent_hybrid' AND hybrid_source=? AND start_datetime<? AND end_datetime>? LIMIT 1",
+              "SELECT id FROM irrigations WHERE pump_id=? AND status!='cancelled' AND system_type='equivalent_hybrid' AND (hybrid_source=? OR hybrid_source IS NULL) AND start_datetime<? AND end_datetime>? LIMIT 1",
               [pumpId, hybridSource, endDt.toIso8601String(), start.toIso8601String()],
             )
           : await tx.rawQuery(
