@@ -118,6 +118,56 @@ class ReportService {
 };
 
 
+  /// Source-filtered irrigation PDF for a person in the hybrid system.
+  /// Legacy hybrid rows without a source are excluded rather than misclassified.
+  Future<void> printHybridPartyIrrigationsPdf({
+    required String partyType,
+    required int partyId,
+    required String source,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    if (!const ['beneficiary', 'worker', 'partner'].contains(partyType) ||
+        partyId <= 0 || !const ['solar', 'diesel'].contains(source)) {
+      throw ArgumentError('نوع الطرف أو المصدر غير صالح');
+    }
+    final settings = await repo.settings();
+    if (settings['system_type'] != 'equivalent_hybrid') {
+      throw StateError('تقارير المصدر المنفصلة متاحة للنوع الثالث فقط');
+    }
+    final rows = await repo.report(
+      'irrigations',
+      beneficiaryId: partyType == 'beneficiary' ? partyId : null,
+      workerId: partyType == 'worker' ? partyId : null,
+      partnerId: partyType == 'partner' ? partyId : null,
+      systemType: 'equivalent_hybrid',
+      from: from,
+      to: to,
+    );
+    final filtered = rows.where((row) => row['hybrid_source'] == source).toList();
+    final table = switch (partyType) {
+      'beneficiary' => 'beneficiaries',
+      'worker' => 'workers',
+      _ => 'partners',
+    };
+    final person = await repo.db.rawQuery('SELECT name FROM $table WHERE id=? LIMIT 1', [partyId]);
+    final name = person.isEmpty ? 'غير محدد' : '${person.first['name'] ?? 'غير محدد'}';
+    final label = source == 'solar' ? 'شمسي' : 'ديزل';
+    await printPdf(
+      'irrigations',
+      systemType: 'equivalent_hybrid',
+      beneficiaryId: partyType == 'beneficiary' ? partyId : null,
+      workerId: partyType == 'worker' ? partyId : null,
+      partnerId: partyType == 'partner' ? partyId : null,
+      from: from,
+      to: to,
+      sourceRows: filtered,
+      hybridSource: source,
+      reportTitleOverride: 'سقايات $label — $name',
+      fileNameOverride: 'سقايات $label $name',
+    );
+  }
+
   /// A third per-person PDF: liters issued, consumed and the exact signed
   /// balance, including reversals. No money or stock is posted by this reader.
   Future<void> printPartyDieselPdf({
@@ -248,6 +298,9 @@ class ReportService {
     String? category,
     String? status,
     List<Map<String, Object?>>? sourceRows,
+    String? hybridSource,
+    String? reportTitleOverride,
+    String? fileNameOverride,
   }) async {
     final started = AppClock.now();
     if (!titles.containsKey(key) || !reportColumns.containsKey(key)) {
@@ -308,10 +361,14 @@ class ReportService {
     };
     final dieselOnly = DieselReportColumns.dieselOnly(rows, systemType);
     final fuelReport = const ['irrigations', 'beneficiary_detailed'].contains(key);
-    final expectedHeaders = fuelReport
-        ? DieselReportColumns.select(reportColumns[key]!, dieselOnly: dieselOnly,
-            hasDiesel: rows.any((row) => row['system_type'] == 'diesel'))
-        : reportColumns[key] ?? <String>[];
+    final expectedHeaders = hybridSource == 'diesel' && key == 'irrigations'
+        ? ['party_name', 'start_datetime', 'end_datetime', 'minutes', 'paid_amount', 'total_amount', 'diesel_consumption_liters']
+        : hybridSource == 'solar' && key == 'irrigations'
+            ? ['party_name', 'start_datetime', 'end_datetime', 'minutes', 'paid_amount', 'total_amount', 'cloud_minutes', 'cloud_status']
+            : fuelReport
+                ? DieselReportColumns.select(reportColumns[key]!, dieselOnly: dieselOnly,
+                    hasDiesel: rows.any((row) => row['system_type'] == 'diesel'))
+                : reportColumns[key] ?? <String>[];
     // Empty reports keep the configured columns so the official template can
     // render a useful empty-state table instead of failing on zero columns.
     final sourceHeaders = rows.isEmpty
@@ -349,6 +406,7 @@ class ReportService {
               'total_amount': 'القيمة الإجمالية',
               'cloud_minutes': 'الغيم',
               'cloud_status': 'حالة الخصم',
+              'diesel_consumption_liters': 'استهلاك الديزل (لتر)',
             }[header] ?? _fieldName(header))
           : _fieldName(header);
       return _shapeArabic(label);
@@ -530,9 +588,9 @@ class ReportService {
       ],
     ];
 
-    final reportTitle = personName == null
+    final reportTitle = reportTitleOverride ?? (personName == null
         ? titles[key]!
-        : '${titles[key]} — $personName';
+        : '${titles[key]} — $personName');
     final reportNumber = 'R-${DateFormat('yyMMdd-HHmm').format(started)}';
     final filterText = _filters(
       from,
@@ -1628,6 +1686,9 @@ class ReportService {
     String? category,
     String? status,
     List<Map<String, Object?>>? sourceRows,
+    String? hybridSource,
+    String? reportTitleOverride,
+    String? fileNameOverride,
   }) async {
     if (key == 'beneficiary_statement' && beneficiaryId != null) {
       await printBeneficiaryStatementOfficial(
@@ -1643,12 +1704,14 @@ class ReportService {
     }
     // The existing PDF generator keeps the report's data, totals, layout
     // and filters unchanged. Only the presentation/export UI is unified.
-    final suggestedName = await _reportFileName(
-      key,
-      beneficiaryId: beneficiaryId,
-      workerId: workerId,
-      partnerId: partnerId,
-    );
+    final suggestedName = fileNameOverride == null
+        ? await _reportFileName(
+            key,
+            beneficiaryId: beneficiaryId,
+            workerId: workerId,
+            partnerId: partnerId,
+          )
+        : _pdfFileName(fileNameOverride);
     final bytes = await pdf(
       key,
       from: from,
@@ -1662,8 +1725,11 @@ class ReportService {
       category: category,
       status: status,
       sourceRows: sourceRows,
+      hybridSource: hybridSource,
+      reportTitleOverride: reportTitleOverride,
+      fileNameOverride: fileNameOverride,
     );
-    if (bytes.isEmpty) {
+    if (bytes.isEmpty {
       throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');
     }
     await ReportPdfPreviewService.open(
