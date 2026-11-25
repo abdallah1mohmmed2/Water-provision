@@ -15044,6 +15044,9 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
   DateTime? from,to;
   bool loading=true;
   String? error;
+  bool hybridSystem=false;
+  Map<String,int> hybridSolar={};
+  Map<String,int> hybridDiesel={}
 
   @override void initState(){
     super.initState();
@@ -15065,12 +15068,16 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
   Future<void> _load() async {
     if (mounted) setState((){loading=true;error=null;});
     try {
-      final list=await widget.r.partners(includeInactive: true);
-      final id=selectedId;
-      var detail=<Map<String,Object?>>[]; var totals=<String,Object?>{};
+      final settings=await widget.r.settings();final isHybrid=settings['system_type']=='equivalent_hybrid';
+      final list=await widget.r.partners(includeInactive: true);final id=selectedId;
+      var detail=<Map<String,Object?>>[]; var totals=<String,Object?>{};var solarSummary=<String,int>{};var dieselSummary=<String,int>{};
       if(id!=null){
         detail=await widget.r.report('partner_accounts',partnerId:id,from:from,to:to);
         totals=await widget.r.partyFinancialSummary('partner',id);
+        if(isHybrid){final station=await widget.r.accounting.currentStationId();final args=<Object?>[station,id];var dateSql='';if(from!=null){dateSql+=' AND date(i.date)>=date(?)';args.add(DateTime(from!.year,from!.month,from!.day).toIso8601String());}if(to!=null){dateSql+=' AND date(i.date)<date(?)';args.add(DateTime(to!.year,to!.month,to!.day+1).toIso8601String());}
+          final ir=await widget.r.db.rawQuery('''SELECT CASE WHEN i.system_type='equivalent_hybrid' THEN COALESCE(i.hybrid_source,'') ELSE i.system_type END source_type,COUNT(*) operations,COALESCE(SUM(i.chargeable_minutes),SUM(i.minutes)) minutes,COALESCE(SUM(i.total_amount),0) amount FROM irrigations i WHERE i.station_id=? AND i.partner_id=? AND i.party_type='partner' AND COALESCE(i.status,'')!='cancelled' $dateSql GROUP BY CASE WHEN i.system_type='equivalent_hybrid' THEN COALESCE(i.hybrid_source,'') ELSE i.system_type END''',args);
+          for(final x in ir){final src='${x['source_type']}';final target=src=='solar'?solarSummary:src=='diesel'?dieselSummary:null;if(target!=null){target['operations']=(x['operations'] as num?)?.toInt()??0;target['minutes']=(x['minutes'] as num?)?.round()??0;target['amount']=(x['amount'] as num?)?.round()??0;}}
+        }
         // لا تترك جدول الكشف فارغًا تمامًا إذا لم توجد حركات مطابقة للفترة؛
         // اعرض الرصيد الحالي بوضوح دون تقديمه على أنه رصيد تاريخي للفترة.
         if(detail.isEmpty){
@@ -15093,7 +15100,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
           }];
         }
       }
-      if(mounted)setState((){partners=list;selectedId=id;rows=detail;summary=totals;loading=false;});
+      if(mounted)setState((){partners=list;selectedId=id;rows=detail;summary=totals;hybridSystem=isHybrid;hybridSolar=solarSummary;hybridDiesel=dieselSummary;loading=false;});
     }catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}
   }
   Future<void> _pickDate(bool start) async {final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
@@ -15562,6 +15569,9 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                           _kpi('إجمالي عليه', money(alayh), Icons.north_east_rounded, _reportOrange),
                         ],
                       ),
+                      if(hybridSystem) ...[
+                        const SizedBox(height:12),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[Text('تفصيل السقايات الخاصة بالشريك — النوع الثالث',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900)),const SizedBox(height:10),Text('شمسي: ${hybridSolar['operations']??0} سقاية • ${((hybridSolar['minutes']??0)/60).toStringAsFixed(2)} ساعة • ${money(hybridSolar['amount']??0)}',style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w800)),const SizedBox(height:6),Text('ديزل: ${hybridDiesel['operations']??0} سقاية • ${((hybridDiesel['minutes']??0)/60).toStringAsFixed(2)} ساعة • ${money(hybridDiesel['amount']??0)}',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800))]),
+                      ],
                       const SizedBox(height: 18),
                       Row(
                         children: [
