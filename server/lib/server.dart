@@ -305,7 +305,7 @@ class SaqiaServer {
     catch(e){try{db.execute('ROLLBACK');}catch(_){} return _json({'error':'فشلت العملية الذرية: $e'},status:422);}
   }
   int _accountId(String code){final r=db.select('SELECT id FROM accounts WHERE code=? LIMIT 1',[code]);if(r.isEmpty)throw StateError('الحساب غير موجود: $code');return r.first['id'] as int;}
-  String _workerExpenseCode(int station,int workerId) { _ensureWorkerSourceSchema(); final s=_settingsForStation(station); if(s['system_type']!='equivalent_hybrid')return '5000'; final r=db.select('SELECT source_affiliation FROM workers WHERE id=? AND station_id=? LIMIT 1',[workerId,station]); final x=r.isEmpty?'shared':'${r.first['source_affiliation']??'shared'}'; return x=='solar'?'5040':x=='diesel'?'5050':'5000'; }
+  String _workerExpenseCode(int station,int workerId) { _ensureWorkerSourceSchema(); if(!_hasTable('station_settings'))return '5000'; final s=_settingsForStation(station); if(s['system_type']!='equivalent_hybrid')return '5000'; final r=db.select('SELECT source_affiliation FROM workers WHERE id=? AND station_id=? LIMIT 1',[workerId,station]); final x=r.isEmpty?'shared':'${r.first['source_affiliation']??'shared'}'; return x=='solar'?'5040':x=='diesel'?'5050':'5000'; }
   void _ensureSyncTables() {
     db.execute('''CREATE TABLE IF NOT EXISTS sync_entity_versions (
       station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
