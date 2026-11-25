@@ -1915,7 +1915,7 @@ void main() {
     expect(await cashboxBalance(1), baselineCash);
   });
 
-  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 36', () async {
+  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 37', () async {
     final opened = await db.db;
     await opened.execute('PRAGMA user_version=17');
     await db.close();
@@ -1937,7 +1937,7 @@ void main() {
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 36);
+    expect((version.single.values.single as num).toInt(), 37);
     final dieselColumns = (await upgraded.rawQuery('PRAGMA table_info(diesel_movements)')).map((r) => r['name']).toSet();
     expect(dieselColumns, containsAll({'worker_id','partner_id','party_receipt','request_id'}));
     final irrigationColumns = (await upgraded.rawQuery(
@@ -3236,6 +3236,9 @@ void main() {
       final solarWorker = await repo.createWorker(name: 'عامل شمسي مصدر', payType: 'hourly', hourlyRate: 700, sourceAffiliation: 'solar');
       final dieselWorker = await repo.createWorker(name: 'عامل ديزل مصدر', payType: 'hourly', hourlyRate: 700, sourceAffiliation: 'diesel');
       final sharedWorker = await repo.createWorker(name: 'عامل مشترك مصدر', payType: 'hourly', hourlyRate: 700, sourceAffiliation: 'shared');
+      final solarBefore = await accountNet('5040');
+      final dieselBefore = await accountNet('5050');
+      final sharedBefore = await accountNet('5000');
       final solarBeneficiary = await repo.createBeneficiary(name: 'مستفيد مصدر شمسي');
       final dieselBeneficiary = await repo.createBeneficiary(name: 'مستفيد مصدر ديزل');
       final start = DateTime(2049, 6, 12, 8);
@@ -3257,9 +3260,9 @@ void main() {
       expect((await svc.workerBalance(solarWorker))['balance'], 700);
       expect((await svc.workerBalance(dieselWorker))['balance'], 700);
       expect((await svc.workerBalance(sharedWorker))['balance'], 1400);
-      expect(await accountNet('5040'), 700);
-      expect(await accountNet('5050'), 700);
-      expect(await accountNet('5000'), 1400);
+      expect((await accountNet('5040')) - solarBefore, 700);
+      expect((await accountNet('5050')) - dieselBefore, 700);
+      expect((await accountNet('5000')) - sharedBefore, 1400);
     } finally {
       for (final entry in previous.entries) {
         if (entry.value.isNotEmpty) {
