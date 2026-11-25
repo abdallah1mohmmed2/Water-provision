@@ -3955,10 +3955,16 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                     name: widget.title,
                     dieselEnabled: const {'diesel', 'equivalent_hybrid'}
                         .contains(currentSettings['system_type'] ?? 'diesel'),
+                    hybridSystem: currentSettings['system_type'] == 'equivalent_hybrid',
                     generate: (report) => report == 'diesel'
                       ? ReportService(widget.r).printPartyDieselPdf(
                           partyType: widget.kind, partyId: widget.id,
                           from: filterFrom, to: filterTo)
+                      : report == 'solar_irrigations' || report == 'diesel_irrigations'
+                        ? ReportService(widget.r).printHybridPartyIrrigationsPdf(
+                            partyType: widget.kind, partyId: widget.id,
+                            source: report == 'solar_irrigations' ? 'solar' : 'diesel',
+                            from: filterFrom, to: filterTo)
                       : report == 'irrigations'
                         ? ReportService(widget.r).printPdf('irrigations',
                             beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
