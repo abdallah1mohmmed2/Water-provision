@@ -2967,6 +2967,7 @@ class StationRepository {
           return db.rawQuery(
             '''SELECT i.id irrigation_id,i.beneficiary_id,COALESCE(b.name,wk.name,pt.name,'غير محدد') party_name,
                       i.start_datetime,i.end_datetime,i.system_type,i.minutes,i.paid_amount,i.total_amount,
+                      COALESCE(i.hybrid_source,'') hybrid_source,
                       (SELECT COALESCE(SUM(dm.liters),0) FROM diesel_movements dm WHERE dm.irrigation_id=i.id AND dm.station_id=i.station_id AND dm.kind='consumption') diesel_consumption_liters,
                       COALESCE(i.cloud_minutes,0) cloud_minutes,
                       CASE WHEN COALESCE(i.cloud_minutes,0)>0 THEN 'discounted' ELSE 'none' END cloud_status
