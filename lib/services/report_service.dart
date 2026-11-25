@@ -504,10 +504,10 @@ class ReportService {
           title: 'إجمالي الدقائق',
           value: '${money(sumOf('minutes'))} د',
         ),
-      if (fuelReport && (dieselOnly || rows.any((row) => row['system_type'] == 'diesel')))
+      if (fuelReport && (dieselOnly || hybridSource == 'diesel' || rows.any((row) => row['system_type'] == 'diesel')))
         StatBoxData(number: '3D', title: 'استهلاك الديزل (لتر)',
           value: DieselQuantity.format(sumOf('diesel_consumption_liters'))),
-      if ((!fuelReport || !dieselOnly) && rows.any((row) => row.containsKey('cloud_minutes')))
+      if ((!fuelReport || (!dieselOnly && hybridSource != 'diesel')) && rows.any((row) => row.containsKey('cloud_minutes')))
         StatBoxData(
           number: '3',
           title: 'إجمالي الغيم',
