@@ -13564,6 +13564,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   List<Map<String, Object?>> rows = [];
   DateTime? from, to;
   String search = '';
+  String hybridSourceFilter = 'all';
   String sortKey = 'start_datetime';
   String _reportSystemType = 'diesel';
   bool ascending = false, loading = true;
@@ -13602,7 +13603,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   // هذا للعرض والفرز في التقرير فقط؛ لا يغيّر دقائق السقاية المحفوظة أو الحسابات.
   int _invoiceNetMinutes(Map<String, Object?> row) {
     final minutes = _n(row['minutes']).clamp(0, 100000000).toInt();
-    if ('${row['system_type'] ?? ''}' != 'solar') return minutes;
+    final isSolar = '${row['system_type'] ?? ''}' == 'solar' ||
+        ('${row['system_type'] ?? ''}' == 'equivalent_hybrid' && row['hybrid_source'] == 'solar');
+    if (!isSolar) return minutes;
     return (minutes - _n(row['cloud_minutes'])).clamp(0, 100000000).toInt();
   }
 
@@ -13681,6 +13684,8 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   List<Map<String, Object?>> get visible {
     final query = search.trim().toLowerCase();
     final filtered = rows.where((row) {
+      final source = '${row['hybrid_source'] ?? ''}';
+      if (hybridSourceFilter != 'all' && source != hybridSourceFilter) return false;
       if (query.isEmpty) return true;
       return '${row['party_name'] ?? ''} ${row['notes'] ?? ''}'.toLowerCase().contains(query);
     }).toList();
@@ -13700,7 +13705,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
     return filtered;
   }
 
-  int get totalMinutes => visible.fold<int>(0, (sum, row) => sum + _n(row['minutes']));
+  int get totalMinutes => visible.fold<int>(0, (sum, row) => sum + _invoiceNetMinutes(row));
   int get totalCloudMinutes => visible.fold<int>(0, (sum, row) =>
       sum + (('${row['system_type'] ?? ''}' == 'solar' ||
           ('${row['system_type'] ?? ''}' == 'equivalent_hybrid' && row['hybrid_source'] == 'solar'))
@@ -13765,7 +13770,8 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   int get totalWorkDifference => visible.fold<int>(
       0, (sum, row) => sum + _n(row['work_difference_snapshot']));
 
-  Future<List<Map<String, Object?>>> _pdfRows() async => visible;
+  Future<List<Map<String, Object?>>> _pdfRows({String source = 'all'}) async =>
+      source == 'all' ? visible : visible.where((row) => row['hybrid_source'] == source).toList();
 
   Future<void> _editInvoice(Map<String, Object?> row) async {
     final id = _n(row['invoice_id']);
@@ -13893,7 +13899,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
 
   Future<void> _previewPdf() async {
     try {
-      final bytes = await ReportService(widget.r).invoicesPdf(rows: await _pdfRows(), from: from, to: to);
+      final bytes = await ReportService(widget.r).invoicesPdf(rows: await _pdfRows(), from: from, to: to, hybridSourceFilter: hybridSourceFilter == 'all' ? null : hybridSourceFilter);
       if (!mounted) return;
       await ReportPdfPreviewService.open(
         bytes: bytes,
@@ -13906,7 +13912,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
 
   Future<void> _printPdf() async {
     try {
-      await ReportService(widget.r).printInvoicesPdf(rows: await _pdfRows(), from: from, to: to);
+      await ReportService(widget.r).printInvoicesPdf(rows: await _pdfRows(), from: from, to: to, hybridSourceFilter: hybridSourceFilter == 'all' ? null : hybridSourceFilter);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
@@ -13914,7 +13920,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
 
   Future<void> _sharePdf() async {
     try {
-      await ReportService(widget.r).shareInvoicesPdf(rows: await _pdfRows(), from: from, to: to);
+      await ReportService(widget.r).shareInvoicesPdf(rows: await _pdfRows(), from: from, to: to, hybridSourceFilter: hybridSourceFilter == 'all' ? null : hybridSourceFilter);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
@@ -13962,6 +13968,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   Widget build(BuildContext context) {
     final data = visible;
     final showCloud = _showInvoiceCloud;
+    final isHybridType3 = _reportSystemType == 'equivalent_hybrid';
     final sortIndex = _invoiceColumnKeys.indexOf(sortKey);
     return Directionality(
       textDirection: TextDirection.rtl,
@@ -14018,10 +14025,25 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                       ),
                       LayoutBuilder(builder: (context, constraints) {
                         final compact = constraints.maxWidth < 650;
+                        final solarRows = visible.where((row) => row['hybrid_source'] == 'solar').toList();
+                        final dieselRows = visible.where((row) => row['hybrid_source'] == 'diesel').toList();
+                        int sourceAmount(List<Map<String, Object?>> sourceRows) => sourceRows.fold<int>(0, (sum, row) => sum + _amountAfterCloud(row));
+                        int sourcePaid(List<Map<String, Object?>> sourceRows) => sourceRows.fold<int>(0, (sum, row) => sum + _n(row['paid_amount']));
+                        int sourceMinutes(List<Map<String, Object?>> sourceRows) => sourceRows.fold<int>(0, (sum, row) => sum + _invoiceNetMinutes(row));
                         final cards = [
-                          _summaryCard('إجمالي الساعات والدقائق', _hoursMinutes(totalMinutes), Icons.timer_rounded, _reportOliveDark, 0),
-                          _summaryCard('دقائق الغيم المخصومة', _duration(totalCloudMinutes), Icons.cloud_rounded, _reportOliveDark, 1),
-                          _summaryCard('الإيرادات قبل خصم الغيم', '${_money(totalAmountBeforeCloud)} ريال', Icons.price_check_rounded, _reportGreen, 2),
+                          if (isHybridType3) ...[
+                            _summaryCard('☀️ السقايات الشمسية', '${solarRows.length} سقاية', Icons.sunny, _reportGreen, 0),
+                            _summaryCard('الشمس: الدقائق الصافية', _hoursMinutes(sourceMinutes(solarRows)), Icons.timer_rounded, _reportGreen, 1),
+                            _summaryCard('الشمس: قيمة الفواتير', '${_money(sourceAmount(solarRows))} ريال', Icons.receipt_long_rounded, _reportGreen, 2),
+                            _summaryCard('الشمس: المسلّمة', '${_money(sourcePaid(solarRows))} ريال', Icons.payments_rounded, _reportGreen, 3),
+                            _summaryCard('⛽ سقايات الديزل', '${dieselRows.length} سقاية', Icons.local_gas_station, _reportOrange, 4),
+                            _summaryCard('الديزل: الدقائق', _hoursMinutes(sourceMinutes(dieselRows)), Icons.timer_rounded, _reportOrange, 5),
+                            _summaryCard('الديزل: قيمة الفواتير', '${_money(sourceAmount(dieselRows))} ريال', Icons.receipt_long_rounded, _reportOrange, 6),
+                            _summaryCard('الديزل: المسلّمة', '${_money(sourcePaid(dieselRows))} ريال', Icons.payments_rounded, _reportOrange, 7),
+                          ],
+                          _summaryCard('الإجمالي: الساعات والدقائق', _hoursMinutes(totalMinutes), Icons.timer_rounded, _reportOliveDark, 8),
+                          _summaryCard('دقائق الغيم المخصومة', _duration(totalCloudMinutes), Icons.cloud_rounded, _reportOliveDark, 9),
+                          _summaryCard('الإيرادات قبل خصم الغيم', '${_money(totalAmountBeforeCloud)} ريال', Icons.price_check_rounded, _reportGreen, 10),
                           _summaryCard('قيمة خصم الغيم', '${_money(totalCloudDeduction)} ريال', Icons.remove_circle_outline_rounded, _reportOrange, 3),
                           _summaryCard('الإيرادات بعد خصم الغيم', '${_money(totalAmount)} ريال', Icons.receipt_long_rounded, _reportGreen, 4),
                           _summaryCard('أساس العمل بسعر الساعة', '${_money(totalWorkBasis)} ريال', Icons.calculate_outlined, _reportOliveDark, 5),
@@ -14066,6 +14088,18 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                         ]),
                       ),
                       const SizedBox(height: 14),
+                      if (isHybridType3) ...[
+                        SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment(value: 'all', label: Text('الكل'), icon: Icon(Icons.all_inclusive)),
+                            ButtonSegment(value: 'solar', label: Text('شمسي'), icon: Icon(Icons.sunny)),
+                            ButtonSegment(value: 'diesel', label: Text('ديزل'), icon: Icon(Icons.local_gas_station)),
+                          ],
+                          selected: {hybridSourceFilter},
+                          onSelectionChanged: (values) => setState(() => hybridSourceFilter = values.first),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       Row(children: [
                         Icon(Icons.view_list_rounded, color: _reportOliveDark),
                         const SizedBox(width: 8),
@@ -14090,6 +14124,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                               columns: [
                                 DataColumn(label: const Text('م'), onSort: _sort),
                                 DataColumn(label: const Text('اسم المستفيد'), onSort: _sort),
+                                if (isHybridType3) const DataColumn(label: Text('المصدر')),
                                 DataColumn(label: const Text('من'), onSort: _sort),
                                 DataColumn(label: const Text('إلى'), onSort: _sort),
                                 DataColumn(label: const Text('إجمالي الدقائق'), onSort: _sort),
@@ -14106,10 +14141,11 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                                     cells: [
                                       DataCell(Text('${i + 1}')),
                                       DataCell(Text('${data[i]['party_name'] ?? 'غير محدد'}')),
+                                      if (isHybridType3) DataCell(Text(data[i]['hybrid_source'] == 'solar' ? '☀️ شمسي' : data[i]['hybrid_source'] == 'diesel' ? '⛽ ديزل' : 'غير محدد')),
                                       DataCell(Text(_time(data[i]['start_datetime']))),
                                       DataCell(Text(_time(data[i]['end_datetime']))),
                                       DataCell(Text('${_invoiceNetMinutes(data[i])}')),
-                                      if (showCloud) DataCell(Text(data[i]['system_type'] == 'diesel' ? '—' : '${_n(data[i]['cloud_minutes'])}')),
+                                      if (showCloud) DataCell(Text(data[i]['system_type'] == 'diesel' || (data[i]['system_type'] == 'equivalent_hybrid' && data[i]['hybrid_source'] == 'diesel') ? '—' : '${_n(data[i]['cloud_minutes'])}')),
                                       DataCell(Text(_money(_amountAfterCloud(data[i])), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(Text(_money(data[i]['paid_amount']), style: const TextStyle(fontWeight: FontWeight.w800))),
                                       DataCell(SizedBox(width: 190, child: Text('${data[i]['notes'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis))),

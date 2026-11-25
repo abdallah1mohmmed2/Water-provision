@@ -921,11 +921,15 @@ class ReportService {
     List<Map<String, Object?>>? rows,
     DateTime? from,
     DateTime? to,
+    String? hybridSourceFilter,
   }) async {
     final sourceRows = rows ?? await repo.report('invoices', from: from, to: to);
+    final selectedRows = hybridSourceFilter == null
+        ? sourceRows
+        : sourceRows.where((row) => row['hybrid_source'] == hybridSourceFilter).toList();
     // بعض مسارات المعاينة القديمة تمرر beneficiary_name أو رقم السقاية فقط،
     // لذلك لا نعتمد على party_name القادم من الشاشة وحده.
-    final data = sourceRows
+    final data = selectedRows
         .map((row) => <String, Object?>{...row})
         .toList(growable: false);
     final irrigationIds = data
@@ -1014,7 +1018,9 @@ class ReportService {
     // تبقى دقائق السقاية الأصلية محفوظة ويظل الملخص العام كما هو.
     int invoiceNetMinutes(Map<String, Object?> row) {
       final minutes = n(row['minutes']).clamp(0, 100000000).toInt();
-      if ('${row['system_type'] ?? ''}' != 'solar') return minutes;
+      final isSolar = '${row['system_type'] ?? ''}' == 'solar' ||
+          ('${row['system_type'] ?? ''}' == 'equivalent_hybrid' && row['hybrid_source'] == 'solar');
+      if (!isSolar) return minutes;
       return (minutes - n(row['cloud_minutes'])).clamp(0, 100000000).toInt();
     }
     String duration(Object? value) =>
@@ -1112,10 +1118,12 @@ class ReportService {
         [
           '${i + 1}',
           display(data[i]['party_name']),
+          if (settings['system_type'] == 'equivalent_hybrid')
+            display(data[i]['hybrid_source'] == 'solar' ? 'شمسي' : data[i]['hybrid_source'] == 'diesel' ? 'ديزل' : 'غير محدد'),
           time(data[i]['start_datetime']),
           time(data[i]['end_datetime']),
           '${invoiceNetMinutes(data[i])}',
-          if (showInvoiceCloud) data[i]['system_type'] == 'diesel' ? '—' : '${n(data[i]['cloud_minutes'])}',
+          if (showInvoiceCloud) data[i]['system_type'] == 'diesel' || (data[i]['system_type'] == 'equivalent_hybrid' && data[i]['hybrid_source'] == 'diesel') ? '—' : '${n(data[i]['cloud_minutes'])}',
           money(reportAmount(data[i], beforeCloud: false)),
           money(data[i]['paid_amount']),
           if (dieselInvoices) DieselQuantity.format((data[i]['diesel_consumption_liters'] as num?) ?? 0),
@@ -1130,7 +1138,7 @@ class ReportService {
       date: dateFormat.format(now),
       refNumber: 'INV-${DateFormat('yyyyMMdd-HHmmss').format(now)}',
       attachments: 'عدد الفواتير: ${data.length}',
-      reportTitle: 'تقرير الفواتير',
+      reportTitle: hybridSourceFilter == 'solar' ? 'تقرير فواتير السقايات الشمسية' : hybridSourceFilter == 'diesel' ? 'تقرير فواتير سقايات الديزل' : 'تقرير الفواتير',
       summaryBoxes: [
         StatBoxData(
           number: '1',
@@ -1197,6 +1205,7 @@ class ReportService {
       columns: [
         'م',
         'المستفيد / العامل / الشريك',
+        if (settings['system_type'] == 'equivalent_hybrid') 'مصدر التشغيل',
         'من',
         'إلى',
         'إجمالي الدقائق',
@@ -1221,7 +1230,7 @@ class ReportService {
         'المتبقي: ${money(remaining)}',
       ],
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
-      fileName: 'تقرير-الفواتير.pdf',
+      fileName: hybridSourceFilter == 'solar' ? 'تقرير-فواتير-شمسي.pdf' : hybridSourceFilter == 'diesel' ? 'تقرير-فواتير-ديزل.pdf' : 'تقرير-الفواتير.pdf',
       minTableRows: 7,
       pageFormat: PdfPageFormat.a4.landscape,
       preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
@@ -1233,8 +1242,9 @@ class ReportService {
     List<Map<String, Object?>>? rows,
     DateTime? from,
     DateTime? to,
+    String? hybridSourceFilter,
   }) async {
-    final bytes = await invoicesPdf(rows: rows, from: from, to: to);
+    final bytes = await invoicesPdf(rows: rows, from: from, to: to, hybridSourceFilter: hybridSourceFilter);
     await ReportPdfPreviewService.open(
       bytes: bytes,
       suggestedName: 'تقرير الفواتير',
@@ -1245,8 +1255,9 @@ class ReportService {
     List<Map<String, Object?>>? rows,
     DateTime? from,
     DateTime? to,
+    String? hybridSourceFilter,
   }) async {
-    final bytes = await invoicesPdf(rows: rows, from: from, to: to);
+    final bytes = await invoicesPdf(rows: rows, from: from, to: to, hybridSourceFilter: hybridSourceFilter);
     await ReportPdfPreviewService.open(
       bytes: bytes,
       suggestedName: 'تقرير الفواتير',
