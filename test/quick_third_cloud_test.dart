@@ -174,7 +174,7 @@ void main() {
         dieselPrice: 0,
         solarRate: 6000,
         thirdRate: 6000,
-        cloudMinutes: source == 'solar' ? 10 : 0,
+        cloudMinutes: source == 'solar' ? 15 : 0,
         cloudPeriods: source == 'solar' ? cloudPeriod(start) : const [],
         paidAmount: 0,
       );
@@ -185,7 +185,7 @@ void main() {
     expect(rows.every((row) => row.containsKey('diesel_consumption_liters')), isTrue);
     final solar = rows.singleWhere((row) => row['hybrid_source'] == 'solar');
     final diesel = rows.singleWhere((row) => row['hybrid_source'] == 'diesel');
-    expect(solar['cloud_minutes'], 10);
+    expect(solar['cloud_minutes'], 15);
     expect(diesel['cloud_minutes'], 0);
     expect(diesel['diesel_consumption_liters'], 0);
   });
