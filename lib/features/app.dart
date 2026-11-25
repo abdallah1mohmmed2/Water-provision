@@ -22,6 +22,7 @@ import '../core/app_clock.dart';
 import '../core/app_prefs.dart';
 import '../core/period_ranges.dart';
 import 'package:flutter/services.dart';
+import 'package:pdf/pdf.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -15570,7 +15571,7 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
                         ],
                       ),
                       if(hybridSystem) ...[
-                        const SizedBox(height:12),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[Text('تفصيل السقايات الخاصة بالشريك — النوع الثالث',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900)),const SizedBox(height:10),Text('شمسي: ${hybridSolar['operations']??0} سقاية • ${((hybridSolar['minutes']??0)/60).toStringAsFixed(2)} ساعة • ${money(hybridSolar['amount']??0)}',style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w800)),const SizedBox(height:6),Text('ديزل: ${hybridDiesel['operations']??0} سقاية • ${((hybridDiesel['minutes']??0)/60).toStringAsFixed(2)} ساعة • ${money(hybridDiesel['amount']??0)}',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800))]),
+                        const SizedBox(height:12),Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[Text('تفصيل السقايات الخاصة بالشريك — النوع الثالث',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900)),const SizedBox(height:10),Text('شمسي: ${hybridSolar['operations']??0} سقاية • ${((hybridSolar['minutes']??0)/60).toStringAsFixed(2)} ساعة • ${money(hybridSolar['amount']??0)}',style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w800)),const SizedBox(height:6),Text('ديزل: ${hybridDiesel['operations']??0} سقاية • ${((hybridDiesel['minutes']??0)/60).toStringAsFixed(2)} ساعة • ${money(hybridDiesel['amount']??0)}',style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800))])),
                       ],
                       const SizedBox(height: 18),
                       Row(
@@ -17083,7 +17084,7 @@ class _HybridPartnersOverviewState extends State<HybridPartnersOverviewReportPag
   Future<void> pick(bool start)async{final v=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(v!=null){setState(()=>start?from=v:to=v);load();}}
   Future<void> load()async{setState(()=>loading=true);try{final station=await widget.r.accounting.currentStationId();final ps=await widget.r.partners(includeInactive:true);final start=from==null?null:DateTime(from!.year,from!.month,from!.day);final end=to==null?null:DateTime(to!.year,to!.month,to!.day+1);final out=<Map<String,Object?>>[];
     for(final p in ps){final id=(p['id'] as num).toInt();final report=await widget.r.report('partner_accounts',partnerId:id,from:from,to:to);final closing=report.where((x)=>x['type']=='partner_profit_total').firstOrNull;final sum=await widget.r.partyFinancialSummary('partner',id);final tx=await widget.r.partnerTransactions(id);var ph=0,pa=0;
-      for(final t in tx){if(const {'opening_balance','carried_balance','current_balance'}.contains(t['type']))continue;final dt=DateTime.tryParse('${t['date']??''});if(start!=null&&(dt==null||dt.isBefore(start)))continue;if(end!=null&&(dt==null||!dt.isBefore(end)))continue;final v=n(t['signed_amount']);if(v>0)ph+=v;else if(v<0)pa-=v;}
+      for(final t in tx){if(const {'opening_balance','carried_balance','current_balance'}.contains(t['type']))continue;final dt=DateTime.tryParse('${t['date']??''}');if(start!=null&&(dt==null||dt.isBefore(start)))continue;if(end!=null&&(dt==null||!dt.isBefore(end)))continue;final v=n(t['signed_amount']);if(v>0)ph+=v;else if(v<0)pa-=v;}
       final args=<Object?>[station,id];var filter='';if(start!=null){filter+=' AND date(i.date)>=date(?)';args.add(start.toIso8601String());}if(end!=null){filter+=' AND date(i.date)<date(?)';args.add(end.toIso8601String());}
       final ir=await widget.r.db.rawQuery('''SELECT CASE WHEN i.system_type='equivalent_hybrid' THEN COALESCE(i.hybrid_source,'') ELSE i.system_type END source_type,COUNT(*) operations,COALESCE(SUM(i.chargeable_minutes),SUM(i.minutes)) minutes,COALESCE(SUM(i.total_amount),0) amount FROM irrigations i WHERE i.station_id=? AND i.partner_id=? AND i.party_type='partner' AND COALESCE(i.status,'')!='cancelled' $filter GROUP BY CASE WHEN i.system_type='equivalent_hybrid' THEN COALESCE(i.hybrid_source,'') ELSE i.system_type END''',args);
       int agg(String src,String field)=>ir.where((x)=>'${x['source_type']}'==src).fold<int>(0,(s,x)=>s+n(x[field]));
