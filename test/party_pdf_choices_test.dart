@@ -4,7 +4,7 @@ import 'package:saqia_station/data/repositories/repositories.dart';
 import 'package:saqia_station/features/party_quick_actions.dart';
 
 void main() {
-  testWidgets('PDF picker shows diesel report only in diesel system',
+  testWidgets('PDF picker keeps standard choices and adds hybrid source choices',
       (tester) async {
     for (final type in ['beneficiary', 'worker', 'partner']) {
       for (final dieselEnabled in [false, true]) {
