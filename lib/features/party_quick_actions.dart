@@ -37,10 +37,11 @@ Future<void> showPartyPdfChoices(
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             Text(name, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             for (final report in hybridSystem
@@ -70,7 +71,8 @@ Future<void> showPartyPdfChoices(
               ),
             const Text('اضغط للعرض، أو اضغط مطولًا للمشاركة',
                 textAlign: TextAlign.center),
-          ],
+            ],
+          ),
         ),
       ),
     );
