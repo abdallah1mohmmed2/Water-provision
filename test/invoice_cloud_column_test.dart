@@ -22,7 +22,9 @@ class InvoiceRepository extends StationRepository {
 }
 
 Map<String, Object?> invoice(String name, String type, int cloud) => {
-  'party_name': name, 'system_type': type, 'minutes': 60,
+  'party_name': name, 'system_type': type,
+  if (type == 'equivalent_hybrid') 'hybrid_source': 'solar',
+  'minutes': 60,
   'cloud_minutes': cloud, 'chargeable_minutes': 60 - cloud,
   'total_amount': 6000, 'paid_amount': 1000, 'notes': 'بيان $name',
   'start_datetime': '2026-11-17T08:00:00',
@@ -78,13 +80,17 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: InvoicesReportPage(repo, autoSelectPeriod: false)));
       await tester.pumpAndSettle();
       DataTable table() => tester.widget<DataTable>(find.byType(DataTable));
-      expect(table().columns.length, showCloud ? 10 : 9);
+      final hybrid = type == 'equivalent_hybrid';
+      final sourceOffset = hybrid ? 1 : 0;
+      expect(table().columns.length, (showCloud ? 10 : 9) + sourceOffset);
+      expect(find.text('مصدر'), hybrid ? findsOneWidget : findsNothing);
       expect(find.text('الغيم (دقيقة)'), showCloud ? findsOneWidget : findsNothing);
-      final amountIndex = showCloud ? 6 : 5;
+      final amountIndex = (showCloud ? 6 : 5) + sourceOffset;
       final row = table().rows.single;
       expect(row.cells.length, table().columns.length);
+      if (hybrid) expect((row.cells[2].child as Text).data, '☀️ شمسي');
       if (showCloud) {
-        expect((row.cells[5].child as Text).data, '5');
+        expect((row.cells[5 + sourceOffset].child as Text).data, '5');
       }
       expect((row.cells[amountIndex].child as Text).data, '6,000');
       expect((row.cells[amountIndex + 1].child as Text).data, '1,000');
