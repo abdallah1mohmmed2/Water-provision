@@ -1219,11 +1219,12 @@ class ReportService {
       footerTotalRow: [
         '',
         'الإجمالي',
+        if (settings['system_type'] == 'equivalent_hybrid') '',
         '',
         '',
         duration(data.fold<int>(0, (sum, row) => sum + invoiceNetMinutes(row))),
         if (showInvoiceCloud) duration(data.fold<int>(0, (sum, row) =>
-            sum + (row['system_type'] == 'diesel' ? 0 : n(row['cloud_minutes'])))),
+            sum + ((row['system_type'] == 'diesel' || (row['system_type'] == 'equivalent_hybrid' && row['hybrid_source'] == 'diesel')) ? 0 : n(row['cloud_minutes'])))),
         money(totalAmount),
         money(totalPaid),
         if (dieselInvoices) DieselQuantity.format(totalFuel),
