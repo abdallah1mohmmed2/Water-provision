@@ -15254,9 +15254,9 @@ class _PartnerAccountsReportState extends State<PartnerAccountsReportPage> {
         StatBoxData(number:'3',title:'سقايات ديزل',value:'${agg('diesel','operations')} • ${(agg('diesel','minutes')/60).toStringAsFixed(2)} ساعة',isBlueTint:true),
         StatBoxData(number:'4',title:'قيمة ديزل',value:'${fmt(agg('diesel','amount'))} ريال'),
         StatBoxData(number:'5',title:'له بالحركات',value:'${fmt(lh)} ريال'),StatBoxData(number:'6',title:'عليه بالحركات',value:'${fmt(ah)} ريال',isBlueTint:true),
-        StatBoxData(number:'7',title:'رصيد نهاية الفترة',value:PartyStatementBalanceDisplay.format(close??{'balance':0},money:(v)=>fmt(v)),isLarge:true),
-        StatBoxData(number:'8',title:'الرصيد الحالي',value:PartyStatementBalanceDisplay.format({'balance':_n(summary['balance'])},money:(v)=>fmt(v)),
-      )],columns:const ['التاريخ','البيان','له','عليه','الرصيد'],rows:table,footerTotalRow:['الإجمالي','','${fmt(lh)}','${fmt(ah)}',PartyStatementBalanceDisplay.format(close??{'balance':0},money:(v)=>fmt(v))],pageFormat:PdfPageFormat.a4.landscape,minTableRows:6);
+        StatBoxData(number:'7',title:'رصيد نهاية الفترة',value:PartyStatementBalanceDisplay.format(close??{'balance':0},money:(v)=>fmt(v.round())),isLarge:true),
+        StatBoxData(number:'8',title:'الرصيد الحالي',value:PartyStatementBalanceDisplay.format({'balance':_n(summary['balance'])},money:(v)=>fmt(v.round()))),
+      )],columns:const ['التاريخ','البيان','له','عليه','الرصيد'],rows:table,footerTotalRow:['الإجمالي','','${fmt(lh)}','${fmt(ah)}',PartyStatementBalanceDisplay.format(close??{'balance':0},money:(v)=>fmt(v.round()))],pageFormat:PdfPageFormat.a4.landscape,minTableRows:6);
     }catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(friendlyError(e))));}
   }
   Map<String,Object?>? get partner=>selectedId==null?null:partners.cast<Map<String,Object?>>().firstWhere((x)=>x['id']==selectedId,orElse:()=>{});
