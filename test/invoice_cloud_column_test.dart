@@ -83,7 +83,7 @@ void main() {
       final hybrid = type == 'equivalent_hybrid';
       final sourceOffset = hybrid ? 1 : 0;
       expect(table().columns.length, (showCloud ? 10 : 9) + sourceOffset);
-      expect(find.text('مصدر'), hybrid ? findsOneWidget : findsNothing);
+      expect(find.text('المصدر'), hybrid ? findsOneWidget : findsNothing);
       expect(find.text('الغيم (دقيقة)'), showCloud ? findsOneWidget : findsNothing);
       final amountIndex = (showCloud ? 6 : 5) + sourceOffset;
       final row = table().rows.single;
