@@ -305,7 +305,7 @@ class SaqiaServer {
     catch(e){try{db.execute('ROLLBACK');}catch(_){} return _json({'error':'فشلت العملية الذرية: $e'},status:422);}
   }
   int _accountId(String code){final r=db.select('SELECT id FROM accounts WHERE code=? LIMIT 1',[code]);if(r.isEmpty)throw StateError('الحساب غير موجود: $code');return r.first['id'] as int;}
-  String _workerExpenseCode(int station,int workerId) { final s=_settingsForStation(station); if(s['system_type']!='equivalent_hybrid')return '5000'; final r=db.select('SELECT source_affiliation FROM workers WHERE id=? AND station_id=? LIMIT 1',[workerId,station]); final x=r.isEmpty?'shared':'${r.first['source_affiliation']??'shared'}'; return x=='solar'?'5040':x=='diesel'?'5050':'5000'; }
+  String _workerExpenseCode(int station,int workerId) { _ensureWorkerSourceSchema(); final s=_settingsForStation(station); if(s['system_type']!='equivalent_hybrid')return '5000'; final r=db.select('SELECT source_affiliation FROM workers WHERE id=? AND station_id=? LIMIT 1',[workerId,station]); final x=r.isEmpty?'shared':'${r.first['source_affiliation']??'shared'}'; return x=='solar'?'5040':x=='diesel'?'5050':'5000'; }
   void _ensureSyncTables() {
     db.execute('''CREATE TABLE IF NOT EXISTS sync_entity_versions (
       station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
@@ -1258,6 +1258,7 @@ void _ensureWorkerSourceSchema() {
   final columns = db.select('PRAGMA table_info(workers)').map((r) => '${r['name']}').toSet();
   if (!columns.contains('source_affiliation')) db.execute("ALTER TABLE workers ADD COLUMN source_affiliation TEXT NOT NULL DEFAULT 'shared'");
   db.execute("UPDATE workers SET source_affiliation='shared' WHERE source_affiliation IS NULL OR source_affiliation NOT IN ('solar','diesel','shared')");
+  if (!_hasTable('accounts')) return;
   for (final row in const [['5040','مصروف أجور العمال الشمسية','expense'],['5050','مصروف أجور عمال الديزل','expense']]) {
     if (db.select('SELECT id FROM accounts WHERE code=? LIMIT 1',[row[0]]).isEmpty) db.execute('INSERT INTO accounts(code,name,type) VALUES(?,?,?)',row);
   }
@@ -3535,6 +3536,7 @@ void _applyPartyDieselReceipt({
     }
     var totalWorkerEntitlement = 0;
     if (_hasTable('workers')) {
+      _ensureWorkerSourceSchema();
       final workers = db.select(
         "SELECT id,pay_type,hourly_rate,percentage_rate,source_affiliation FROM workers WHERE station_id=? AND active=1 AND pay_type IN ('hourly','percentage') ORDER BY id",
         [station],
