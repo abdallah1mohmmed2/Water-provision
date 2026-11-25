@@ -60,7 +60,7 @@ Future<void> showPartyPdfChoices(
                     }),
                     label: Text(switch (report) {
                       'irrigations' => 'سقايات هذا الشخص',
-                      'solar_irrigations' => 'سقايات الشمسية لهذا الشخص',
+                      'solar_irrigations' => 'السقايات الشمسية لهذا الشخص',
                       'diesel_irrigations' => 'سقايات الديزل لهذا الشخص',
                       'diesel' => 'المسلّم والمستهلك والمتبقي من الديزل',
                       _ => 'كشف حساب هذا الشخص',
