@@ -5988,6 +5988,7 @@ int? parseClock(String raw) {
                         decoration: const InputDecoration(labelText: 'مصدر تشغيل هذه السقاية', border: OutlineInputBorder()),
                         items: const [DropdownMenuItem(value: 'diesel', child: Text('ديزل')), DropdownMenuItem(value: 'solar', child: Text('طاقة شمسية'))],
                         onChanged: hybridSource == null ? (value) { setState(() { hybridSource = value; if (value == 'diesel') { cloudPeriods.clear(); cloudQuickController.clear(); quickCloudMode = false; } }); dialogSetState(() {}); } : null,
+                        if (settings['third_type_cross_source_overlap_enabled'] == 'true') const Padding(padding: EdgeInsets.only(top: 6), child: Text('تداخل الديزل والشمس مسموح فقط عند اختلاف المصدر. السقايات من المصدر نفسه لا تتداخل.', style: TextStyle(fontSize: 12))),
                       ),
                     ],
                     const SizedBox(height: 10),
@@ -6668,6 +6669,7 @@ int? parseClock(String raw) {
                   const Align(alignment: AlignmentDirectional.centerStart, child: Text('مصدر تشغيل السقاية', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(value: hybridSource, decoration: const InputDecoration(labelText: 'اختر مرة واحدة لهذه السقاية', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'diesel', child: Text('ديزل')), DropdownMenuItem(value: 'solar', child: Text('طاقة شمسية'))], onChanged: hybridSource == null ? (value) => setState(() { hybridSource = value; if (value == 'diesel') cloudPeriods.clear(); }) : null),
+                  if (settings['third_type_cross_source_overlap_enabled'] == 'true') const Padding(padding: EdgeInsets.only(top: 6), child: Text('تداخل الوقت مسموح عند اختيار مصدر مختلف فقط؛ لا يسمح بتداخل سقايتين من المصدر نفسه.', style: TextStyle(fontSize: 12))),
                   const SizedBox(height: 12),
                 ],
                 Align(alignment: AlignmentDirectional.centerStart, child: Text(type == 'solar' || (type == 'equivalent_hybrid' && hybridSource == 'solar') ? 'وقت السقاية وفترات الغيم' : 'وقت السقاية', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
@@ -16717,6 +16719,7 @@ class _SettingsState extends State<SettingsPage> {
                 setTile('solar_hourly_rate', 'سعر السقي الشمسي بالساعة', true),
               if ((s['system_type'] ?? 'diesel') == 'equivalent_hybrid') ...[
                 setTile('hybrid_diesel_hourly_rate', 'سعر ساعة تشغيل الديزل في النوع الثالث', true),
+                boolTile('third_type_cross_source_overlap_enabled', 'السماح بتداخل سقاية الديزل والشمس بمصدرين مختلفين'),
                 setTile('solar_hourly_rate', 'سعر ساعة تشغيل الطاقة الشمسية', true),
               ],
               if (widget.manager) ...[

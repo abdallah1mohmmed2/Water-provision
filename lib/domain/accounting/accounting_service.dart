@@ -1382,11 +1382,22 @@ class AccountingService {
           throw StateError('الحجز المختار لم يعد قائمًا (مكتمل أو ملغى)');
         }
       }
-      final overlap = await tx.rawQuery(
-        "SELECT id FROM irrigations WHERE pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",
-        [pumpId, endDt.toIso8601String(), start.toIso8601String()],
-      );
-      if (overlap.isNotEmpty) throw StateError('يوجد تعارض زمني على المضخة');
+      final crossSourceOverlapEnabled = effectiveType == 'equivalent_hybrid' &&
+          set['third_type_cross_source_overlap_enabled'] == 'true';
+      final overlap = crossSourceOverlapEnabled
+          ? await tx.rawQuery(
+              "SELECT id FROM irrigations WHERE pump_id=? AND status!='cancelled' AND system_type='equivalent_hybrid' AND hybrid_source=? AND start_datetime<? AND end_datetime>? LIMIT 1",
+              [pumpId, hybridSource, endDt.toIso8601String(), start.toIso8601String()],
+            )
+          : await tx.rawQuery(
+              "SELECT id FROM irrigations WHERE pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",
+              [pumpId, endDt.toIso8601String(), start.toIso8601String()],
+            );
+      if (overlap.isNotEmpty) {
+        throw StateError(crossSourceOverlapEnabled
+            ? 'يوجد تعارض زمني مع سقاية من المصدر نفسه'
+            : 'يوجد تعارض زمني على المضخة');
+      }
       final minDays = int.tryParse(set['min_wait_days'] ?? '3') ?? 3;
       final override = partyType == 'beneficiary'
           ? await _checkWaiting(
