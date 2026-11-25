@@ -300,7 +300,6 @@ class ReportService {
     List<Map<String, Object?>>? sourceRows,
     String? hybridSource,
     String? reportTitleOverride,
-    String? fileNameOverride,
   }) async {
     final started = AppClock.now();
     if (!titles.containsKey(key) || !reportColumns.containsKey(key)) {
@@ -1727,7 +1726,6 @@ class ReportService {
       sourceRows: sourceRows,
       hybridSource: hybridSource,
       reportTitleOverride: reportTitleOverride,
-      fileNameOverride: fileNameOverride,
     );
     if (bytes.isEmpty) {
       throw StateError('تعذر إنشاء ملف PDF: المستند الناتج فارغ');
