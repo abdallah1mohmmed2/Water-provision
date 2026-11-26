@@ -3039,11 +3039,16 @@ void _applyPartyDieselReceipt({
     const fields = <String, Set<String>>{
       'pumps': {'name', 'system_type', 'active', 'notes'},
       'partners': {'diesel_liters_per_hour', 'name', 'phone', 'ownership_mode', 'shares_count', 'ownership_percentage', 'active', 'notes'},
-      'workers': {'diesel_liters_per_hour', 'name', 'phone', 'job_title', 'pay_type', 'fixed_salary', 'hourly_rate', 'percentage_rate', 'active', 'notes'},
+      'workers': {'diesel_liters_per_hour', 'name', 'phone', 'job_title', 'pay_type', 'source_affiliation', 'fixed_salary', 'hourly_rate', 'percentage_rate', 'active', 'notes'},
       'payment_methods': {'name', 'type', 'account_number', 'bank_name', 'cashbox_id', 'ledger_account_code', 'active'},
       'cashboxes': {'name', 'currency', 'ledger_account_code', 'active'},
     };
     _ensurePartyFuelRates();
+    if (entityType == 'workers') _ensureWorkerSourceSchema();
+    if (payload.containsKey('source_affiliation') &&
+        !const {'solar', 'diesel', 'shared'}.contains(payload['source_affiliation'])) {
+      throw StateError('مصدر استحقاق العامل غير صالح');
+    }
     if (payload.containsKey('diesel_liters_per_hour')) {
       PartyDieselRate.validate(payload['diesel_liters_per_hour']);
     }
