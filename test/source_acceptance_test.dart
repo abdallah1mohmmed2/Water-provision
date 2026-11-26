@@ -30,5 +30,13 @@ void main() {
     expect(app, contains('system_comparison'));
     expect(server, contains('/api/v1/beneficiary/request-code'));
     expect(server, contains('/api/v1/restore'));
+    final setup = app.substring(app.indexOf('class InitialSetupPage'), app.indexOf('class AdminShell'));
+    expect(setup, contains("if(type=='solar'||type=='equivalent_hybrid')_field(solarRate"));
+    expect(setup, contains("if(type=='diesel'||type=='equivalent_hybrid')_field(dieselRate"));
+    expect(setup, contains("if(type=='diesel'||type=='equivalent_hybrid')Padding"));
+    expect(setup, contains("if(needsOil)Container"));
+    expect(setup, contains("DieselOilService(repo.db).configure"));
+    expect(setup, contains("hybrid_diesel_hourly_rate"));
+    expect(setup, contains("diesel_hourly_water_rate"));
   });
 }
