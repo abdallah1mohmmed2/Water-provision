@@ -23,12 +23,12 @@ class IrrigationTimeVoiceService {
   }) async {
     if (!enabled) return;
     try {
-      await _channel
-          .invokeMethod<bool>(
-            'announceTime',
-            {'text': announcementText(time, isStart: isStart)},
-          )
-          .timeout(const Duration(seconds: 12));
+      // Native Android returns immediately after enqueueing speech. Avoid a timeout
+      // timer here: fire-and-forget widget flows may dispose before it fires.
+      await _channel.invokeMethod<bool>(
+        'announceTime',
+        {'text': announcementText(time, isStart: isStart)},
+      );
     } catch (_) {
       // Arabic TTS may be unavailable; that is harmless and does not affect the form.
     }
