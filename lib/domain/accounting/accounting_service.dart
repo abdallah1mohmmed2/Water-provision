@@ -1992,7 +1992,9 @@ class AccountingService {
     paymentMethodId = src['method']!;
     cashboxId = src['cashbox']!;
     await _assertCashboxCanSpend(tx, cashboxId, amount);
+    final stationId = await _selectedStationIdTx(tx);
     final id = await tx.insert('expenses', {
+      'station_id': stationId,
       'category': category,
       'title': title,
       'amount': amount,
