@@ -1159,6 +1159,8 @@ class AccountingService {
     String partyType = 'beneficiary',
     required DateTime start,
     required DateTime end,
+    int? actualRuntimeMinutes,
+    int minuteDiscount = 0,
     required String systemType,
     required int waterRate,
     required double litersPerHour,
@@ -1246,6 +1248,10 @@ class AccountingService {
     final endDt = (allowMidnight && !end.isAfter(start))
         ? end.add(const Duration(days: 1))
         : end;
+    if (minuteDiscount < 0) throw ArgumentError('خصم الدقائق لا يمكن أن يكون سالبًا');
+    final runtimeEndDt = endDt.add(Duration(minutes: minuteDiscount));
+    final runtimeMinutes = actualRuntimeMinutes ?? AccountingCalculations.minutesBetween(start, runtimeEndDt, allowMidnightCrossing: allowMidnight);
+    if (runtimeMinutes <= 0 || minuteDiscount >= runtimeMinutes) throw ArgumentError('مدة السقاية بعد الخصم يجب أن تبقى أكبر من صفر');
     final normalizedCloudPeriods = <Map<String, Object?>>[];
     if ((effectiveType == 'solar' || (effectiveType == 'equivalent_hybrid' && hybridSource == 'solar')) && cloudPeriods.isNotEmpty) {
       final parsed = <Map<String, Object?>>[];
@@ -1255,7 +1261,7 @@ class AccountingService {
         if (ps == null || pe == null || !pe.isAfter(ps)) {
           throw ArgumentError('فترة الغيم يجب أن تحتوي وقت بداية ونهاية صحيحين');
         }
-        if (ps.isBefore(start) || pe.isAfter(endDt)) {
+        if (ps.isBefore(start) || pe.isAfter(runtimeEndDt)) {
           throw ArgumentError('فترة الغيم يجب أن تقع داخل وقت السقاية');
         }
         parsed.add({'start': ps, 'end': pe, 'minutes': pe.difference(ps).inMinutes});
@@ -1267,7 +1273,7 @@ class AccountingService {
         }
       }
       final totalCloud = parsed.fold<int>(0, (sum, x) => sum + (x['minutes'] as int));
-      if (totalCloud > AccountingCalculations.minutesBetween(start, endDt, allowMidnightCrossing: allowMidnight)) {
+      if (totalCloud > runtimeMinutes) {
         throw ArgumentError('إجمالي خصم الغيم لا يمكن أن يتجاوز مدة السقاية');
       }
       for (final x in parsed) {
@@ -1285,7 +1291,7 @@ class AccountingService {
     final effectiveCloud = cloudApplies
         ? (normalizedCloudPeriods.isNotEmpty
             ? normalizedCloudPeriods.fold<int>(0, (sum, x) => sum + (x['minutes'] as int))
-            : cloudMinutes.clamp(0, AccountingCalculations.minutesBetween(start, endDt, allowMidnightCrossing: allowMidnight)))
+            : cloudMinutes.clamp(0, runtimeMinutes))
         : 0;
     final rounding = set['rounding'] ?? 'nearest';
     final partialHour = set['partial_hour'] != 'false';
@@ -1300,6 +1306,7 @@ class AccountingService {
             allowMidnightCrossing: allowMidnight,
             rounding: rounding,
             partialHour: partialHour,
+            dieselRuntimeMinutes: runtimeMinutes,
           )
         : effectiveType == 'solar'
         ? AccountingCalculations.solar(
@@ -1324,6 +1331,7 @@ class AccountingService {
                 litersPerHour: effectiveLiters, dieselPrice: 0, cloudMinutes: 0,
                 allowMidnightCrossing: allowMidnight,
                 rounding: rounding, partialHour: partialHour,
+                dieselRuntimeMinutes: runtimeMinutes,
               )
             : AccountingCalculations.equivalent(
             start: start,
@@ -1393,7 +1401,7 @@ class AccountingService {
             )
           : await tx.rawQuery(
               "SELECT id FROM irrigations WHERE pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",
-              [pumpId, endDt.toIso8601String(), start.toIso8601String()],
+              [pumpId, runtimeEndDt.toIso8601String(), start.toIso8601String()],
             );
       if (overlap.isNotEmpty) {
         throw StateError(crossSourceOverlapEnabled
@@ -1452,7 +1460,7 @@ class AccountingService {
         'date': start.toIso8601String().substring(0, 10),
         'start_datetime': start.toIso8601String(),
         'end_datetime': endDt.toIso8601String(),
-        'minutes': calc.minutes,
+        'minutes': runtimeMinutes,
         'system_type': effectiveType,
         'hybrid_source': effectiveType == 'equivalent_hybrid' ? hybridSource : null,
         'hybrid_diesel_hourly_rate_snapshot': effectiveType == 'equivalent_hybrid' && hybridSource == 'diesel' ? effectiveHybridDieselRate : 0,
