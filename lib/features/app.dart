@@ -5259,7 +5259,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             partialHour: settings['partial_hour'] != 'false',
             dieselRuntimeMinutes: runtimeMinutes,
           )
-        : type == 'solar
+        : type == 'solar'
         ? AccountingCalculations.solar(
             start: start,
             end: discountedEnd,
