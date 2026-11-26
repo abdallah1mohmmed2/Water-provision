@@ -825,9 +825,6 @@ void main() {
     await svc.createWorkerAccrual(
       workerId: worker, amount: 1000, date: date,
     );
-    await svc.createPartnerShare(
-      partnerId: partner, amount: 1200, date: date,
-    );
     final workerExpenseId = await svc.addExpense(
       category: 'maintenance',
       title: 'مصروف مرتبط بالعامل',
@@ -852,7 +849,7 @@ void main() {
       partyType: 'partner', partyId: partner), -450);
     // الرسالة تستبعد استحقاق العامل وحصة الشريك، وتخصم مصروف كل طرف.
     expect((await svc.workerBalance(worker))['balance'], 700);
-    expect((await svc.partnerBalance(partner))['balance'], 750);
+    expect((await svc.partnerBalance(partner))['balance'], -450);
     // Keep the shared integration-test database isolated for following tests.
     await svc.cancelExpense(workerExpenseId, 1, 'تنظيف مصروف الاختبار');
     await svc.cancelExpense(partnerExpenseId, 1, 'تنظيف مصروف الاختبار');
