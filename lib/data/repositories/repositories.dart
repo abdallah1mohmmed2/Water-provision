@@ -3121,9 +3121,43 @@ class StationRepository {
           );
         }
       case 'payment_methods':
-        return db.rawQuery(
-          "SELECT pm.name method_name,pm.type,pm.account_number,pm.bank_name,COALESCE(SUM(p.amount),0) total FROM payment_methods pm LEFT JOIN payments p ON p.payment_method_id=pm.id AND p.status='posted' GROUP BY pm.id",
-        );
+        {
+          // Apply the same selected filters used by the preview and PDF export.
+          // Keep LEFT JOIN so configured methods remain visible with zero totals
+          // when a date/cashbox filter has no matching payments.
+          final paymentJoin = <String>[
+            "p.payment_method_id=pm.id",
+            "p.status='posted'",
+          ];
+          final a = <Object?>[];
+          if (from != null) {
+            paymentJoin.add('date(p.date)>=date(?)');
+            a.add(from.toIso8601String());
+          }
+          if (to != null) {
+            paymentJoin.add('date(p.date)<=date(?)');
+            a.add(to.toIso8601String());
+          }
+          if (cashboxId != null) {
+            paymentJoin.add('p.cashbox_id=?');
+            a.add(cashboxId);
+          }
+          final where = <String>[];
+          if (paymentMethodId != null) {
+            where.add('pm.id=?');
+            a.add(paymentMethodId);
+          }
+          return db.rawQuery(
+            '''SELECT pm.name method_name,pm.type,pm.account_number,pm.bank_name,
+                      COALESCE(SUM(p.amount),0) total
+               FROM payment_methods pm
+               LEFT JOIN payments p ON ${paymentJoin.join(' AND ')}
+               ${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'}
+               GROUP BY pm.id
+               ORDER BY pm.name''',
+            a,
+          );
+        }
       case 'expenses':
         {
           final a = <Object?>[];
