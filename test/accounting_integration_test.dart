@@ -3330,10 +3330,11 @@ void main() {
   });
 
   test('عكس استحقاق السقاية يستخدم حساب المصروف الأصلي بعد تغيير مصدر العامل', () async {
-    final rows = await db.query("SELECT value FROM settings WHERE key='system_type'");
-    final previous = rows.isEmpty ? '' : '${rows.first['value']}';
+    final rows = await db.query("SELECT key,value FROM settings WHERE key IN ('system_type','solar_hourly_rate')");
+    final previous = {for (final row in rows) '${row['key']}': '${row['value']}'};
     try {
       await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
+      await db.update('settings', {'value': '6000'}, 'key=?', ['solar_hourly_rate']);
       await db.update('workers', {'active': 0}, 'id>? ', [0]);
       await db.update('partners', {'active': 0}, 'id>? ', [0]);
       final repo = StationRepository(db);
@@ -3370,8 +3371,8 @@ void main() {
       expect(await accountNet('5050'), dieselBefore);
       expect((await svc.workerBalance(worker))['balance'], 0);
     } finally {
-      if (previous.isNotEmpty) {
-        await db.update('settings', {'value': previous}, 'key=?', ['system_type']);
+      for (final entry in previous.entries) {
+        await db.update('settings', {'value': entry.value}, 'key=?', [entry.key]);
       }
     }
   });
