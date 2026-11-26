@@ -168,9 +168,9 @@ class ReportService {
     );
   }
 
-  /// Person-scoped report of diesel delivery/receipt movements only.
-  /// This is a read-only detail report: it never changes stock or party balances.
-  Future<void> printPartyDeliveryReceiptPdf({
+  /// Read-only cash movements for one party: posted payments and expenses
+  /// explicitly assigned to that party. Does not include fuel/liter movements.
+  Future<void> printPartyCashMovementsPdf({
     required String partyType,
     required int partyId,
     DateTime? from,
@@ -196,64 +196,113 @@ class ReportService {
       throw ArgumentError('بداية الفترة بعد نهايتها');
     }
     final station = await repo.accounting.currentStationId();
-    final personRows = await repo.db.rawQuery(
+    final people = await repo.db.rawQuery(
       'SELECT name FROM $table WHERE id=? AND station_id=?',
       [partyId, station],
     );
-    if (personRows.length != 1) {
-      throw StateError('صاحب التقرير لا يتبع المحطة الحالية');
-    }
-    final personName = '${personRows.single['name'] ?? labels[partyType]}';
-    final column = '${partyType}_id';
-    final movements = await repo.db.rawQuery(
-      """SELECT dm.id,dm.date,dm.kind,dm.liters,dm.party_receipt,
-                dm.irrigation_id,dm.reversal_of,dm.notes
-         FROM diesel_movements dm
-         LEFT JOIN irrigations i ON i.id=dm.irrigation_id
-         WHERE dm.station_id=? AND
-               (dm.$column=? OR (dm.$column IS NULL AND i.$column=?))
-           AND dm.kind IN ('delivery','receipt')
-           AND (? IS NULL OR date(dm.date)>=date(?))
-           AND (? IS NULL OR date(dm.date)<=date(?))
-         ORDER BY dm.date ASC,dm.id ASC""",
-      [station, partyId, partyId,
-       from?.toIso8601String(), from?.toIso8601String(),
-       to?.toIso8601String(), to?.toIso8601String()],
+    if (people.length != 1) throw StateError('الشخص لا يتبع المحطة الحالية');
+    final personName = '${people.single['name'] ?? labels[partyType]}';
+    final partyColumn = '${partyType}_id';
+    final dateFrom = from == null ? null : DateFormat('yyyy-MM-dd').format(from);
+    final dateTo = to == null ? null : DateFormat('yyyy-MM-dd').format(to);
+    final payments = await repo.db.rawQuery(
+      """SELECT p.id,p.date,p.amount,p.currency,p.reference_number,p.notes,
+                pm.name method_name,c.name cashbox_name,
+                CASE WHEN p.beneficiary_id IS NOT NULL THEN 'قبض من الشخص'
+                     ELSE 'دفع للشخص' END movement
+         FROM payments p
+         LEFT JOIN payment_methods pm ON pm.id=p.payment_method_id
+         LEFT JOIN cashboxes c ON c.id=p.cashbox_id
+         WHERE p.station_id=? AND p.$partyColumn=? AND p.status='posted'
+           AND (? IS NULL OR date(p.date)>=date(?))
+           AND (? IS NULL OR date(p.date)<=date(?))
+         ORDER BY p.date,p.id""",
+      [station, partyId, dateFrom, dateFrom, dateTo, dateTo],
     );
+    final expenses = await repo.db.rawQuery(
+      """SELECT e.id,e.date,e.amount,e.title,e.category,e.notes,
+                pm.name method_name,c.name cashbox_name
+         FROM expenses e
+         LEFT JOIN payment_methods pm ON pm.id=e.payment_method_id
+         LEFT JOIN cashboxes c ON c.id=e.cashbox_id
+         WHERE e.station_id=? AND e.$partyColumn=? AND e.status='posted'
+           AND (? IS NULL OR date(e.date)>=date(?))
+           AND (? IS NULL OR date(e.date)<=date(?))
+         ORDER BY e.date,e.id""",
+      [station, partyId, dateFrom, dateFrom, dateTo, dateTo],
+    );
+    final movements = <Map<String, Object?>>[
+      for (final row in payments)
+        <String, Object?>{
+          'id': row['id'], 'date': row['date'], 'amount': row['amount'],
+          'movement': row['movement'], 'title': 'سند قبض/صرف',
+          'notes': row['notes'], 'reference': row['reference_number'],
+          'method': row['method_name'], 'cashbox': row['cashbox_name'],
+          'currency': row['currency'] ?? '',
+        },
+      for (final row in expenses)
+        <String, Object?>{
+          'id': row['id'], 'date': row['date'], 'amount': row['amount'],
+          'movement': 'مصروف نقدي', 'title': row['title'],
+          'notes': row['notes'], 'reference': null,
+          'method': row['method_name'], 'cashbox': row['cashbox_name'],
+          'currency': '',
+        },
+    ]..sort((a, b) {
+        final byDate = '${a['date']}'.compareTo('${b['date']}');
+        return byDate != 0 ? byDate : ((a['id'] as num?) ?? 0)
+            .compareTo((b['id'] as num?) ?? 0);
+      });
     final settings = await repo.settings();
     final now = AppClock.now();
-    String liters(num value) => DieselQuantity.format(value);
-    final title = 'تقرير المسلّمات والمستلمات — ${labels[partyType]} $personName';
+    final money = NumberFormat('#,##0');
+    num totalReceived = 0;
+    num totalPaid = 0;
+    num totalExpenses = 0;
+    for (final row in movements) {
+      final amount = (row['amount'] as num?) ?? 0;
+      switch (row['movement']) {
+        case 'قبض من الشخص': totalReceived += amount;
+        case 'دفع للشخص': totalPaid += amount;
+        case 'مصروف نقدي': totalExpenses += amount;
+      }
+    }
+    final title = 'تقرير الحركات النقدية — ${labels[partyType]} $personName';
     await OfficialReportTemplate.preview(
       rightHeader1: settings['station_name'] ?? 'منظومة السقاية',
       rightHeader2: settings['organization_name'] ?? 'الإدارة المالية',
       rightHeader3: 'الجمهورية اليمنية',
       date: DateFormat('yyyy/MM/dd').format(now),
-      refNumber: 'MOV-${DateFormat('yyMMdd-HHmm').format(now)}',
-      attachments: 'الفترة: ${from == null ? 'من البداية' : DateFormat('yyyy/MM/dd').format(from)}'
-          ' إلى ${to == null ? 'الآن' : DateFormat('yyyy/MM/dd').format(to)}',
+      refNumber: 'CASH-${DateFormat('yyMMdd-HHmm').format(now)}',
+      attachments: 'الفترة: ${dateFrom ?? 'من البداية'} إلى ${dateTo ?? 'الآن'}',
       fileName: _pdfFileName(title),
       reportTitle: title,
       summaryBoxes: [
-        StatBoxData(number: '1', title: 'عدد الحركات', value: '${movements.length}'),
-        StatBoxData(number: '2', title: 'إجمالي التسليم (لتر)', value: liters(movements.where((m) => m['kind'] == 'delivery').fold<num>(0, (sum, m) => sum + ((m['liters'] as num?) ?? 0)))),
-        StatBoxData(number: '3', title: 'إجمالي الاستلام (لتر)', value: liters(movements.where((m) => m['kind'] == 'receipt').fold<num>(0, (sum, m) => sum + ((m['liters'] as num?) ?? 0)))),
+        StatBoxData(number: '1', title: 'المبالغ المستلمة', value: money.format(totalReceived)),
+        StatBoxData(number: '2', title: 'المدفوعات', value: money.format(totalPaid)),
+        StatBoxData(number: '3', title: 'المصروفات', value: money.format(totalExpenses)),
       ],
-      columns: const ['التاريخ', 'نوع الحركة', 'الكمية (لتر)', 'التفاصيل'],
+      columns: const ['التاريخ', 'نوع الحركة', 'المبلغ', 'البيان والتفاصيل'],
       rows: [
-        for (final movement in movements)
+        for (final row in movements)
           [
-            DateFormat('yyyy/MM/dd').format(DateTime.tryParse('${movement['date'] ?? ''}') ?? now),
-            movement['kind'] == 'delivery' ? 'تسليم' : 'استلام',
-            liters((movement['liters'] as num?) ?? 0),
+            DateFormat('yyyy/MM/dd').format(
+              DateTime.tryParse('${row['date'] ?? ''}') ?? now),
+            '${row['movement']}',
+            money.format((row['amount'] as num?) ?? 0),
             [
-              if (movement['reversal_of'] != null) 'حركة عكسية',
-              if ('${movement['notes'] ?? ''}'.trim().isNotEmpty) '${movement['notes']}',
-              if (movement['irrigation_id'] != null) 'سقاية #${movement['irrigation_id']}',
+              '${row['title'] ?? ''}',
+              if ('${row['currency'] ?? ''}'.trim().isNotEmpty) '${row['currency']}',
+              if ('${row['method'] ?? ''}'.trim().isNotEmpty) 'الطريقة: ${row['method']}',
+              if ('${row['cashbox'] ?? ''}'.trim().isNotEmpty) 'الصندوق: ${row['cashbox']}',
+              if ('${row['reference'] ?? ''}'.trim().isNotEmpty) 'المرجع: ${row['reference']}',
+              if ('${row['notes'] ?? ''}'.trim().isNotEmpty) '${row['notes']}',
             ].join(' — '),
           ],
       ],
-      footerTotalRow: ['الإجمالي', '', liters(movements.fold<num>(0, (sum, m) => sum + ((m['liters'] as num?) ?? 0))), ''],
+      footerTotalRow: [
+        'الإجمالي', '', money.format(totalReceived + totalPaid + totalExpenses), '',
+      ],
       minTableRows: 1,
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
       preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
