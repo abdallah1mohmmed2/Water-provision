@@ -108,7 +108,7 @@ class MainActivity : FlutterFragmentActivity() {
         val player = MediaPlayer()
         irrigationAudioPlayer = player
         val clipId = file.nameWithoutExtension
-        val startTrimMs = 120
+        val startTrimMs = 70
         var initialResultSent = false
         fun replyInitial(value: Boolean) {
             if (!initialResultSent) {
@@ -123,7 +123,7 @@ class MainActivity : FlutterFragmentActivity() {
                     // Skip short lead-in silence. Slightly soften connectors, and gently
                     // speed up the number/hour clips to balance the perceived cadence.
                     val speed = when (clipId) {
-                        "from", "to", "and" -> 0.94f
+                        "from", "to", "and" -> 1.0f
                         else -> if (clipId.startsWith("h_") || clipId.startsWith("n_")) 1.05f else 1.0f
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -134,7 +134,7 @@ class MainActivity : FlutterFragmentActivity() {
                             seeked.start()
                             replyInitial(true)
                             val audibleEnd = audibleEndMs[clipId] ?: (seeked.duration - 120)
-                            val playbackMs = (((audibleEnd - startTrimMs - 70).coerceAtLeast(180)) / speed).toLong()
+                            val playbackMs = (((audibleEnd - startTrimMs - 35).coerceAtLeast(180)) / speed).toLong()
                             val trim = Runnable {
                                 if (irrigationAudioPlayer === player) {
                                     try { player.stop() } catch (_: Exception) { }
