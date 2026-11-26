@@ -135,18 +135,14 @@ class MainActivity : FlutterFragmentActivity() {
                             replyInitial(true)
                             val audibleEnd = audibleEndMs[clipId] ?: (seeked.duration - 120)
                             val endSafetyMarginMs = if (clipId == "from" || clipId == "to" || clipId == "and") 20 else 35
-                            val playbackMs = (((audibleEnd - startTrimMs - endSafetyMarginMs).coerceAtLeast(180)) / speed).toLong()
+                            val connectorPauseMs = if (clipId == "and") 140L else 0L
+                            val playbackMs = (((audibleEnd - startTrimMs - endSafetyMarginMs).coerceAtLeast(180)) / speed).toLong() + connectorPauseMs
                             val trim = Runnable {
                                 if (irrigationAudioPlayer === player) {
                                     try { player.stop() } catch (_: Exception) { }
                                     player.release()
                                     irrigationAudioPlayer = null
-                                    val connectorPauseMs = if (clipId == "and") 140L else 0L
-                                    if (connectorPauseMs > 0) {
-                                        irrigationAudioHandler.postDelayed({ playNextIrrigationClip() }, connectorPauseMs)
-                                    } else {
-                                        playNextIrrigationClip()
-                                    }
+                                    playNextIrrigationClip()
                                 }
                             }
                             irrigationAudioTrimRunnable = trim
