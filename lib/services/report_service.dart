@@ -780,6 +780,10 @@ class ReportService {
     if (key == 'cloud_status') {
       return '$value' == 'discounted' ? 'تم خصم الغيم' : 'لا يوجد خصم';
     }
+    if (const {'solar_irrigations','solar_minutes','solar_total','diesel_irrigations','diesel_minutes','diesel_total','irrigations','minutes','total'}.contains(key)) {
+      final numeric = value is num ? value : num.tryParse('$value') ?? 0;
+      return NumberFormat('#,##0.##').format(numeric);
+    }
     if (key == 'system_type') {
       return switch ('$value') { 'diesel' => 'ديزل', 'solar' => 'شمسي', 'equivalent_hybrid' => 'النوع الثالث', _ => 'غير محدد' };
     }
