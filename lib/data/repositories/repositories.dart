@@ -3107,6 +3107,7 @@ class StationRepository {
               )
               SELECT m.month, COALESCE(i.income,0) income, COALESCE(e.expenses,0) expenses,
                 COALESCE(mc.collections,0) collections,
+                COALESCE(i.income,0)-COALESCE(mc.collections,0) uncollected_difference,
                 COALESCE(mr.beneficiary_receivable,0) beneficiary_receivable,
                 COALESCE(i.solar_income,0) solar_income, COALESCE(i.diesel_income,0) diesel_income,
                 COALESCE(i.unknown_income,0) unknown_income,
