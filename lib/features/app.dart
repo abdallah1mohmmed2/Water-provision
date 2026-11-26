@@ -13571,6 +13571,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   DateTime? from, to;
   String search = '';
   String hybridSourceFilter = 'all';
+  int _hybridSummaryTab = 0;
   String sortKey = 'start_datetime';
   String _reportSystemType = 'diesel';
   bool ascending = false, loading = true;
@@ -14061,15 +14062,39 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           if (isHybridType3) _summaryCard('المتبقي الإجمالي', '${_money(totalAmount - totalPaid)} ريال', Icons.account_balance_wallet_rounded, _reportOrange, 12),
                           if (isHybridType3) _summaryCard('استهلاك الديزل (لتر)', DieselQuantity.format(dieselRows.fold<num>(0, (sum, row) => sum + ((row['diesel_consumption_liters'] as num?) ?? 0))), Icons.local_gas_station, _reportOrange, 13),
                         ];
-                        return Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                        final selectedCards = isHybridType3
+                            ? (_hybridSummaryTab == 0
+                                ? cards.take(4).toList()
+                                : _hybridSummaryTab == 1
+                                    ? cards.skip(4).take(4).toList()
+                                    : cards.skip(8).toList())
+                            : cards;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            for (var i = 0; i < cards.length; i++)
-                              SizedBox(
-                                width: compact ? constraints.maxWidth : (constraints.maxWidth - 16) / 3,
-                                child: cards[i],
+                            if (isHybridType3) ...[
+                              SegmentedButton<int>(
+                                segments: const [
+                                  ButtonSegment(value: 0, label: Text('الشمس'), icon: Icon(Icons.sunny)),
+                                  ButtonSegment(value: 1, label: Text('الديزل'), icon: Icon(Icons.local_gas_station)),
+                                  ButtonSegment(value: 2, label: Text('الإجمالي'), icon: Icon(Icons.analytics_outlined)),
+                                ],
+                                selected: {_hybridSummaryTab},
+                                onSelectionChanged: (values) => setState(() => _hybridSummaryTab = values.first),
                               ),
+                              const SizedBox(height: 10),
+                            ],
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (var i = 0; i < selectedCards.length; i++)
+                                  SizedBox(
+                                    width: compact ? constraints.maxWidth : (constraints.maxWidth - 16) / 3,
+                                    child: selectedCards[i],
+                                  ),
+                              ],
+                            ),
                           ],
                         );
                       }),
