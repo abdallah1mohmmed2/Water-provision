@@ -360,7 +360,10 @@ class ReportService {
     };
     final dieselOnly = DieselReportColumns.dieselOnly(rows, systemType);
     final fuelReport = const ['irrigations', 'beneficiary_detailed'].contains(key);
-    final expectedHeaders = hybridSource == 'diesel' && key == 'irrigations'
+    final hybridBeneficiaryStats = key == 'beneficiary_stats' && currentType == 'equivalent_hybrid';
+    final expectedHeaders = hybridBeneficiaryStats
+        ? ['name','solar_irrigations','solar_minutes','solar_total','diesel_irrigations','diesel_minutes','diesel_total','irrigations','minutes','total']
+        : hybridSource == 'diesel' && key == 'irrigations'
         ? ['party_name', 'start_datetime', 'end_datetime', 'minutes', 'paid_amount', 'total_amount', 'diesel_consumption_liters']
         : hybridSource == 'solar' && key == 'irrigations'
             ? ['party_name', 'start_datetime', 'end_datetime', 'minutes', 'paid_amount', 'total_amount', 'cloud_minutes', 'cloud_status']
@@ -395,6 +398,22 @@ class ReportService {
     }
 
     final headers = sourceHeaders.map((header) {
+      final hybridStatLabels = <String, String>{
+        'name': 'المستفيد',
+        'solar_irrigations': 'الشمس • السقايات',
+        'solar_minutes': 'الشمس • الدقائق',
+        'solar_total': 'الشمس • الإجمالي (ريال)',
+        'diesel_irrigations': 'الديزل • السقايات',
+        'diesel_minutes': 'الديزل • الدقائق',
+        'diesel_total': 'الديزل • الإجمالي (ريال)',
+        'irrigations': 'الإجمالي • السقايات',
+        'minutes': 'الإجمالي • الدقائق',
+        'total': 'الإجمالي • القيمة (ريال)',
+      };
+      final label = hybridBeneficiaryStats
+          ? (hybridStatLabels[header] ?? _fieldName(header))
+          : key == 'irrigations'
+
       final label = key == 'irrigations'
           ? ({
               'party_name': 'الجهة',
@@ -488,7 +507,19 @@ class ReportService {
     String partnerClosingLabel(num balance) => balance > 0
         ? 'له ${money(balance)} ريال'
         : balance < 0 ? 'عليه ${money(balance.abs())} ريال' : 'متوازن (0 ريال)';
-    final summaryBoxes = <StatBoxData>[
+    final summaryBoxes = hybridBeneficiaryStats
+        ? <StatBoxData>[
+          StatBoxData(number: 'S1', title: 'الشمس • عدد السقايات', value: money(sumOf('solar_irrigations')), isBlueTint: true),
+          StatBoxData(number: 'S2', title: 'الشمس • إجمالي الدقائق', value: money(sumOf('solar_minutes')), isBlueTint: true),
+          StatBoxData(number: 'S3', title: 'الشمس • إجمالي الدخل', value: '${money(sumOf('solar_total'))} ريال', isBlueTint: true),
+          StatBoxData(number: 'D1', title: 'الديزل • عدد السقايات', value: money(sumOf('diesel_irrigations'))),
+          StatBoxData(number: 'D2', title: 'الديزل • إجمالي الدقائق', value: money(sumOf('diesel_minutes'))),
+          StatBoxData(number: 'D3', title: 'الديزل • إجمالي الدخل', value: '${money(sumOf('diesel_total'))} ريال'),
+          StatBoxData(number: 'T1', title: 'الإجمالي • عدد السقايات', value: money(sumOf('irrigations')), isLarge: true, isBlueTint: true),
+          StatBoxData(number: 'T2', title: 'الإجمالي • الدقائق', value: money(sumOf('minutes')), isLarge: true, isBlueTint: true),
+          StatBoxData(number: 'T3', title: 'الإجمالي • الدخل', value: '${money(sumOf('total'))} ريال', isLarge: true, isBlueTint: true),
+        ]
+        : <StatBoxData>[
       StatBoxData(
         number: '1',
         title: rows.any((row) => row.containsKey('minutes'))
@@ -586,7 +617,6 @@ class ReportService {
         ),
       ],
     ];
-
     final reportTitle = reportTitleOverride ?? (personName == null
         ? titles[key]!
         : '${titles[key]} — $personName');
@@ -615,6 +645,7 @@ class ReportService {
       reportTitle: reportTitle,
       summaryBoxes: summaryBoxes,
       columns: headers,
+      pageFormat: hybridBeneficiaryStats ? PdfPageFormat.a4.landscape : PdfPageFormat.a4,
       rows: tableRows,
       footerTotalRow: partnerClosing == null ? null : [
         for (final field in sourceHeaders)
@@ -689,7 +720,7 @@ class ReportService {
   }
 
   String _fieldName(String key) => {
-    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','party_type':'نوع الطرف','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','diesel_consumption_liters':'استهلاك الديزل (لتر)','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
+    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','solar_irrigations':'سقايات شمسي','solar_minutes':'دقائق شمسي','solar_total':'دخل شمسي','diesel_irrigations':'سقايات ديزل','diesel_minutes':'دقائق ديزل','diesel_total':'دخل ديزل','beneficiary_name':'المستفيد','party_name':'الجهة','party_type':'نوع الطرف','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','diesel_consumption_liters':'استهلاك الديزل (لتر)','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
   }[key] ?? 'بيان';
 
   String _categoryName(String v) => {
