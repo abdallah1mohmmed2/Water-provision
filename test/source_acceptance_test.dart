@@ -26,6 +26,10 @@ void main() {
     expect(accounting, contains('journal_lines'));
     expect(repo, contains('postponed'));
     expect(repo, contains('booking_requests'));
+    // Notifications are attached to the root overlay above modal quick/full forms.
+    expect(app, contains('OverlayEntry? _alertOverlay'));
+    expect(app, contains('Overlay.of(context, rootOverlay: true)'));
+    expect(app, contains('_alertSub = AppAlerts.stream.listen(_showAlertOverlay)'));
     // Dashboard income cards include type-3 irrigations according to their hybrid source.
     expect(repo, contains("system_type='equivalent_hybrid' AND hybrid_source='solar'"));
     expect(repo, contains("system_type='equivalent_hybrid' AND hybrid_source='diesel'"));
