@@ -7,7 +7,7 @@ void main() {
 
   test('muted feedback does not invoke the sound player', () async {
     var calls = 0;
-    AudioFeedbackService.soundPlayerForTesting = (_) async => calls++;
+    AudioFeedbackService.soundPlayerForTesting = (_) async { calls++; };
     await AudioFeedbackService.play(AudioFeedbackEvent.success, enabled: false);
     expect(calls, 0);
   });

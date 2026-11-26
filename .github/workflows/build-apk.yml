@@ -2,7 +2,7 @@ name: Build Flutter APK
 
 on:
   push:
-    branches: [ "test/all-open-prs", "experiment/main-based-2026-11-02", "feature/firebase-station-foundation", "feature/unified-theme-system", "feature/complementary-changes" ]
+    branches: [ "test/all-open-prs", "experiment/main-based-2026-11-02", "feature/firebase-station-foundation", "feature/unified-theme-system", "feature/complementary-changes", "feature/app-audio-system" ]
   workflow_dispatch:
 
 permissions:
