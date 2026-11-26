@@ -2860,7 +2860,6 @@ class AccountingService {
           }
         }
       }
-      final expenseAccount = await _accountIdTx(tx, '5000');
       final ordered = positiveAmounts.entries.toList()..sort((a,b) => a.key.compareTo(b.key));
       var count = 0;
       for (final entry in ordered) {
@@ -2881,6 +2880,7 @@ class AccountingService {
         if (rootIds['worker_transactions']!.isEmpty) {
           rootIds['worker_transactions']!.add(id);
         }
+        final expenseAccount = await _accountIdTx(tx, await _workerExpenseCodeTx(tx, workerId));
         final payableAccount = await _workerAccountIdTx(tx, workerId);
         await _entry(
           tx,
@@ -2942,7 +2942,7 @@ class AccountingService {
       'notes': memo,
       'created_by': userId,
     });
-    final exp = await _accountIdTx(tx, '5000'),
+    final exp = await _accountIdTx(tx, await _workerExpenseCodeTx(tx, workerId)),
         payable = await _workerAccountIdTx(tx, workerId);
     await _entry(
       tx,
