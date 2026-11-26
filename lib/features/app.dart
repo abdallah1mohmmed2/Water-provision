@@ -11,6 +11,7 @@ import 'beneficiary_irrigation_menu.dart';
 import '../domain/accounting/beneficiary_irrigation_actions.dart';
 import 'diesel_delivery_page.dart';
 import 'diesel_oil_page.dart';
+import '../domain/maintenance/diesel_oil_service.dart';
 import 'beneficiary_statement_card.dart';
 import '../services/party_statement_balance_display.dart';
 import '../domain/accounting/beneficiary_statement_totals.dart';
@@ -893,7 +894,36 @@ class _InitialSetupState extends State<InitialSetupPage>{
     }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
     finally{if(mounted)setState(()=>saving=false);}
   }
-  Widget _typeCard(String value,String title,String subtitle,IconData icon,Color color){final selected=type==value;return InkWell(onTap:()=>setState(()=>{type=value;pumpId=null;}),borderRadius:BorderRadius.circular(20),child:AnimatedContainer(duration:Duration(milliseconds:180),padding:EdgeInsets.all(15),decoration:BoxDecoration(color:selected?color.withValues(alpha:.1):_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:selected?color:_reportLine,width:selected?2:1)),child:Row(children:[Container(width:45,height:45,decoration:BoxDecoration(color:selected?color:color.withValues(alpha:.1),borderRadius:BorderRadius.circular(14)),child:Icon(icon,color:selected?Colors.white:color)),SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),SizedBox(height:4),Text(subtitle,style:TextStyle(color:_reportInk.withValues(alpha:.58),fontSize:10))])),Icon(selected?Icons.radio_button_checked_rounded:Icons.radio_button_unchecked_rounded,color:selected?color:_reportInk.withValues(alpha:.28))]));}
+  Widget _typeCard(String value,String title,String subtitle,IconData icon,Color color){
+    final selected=type==value;
+    return InkWell(
+      onTap:()=>setState((){type=value;pumpId=null;}),
+      borderRadius:BorderRadius.circular(20),
+      child:AnimatedContainer(
+        duration:const Duration(milliseconds:180),
+        padding:const EdgeInsets.all(15),
+        decoration:BoxDecoration(
+          color:selected?color.withValues(alpha:.1):_reportSurface,
+          borderRadius:BorderRadius.circular(20),
+          border:Border.all(color:selected?color:_reportLine,width:selected?2:1),
+        ),
+        child:Row(children:[
+          Container(
+            width:45,height:45,
+            decoration:BoxDecoration(color:selected?color:color.withValues(alpha:.1),borderRadius:BorderRadius.circular(14)),
+            child:Icon(icon,color:selected?Colors.white:color),
+          ),
+          const SizedBox(width:11),
+          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),
+            const SizedBox(height:4),
+            Text(subtitle,style:TextStyle(color:_reportInk.withValues(alpha:.58),fontSize:10)),
+          ])),
+          Icon(selected?Icons.radio_button_checked_rounded:Icons.radio_button_unchecked_rounded,color:selected?color:_reportInk.withValues(alpha:.28)),
+        ]),
+      ),
+    );
+  }
   Widget _sectionTitle(String title,String sub,IconData icon)=>Padding(padding:EdgeInsets.only(bottom:10),child:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(11)),child:Icon(icon,color:_reportOliveDark,size:19)),SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),Text(sub,style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:10))])]));
   Widget _field(TextEditingController c,String label,{IconData? icon,String suffix=' ريال',bool decimal=false})=>TextField(controller:c,keyboardType:TextInputType.numberWithOptions(decimal:decimal),decoration:InputDecoration(labelText:label,prefixIcon:icon==null?null:Icon(icon),suffixText:suffix,border:OutlineInputBorder()));
   @override Widget build(BuildContext context){
