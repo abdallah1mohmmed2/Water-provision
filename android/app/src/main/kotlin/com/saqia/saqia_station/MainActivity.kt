@@ -120,11 +120,11 @@ class MainActivity : FlutterFragmentActivity() {
             player.setDataSource(file.absolutePath)
             player.setOnPreparedListener { prepared ->
                 try {
-                    // Skip short lead-in silence. Slightly soften connectors, and gently
-                    // speed up the number/hour clips to balance the perceived cadence.
+                    // Preserve full connectors, slow the overall spoken cadence slightly,
+                    // and add a natural pause after "and" before the minute clip.
                     val speed = when (clipId) {
-                        "from", "to", "and" -> 1.0f
-                        else -> if (clipId.startsWith("h_") || clipId.startsWith("n_")) 1.05f else 1.0f
+                        "from", "to", "and" -> 0.92f
+                        else -> if (clipId.startsWith("h_") || clipId.startsWith("n_")) 1.0f else 1.0f
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         prepared.playbackParams = prepared.playbackParams.setSpeed(speed)
@@ -134,13 +134,19 @@ class MainActivity : FlutterFragmentActivity() {
                             seeked.start()
                             replyInitial(true)
                             val audibleEnd = audibleEndMs[clipId] ?: (seeked.duration - 120)
-                            val playbackMs = (((audibleEnd - startTrimMs - 35).coerceAtLeast(180)) / speed).toLong()
+                            val endSafetyMarginMs = if (clipId == "from" || clipId == "to" || clipId == "and") 20 else 35
+                            val playbackMs = (((audibleEnd - startTrimMs - endSafetyMarginMs).coerceAtLeast(180)) / speed).toLong()
                             val trim = Runnable {
                                 if (irrigationAudioPlayer === player) {
                                     try { player.stop() } catch (_: Exception) { }
                                     player.release()
                                     irrigationAudioPlayer = null
-                                    playNextIrrigationClip()
+                                    val connectorPauseMs = if (clipId == "and") 140L else 0L
+                                    if (connectorPauseMs > 0) {
+                                        irrigationAudioHandler.postDelayed({ playNextIrrigationClip() }, connectorPauseMs)
+                                    } else {
+                                        playNextIrrigationClip()
+                                    }
                                 }
                             }
                             irrigationAudioTrimRunnable = trim
