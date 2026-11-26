@@ -816,6 +816,38 @@ void main() {
     expect(await svc.partyOperationalMessageBalance(partyType: 'partner', partyId: p), 0);
   });
 
+  test('رصيد الرسائل يخصم المصروفات الشخصية ولا يكشف الأرباح', () async {
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(name: 'عامل مصروف رسالة', payType: 'fixed');
+    final partner = await repo.createPartner(name: 'شريك مصروف رسالة', mode: 'shares', shares: 1);
+    final date = DateTime(2045, 2, 3);
+    await svc.addExpense(
+      category: 'maintenance',
+      title: 'مصروف مرتبط بالعامل',
+      amount: 300,
+      date: date,
+      paymentMethodId: 1,
+      cashboxId: 1,
+      workerId: worker,
+    );
+    await svc.addExpense(
+      category: 'maintenance',
+      title: 'مصروف شخصي للشريك',
+      amount: 450,
+      date: date,
+      paymentMethodId: 1,
+      cashboxId: 1,
+      partnerId: partner,
+    );
+    expect(await svc.partyOperationalMessageBalance(
+      partyType: 'worker', partyId: worker), -300);
+    expect(await svc.partyOperationalMessageBalance(
+      partyType: 'partner', partyId: partner), -450);
+    // رصيد الأستاذ الرسمي لا يتغير بسبب حساب الرسالة المخصص.
+    expect((await svc.workerBalance(worker))['balance'], 0);
+    expect((await svc.partnerBalance(partner))['balance'], -450);
+  });
+
   test('كشف الشريك يعرض خصم السقاية ومدفوعاته ويطابق رصيد الأستاذ', () async {
     await useSolar6000();
     final repo = StationRepository(db);
