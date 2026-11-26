@@ -398,7 +398,7 @@ class ReportService {
     }
 
     final headers = sourceHeaders.map((header) {
-      final hybridStatLabels = <String, String>{
+      const hybridStatLabels = <String, String>{
         'name': 'المستفيد',
         'solar_irrigations': 'الشمس • السقايات',
         'solar_minutes': 'الشمس • الدقائق',
@@ -413,20 +413,18 @@ class ReportService {
       final label = hybridBeneficiaryStats
           ? (hybridStatLabels[header] ?? _fieldName(header))
           : key == 'irrigations'
-
-      final label = key == 'irrigations'
-          ? ({
-              'party_name': 'الجهة',
-              'start_datetime': 'من',
-              'end_datetime': 'إلى',
-              'minutes': 'إجمالي الدقائق',
-              'paid_amount': 'المدفوع',
-              'total_amount': 'القيمة الإجمالية',
-              'cloud_minutes': 'الغيم',
-              'cloud_status': 'حالة الخصم',
-              'diesel_consumption_liters': 'استهلاك الديزل (لتر)',
-            }[header] ?? _fieldName(header))
-          : _fieldName(header);
+              ? ({
+                  'party_name': 'الجهة',
+                  'start_datetime': 'من',
+                  'end_datetime': 'إلى',
+                  'minutes': 'إجمالي الدقائق',
+                  'paid_amount': 'المدفوع',
+                  'total_amount': 'القيمة الإجمالية',
+                  'cloud_minutes': 'الغيم',
+                  'cloud_status': 'حالة الخصم',
+                  'diesel_consumption_liters': 'استهلاك الديزل (لتر)',
+                }[header] ?? _fieldName(header))
+              : _fieldName(header);
       return _shapeArabic(label);
     }).toList();
 
