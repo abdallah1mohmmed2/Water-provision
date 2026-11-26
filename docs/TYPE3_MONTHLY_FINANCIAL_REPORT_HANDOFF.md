@@ -190,3 +190,12 @@
 - [ ] Flutter Analyze, tests, APK build and PDF visual validation are pending CI.
 
 - CI catch-and-fix: the first PDF implementation had a malformed header ternary and duplicate `pageFormat` argument. GitHub Analyze caught these compile errors. The header mapping was corrected in `219a3806`; page orientation was corrected in `b1f3934f` by combining the hybrid report's landscape condition into the existing orientation expression. Recheck CI on the latest commit.
+
+
+### إظهار سجل المدفوعات في مركز التقارير — 26 نوفمبر 2026
+- [x] اكتشاف أن تقرير «سجل المدفوعات» موجود بالفعل كتعريف ومصدر بيانات/PDF (`payment_log`) لكنه غير موجود في قائمة بطاقات مركز التقارير؛ لذا لم يكن متاحًا من واجهة المركز.
+- [x] إضافة بطاقة «سجل المدفوعات» إلى مركز التقارير، وتصنيفها ضمن «المالية والحركة»، مع أيقونة المدفوعات ووصف يوضح القبض والصرف والطرف وطريقة الدفع والصندوق والفترة.
+- [x] لم يتم تعديل استعلام البيانات أو قواعد الحساب أو PDF؛ التقرير الحالي يسرد العمليات المنشورة فقط، ويقبل فلاتر التاريخ والصندوق وطريقة الدفع. لا يتم تصنيف القبوضات إلى شمسي/ديزل لأن جدول `payments` لا يحتوي مصدرًا محفوظًا لها، وتوزيع الدفعة على مصادر فواتير متعددة غير موثق. تجنبنا أي تصنيف افتراضي غير صحيح.
+- Commit: `6f73a18abc6780bfd7a6d301bee91a311c1245fd`.
+- CI على commit السابق `315cf980`: Flutter Analyze نجح؛ Flutter tests فشلت (354 ناجحًا، 1 فاشل) في `party_quick_actions_test.dart`، اختبار تنقل بطاقة الطرف إلى نموذج السقاية مع النوع الثالث. الفشل ليس من تقرير المدفوعات، لكن يلزم التحقيق وإعادة CI على التحديث الأخير قبل إعلان الاعتماد النهائي.
+- [ ] CI والتحقق من ظهور البطاقة في مركز التقارير.
