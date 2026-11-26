@@ -3287,6 +3287,8 @@ void main() {
       final solar = await repo.createWorker(name: 'راتب شمسي مصدر', payType: 'fixed', fixedSalary: 1000, sourceAffiliation: 'solar');
       final diesel = await repo.createWorker(name: 'راتب ديزل مصدر', payType: 'fixed', fixedSalary: 1000, sourceAffiliation: 'diesel');
       final shared = await repo.createWorker(name: 'راتب مشترك مصدر', payType: 'fixed', fixedSalary: 1000, sourceAffiliation: 'shared');
+      final createPayload = await db.query("SELECT payload FROM sync_queue WHERE table_name='workers' AND record_id=? ORDER BY id DESC LIMIT 1", args: [solar]);
+      expect((jsonDecode('${createPayload.single['payload']}') as Map)['source_affiliation'], 'solar');
       final beforeSolar = await accountNet('5040');
       final beforeDiesel = await accountNet('5050');
       final beforeShared = await accountNet('5000');
@@ -3310,6 +3312,11 @@ void main() {
       expect((await accountNet('5040')) - beforeSolar, 1250);
       expect((await accountNet('5050')) - beforeDiesel, 1200);
       expect((await accountNet('5000')) - beforeShared, 1200);
+      final summary = await svc.partnerProfitSummary(from: DateTime(2051, 2, 1), to: DateTime(2051, 4, 1));
+      expect(summary['workers'], 3650);
+      await repo.updateWorker(diesel, {'source_affiliation': 'shared'}, null);
+      final updatePayload = await db.query("SELECT payload FROM sync_queue WHERE table_name='workers' AND record_id=? ORDER BY id DESC LIMIT 1", args: [diesel]);
+      expect((jsonDecode('${updatePayload.single['payload']}') as Map)['source_affiliation'], 'shared');
 
       final cashBefore = await cashboxBalance(1);
       final solarExpenseBeforePayment = await accountNet('5040');
