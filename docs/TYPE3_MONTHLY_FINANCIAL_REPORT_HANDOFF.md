@@ -104,3 +104,5 @@
 - لم تُشغّل الاختبارات أو Flutter analyze/build أو CI بعد هذه الجلسة؛ لا تعتبر التعديل مثبتًا بالاختبارات حتى يتم ذلك.
 - قائمة المهام القديمة في قسم «تنفيذ جزئي» أصبحت متضاربة مع سجل الإنجاز؛ عند التحديث التالي يجب إزالة/تمييز قائمة «غير مكتمل» القديمة وتوحيد حالة الإنجاز حسب آخر commits.
 - تدقيق مزامنة Outbox/Shelf لم يكتمل؛ `BusinessSyncPayload` يتضمن expenses ضمن additionalCommands، لكن يلزم التحقق من وصول `expense_system_type` عبر payload والـserver schema/validation.
+
+- متابعة المزامنة (قراءة الكود): `BusinessSyncPayload.additionalCommands` يضم `expenses`، و`prepare()` يبدأ بعمل نسخة من `original` كما هي؛ هذا يعني أن الحقل المحلي `expense_system_type` لا يُحذف في هذه الطبقة. لكن لم يُفحص بعد عقد/Schema خادم Shelf ولا تم اختبار إرسال واستقبال الحقل عبر مزامنة فعلية.
