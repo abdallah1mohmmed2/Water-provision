@@ -192,6 +192,22 @@ void main() {
       expect(x.totalAmount, 115);
     });
 
+    test('خصم 5 دقائق يقلل المحاسبة إلى 55 دقيقة مع بقاء استهلاك الديزل 60 دقيقة', () {
+      final x = AccountingCalculations.diesel(
+        start: start,
+        end: start.add(const Duration(minutes: 55)),
+        hourlyWaterRate: 7000,
+        litersPerHour: 2.5,
+        dieselPrice: 0,
+        cloudMinutes: 0,
+        dieselRuntimeMinutes: 60,
+      );
+      expect(x.minutes, 55);
+      expect(x.chargeableMinutes, 55);
+      expect(x.waterAmount, 6417);
+      expect(x.dieselLiters, closeTo(2.5, 1e-9));
+    });
+
     test('divRound يطابق التقريب الكسري الدقيق', () {
       for (var m = 1; m < 600; m++) {
         for (final r in [100, 250, 300, 350, 450, 1200]) {
