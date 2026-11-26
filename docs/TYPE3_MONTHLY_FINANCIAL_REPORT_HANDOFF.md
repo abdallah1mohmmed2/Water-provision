@@ -38,6 +38,28 @@
 9. اختبار بناء التطبيق والاختبارات ذات العلاقة وCI. لا تكتب نجاحاً إلا بعد نتائج فعلية.
 
 ## سجل التقدم
+
+### تنفيذ جزئي (26 نوفمبر 2026)
+- [x] Migration SQLite: الإصدار 37 → 38؛ إضافة `expenses.expense_system_type` افتراضي `shared` وتوحيد القيم القديمة غير الصحيحة/NULL إلى shared.
+- [x] Schema الجديدة: إضافة العمود مع CHECK solar/diesel/shared.
+- [x] `AccountingService.addExpense`: استقبال وحفظ تصنيف المصدر؛ القيمة الافتراضية shared، والتحقق من القيمة.
+- [x] نموذج المصروف: في النوع الثالث فقط يظهر اختيار شمسي مباشر/ديزل مباشر/مشترك؛ الأنواع الأخرى تظل على shared.
+- [x] استعلام التقرير: حقول إيرادات الشمس والديزل ومجهول المصدر، المصروف المباشر لكل نظام، المصروف المشترك، التخصيص النسبي، والمبلغ المشترك غير الموزع عند غياب الإيرادات.
+- [x] شاشة التقرير الشهري: تبويبات شمسي/ديزل/إجمالي للنوع الثالث، مع الحفاظ على عرض الإجمالي والـPDF.
+- [ ] تدقيق تزامن/outbox/server schema والحقول الجديدة.
+- [ ] اختبارات unit/widget/database migration.
+- [ ] Flutter analyze/build وCI؛ لم يتم تشغيلها بعد من هذه الجلسة.
+- [ ] مراجعة diff نهائية وتحسين العرض إن لزم.
+
+### Commits التي تم التحقق من إرجاع GitHub لها
+- Migration DB: `a7f2e206c5410494705d0e90fd9db3e2b4ec6229`
+- Initial SQL: `1113a15ed95dc97704ea1a7ddf8d6ef8b3bcbf43`
+- Accounting storage: `520d473002b1886bfab91a929a6b719976ce7909`
+- Monthly report query: `85916e34cd2cb25900151bd1affd097ad49d8c3b`
+- Expense form: `994e630f01692dcd376a74754b02d66b7452e681`
+- Report tabs: `e13630ffb6f87985c3995c23ba72b2235d9f2f53`
+- Validation: `1b51a880199c42253bfc43c972ea455dbf4f5106`
+
 - [x] التحقق من وجود الفرع `feature/complementary-changes`.
 - [x] فحص استعلام `monthly_financial` الحالي؛ ما زال يعيد `income` و`expenses` إجماليين فقط.
 - [x] فحص `expenses` schema الأولي؛ لا يوجد تصنيف نظام حالياً.
