@@ -67,6 +67,9 @@ class BeneficiaryIrrigationMessageService {
     final fuel = await IrrigationMessageFuelService(repo).forIrrigation(irrigationId);
     final settings = await repo.settings();
     String money(int amount) => '$amount ريال';
+    String partyBalanceText(int amount) => amount == 0
+        ? 'متوازن (0 ريال)'
+        : (amount > 0 ? 'له ' : 'عليه ') + amount.abs().toString() + ' ريال';
     final text = MessageTemplateService.render(
       settings[MessageTemplateService.irrigationKey],
       MessageTemplateService.irrigationKey,
@@ -80,7 +83,7 @@ class BeneficiaryIrrigationMessageService {
         'المبلغ المدفوع': money(paid),
         'المتبقي من السقاية': money(total - paid),
         // No historical balance snapshot was stored by the old save path.
-        'الرصيد السابق': previousBalance == null ? 'غير محفوظ لهذه السقاية' : (previousBalance == 0 ? 'متوازن (0 ريال)' : '\${previousBalance > 0 ? 'له' : 'عليه'} \${previousBalance.abs()} ريال'),
+        'الرصيد السابق': previousBalance == null ? 'غير محفوظ لهذه السقاية' : partyBalanceText(previousBalance),
         'الرصيد الحالي': balance == 0 ? 'متوازن (0 ريال)'
           : '${balance > 0 ? (partyType == 'beneficiary' ? 'عليه' : 'له') : (partyType == 'beneficiary' ? 'له' : 'عليه')} ${balance.abs()} ريال',
         'رقم العملية': '$irrigationId',
