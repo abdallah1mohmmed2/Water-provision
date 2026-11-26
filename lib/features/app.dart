@@ -4951,9 +4951,30 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   late Future<void> _initialLoadFuture;
   String? _initialPartyError;
 
+  Future<String?> _requireHybridSource() async {
+    if (type != 'equivalent_hybrid' || !mounted) return null;
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('مصدر تشغيل السقاية'),
+        content: const Text('اختر مصدر تشغيل هذه السقاية. لا يمكن حفظها دون تحديد المصدر.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('إلغاء')),
+          FilledButton.icon(onPressed: () => Navigator.of(dialogContext).pop('solar'), icon: const Icon(Icons.wb_sunny_outlined), label: const Text('شمسي')),
+          FilledButton.icon(onPressed: () => Navigator.of(dialogContext).pop('diesel'), icon: const Icon(Icons.local_gas_station_outlined), label: const Text('ديزل')),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loadInitialParty() async {
     await load();
     if (!mounted) return;
+    if (!widget.compactOnly && type == 'equivalent_hybrid') {
+      hybridSource = await _requireHybridSource();
+      if (!mounted) return;
+    }
     final kind = widget.initialPartyType;
     final id = widget.initialPartyId;
     if (kind == null && id == null) return;
@@ -5918,6 +5939,10 @@ int? parseClock(String raw) {
       return;
     }
     if (!mounted || loading || saved || _initialPartyError != null) return;
+    if (type == 'equivalent_hybrid') {
+      hybridSource = await _requireHybridSource();
+      if (!mounted || hybridSource == null) return;
+    }
 
     await showDialog<void>(
       context: context,
