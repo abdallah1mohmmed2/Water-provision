@@ -6141,7 +6141,7 @@ int? parseClock(String raw) {
                     OutlinedButton.icon(
                       onPressed: () => chooseTime(false),
                       icon: const Icon(Icons.av_timer),
-                      label: Text('نهاية التشغيل: ${_hm12Label(end)}'),
+                      label: Text('نهاية السقاية: ${_hm12Label(discountedEnd)}'),
                     ),
                     if (settings['irrigation_minute_discount_enabled'] == 'true') ...[
                       const SizedBox(height: 8),
@@ -6175,7 +6175,7 @@ int? parseClock(String raw) {
               ),
               FilledButton.icon(
                 onPressed: loading ? null : () async {
-                  final savedEnd = end;
+                  final savedEnd = discountedEnd;
                   final hasSelectedParty =
                       (partyType == 'beneficiary' && bid != null) ||
                       (partyType == 'worker' && workerId != null) ||
@@ -6338,7 +6338,6 @@ int? parseClock(String raw) {
         partyType,
         recipientId!,
       );
-      final actualEnd = end;
       final effectiveEnd = discountedEnd;
       final irrigationId = await widget.r.accounting.recordIrrigation(
         stationId: stationId,
