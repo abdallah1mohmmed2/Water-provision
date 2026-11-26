@@ -3453,6 +3453,7 @@ void main() {
     await db.update('partners', {'active': 0}, 'id>?', [0]);
     final repo = StationRepository(db);
     final now = DateTime.now();
+    final reportEnd = now.add(const Duration(minutes: 1));
     final monthStart = DateTime(now.year, now.month, 1);
     final beneficiary = await repo.createBeneficiary(name: 'مستفيد اختبار الإيراد والتحصيل');
     final before = await repo.report('monthly_financial', from: monthStart, to: reportEnd);
@@ -3471,10 +3472,11 @@ void main() {
     expect((await db.query('SELECT total_amount,paid_amount FROM irrigations WHERE id=?', args: [irrigationId])).single,
       {'total_amount': 6000, 'paid_amount': 2000});
     await svc.receivePayment(beneficiaryId: beneficiary, amount: 1000, paymentMethodId: 1, cashboxId: 1);
-    final after = await repo.report('monthly_financial', from: monthStart, to: now);
+    final after = await repo.report('monthly_financial', from: monthStart, to: reportEnd);
     final row = after.singleWhere((x) => x['month'] == '${now.year}-${now.month.toString().padLeft(2, '0')}');
     expect((row['income'] as num) - (baseline['income'] as num), 6000);
     expect((row['collections'] as num) - (baseline['collections'] as num), 3000);
+    expect((row['uncollected_difference'] as num) - (baseline['uncollected_difference'] as num), 3000);
     expect((row['beneficiary_receivable'] as num) - (baseline['beneficiary_receivable'] as num), 3000);
   });
 
