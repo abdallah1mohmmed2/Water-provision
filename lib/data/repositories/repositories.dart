@@ -3379,10 +3379,37 @@ class StationRepository {
           args,
         );
       case 'system_comparison':
-        return _systemReportWithOverall(
-          "SELECT i.system_type,COUNT(*) operations,SUM(i.minutes) minutes,SUM(i.total_amount) total,SUM(i.diesel_amount) diesel_cost FROM irrigations i WHERE $iw GROUP BY i.system_type",
-          args,
-        );
+        {
+          // Type 3 has two distinct irrigation sources. Compare them separately
+          // instead of collapsing all hybrid irrigation into one system row.
+          // Keep the existing comparison query unchanged for other station types.
+          if (currentSystemType == 'equivalent_hybrid') {
+            return _systemReportWithOverall(
+              """SELECT
+                CASE
+                  WHEN COALESCE(i.hybrid_source,'')='solar' THEN 'solar'
+                  WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 'diesel'
+                  ELSE 'unclassified'
+                END system_type,
+                COUNT(*) operations,
+                SUM(i.minutes) minutes,
+                SUM(i.total_amount) total,
+                SUM(CASE WHEN COALESCE(i.hybrid_source,'')='diesel'
+                  THEN COALESCE(i.diesel_amount,0) ELSE 0 END) diesel_cost
+                FROM irrigations i WHERE $iw
+                GROUP BY CASE
+                  WHEN COALESCE(i.hybrid_source,'')='solar' THEN 'solar'
+                  WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 'diesel'
+                  ELSE 'unclassified'
+                END""",
+              args,
+            );
+          }
+          return _systemReportWithOverall(
+            "SELECT i.system_type,COUNT(*) operations,SUM(i.minutes) minutes,SUM(i.total_amount) total,SUM(i.diesel_amount) diesel_cost FROM irrigations i WHERE $iw GROUP BY i.system_type",
+            args,
+          );
+        }
       case 'journal':
         return journal(from: from, to: to);
       case 'ledger':
