@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import '../services/audio_feedback_service.dart';
 import 'app_clock.dart';
 
 /// تفضيلات تُقرأ من جدول الإعدادات وتؤثر على الواجهة كلها:
@@ -57,11 +58,10 @@ class AppAlerts {
   static Stream<AppAlert> get stream => _c.stream;
 
   static void emit(String title, String body) {
-    if (AppPrefs.current.sound) {
-      try {
-        SystemSound.play(SystemSoundType.alert);
-      } catch (_) {}
-    }
+    AudioFeedbackService.play(
+      AudioFeedbackEvent.notification,
+      enabled: AppPrefs.current.sound,
+    );
     if (AppPrefs.current.popup && _c.hasListener) {
       _c.add(AppAlert(title, body));
     }

@@ -21,6 +21,7 @@ import 'dart:async';
 import 'auth/firebase_access_gate.dart';
 import '../core/app_clock.dart';
 import '../core/app_prefs.dart';
+import '../services/audio_feedback_service.dart';
 import '../core/period_ranges.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
@@ -120,8 +121,16 @@ Future<bool> runGuarded(
 ) async {
   try {
     await action();
+    await AudioFeedbackService.play(
+      AudioFeedbackEvent.success,
+      enabled: AppPrefs.current.sound,
+    );
     return true;
   } catch (e) {
+    await AudioFeedbackService.play(
+      AudioFeedbackEvent.error,
+      enabled: AppPrefs.current.sound,
+    );
     if (context.mounted) {
       ScaffoldMessenger.of(
         context,
@@ -17026,8 +17035,34 @@ class _SettingsState extends State<SettingsPage> {
 
   Widget boolTile(String k, String label, {bool defaultValue = false}) => SwitchListTile.adaptive(
     title: Text(label),
+    subtitle: k == 'sound_notifications'
+        ? Text((s[k] ?? 'true') == 'true'
+            ? 'الأصوات القصيرة مفعّلة للأحداث المهمة فقط. يمكنك إيقافها نهائيًا من هنا.'
+            : 'كل الأصوات داخل التطبيق متوقفة؛ لن تُفعّل تلقائيًا.')
+        : null,
     value: (s[k] ?? (defaultValue ? 'true' : 'false')) == 'true',
     onChanged: (v) async {
+      if (k == 'sound_notifications') {
+        try {
+          await widget.r.setSetting(k, v ? 'true' : 'false');
+          await load(); // Apply the persisted mute state before any feedback.
+          if (v) {
+            await AudioFeedbackService.play(
+              AudioFeedbackEvent.success,
+              enabled: AppPrefs.current.sound,
+            );
+          }
+        } catch (e) {
+          await AudioFeedbackService.play(
+            AudioFeedbackEvent.error,
+            enabled: AppPrefs.current.sound,
+          );
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('تعذر حفظ إعداد الصوت: ${friendlyError(e)}')),
+          );
+        }
+        return;
+      }
       if (!await runGuarded(
         context,
         () => widget.r.setSetting(k, v ? 'true' : 'false'),
