@@ -3022,7 +3022,7 @@ class StationRepository {
               ),
               scoped_expenses AS (
                 SELECT e.* FROM expenses e CROSS JOIN station_context s
-                WHERE e.status='posted' AND (
+                WHERE e.status='posted' AND e.partner_id IS NULL AND (
                   EXISTS (SELECT 1 FROM cashboxes c WHERE c.id=e.cashbox_id AND c.station_id=s.station_id)
                   OR EXISTS (SELECT 1 FROM payment_methods pm WHERE pm.id=e.payment_method_id AND pm.station_id=s.station_id)
                   OR EXISTS (SELECT 1 FROM app_users u WHERE u.id=e.created_by AND u.station_id=s.station_id)
