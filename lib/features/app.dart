@@ -12454,6 +12454,67 @@ List<Widget> reportQuickRangeButtons(
   ];
 }
 
+class HybridActivityOverviewReportPage extends StatefulWidget {
+  final StationRepository r;
+  final List<Map<String, Object?>> rows;
+  final DateTime? from, to;
+  const HybridActivityOverviewReportPage(this.r, {required this.rows, this.from, this.to, super.key});
+  @override
+  State<HybridActivityOverviewReportPage> createState() => _HybridActivityOverviewReportPageState();
+}
+class _HybridActivityOverviewReportPageState extends State<HybridActivityOverviewReportPage> {
+  int selectedTab = 0;
+  late final List<Map<String, Object?>> rows = List<Map<String, Object?>>.from(widget.rows);
+  final tabs = const ['solar', 'diesel', 'overall'];
+  int _num(Object? v) => (v as num?)?.round() ?? int.tryParse('${v ?? 0}') ?? 0;
+  String _money(Object? v) => NumberFormat('#,##0').format(_num(v));
+  String _period() => '${widget.from == null ? 'من البداية' : DateFormat('yyyy/MM/dd').format(widget.from!)} — ${widget.to == null ? 'حتى الآن' : DateFormat('yyyy/MM/dd').format(widget.to!)}';
+  Map<String, Object?>? get current {
+    final key = tabs[selectedTab];
+    for (final row in rows) { if ('${row['system_type']}' == key) return row; }
+    return null;
+  }
+  Future<void> _pdf() async {
+    try {
+      final data = current == null ? <Map<String, Object?>>[] : [current!];
+      await ReportService(widget.r).printPdf('activity_overview', from: widget.from, to: widget.to, systemType: 'equivalent_hybrid', sourceRows: data);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر تجهيز PDF: ${friendlyError(e)}')));
+    }
+  }
+  String _tabLabel(int i) => switch (i) { 0 => 'الشمسي', 1 => 'الديزل', _ => 'الإجمالي' };
+  Widget _stat(String label, String value, IconData icon, Color color) => Expanded(child: Container(
+    padding: const EdgeInsets.all(13), decoration: BoxDecoration(color: _reportSurface, border: Border.all(color: _reportLine), borderRadius: BorderRadius.circular(17)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, color: color, size: 20), const SizedBox(height: 8), Text(label, style: TextStyle(color: _reportInk.withValues(alpha: .55), fontSize: 11)), const SizedBox(height: 4), Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 16))]),
+  ));
+  @override Widget build(BuildContext context) {
+    final row = current;
+    return Directionality(textDirection: TextDirection.rtl, child: Scaffold(
+      backgroundColor: _reportCream,
+      appBar: AppBar(backgroundColor: _reportCream, foregroundColor: _reportInk, elevation: 0, title: const Text('نظرة عامة على النشاط', style: TextStyle(fontWeight: FontWeight.w900)), actions: [IconButton(onPressed: _pdf, tooltip: 'PDF', icon: const Icon(Icons.print_rounded))]),
+      body: ListView(padding: const EdgeInsets.fromLTRB(16,8,16,26), children: [
+        Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(gradient: LinearGradient(colors: [_reportOliveDark,_reportOlive]), borderRadius: BorderRadius.circular(23)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('ملخص النشاط',style:TextStyle(color:Colors.white.withValues(alpha:.8))),const SizedBox(height:7),Text(_tabLabel(selectedTab),style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:24)),const SizedBox(height:7),Text(_period(),style:TextStyle(color:Colors.white.withValues(alpha:.8)))])),
+        const SizedBox(height:14),
+        SegmentedButton<int>(segments: const [ButtonSegment(value:0,label:Text('☀️ شمسي')),ButtonSegment(value:1,label:Text('⛽ ديزل')),ButtonSegment(value:2,label:Text('📊 إجمالي'))],selected:{selectedTab},onSelectionChanged:(v)=>setState(()=>selectedTab=v.first)),
+        const SizedBox(height:14),
+        if(row==null) const EmptyView('لا توجد بيانات لهذا القسم') else Column(children: [
+          Row(children:[_stat('عدد العمليات',_money(row['operations']),Icons.water_drop_rounded,_reportOliveDark),const SizedBox(width:9),_stat('الدقائق',_money(row['minutes']),Icons.schedule_rounded,_reportGreen)]),
+          const SizedBox(height:9),
+          Row(children:[_stat('إجمالي الدخل',_money(row['total']),Icons.payments_rounded,_reportGreen),const SizedBox(width:9),_stat('تكلفة الديزل',_money(row['diesel_cost']),Icons.local_gas_station_rounded,_reportOrange)]),
+        ]),
+        const SizedBox(height:16),
+        Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('تفاصيل النشاط',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:17)),const SizedBox(height:10),if(row==null)const EmptyView('لا توجد بيانات')else ...[
+          _detail('عدد السقايات','${_money(row['operations'])}'),
+          _detail('إجمالي الدقائق','${_money(row['minutes'])}'),
+          _detail('إجمالي الدخل','${_money(row['total'])}'),
+          _detail('تكلفة الديزل المسجلة','${_money(row['diesel_cost'])}'),
+        ]]))
+      ]),
+    ));
+  }
+  Widget _detail(String label,String value)=>Padding(padding:const EdgeInsets.symmetric(vertical:6),child:Row(children:[Expanded(child:Text(label,style:TextStyle(color:_reportInk.withValues(alpha:.7)))),Text(value,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w800))]));
+}
+
 class HybridSystemComparisonReportPage extends StatefulWidget {
   final StationRepository r;
   final List<Map<String, Object?>> rows;
@@ -12702,6 +12763,18 @@ class _ReportsState extends State<ReportsPage> {
         final rows = await _rows(k);
         if (!mounted) return;
         Navigator.push(context, MaterialPageRoute(builder: (_) => HybridSystemComparisonReportPage(
+          widget.r, rows: rows, from: from, to: to,
+        )));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر إنشاء التقرير: $e')));
+      }
+      return;
+    }
+    if (k == 'activity_overview' && currentType == 'equivalent_hybrid') {
+      try {
+        final rows = await _rows(k);
+        if (!mounted) return;
+        Navigator.push(context, MaterialPageRoute(builder: (_) => HybridActivityOverviewReportPage(
           widget.r, rows: rows, from: from, to: to,
         )));
       } catch (e) {
