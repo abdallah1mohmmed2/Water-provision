@@ -3017,32 +3017,22 @@ class StationRepository {
           final scopedExpenseWhere = scopedExpenseFilters.isEmpty
               ? ''
               : ' AND ${scopedExpenseFilters.join(' AND ')}';
-          // Months CTE also needs its own date placeholders to constrain the
-          // month list. The scoped expense rows above use the same range.
+          // Month list date filters: income, expenses, then collections.
           final expenseMonthFilters = <String>[];
-          if (from != null) {
-            expenseMonthFilters.add('e.date>=?');
-            queryArgs.add(from.toIso8601String());
-          }
-          if (to != null) {
-            expenseMonthFilters.add('e.date<?');
-            queryArgs.add(to.add(const Duration(days: 1)).toIso8601String());
-          }
+          if (from != null) expenseMonthFilters.add('e.date>=?');
+          if (to != null) expenseMonthFilters.add('e.date<?');
           final expenseMonthWhere = expenseMonthFilters.isEmpty
               ? ''
               : ' AND ${expenseMonthFilters.join(' AND ')}';
           final paymentMonthFilters = <String>[];
-          if (from != null) {
-            paymentMonthFilters.add('p.date>=?');
-            queryArgs.add(from.toIso8601String());
-          }
-          if (to != null) {
-            paymentMonthFilters.add('p.date<?');
-            queryArgs.add(to.add(const Duration(days: 1)).toIso8601String());
-          }
+          if (from != null) paymentMonthFilters.add('p.date>=?');
+          if (to != null) paymentMonthFilters.add('p.date<?');
           final paymentMonthWhere = paymentMonthFilters.isEmpty
               ? ''
               : ' AND ${paymentMonthFilters.join(' AND ')}';
+          // SQL placeholder order after the scoped expense filters:
+          // irrigation-month filter, expense-month filter, payment-month filter,
+          // then the repeated irrigation filter for month_income.
           queryArgs.addAll(args);
           queryArgs.addAll(expenseMonthFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
           queryArgs.addAll(paymentMonthFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
