@@ -53,12 +53,17 @@ class BeneficiaryIrrigationMessageService {
     final end = DateTime.parse('${row['end_datetime']}');
     final total = (row['total_amount'] as num).round();
     final paid = (row['paid_amount'] as num).round();
-    final balanceData = switch (partyType) {
-      'worker' => await repo.accounting.workerBalance(partyId),
-      'partner' => await repo.accounting.partnerBalance(partyId),
-      _ => await repo.accounting.beneficiaryBalance(partyId),
-    };
-    final balance = (balanceData['balance'] as num?)?.round() ?? 0;
+    // Messages to workers/partners must not expose unpaid wages or profit
+    // allocations. Their message balance is an operational-only projection.
+    final balance = partyType == 'beneficiary'
+        ? ((await repo.accounting.beneficiaryBalance(partyId))['balance'] ?? 0)
+        : await repo.accounting.partyOperationalMessageBalance(
+            partyType: partyType, partyId: partyId);
+    // The current operational balance already includes this posted irrigation.
+    // Reverse only this irrigation's charge to reconstruct its prior balance.
+    final previousBalance = partyType == 'beneficiary'
+        ? null
+        : balance + total;
     final fuel = await IrrigationMessageFuelService(repo).forIrrigation(irrigationId);
     final settings = await repo.settings();
     String money(int amount) => '$amount ريال';
@@ -75,7 +80,7 @@ class BeneficiaryIrrigationMessageService {
         'المبلغ المدفوع': money(paid),
         'المتبقي من السقاية': money(total - paid),
         // No historical balance snapshot was stored by the old save path.
-        'الرصيد السابق': 'غير محفوظ لهذه السقاية',
+        'الرصيد السابق': previousBalance == null ? 'غير محفوظ لهذه السقاية' : (previousBalance == 0 ? 'متوازن (0 ريال)' : '\${previousBalance > 0 ? 'له' : 'عليه'} \${previousBalance.abs()} ريال'),
         'الرصيد الحالي': balance == 0 ? 'متوازن (0 ريال)'
           : '${balance > 0 ? (partyType == 'beneficiary' ? 'عليه' : 'له') : (partyType == 'beneficiary' ? 'له' : 'عليه')} ${balance.abs()} ريال',
         'رقم العملية': '$irrigationId',
