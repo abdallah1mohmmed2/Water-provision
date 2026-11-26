@@ -5201,7 +5201,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   }
 
   int get runtimeMinutes => end.difference(start).inMinutes;
-  int get minutes => (runtimeMinutes - minuteDiscount).clamp(0, runtimeMinutes);
+  int get minutes => (runtimeMinutes - minuteDiscount).clamp(0, runtimeMinutes).toInt();
   DateTime get discountedEnd => end.subtract(Duration(minutes: minuteDiscount));
   int get cloudMin => quickCloudMode
       ? (int.tryParse(cloudQuickController.text.trim()) ?? 0)
