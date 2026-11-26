@@ -2357,6 +2357,10 @@ class _DashboardState extends State<DashboardPage> {
                       if (systemType != 'diesel')
                         statCard('تشغيل المنظومة', '${d?['running_sessions'] ?? 0} جلسة',
                           systemType == 'solar' ? Icons.wb_sunny_rounded : Icons.bolt_rounded, neon),
+                      if (systemType == 'equivalent_hybrid') ...[
+                        statCard('إجمالي دخل المنظومة الشمسية', money(d?['solar_revenue']), Icons.wb_sunny_rounded, cyan),
+                        statCard('إجمالي دخل منظومة الديزل', money(d?['diesel_revenue']), Icons.local_gas_station_rounded, neon),
+                      ],
                     ].map((item) => Padding(
                       padding: const EdgeInsetsDirectional.only(end: 10),
                       child: item,
