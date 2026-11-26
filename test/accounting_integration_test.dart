@@ -3433,4 +3433,36 @@ void main() {
     }
   });
 
+  test('التقرير الشهري يفصل إيراد السقايات عن المقبوض وعن مديونية الرعية', () async {
+    await useSolar6000();
+    await db.update('workers', {'active': 0}, 'id>?', [0]);
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
+    final repo = StationRepository(db);
+    final now = DateTime.now();
+    final monthStart = DateTime(now.year, now.month, 1);
+    final beneficiary = await repo.createBeneficiary(name: 'مستفيد اختبار الإيراد والتحصيل');
+    final before = await repo.report('monthly_financial', from: monthStart, to: now);
+    final baseline = before.firstWhere(
+      (row) => row['month'] == '${now.year}-${now.month.toString().padLeft(2, '0')}',
+      orElse: () => <String, Object?>{'income': 0, 'collections': 0, 'beneficiary_receivable': 0},
+    );
+    final irrigationId = await svc.recordIrrigation(
+      stationId: 1, pumpId: 1, beneficiaryId: beneficiary,
+      start: now.subtract(const Duration(hours: 2)),
+      end: now.subtract(const Duration(hours: 1)),
+      systemType: 'solar', waterRate: 0, litersPerHour: 0, dieselPrice: 0,
+      solarRate: 0, thirdRate: 0, cloudMinutes: 0, paidAmount: 2000,
+      paymentMethodId: 1, cashboxId: 1,
+    );
+    expect((await db.query('SELECT total_amount,paid_amount FROM irrigations WHERE id=?', args: [irrigationId])).single,
+      {'total_amount': 6000, 'paid_amount': 2000});
+    await svc.receivePayment(beneficiaryId: beneficiary, amount: 1000, paymentMethodId: 1, cashboxId: 1);
+    final after = await repo.report('monthly_financial', from: monthStart, to: now);
+    final row = after.singleWhere((x) => x['month'] == '${now.year}-${now.month.toString().padLeft(2, '0')}');
+    expect((row['income'] as num) - (baseline['income'] as num), 6000);
+    expect((row['collections'] as num) - (baseline['collections'] as num), 3000);
+    expect((row['beneficiary_receivable'] as num) - (baseline['beneficiary_receivable'] as num), 3000);
+  });
+
+
 }
