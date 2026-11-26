@@ -23,7 +23,7 @@
 - لا تستخدم ملفات صوتية خارجية. الأصوات من واجهة Android/Flutter SystemSound، وهي أصوات النظام على الجهاز ولا تُنسخ أو تُضمّن في التطبيق. لا توجد أصول موسيقية/مؤثرات خارجية تحتاج ترخيصًا أو Attribution.
 
 ## اختبارات
-- اختبارات الوحدة أضيفت؛ تم إدراج الفرع في triggers الخاصة بـ Analyze وRelease APK CI حتى تُنفّذ على push.
+- تم إدراج اختبار الصوتيات المستقل ضمن Workflow Analyze، كما يشغّل Build APK مجموعة Flutter كاملة. النتائج قيد التحقق.
 - بناء Android Release وGitHub Actions: pending verification.
 
 ## ملاحظات / حدود
