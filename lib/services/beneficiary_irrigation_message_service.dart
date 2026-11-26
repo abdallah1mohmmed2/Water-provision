@@ -53,15 +53,26 @@ class BeneficiaryIrrigationMessageService {
     final end = DateTime.parse('${row['end_datetime']}');
     final total = (row['total_amount'] as num).round();
     final paid = (row['paid_amount'] as num).round();
-    final balanceData = switch (partyType) {
-      'worker' => await repo.accounting.workerBalance(partyId),
-      'partner' => await repo.accounting.partnerBalance(partyId),
-      _ => await repo.accounting.beneficiaryBalance(partyId),
-    };
-    final balance = (balanceData['balance'] as num?)?.round() ?? 0;
+    // Messages to workers/partners must not expose unpaid wages or profit
+    // allocations. Their message balance is an operational-only projection.
+    final balance = partyType == 'beneficiary'
+        ? ((await repo.accounting.beneficiaryBalance(partyId))['balance'] ?? 0)
+        : await repo.accounting.partyOperationalMessageBalance(
+            partyType: partyType, partyId: partyId);
+    // Reconstruct the balance immediately before this saved irrigation.
+    // Only its unpaid amount changes the party balance: total - paid.
+    // Beneficiary convention: positive means due (subtract irrigation debit).
+    // Worker/partner message convention: irrigation debit is negative (add it back).
+    final irrigationOutstanding = total - paid;
+    final previousBalance = partyType == 'beneficiary'
+        ? balance - irrigationOutstanding
+        : balance + irrigationOutstanding;
     final fuel = await IrrigationMessageFuelService(repo).forIrrigation(irrigationId);
     final settings = await repo.settings();
     String money(int amount) => '$amount ريال';
+    String partyBalanceText(int amount) => amount == 0
+        ? 'متوازن (0 ريال)'
+        : '${amount > 0 ? 'له' : 'عليه'} ${amount.abs()} ريال';
     final text = MessageTemplateService.render(
       settings[MessageTemplateService.irrigationKey],
       MessageTemplateService.irrigationKey,
@@ -74,8 +85,8 @@ class BeneficiaryIrrigationMessageService {
         'قيمة السقاية': money(total),
         'المبلغ المدفوع': money(paid),
         'المتبقي من السقاية': money(total - paid),
-        // No historical balance snapshot was stored by the old save path.
-        'الرصيد السابق': 'غير محفوظ لهذه السقاية',
+        // Balance is reconstructed from the current balance and this irrigation's net effect.
+        'الرصيد السابق': partyBalanceText(previousBalance),
         'الرصيد الحالي': balance == 0 ? 'متوازن (0 ريال)'
           : '${balance > 0 ? (partyType == 'beneficiary' ? 'عليه' : 'له') : (partyType == 'beneficiary' ? 'له' : 'عليه')} ${balance.abs()} ريال',
         'رقم العملية': '$irrigationId',

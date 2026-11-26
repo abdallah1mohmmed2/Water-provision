@@ -91,7 +91,7 @@ class ReportService {
   'invoices': ['party_name', 'start_datetime', 'end_datetime', 'minutes', 'total_amount', 'paid_amount', 'notes'],
   'cash_flow': ['date', 'kind', 'amount', 'title'],
   'time_comparison': ['month', 'system_type', 'minutes', 'chargeable_minutes', 'operations', 'total'],
-  'monthly_financial': ['month', 'income', 'expenses'],
+  'monthly_financial': ['month', 'income', 'expenses', 'collections', 'uncollected_difference', 'beneficiary_receivable'],
   'income': ['system_type', 'operations', 'water_income', 'diesel_income', 'total'],
   'payment_methods': ['method_name', 'type', 'account_number', 'total'],
   'expenses': ['category', 'count', 'total'],
@@ -106,7 +106,7 @@ class ReportService {
   'beneficiary_stats': ['name', 'irrigations', 'minutes', 'total'],
   'needy': ['name', 'balance'],
   'diesel_inventory': ['date', 'kind', 'liters', 'amount', 'beneficiary_name'],
-  'activity_overview': ['system_type', 'operations', 'minutes', 'total'],
+  'activity_overview': ['system_type', 'operations', 'minutes', 'total', 'diesel_cost'],
   'oil_status': ['category', 'total'],
   'debts': ['id', 'name', 'balance'],
   'all_party_debts': ['party_type', 'name', 'balance'],
@@ -165,6 +165,147 @@ class ReportService {
       hybridSource: source,
       reportTitleOverride: '$label — $name',
       fileNameOverride: '$label $name',
+    );
+  }
+
+  /// Read-only cash movements for one party: posted payments and expenses
+  /// explicitly assigned to that party. Does not include fuel/liter movements.
+  Future<void> printPartyCashMovementsPdf({
+    required String partyType,
+    required int partyId,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    const tables = <String, String>{
+      'beneficiary': 'beneficiaries',
+      'worker': 'workers',
+      'partner': 'partners',
+    };
+    const labels = <String, String>{
+      'beneficiary': 'المستفيد',
+      'worker': 'العامل',
+      'partner': 'الشريك',
+    };
+    final table = tables[partyType];
+    if (table == null || partyId <= 0) {
+      throw ArgumentError('نوع الطرف أو رقمه غير صالح');
+    }
+    if (from != null && to != null &&
+        DateTime(from.year, from.month, from.day)
+            .isAfter(DateTime(to.year, to.month, to.day))) {
+      throw ArgumentError('بداية الفترة بعد نهايتها');
+    }
+    final station = await repo.accounting.currentStationId();
+    final people = await repo.db.rawQuery(
+      'SELECT name FROM $table WHERE id=? AND station_id=?',
+      [partyId, station],
+    );
+    if (people.length != 1) throw StateError('الشخص لا يتبع المحطة الحالية');
+    final personName = '${people.single['name'] ?? labels[partyType]}';
+    final partyColumn = '${partyType}_id';
+    final dateFrom = from == null ? null : DateFormat('yyyy-MM-dd').format(from);
+    final dateTo = to == null ? null : DateFormat('yyyy-MM-dd').format(to);
+    final payments = await repo.db.rawQuery(
+      """SELECT p.id,p.date,p.amount,p.reference_number,p.notes,
+                pm.name method_name,c.name cashbox_name,
+                CASE WHEN p.beneficiary_id IS NOT NULL THEN 'قبض من الشخص'
+                     ELSE 'دفع للشخص' END movement
+         FROM payments p
+         LEFT JOIN payment_methods pm ON pm.id=p.payment_method_id
+         LEFT JOIN cashboxes c ON c.id=p.cashbox_id
+         WHERE p.station_id=? AND p.$partyColumn=? AND p.status='posted'
+           AND (? IS NULL OR date(p.date)>=date(?))
+           AND (? IS NULL OR date(p.date)<=date(?))
+         ORDER BY p.date,p.id""",
+      [station, partyId, dateFrom, dateFrom, dateTo, dateTo],
+    );
+    final expenses = await repo.db.rawQuery(
+      """SELECT e.id,e.date,e.amount,e.title,e.category,e.notes,
+                pm.name method_name,c.name cashbox_name
+         FROM expenses e
+         LEFT JOIN payment_methods pm ON pm.id=e.payment_method_id
+         LEFT JOIN cashboxes c ON c.id=e.cashbox_id
+         WHERE e.station_id=? AND e.$partyColumn=? AND e.status='posted'
+           AND (? IS NULL OR date(e.date)>=date(?))
+           AND (? IS NULL OR date(e.date)<=date(?))
+         ORDER BY e.date,e.id""",
+      [station, partyId, dateFrom, dateFrom, dateTo, dateTo],
+    );
+    final movements = <Map<String, Object?>>[
+      for (final row in payments)
+        <String, Object?>{
+          'id': row['id'], 'date': row['date'], 'amount': row['amount'],
+          'movement': row['movement'], 'title': 'سند قبض/صرف',
+          'notes': row['notes'], 'reference': row['reference_number'],
+          'method': row['method_name'], 'cashbox': row['cashbox_name'],
+          'currency': '',
+        },
+      for (final row in expenses)
+        <String, Object?>{
+          'id': row['id'], 'date': row['date'], 'amount': row['amount'],
+          'movement': 'مصروف نقدي', 'title': row['title'],
+          'notes': row['notes'], 'reference': null,
+          'method': row['method_name'], 'cashbox': row['cashbox_name'],
+          'currency': '',
+        },
+    ]..sort((a, b) {
+        final byDate = '${a['date']}'.compareTo('${b['date']}');
+        return byDate != 0 ? byDate : ((a['id'] as num?) ?? 0)
+            .compareTo((b['id'] as num?) ?? 0);
+      });
+    final settings = await repo.settings();
+    final now = AppClock.now();
+    final money = NumberFormat('#,##0');
+    num totalReceived = 0;
+    num totalPaid = 0;
+    num totalExpenses = 0;
+    for (final row in movements) {
+      final amount = (row['amount'] as num?) ?? 0;
+      switch (row['movement']) {
+        case 'قبض من الشخص': totalReceived += amount;
+        case 'دفع للشخص': totalPaid += amount;
+        case 'مصروف نقدي': totalExpenses += amount;
+      }
+    }
+    final title = 'تقرير الحركات النقدية — ${labels[partyType]} $personName';
+    await OfficialReportTemplate.preview(
+      rightHeader1: settings['station_name'] ?? 'منظومة السقاية',
+      rightHeader2: settings['organization_name'] ?? 'الإدارة المالية',
+      rightHeader3: 'الجمهورية اليمنية',
+      date: DateFormat('yyyy/MM/dd').format(now),
+      refNumber: 'CASH-${DateFormat('yyMMdd-HHmm').format(now)}',
+      attachments: 'الفترة: ${dateFrom ?? 'من البداية'} إلى ${dateTo ?? 'الآن'}',
+      fileName: _pdfFileName(title),
+      reportTitle: title,
+      summaryBoxes: [
+        StatBoxData(number: '1', title: 'المبالغ المستلمة', value: money.format(totalReceived)),
+        StatBoxData(number: '2', title: 'المدفوعات', value: money.format(totalPaid)),
+        StatBoxData(number: '3', title: 'المصروفات', value: money.format(totalExpenses)),
+      ],
+      columns: const ['التاريخ', 'نوع الحركة', 'المبلغ', 'البيان والتفاصيل'],
+      rows: [
+        for (final row in movements)
+          [
+            DateFormat('yyyy/MM/dd').format(
+              DateTime.tryParse('${row['date'] ?? ''}') ?? now),
+            '${row['movement']}',
+            money.format((row['amount'] as num?) ?? 0),
+            [
+              '${row['title'] ?? ''}',
+              if ('${row['currency'] ?? ''}'.trim().isNotEmpty) '${row['currency']}',
+              if ('${row['method'] ?? ''}'.trim().isNotEmpty) 'الطريقة: ${row['method']}',
+              if ('${row['cashbox'] ?? ''}'.trim().isNotEmpty) 'الصندوق: ${row['cashbox']}',
+              if ('${row['reference'] ?? ''}'.trim().isNotEmpty) 'المرجع: ${row['reference']}',
+              if ('${row['notes'] ?? ''}'.trim().isNotEmpty) '${row['notes']}',
+            ].join(' — '),
+          ],
+      ],
+      footerTotalRow: [
+        'الإجمالي', '', money.format(totalReceived + totalPaid + totalExpenses), '',
+      ],
+      minTableRows: 1,
+      thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
+      preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
     );
   }
 
@@ -360,7 +501,10 @@ class ReportService {
     };
     final dieselOnly = DieselReportColumns.dieselOnly(rows, systemType);
     final fuelReport = const ['irrigations', 'beneficiary_detailed'].contains(key);
-    final expectedHeaders = hybridSource == 'diesel' && key == 'irrigations'
+    final hybridBeneficiaryStats = key == 'beneficiary_stats' && currentType == 'equivalent_hybrid';
+    final expectedHeaders = hybridBeneficiaryStats
+        ? ['name','solar_irrigations','solar_minutes','solar_total','diesel_irrigations','diesel_minutes','diesel_total','irrigations','minutes','total']
+        : hybridSource == 'diesel' && key == 'irrigations'
         ? ['party_name', 'start_datetime', 'end_datetime', 'minutes', 'paid_amount', 'total_amount', 'diesel_consumption_liters']
         : hybridSource == 'solar' && key == 'irrigations'
             ? ['party_name', 'start_datetime', 'end_datetime', 'minutes', 'paid_amount', 'total_amount', 'cloud_minutes', 'cloud_status']
@@ -395,19 +539,33 @@ class ReportService {
     }
 
     final headers = sourceHeaders.map((header) {
-      final label = key == 'irrigations'
-          ? ({
-              'party_name': 'الجهة',
-              'start_datetime': 'من',
-              'end_datetime': 'إلى',
-              'minutes': 'إجمالي الدقائق',
-              'paid_amount': 'المدفوع',
-              'total_amount': 'القيمة الإجمالية',
-              'cloud_minutes': 'الغيم',
-              'cloud_status': 'حالة الخصم',
-              'diesel_consumption_liters': 'استهلاك الديزل (لتر)',
-            }[header] ?? _fieldName(header))
-          : _fieldName(header);
+      const hybridStatLabels = <String, String>{
+        'name': 'المستفيد',
+        'solar_irrigations': 'الشمس • السقايات',
+        'solar_minutes': 'الشمس • الدقائق',
+        'solar_total': 'الشمس • الإجمالي (ريال)',
+        'diesel_irrigations': 'الديزل • السقايات',
+        'diesel_minutes': 'الديزل • الدقائق',
+        'diesel_total': 'الديزل • الإجمالي (ريال)',
+        'irrigations': 'الإجمالي • السقايات',
+        'minutes': 'الإجمالي • الدقائق',
+        'total': 'الإجمالي • القيمة (ريال)',
+      };
+      final label = hybridBeneficiaryStats
+          ? (hybridStatLabels[header] ?? _fieldName(header))
+          : key == 'irrigations'
+              ? ({
+                  'party_name': 'الجهة',
+                  'start_datetime': 'من',
+                  'end_datetime': 'إلى',
+                  'minutes': 'إجمالي الدقائق',
+                  'paid_amount': 'المدفوع',
+                  'total_amount': 'القيمة الإجمالية',
+                  'cloud_minutes': 'الغيم',
+                  'cloud_status': 'حالة الخصم',
+                  'diesel_consumption_liters': 'استهلاك الديزل (لتر)',
+                }[header] ?? _fieldName(header))
+              : _fieldName(header);
       return _shapeArabic(label);
     }).toList();
 
@@ -488,7 +646,19 @@ class ReportService {
     String partnerClosingLabel(num balance) => balance > 0
         ? 'له ${money(balance)} ريال'
         : balance < 0 ? 'عليه ${money(balance.abs())} ريال' : 'متوازن (0 ريال)';
-    final summaryBoxes = <StatBoxData>[
+    final summaryBoxes = hybridBeneficiaryStats
+        ? <StatBoxData>[
+          StatBoxData(number: 'S1', title: 'الشمس • عدد السقايات', value: money(sumOf('solar_irrigations')), isBlueTint: true),
+          StatBoxData(number: 'S2', title: 'الشمس • إجمالي الدقائق', value: money(sumOf('solar_minutes')), isBlueTint: true),
+          StatBoxData(number: 'S3', title: 'الشمس • إجمالي الدخل', value: '${money(sumOf('solar_total'))} ريال', isBlueTint: true),
+          StatBoxData(number: 'D1', title: 'الديزل • عدد السقايات', value: money(sumOf('diesel_irrigations'))),
+          StatBoxData(number: 'D2', title: 'الديزل • إجمالي الدقائق', value: money(sumOf('diesel_minutes'))),
+          StatBoxData(number: 'D3', title: 'الديزل • إجمالي الدخل', value: '${money(sumOf('diesel_total'))} ريال'),
+          StatBoxData(number: 'T1', title: 'الإجمالي • عدد السقايات', value: money(sumOf('irrigations')), isLarge: true, isBlueTint: true),
+          StatBoxData(number: 'T2', title: 'الإجمالي • الدقائق', value: money(sumOf('minutes')), isLarge: true, isBlueTint: true),
+          StatBoxData(number: 'T3', title: 'الإجمالي • الدخل', value: '${money(sumOf('total'))} ريال', isLarge: true, isBlueTint: true),
+        ]
+        : <StatBoxData>[
       StatBoxData(
         number: '1',
         title: rows.any((row) => row.containsKey('minutes'))
@@ -586,7 +756,6 @@ class ReportService {
         ),
       ],
     ];
-
     final reportTitle = reportTitleOverride ?? (personName == null
         ? titles[key]!
         : '${titles[key]} — $personName');
@@ -629,7 +798,7 @@ class ReportService {
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
       fileName: _pdfFileName(reportTitle),
       minTableRows: 7,
-      pageFormat: sourceHeaders.length >= 5 ||
+      pageFormat: hybridBeneficiaryStats || sourceHeaders.length >= 5 ||
               const {
                 'irrigations',
                 'payment_methods',
@@ -689,7 +858,7 @@ class ReportService {
   }
 
   String _fieldName(String key) => {
-    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','beneficiary_name':'المستفيد','party_name':'الجهة','party_type':'نوع الطرف','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','diesel_consumption_liters':'استهلاك الديزل (لتر)','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
+    'id':'الرقم','date':'التاريخ','movement_type':'نوع العملية','start_datetime':'بداية السقي','end_datetime':'نهاية السقي','month':'الشهر','minutes':'المدة بالدقائق','chargeable_minutes':'الدقائق المحاسبية','operations':'عدد العمليات','system_type':'نوع المنظومة','total_amount':'الإجمالي','total':'الإجمالي','income':'الإيرادات','expenses':'المصروفات','collections':'المقبوض خلال الشهر','uncollected_difference':'فرق الإيرادات والمقبوضات','beneficiary_receivable':'مديونية الرعية نهاية الشهر','water_income':'إيراد المياه','diesel_income':'إيراد الديزل','diesel_cost':'تكلفة الديزل','paid_amount':'المدفوع','remaining':'حالة الرصيد','solar_irrigations':'سقايات شمسي','solar_minutes':'دقائق شمسي','solar_total':'دخل شمسي','diesel_irrigations':'سقايات ديزل','diesel_minutes':'دقائق ديزل','diesel_total':'دخل ديزل','beneficiary_name':'المستفيد','party_name':'الجهة','party_type':'نوع الطرف','cloud_status':'حالة خصم الغيم','worker_name':'العامل','partner_name':'الشريك','cashbox_name':'الصندوق','method_name':'طريقة الدفع','account_name':'الحساب','account_code':'رمز الحساب','debit':'له','credit':'عليه','lah':'له','alayh':'عليه','amount':'المبلغ','direct_amount':'استحقاق مباشر من السقايات','share_amount':'نصيبه من المتبقي','gross_amount':'إجمالي الاستحقاق قبل المصروفات الخاصة','partner_expenses':'مصروفات الشريك الخاصة','net_amount':'صافي نصيب الشريك بعد المصروفات الخاصة','liters':'اللترات','kind':'نوع الحركة','status':'الحالة','notes':'ملاحظات','description':'البيان','ownership_percentage':'نسبة الملكية','shares_count':'عدد الحصص','opening_balance':'الرصيد الافتتاحي','carried_balance':'الرصيد المرحل','balance':'الرصيد الجاري','water_amount':'قيمة المياه','diesel_amount':'قيمة الديزل','diesel_consumption_liters':'استهلاك الديزل (لتر)','cloud_minutes':'دقائق الغيم','category':'التصنيف','title':'العنوان','phone':'الهاتف','name':'الاسم','reference_number':'رقم المرجع','created_at':'تاريخ الإنشاء','updated_at':'تاريخ التحديث','position':'الدور','scheduled_start':'بداية الموعد','scheduled_end':'نهاية الموعد','payment_method_id':'طريقة الدفع','cashbox_id':'الصندوق','beneficiary_id':'المستفيد','worker_id':'العامل','partner_id':'الشريك','journal_id':'رقم القيد','journal_entry_id':'رقم القيد','ownership_mode':'طريقة الملكية','job_title':'المسمى الوظيفي','pay_type':'طريقة الحساب','pump_name':'المضخة','queue_position':'رقم الدور',
   }[key] ?? 'بيان';
 
   String _categoryName(String v) => {
@@ -750,6 +919,10 @@ class ReportService {
     }
     if (key == 'cloud_status') {
       return '$value' == 'discounted' ? 'تم خصم الغيم' : 'لا يوجد خصم';
+    }
+    if (const {'solar_irrigations','solar_minutes','solar_total','diesel_irrigations','diesel_minutes','diesel_total','irrigations','minutes','total'}.contains(key)) {
+      final numeric = value is num ? value : num.tryParse('$value') ?? 0;
+      return NumberFormat('#,##0.##').format(numeric);
     }
     if (key == 'system_type') {
       return switch ('$value') { 'diesel' => 'ديزل', 'solar' => 'شمسي', 'equivalent_hybrid' => 'النوع الثالث', _ => 'غير محدد' };

@@ -116,6 +116,8 @@ class AccountingService {
   }
 
   static const Map<String, (String, String)> _autoAccounts = {
+    '5040': ('مصروف أجور العمال الشمسية', 'expense'),
+    '5050': ('مصروف أجور عمال الديزل', 'expense'),
     '3200': ('حصص الشركاء من الأرباح', 'equity'),
     '3300': ('الأرباح المبقاة', 'equity'),
   };
@@ -1157,6 +1159,8 @@ class AccountingService {
     String partyType = 'beneficiary',
     required DateTime start,
     required DateTime end,
+    int? actualRuntimeMinutes,
+    int minuteDiscount = 0,
     required String systemType,
     required int waterRate,
     required double litersPerHour,
@@ -1244,6 +1248,10 @@ class AccountingService {
     final endDt = (allowMidnight && !end.isAfter(start))
         ? end.add(const Duration(days: 1))
         : end;
+    if (minuteDiscount < 0) throw ArgumentError('خصم الدقائق لا يمكن أن يكون سالبًا');
+    final runtimeEndDt = endDt.add(Duration(minutes: minuteDiscount));
+    final runtimeMinutes = actualRuntimeMinutes ?? AccountingCalculations.minutesBetween(start, runtimeEndDt, allowMidnightCrossing: allowMidnight);
+    if (runtimeMinutes <= 0 || minuteDiscount >= runtimeMinutes) throw ArgumentError('مدة السقاية بعد الخصم يجب أن تبقى أكبر من صفر');
     final normalizedCloudPeriods = <Map<String, Object?>>[];
     if ((effectiveType == 'solar' || (effectiveType == 'equivalent_hybrid' && hybridSource == 'solar')) && cloudPeriods.isNotEmpty) {
       final parsed = <Map<String, Object?>>[];
@@ -1265,7 +1273,7 @@ class AccountingService {
         }
       }
       final totalCloud = parsed.fold<int>(0, (sum, x) => sum + (x['minutes'] as int));
-      if (totalCloud > AccountingCalculations.minutesBetween(start, endDt, allowMidnightCrossing: allowMidnight)) {
+      if (totalCloud > runtimeMinutes) {
         throw ArgumentError('إجمالي خصم الغيم لا يمكن أن يتجاوز مدة السقاية');
       }
       for (final x in parsed) {
@@ -1283,7 +1291,7 @@ class AccountingService {
     final effectiveCloud = cloudApplies
         ? (normalizedCloudPeriods.isNotEmpty
             ? normalizedCloudPeriods.fold<int>(0, (sum, x) => sum + (x['minutes'] as int))
-            : cloudMinutes.clamp(0, AccountingCalculations.minutesBetween(start, endDt, allowMidnightCrossing: allowMidnight)))
+            : cloudMinutes.clamp(0, runtimeMinutes))
         : 0;
     final rounding = set['rounding'] ?? 'nearest';
     final partialHour = set['partial_hour'] != 'false';
@@ -1298,6 +1306,7 @@ class AccountingService {
             allowMidnightCrossing: allowMidnight,
             rounding: rounding,
             partialHour: partialHour,
+            dieselRuntimeMinutes: runtimeMinutes,
           )
         : effectiveType == 'solar'
         ? AccountingCalculations.solar(
@@ -1322,6 +1331,7 @@ class AccountingService {
                 litersPerHour: effectiveLiters, dieselPrice: 0, cloudMinutes: 0,
                 allowMidnightCrossing: allowMidnight,
                 rounding: rounding, partialHour: partialHour,
+                dieselRuntimeMinutes: runtimeMinutes,
               )
             : AccountingCalculations.equivalent(
             start: start,
@@ -1382,11 +1392,22 @@ class AccountingService {
           throw StateError('الحجز المختار لم يعد قائمًا (مكتمل أو ملغى)');
         }
       }
-      final overlap = await tx.rawQuery(
-        "SELECT id FROM irrigations WHERE pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",
-        [pumpId, endDt.toIso8601String(), start.toIso8601String()],
-      );
-      if (overlap.isNotEmpty) throw StateError('يوجد تعارض زمني على المضخة');
+      final crossSourceOverlapEnabled = effectiveType == 'equivalent_hybrid' &&
+          set['third_type_cross_source_overlap_enabled'] == 'true';
+      final overlap = crossSourceOverlapEnabled
+          ? await tx.rawQuery(
+              "SELECT id FROM irrigations WHERE pump_id=? AND status!='cancelled' AND system_type='equivalent_hybrid' AND (hybrid_source=? OR hybrid_source IS NULL) AND start_datetime<? AND end_datetime>? LIMIT 1",
+              [pumpId, hybridSource, endDt.toIso8601String(), start.toIso8601String()],
+            )
+          : await tx.rawQuery(
+              "SELECT id FROM irrigations WHERE pump_id=? AND status!='cancelled' AND start_datetime<? AND end_datetime>? LIMIT 1",
+              [pumpId, runtimeEndDt.toIso8601String(), start.toIso8601String()],
+            );
+      if (overlap.isNotEmpty) {
+        throw StateError(crossSourceOverlapEnabled
+            ? 'يوجد تعارض زمني مع سقاية من المصدر نفسه'
+            : 'يوجد تعارض زمني على المضخة');
+      }
       final minDays = int.tryParse(set['min_wait_days'] ?? '3') ?? 3;
       final override = partyType == 'beneficiary'
           ? await _checkWaiting(
@@ -1955,11 +1976,15 @@ class AccountingService {
     int? userId,
     String? attachmentPath,
     String? notes,
+    String expenseSystemType = 'shared',
     Future<void> Function(Transaction tx, int expenseId)? afterPosting,
   }) async => database.transaction((tx) async {
     await _assertPeriodOpen(tx, date);
     if (amount <= 0) {
       throw ArgumentError('قيمة المصروف يجب أن تكون أكبر من صفر');
+    }
+    if (!const ['solar','diesel','shared'].contains(expenseSystemType)) {
+      throw ArgumentError('تصنيف النظام للمصروف غير صالح');
     }
     // رواتب وأجور العاملين تُسجل من سجل العامل كاستحقاق ثم تُسوّى بالدفع.
     // منع تسجيلها كمصروف نقدي عام يحمي من احتساب الأجر مرتين.
@@ -1975,7 +2000,9 @@ class AccountingService {
     paymentMethodId = src['method']!;
     cashboxId = src['cashbox']!;
     await _assertCashboxCanSpend(tx, cashboxId, amount);
+    final stationId = await _selectedStationIdTx(tx);
     final id = await tx.insert('expenses', {
+      'station_id': stationId,
       'category': category,
       'title': title,
       'amount': amount,
@@ -1989,17 +2016,21 @@ class AccountingService {
       'notes': notes,
       'status': 'posted',
       'created_by': userId,
+      'expense_system_type': expenseSystemType,
     });
     await tx.rawUpdate(
       'UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',
       [amount, cashboxId],
     );
     final cash = await _accountIdTx(tx, await _cashboxLedgerCode(tx, cashboxId));
-    // المصروف الخاص بالشريك يُحمّل مباشرة على حسابه الشخصي، ولا يدخل ضمن
-    // المصروفات العامة أو يُخصم مرة ثانية عند احتساب الربح القابل للتوزيع.
-    final debitAccount = partnerId == null
-        ? await _accountIdTx(tx, _expenseAccount(category))
-        : await _partnerAccountIdTx(tx, partnerId);
+    // المصروف الشخصي المدفوع نيابة عن العامل/الشريك يُحمّل على حساب الطرف
+    // (ذمة/مستحق) ولا يُحسب كمصروف تشغيل للمحطة مرة أخرى في صافي الربح.
+    // المصروف العام فقط يذهب إلى حساب المصروف التشغيلي.
+    final debitAccount = partnerId != null
+        ? await _partnerAccountIdTx(tx, partnerId)
+        : workerId != null
+        ? await _workerAccountIdTx(tx, workerId)
+        : await _accountIdTx(tx, _expenseAccount(category));
     await _entry(
       tx,
       description: partnerId == null ? title : '$title (مصروف خاص بالشريك)',
@@ -2455,10 +2486,25 @@ class AccountingService {
     );
   }, captureSyncTables: const {'cashbox_transfers'});
 
+  Future<String> _workerExpenseCodeTx(Transaction tx, int workerId) async {
+    final settings = await tx.rawQuery("SELECT value FROM settings WHERE key='system_type' LIMIT 1");
+    if (settings.isEmpty || '${settings.first['value']}' != 'equivalent_hybrid') return '5000';
+    final rows = await tx.query('workers', columns: ['source_affiliation'], where: 'id=?', whereArgs: [workerId], limit: 1);
+    if (rows.isEmpty) throw StateError('العامل غير موجود');
+    return switch ('${rows.first['source_affiliation'] ?? 'shared'}') { 'solar' => '5040', 'diesel' => '5050', _ => '5000' };
+  }
+
   Future<int> _accrueWorkerIrrigationTx(Transaction tx, {required int workerId, required int irrigationId,
     required int amount, required double hours, required DateTime date, int? userId}) async {
-    final w = await tx.query('workers', columns: ['pay_type','hourly_rate','percentage_rate'], where: 'id=?', whereArgs: [workerId], limit: 1);
+    final w = await tx.query('workers', columns: ['pay_type','hourly_rate','percentage_rate','source_affiliation'], where: 'id=?', whereArgs: [workerId], limit: 1);
     if (w.isEmpty) throw StateError('العامل المنفّذ غير موجود');
+    final system = await tx.rawQuery("SELECT value FROM settings WHERE key='system_type' LIMIT 1");
+    if (system.isNotEmpty && '${system.first['value']}' == 'equivalent_hybrid') {
+      final irrigation = await tx.query('irrigations', columns: ['hybrid_source'], where: 'id=?', whereArgs: [irrigationId], limit: 1);
+      final affiliation = '${w.first['source_affiliation'] ?? 'shared'}';
+      final source = irrigation.isEmpty ? '' : '${irrigation.first['hybrid_source'] ?? ''}';
+      if ((affiliation == 'solar' && source != 'solar') || (affiliation == 'diesel' && source != 'diesel')) return 0;
+    }
     final payType = '${w.first['pay_type']}';
     final entitlement = AccountingCalculations.workerIrrigationEntitlement(payType: payType,
       irrigationAmount: amount, hours: hours, hourlyRate: (w.first['hourly_rate'] as num?)?.round() ?? 0,
@@ -2470,7 +2516,7 @@ class AccountingService {
       'type': 'irrigation', 'hours': hours, 'rate_snapshot': w.first['hourly_rate'],
       'percentage_snapshot': w.first['percentage_rate'], 'amount': payableEntitlement, 'reference_type': 'irrigation',
       'reference_id': irrigationId, 'notes': payType == 'hourly' ? 'استحقاق بالساعة من السقاية' : 'استحقاق نسبة من السقاية', 'created_by': userId});
-    final exp = await _accountIdTx(tx, '5000'), payable = await _workerAccountIdTx(tx, workerId);
+    final exp = await _accountIdTx(tx, await _workerExpenseCodeTx(tx, workerId)), payable = await _workerAccountIdTx(tx, workerId);
     await _entry(tx, description: 'أجر العامل عن السقاية $irrigationId', referenceType: 'worker', referenceId: id,
       userId: userId, date: date, lines: [{'account_id': exp, 'worker_id': workerId, 'debit': payableEntitlement, 'credit': 0},
       {'account_id': payable, 'worker_id': workerId, 'debit': 0, 'credit': payableEntitlement}]);
@@ -2595,7 +2641,7 @@ class AccountingService {
         if (rootIds['worker_transactions']!.isEmpty) {
           rootIds['worker_transactions']!.add(id);
         }
-        final exp = await _accountIdTx(tx, '5000'), payable = await _workerAccountIdTx(tx, wid);
+        final exp = await _accountIdTx(tx, await _workerExpenseCodeTx(tx, wid)), payable = await _workerAccountIdTx(tx, wid);
         await _entry(tx, description: 'راتب العامل الشهري', referenceType: 'worker', referenceId: id, userId: userId, date: accrualDate, stationId: stationId, lines: [{'account_id': exp, 'worker_id': wid, 'debit': amount, 'credit': 0}, {'account_id': payable, 'worker_id': wid, 'debit': 0, 'credit': amount}]);
         count++;
       }
@@ -2618,11 +2664,11 @@ class AccountingService {
         args,
       );
       final general = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
+        "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code NOT IN ('5000','5040','5050') THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
         args,
       );
       final worker = await tx.rawQuery(
-        "SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
+        "SELECT COALESCE(SUM(CASE WHEN a.code IN ('5000','5040','5050') THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",
         args,
       );
       // The work-price surplus is real beneficiary income but NOT part of
@@ -2832,7 +2878,6 @@ class AccountingService {
           }
         }
       }
-      final expenseAccount = await _accountIdTx(tx, '5000');
       final ordered = positiveAmounts.entries.toList()..sort((a,b) => a.key.compareTo(b.key));
       var count = 0;
       for (final entry in ordered) {
@@ -2853,6 +2898,7 @@ class AccountingService {
         if (rootIds['worker_transactions']!.isEmpty) {
           rootIds['worker_transactions']!.add(id);
         }
+        final expenseAccount = await _accountIdTx(tx, await _workerExpenseCodeTx(tx, workerId));
         final payableAccount = await _workerAccountIdTx(tx, workerId);
         await _entry(
           tx,
@@ -2914,7 +2960,7 @@ class AccountingService {
       'notes': memo,
       'created_by': userId,
     });
-    final exp = await _accountIdTx(tx, '5000'),
+    final exp = await _accountIdTx(tx, await _workerExpenseCodeTx(tx, workerId)),
         payable = await _workerAccountIdTx(tx, workerId);
     await _entry(
       tx,
@@ -3000,6 +3046,80 @@ class AccountingService {
     );
   }, captureSyncTables: const {'partner_transactions'});
 
+  /// Balance suitable for messages sent to a worker or partner.
+  /// Excludes unliquidated earnings; official balances and profit reports stay unchanged.
+  Future<int> partyOperationalMessageBalance({
+    required String partyType,
+    required int partyId,
+  }) async {
+    if (partyId <= 0 || !const {'worker', 'partner'}.contains(partyType)) {
+      throw ArgumentError('نوع الطرف أو رقمه غير صالح');
+    }
+    final stationId = await currentStationId();
+    final isWorker = partyType == 'worker';
+    final personalCode = isWorker ? '2100.W$partyId' : '2200.P$partyId';
+    final legacyCode = isWorker ? '2100' : '2200';
+    final partyColumn = isWorker ? 'worker_id' : 'partner_id';
+    final transactionTable = isWorker ? 'worker_transactions' : 'partner_transactions';
+    final partyReference = isWorker ? 'worker' : 'partner';
+    final profitTypes = isWorker
+        ? "('accrual','salary','worker_entitlement')"
+        : "('share_accrual','share_adjustment','share_adjustment_reversal')";
+    final transactionAlias = isWorker ? 'wt' : 'pt';
+    final excludedEarning = isWorker
+        ? "wt.type IN $profitTypes OR (wt.type='irrigation' AND COALESCE(wt.notes,'') LIKE 'استحقاق%')"
+        : "pt.type IN $profitTypes";
+    final rows = await database.query(
+      "SELECT COUNT(jl.id) entry_count,COALESCE(SUM(jl.credit-jl.debit),0) balance "
+      "FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id "
+      "JOIN accounts a ON a.id=jl.account_id "
+      "WHERE je.station_id=? AND je.status='posted' "
+      "AND (a.code=? OR (a.code=? AND jl.$partyColumn=?)) "
+      "AND NOT EXISTS (SELECT 1 FROM $transactionTable $transactionAlias "
+      "WHERE $transactionAlias.$partyColumn=? AND $transactionAlias.id=CASE "
+      "WHEN je.reference_type='$partyReference' THEN je.reference_id "
+      "WHEN je.reference_type='reversal' THEN (SELECT original.reference_id "
+      "FROM journal_entries original WHERE original.id=je.reference_id "
+      "AND original.reference_type='$partyReference') ELSE NULL END "
+      "AND ($excludedEarning))",
+      args: [stationId, personalCode, legacyCode, partyId, partyId],
+    );
+    final hasLedger = ((rows.first['entry_count'] as num?)?.toInt() ?? 0) > 0;
+    var balance = (rows.first['balance'] as num?)?.round() ?? 0;
+    if (!hasLedger) {
+      final legacyRows = await database.query(transactionTable,
+        where: '$partyColumn=?', whereArgs: [partyId], orderBy: 'date,id');
+      balance = 0;
+      for (final row in legacyRows) {
+        final type = '${row['type'] ?? ''}';
+        final amount = (row['amount'] as num?)?.round() ?? 0;
+        final notes = '${row['notes'] ?? ''}';
+        if (isWorker) {
+          if (const {'accrual','salary','worker_entitlement'}.contains(type) ||
+              (type == 'irrigation' && notes.startsWith('استحقاق'))) continue;
+          balance += switch (type) {
+            'opening_balance' => amount,
+            'previous_receivable' || 'payment' || 'irrigation' => -amount,
+            'payment_reversal' => amount,
+            'irrigation_reversal' => notes.startsWith('عكس استحقاق العامل') ? 0 : amount,
+            _ => 0,
+          };
+        } else {
+          if (const {'share_accrual','share_adjustment','share_adjustment_reversal'}.contains(type)) continue;
+          balance += switch (type) {
+            'opening_balance' || 'contribution' => amount,
+            'previous_receivable' || 'payment' || 'irrigation' => -amount,
+            'payment_reversal' => amount,
+            'irrigation_reversal' => notes.startsWith('عكس سقاية الشريك') ? amount : 0,
+            _ => 0,
+          };
+        }
+      }
+    }
+    // المصروف الشخصي للعامل أو الشريك يُرحّل إلى حسابه الشخصي؛
+    // يظهر مرة واحدة في رصيد الرسالة من الأستاذ ولا نخصمه من جدول المصروفات مجددًا.
+    return balance;
+  }
   Future<Map<String, int>> beneficiaryBalance(int id) async {
     final r = await database.query(
       'SELECT ${BalanceSql.beneficiary('b')} balance FROM beneficiaries b WHERE b.id=?',

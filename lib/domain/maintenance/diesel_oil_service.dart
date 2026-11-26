@@ -69,8 +69,8 @@ class DieselOilService {
     final type = await tx.rawQuery(
       "SELECT value FROM settings WHERE key='system_type'",
     );
-    if (type.isEmpty || type.first['value'] != 'diesel') {
-      throw StateError('متابعة الزيت خاصة بمنظومة الديزل');
+    if (type.isEmpty || !const {'diesel', 'equivalent_hybrid'}.contains(type.first['value'])) {
+      throw StateError('متابعة الزيت متاحة لمنظومة الديزل والنوع الثالث');
     }
   }
 
@@ -107,7 +107,9 @@ class DieselOilService {
   }) {
     var minutes = 0;
     for (final row in rows) {
-      if (row['system_type'] != 'diesel' || row['status'] != 'posted') {
+      if ((row['system_type'] != 'diesel' &&
+          !(row['system_type'] == 'equivalent_hybrid' && row['hybrid_source'] == 'diesel')) ||
+          row['status'] != 'posted') {
         continue;
       }
       final start = DateTime.tryParse('${row['start_datetime']}');
@@ -164,7 +166,7 @@ class DieselOilService {
       '${last?['at'] ?? config['configured_at']}',
     );
     final rows = await tx.rawQuery(
-      "SELECT id,created_at,start_datetime,end_datetime,system_type,status FROM irrigations WHERE station_id=? AND system_type='diesel' AND status='posted'",
+      "SELECT id,created_at,start_datetime,end_datetime,system_type,hybrid_source,status FROM irrigations WHERE station_id=? AND status='posted' AND (system_type='diesel' OR (system_type='equivalent_hybrid' AND hybrid_source='diesel'))",
       [station],
     );
     final used =

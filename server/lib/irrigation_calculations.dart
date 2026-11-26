@@ -80,6 +80,7 @@ class AccountingCalculations {
     bool allowMidnightCrossing = false,
     String rounding = 'nearest',
     bool partialHour = true,
+    int? dieselRuntimeMinutes,
   }) {
     final minutes = minutesBetween(
       start,
@@ -100,7 +101,8 @@ class AccountingCalculations {
     );
     // لترات/ساعة بدقة 3 خانات عشرية، والحساب بأعداد صحيحة.
     final lphMilli = (litersPerHour * 1000).round();
-    final liters = charge * lphMilli / 60000;
+    final fuelRuntime = (dieselRuntimeMinutes ?? charge).clamp(0, 100000000);
+    final liters = fuelRuntime * lphMilli / 60000;
     // الوقود عهدة عينية باللترات، وليس بند دخل أو مديونية مالية للسقاية.
     const fuel = 0;
     return IrrigationResult(

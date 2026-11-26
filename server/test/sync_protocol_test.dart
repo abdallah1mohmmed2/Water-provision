@@ -3032,4 +3032,67 @@ test('legacy beneficiary rows receive a stable global identity on first API read
     expect(database.select("SELECT id FROM journal_entries WHERE reference_type='partner_profit_adjustment'"),hasLength(1));
   });
 
+
+  test('worker source affiliation is accepted and updated through master-data sync', () async {
+    database.execute('''CREATE TABLE workers(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      station_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      phone TEXT,
+      job_title TEXT,
+      pay_type TEXT NOT NULL,
+      fixed_salary INTEGER NOT NULL DEFAULT 0,
+      hourly_rate INTEGER NOT NULL DEFAULT 0,
+      percentage_rate REAL NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      notes TEXT
+    )''');
+    const global = 'abababab-abab-4bab-8bab-abababababab';
+    final created = await postEvents(stationOneToken, [{
+      'event_id':'abababab-1111-4111-8111-abababababab',
+      'entity_type':'workers',
+      'entity_key':'workers:$global',
+      'operation':'create',
+      'base_version':0,
+      'payload':{
+        '_global_id':global,
+        'name':'Solar worker',
+        'pay_type':'hourly',
+        'hourly_rate':700,
+        'source_affiliation':'solar',
+        'active':1,
+      },
+    }]);
+    expect((created['results'] as List).single['status'], 'accepted');
+    expect(database.select('SELECT source_affiliation FROM workers WHERE station_id=1').single['source_affiliation'], 'solar');
+
+    final updated = await postEvents(stationOneToken, [{
+      'event_id':'abababab-2222-4222-8222-abababababab',
+      'entity_type':'workers',
+      'entity_key':'workers:$global',
+      'operation':'update',
+      'base_version':1,
+      'payload':{
+        '_global_id':global,
+        'source_affiliation':'diesel',
+      },
+    }]);
+    expect((updated['results'] as List).single['status'], 'accepted');
+    expect(database.select('SELECT source_affiliation FROM workers WHERE station_id=1').single['source_affiliation'], 'diesel');
+
+    final invalid = await postEvents(stationOneToken, [{
+      'event_id':'abababab-3333-4333-8333-abababababab',
+      'entity_type':'workers',
+      'entity_key':'workers:$global',
+      'operation':'update',
+      'base_version':2,
+      'payload':{
+        '_global_id':global,
+        'source_affiliation':'both',
+      },
+    }]);
+    expect((invalid['results'] as List).single['status'], 'rejected');
+    expect(database.select('SELECT source_affiliation FROM workers WHERE station_id=1').single['source_affiliation'], 'diesel');
+  });
+
 }

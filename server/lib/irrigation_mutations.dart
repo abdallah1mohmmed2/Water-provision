@@ -12,6 +12,8 @@ class _P1Mutations {
   int _accountIdTx(_P1Tx tx, String code) => server._accountId(code);
   int _workerAccountIdTx(_P1Tx tx, int id) => server._syncWorkerAccountId(id);
   int _partnerAccountIdTx(_P1Tx tx, int id) => server._syncPartnerAccountId(id);
+  void _ensureWorkerSourceSchema() => server._ensureWorkerSourceSchema();
+  String _workerExpenseCode(int stationId, int workerId) => server._workerExpenseCode(stationId, workerId);
   static const _beneficiaryDieselStockSql =
       "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)"
       "+COALESCE((SELECT carried_diesel_liters FROM beneficiaries WHERE id=?),0)"
@@ -163,14 +165,31 @@ class _P1Mutations {
     required DateTime date,
     int? userId,
   }) {
+    _ensureWorkerSourceSchema();
     final w = tx.query(
       'workers',
-      columns: ['pay_type', 'hourly_rate', 'percentage_rate'],
+      columns: ['pay_type', 'hourly_rate', 'percentage_rate', 'source_affiliation', 'station_id'],
       where: 'id=?',
       whereArgs: [workerId],
       limit: 1,
     );
     if (w.isEmpty) throw StateError('العامل المنفّذ غير موجود');
+    final stationId = (w.first['station_id'] as num?)?.toInt() ?? 0;
+    final irrigation = tx.query(
+      'irrigations',
+      columns: ['system_type', 'hybrid_source'],
+      where: 'id=?',
+      whereArgs: [irrigationId],
+      limit: 1,
+    );
+    if (irrigation.isNotEmpty && irrigation.first['system_type'] == 'equivalent_hybrid') {
+      final affiliation = '${w.first['source_affiliation'] ?? 'shared'}';
+      final source = '${irrigation.first['hybrid_source'] ?? ''}';
+      if ((affiliation == 'solar' && source != 'solar') ||
+          (affiliation == 'diesel' && source != 'diesel')) {
+        return 0;
+      }
+    }
     final payType = '${w.first['pay_type']}';
     final entitlement = AccountingCalculations.workerIrrigationEntitlement(
       payType: payType,
@@ -197,7 +216,7 @@ class _P1Mutations {
           : 'استحقاق نسبة من السقاية',
       'created_by': userId,
     });
-    final exp = _accountIdTx(tx, '5000'),
+    final exp = _accountIdTx(tx, _workerExpenseCode(stationId, workerId)),
         payable = _workerAccountIdTx(tx, workerId);
     _entry(
       tx,

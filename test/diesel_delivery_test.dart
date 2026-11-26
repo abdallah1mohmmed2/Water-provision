@@ -541,7 +541,7 @@ void main() {
     }
   });
 
-  test('creation stores personal rates and version 34 upgrade preserves records through version 36', () async {
+  test('creation stores personal rates and version 34 upgrade preserves records through version 39', () async {
     final b = await repo.createBeneficiary(name: 'معدل مستفيد', dieselLitersPerHour: 5);
     final w = await repo.createWorker(name: 'معدل عامل', payType: 'fixed', dieselLitersPerHour: 4.65);
     final p = await repo.createPartner(name: 'معدل شريك', mode: 'shares', shares: 1, dieselLitersPerHour: 4.5);
@@ -555,7 +555,7 @@ void main() {
     await db.execute('PRAGMA user_version=34');
     await app.close();
     final upgraded = await app.db;
-    expect(await upgraded.getVersion(), 36);
+    expect(await upgraded.getVersion(), 39);
     for (final entry in {'beneficiaries': b, 'workers': w, 'partners': p}.entries) {
       final row = (await app.query(entry.key, where: 'id=?', whereArgs: [entry.value])).single;
       expect(row['diesel_liters_per_hour'], isNull);

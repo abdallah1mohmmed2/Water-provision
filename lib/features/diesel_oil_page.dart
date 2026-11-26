@@ -26,7 +26,7 @@ void _announceOilStatus(int station, OilStatus value) {
 StreamSubscription<void> watchDieselOilAlerts(StationRepository repo) =>
     repo.db.irrigationChanges.listen((_) async {
       try {
-        if ((await repo.settings())['system_type'] != 'diesel') {
+        if (!const {'diesel', 'equivalent_hybrid'}.contains((await repo.settings())['system_type'])) {
           return;
         }
         final station = await repo.accounting.currentStationId();

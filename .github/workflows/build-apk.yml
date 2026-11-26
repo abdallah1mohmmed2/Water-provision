@@ -2,8 +2,11 @@ name: Build Flutter APK
 
 on:
   push:
-    branches: [ "test/all-open-prs", "experiment/main-based-2026-11-02", "feature/firebase-station-foundation", "feature/unified-theme-system" ]
+    branches: [ "test/all-open-prs", "experiment/main-based-2026-11-02", "feature/firebase-station-foundation", "feature/unified-theme-system", "feature/complementary-changes" ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -109,3 +112,35 @@ jobs:
             dist/Saqia-App-Release.zip.sha256
           if-no-files-found: error
           compression-level: 0
+
+  publish-public-release:
+    needs: build
+    if: ${{ github.ref == 'refs/heads/feature/complementary-changes' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release package
+        uses: actions/download-artifact@v4
+        with:
+          name: Saqia-App-Release-ZIP
+          path: dist
+
+      - name: Verify checksum
+        run: |
+          set -euo pipefail
+          test -s dist/Saqia-App-Release.zip
+          test -s dist/Saqia-App-Release.zip.sha256
+          sha256sum -c dist/Saqia-App-Release.zip.sha256
+
+      - name: Publish public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${SHA:0:12}"
+          TAG="complementary-${SHORT_SHA}"
+          gh release create "$TAG" dist/Saqia-App-Release.zip dist/Saqia-App-Release.zip.sha256 \
+            --repo "${{ github.repository }}" \
+            --title "Saqia Complementary Branch - ${SHORT_SHA}" \
+            --prerelease \
+            --notes "Public Android APK for feature/complementary-changes. Built from commit ${SHA}. Download the ZIP, extract, and install the APK. SHA-256 checksum is attached."

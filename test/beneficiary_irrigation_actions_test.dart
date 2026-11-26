@@ -167,7 +167,8 @@ void main() {
         expect(text, contains('القيمة: 6000 ريال'));
         expect(text, contains('المدفوع: 300 ريال'));
         expect(text, contains('الرصيد الحالي: عليه 5700 ريال'));
-        expect(text, contains('الرصيد السابق: غير محفوظ لهذه السقاية'));
+        expect(text, contains('الرصيد السابق:'));
+        // Reconstructed operational balance is now shown instead of the old placeholder.
         expect(text, contains('رقم العملية: $id'));
         if (type == 'diesel') {
           expect(text, contains('الديزل المستهلك: 2 لتر'));

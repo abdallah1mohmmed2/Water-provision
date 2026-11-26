@@ -1640,6 +1640,7 @@ class StationRepository {
     int opening = 0,
     int? userId,
     double? dieselLitersPerHour,
+    String sourceAffiliation = 'shared',
   }) async {
     PartyDieselRate.validate(dieselLitersPerHour);
     if (name.trim().isEmpty) throw ArgumentError('اسم العامل مطلوب');
@@ -1652,6 +1653,7 @@ class StationRepository {
     if (percentageRate < 0 || percentageRate > 100) {
       throw ArgumentError('نسبة أجر العامل يجب أن تكون بين صفر و100');
     }
+    if (!{'solar', 'diesel', 'shared'}.contains(sourceAffiliation)) throw ArgumentError('مصدر استحقاق العامل غير صالح');
     final stationId = await accounting.currentStationId();
     final id = await db.transaction((tx) async {
       final newId = await tx.insert('workers', {
@@ -1661,6 +1663,7 @@ class StationRepository {
         'phone': phone,
         'job_title': title,
         'pay_type': payType,
+        'source_affiliation': sourceAffiliation,
         'fixed_salary': fixedSalary,
         'hourly_rate': hourlyRate,
         'percentage_rate': percentageRate,
@@ -1689,7 +1692,7 @@ class StationRepository {
 
   static const Set<String> _workerEditable = {
     'diesel_liters_per_hour',
-    'name', 'phone', 'job_title', 'pay_type', 'fixed_salary', 'hourly_rate',
+    'name', 'phone', 'job_title', 'pay_type', 'source_affiliation', 'fixed_salary', 'hourly_rate',
     'percentage_rate', 'notes',
   };
   static const Set<String> _partnerEditable = {
@@ -1718,6 +1721,8 @@ class StationRepository {
       if (!{'fixed', 'hourly', 'percentage'}.contains(payType)) {
         throw ArgumentError('نوع أجر العامل غير صالح');
       }
+      final source = '${values['source_affiliation'] ?? old['source_affiliation'] ?? 'shared'}';
+      if (!{'solar', 'diesel', 'shared'}.contains(source)) throw ArgumentError('مصدر استحقاق العامل غير صالح');
       if (fixedSalary < 0 || hourlyRate < 0) {
         throw ArgumentError('الراتب الثابت وأجر الساعة لا يمكن أن يكونا سالبين');
       }
@@ -2670,7 +2675,7 @@ class StationRepository {
 
   Future<Map<String, Object?>> dashboard() async {
     final r = await db.rawQuery(
-      "SELECT (SELECT value FROM settings WHERE key='system_type' LIMIT 1) system_type,(SELECT COUNT(*) FROM beneficiaries WHERE status='active') beneficiaries,(SELECT COUNT(*) FROM queue_entries WHERE status IN ('waiting','postponed')) queue,(SELECT COUNT(*) FROM booking_requests WHERE status IN ('new','under_review')) bookings,(SELECT COUNT(*) FROM irrigation_sessions WHERE status='running') running_sessions,(SELECT COALESCE(SUM(amount),0) FROM expenses WHERE status='posted') expenses,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled') revenue,(SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='posted' AND beneficiary_id IS NOT NULL) paid,(SELECT COALESCE(SUM(bal),0) FROM (SELECT ${await _balanceSql()} bal FROM beneficiaries b WHERE b.status='active')) remaining,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled') due,(SELECT COUNT(*) FROM notifications WHERE read_at IS NULL) unread_notifications,(SELECT COALESCE(SUM(jl.credit-jl.debit),0) FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE (a.code='2100' OR a.parent_id=(SELECT id FROM accounts WHERE code='2100')) AND je.status='posted') worker_due,(SELECT COALESCE(SUM(jl.credit-jl.debit),0) FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE (a.code='2200' OR a.parent_id=(SELECT id FROM accounts WHERE code='2200')) AND je.status='posted') partner_due",
+      "SELECT (SELECT value FROM settings WHERE key='system_type' LIMIT 1) system_type,(SELECT COUNT(*) FROM beneficiaries WHERE status='active') beneficiaries,(SELECT COUNT(*) FROM queue_entries WHERE status IN ('waiting','postponed')) queue,(SELECT COUNT(*) FROM booking_requests WHERE status IN ('new','under_review')) bookings,(SELECT COUNT(*) FROM irrigation_sessions WHERE status='running') running_sessions,(SELECT COALESCE(SUM(amount),0) FROM expenses WHERE status='posted') expenses,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled') revenue,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled' AND (system_type='solar' OR (system_type='equivalent_hybrid' AND hybrid_source='solar'))) solar_revenue,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled' AND (system_type='diesel' OR (system_type='equivalent_hybrid' AND hybrid_source='diesel'))) diesel_revenue,(SELECT COALESCE(SUM(amount),0) FROM payments WHERE status='posted' AND beneficiary_id IS NOT NULL) paid,(SELECT COALESCE(SUM(bal),0) FROM (SELECT ${await _balanceSql()} bal FROM beneficiaries b WHERE b.status='active')) remaining,(SELECT COALESCE(SUM(total_amount),0) FROM irrigations WHERE status!='cancelled') due,(SELECT COUNT(*) FROM notifications WHERE read_at IS NULL) unread_notifications,(SELECT COALESCE(SUM(jl.credit-jl.debit),0) FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE (a.code='2100' OR a.parent_id=(SELECT id FROM accounts WHERE code='2100')) AND je.status='posted') worker_due,(SELECT COALESCE(SUM(jl.credit-jl.debit),0) FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE (a.code='2200' OR a.parent_id=(SELECT id FROM accounts WHERE code='2200')) AND je.status='posted') partner_due",
     );
     return r.first;
   }
@@ -2829,8 +2834,8 @@ class StationRepository {
       "AND start_datetime>=? AND start_datetime<?",
     );
     final hourlyBaseRevenue = revenue - recordedDifference;
-    final expenses = await value("SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
-    final workers = await value("SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
+    final expenses = await value("SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code NOT IN ('5000','5040','5050') THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
+    final workers = await value("SELECT COALESCE(SUM(CASE WHEN a.code IN ('5000','5040','5050') THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?");
     return {
       'revenue': revenue,
       'work_difference': recordedDifference,
@@ -2996,19 +3001,53 @@ class StationRepository {
       case 'monthly_financial':
         {
           final stationId = await accounting.currentStationId();
-          final queryArgs = <Object?>[stationId, ...args];
-          final expenseMonthFilters = <String>[];
+          // SQL placeholder order: station context, scoped expense date range,
+          // irrigation filters in months CTE, month expense date filters, then
+          // the same irrigation filters in month_income CTE.
+          final queryArgs = <Object?>[stationId];
+          final scopedExpenseFilters = <String>[];
           if (from != null) {
-            expenseMonthFilters.add('e.date>=?');
+            scopedExpenseFilters.add('e.date>=?');
             queryArgs.add(from.toIso8601String());
           }
           if (to != null) {
-            expenseMonthFilters.add('e.date<?');
+            scopedExpenseFilters.add('e.date<?');
             queryArgs.add(to.add(const Duration(days: 1)).toIso8601String());
           }
+          final scopedExpenseWhere = scopedExpenseFilters.isEmpty
+              ? ''
+              : ' AND ${scopedExpenseFilters.join(' AND ')}';
+          // Month list date filters: income, expenses, then collections.
+          final expenseMonthFilters = <String>[];
+          if (from != null) expenseMonthFilters.add('e.date>=?');
+          if (to != null) expenseMonthFilters.add('e.date<?');
           final expenseMonthWhere = expenseMonthFilters.isEmpty
               ? ''
               : ' AND ${expenseMonthFilters.join(' AND ')}';
+          final paymentMonthFilters = <String>[];
+          if (from != null) paymentMonthFilters.add('p.date>=?');
+          if (to != null) paymentMonthFilters.add('p.date<?');
+          final paymentMonthWhere = paymentMonthFilters.isEmpty
+              ? ''
+              : ' AND ${paymentMonthFilters.join(' AND ')}';
+          final collectionFilters = <String>[];
+          if (from != null) collectionFilters.add('p.date>=?');
+          if (to != null) collectionFilters.add('p.date<?');
+          final collectionWhere = collectionFilters.isEmpty
+              ? ''
+              : ' AND ${collectionFilters.join(' AND ')}';
+          // SQL placeholder order after the scoped expense filters:
+          // irrigation month, expense month, payment month, collection dates,
+          // then the repeated irrigation filter for month_income.
+          queryArgs.addAll(args);
+          queryArgs.addAll(expenseMonthFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
+          queryArgs.addAll(paymentMonthFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
+          queryArgs.addAll(collectionFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
+          // Apply the exact same date, beneficiary, and system filters to the
+          // income aggregation; otherwise a partial-month report allocates shared
+          // expenses using revenue outside the selected range.
+          final monthIncomeWhere = iw.replaceAll('i.', 'x.');
+          queryArgs.addAll(args);
           return db.rawQuery(
             '''WITH station_context AS (SELECT ? AS station_id),
               scoped_irrigations AS (
@@ -3017,51 +3056,148 @@ class StationRepository {
               ),
               scoped_expenses AS (
                 SELECT e.* FROM expenses e CROSS JOIN station_context s
-                WHERE e.status='posted' AND (
-                  EXISTS (SELECT 1 FROM cashboxes c
-                          WHERE c.id=e.cashbox_id AND c.station_id=s.station_id)
-                  OR EXISTS (SELECT 1 FROM payment_methods pm
-                             WHERE pm.id=e.payment_method_id AND pm.station_id=s.station_id)
-                  OR EXISTS (SELECT 1 FROM app_users u
-                             WHERE u.id=e.created_by AND u.station_id=s.station_id)
-                )
+                WHERE e.status='posted' AND e.partner_id IS NULL AND e.worker_id IS NULL
+                  AND e.station_id=s.station_id$scopedExpenseWhere
+              ),
+              scoped_payments AS (
+                SELECT p.* FROM payments p JOIN beneficiaries b ON b.id=p.beneficiary_id
+                CROSS JOIN station_context s
+                WHERE p.status='posted' AND b.station_id=s.station_id
               ),
               months AS (
-                SELECT substr(i.date,1,7) AS month
-                FROM scoped_irrigations i
-                WHERE $iw
-                GROUP BY substr(i.date,1,7)
+                SELECT substr(i.date,1,7) AS month FROM scoped_irrigations i
+                WHERE $iw GROUP BY substr(i.date,1,7)
                 UNION
-                SELECT substr(e.date,1,7) AS month
-                FROM scoped_expenses e
-                WHERE 1=1$expenseMonthWhere
-                GROUP BY substr(e.date,1,7)
+                SELECT substr(e.date,1,7) AS month FROM scoped_expenses e
+                WHERE 1=1$expenseMonthWhere GROUP BY substr(e.date,1,7)
+                UNION
+                SELECT substr(p.date,1,7) AS month FROM scoped_payments p
+                WHERE 1=1$paymentMonthWhere GROUP BY substr(p.date,1,7)
+              ),
+              month_collections AS (
+                SELECT substr(p.date,1,7) month, SUM(p.amount) collections
+                FROM scoped_payments p WHERE 1=1${collectionWhere} GROUP BY substr(p.date,1,7)
+              ),
+              month_receivables AS (
+                SELECT m.month,
+                  COALESCE((SELECT SUM(jl.debit-jl.credit)
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id=jl.journal_entry_id
+                    JOIN accounts a ON a.id=jl.account_id
+                    CROSS JOIN station_context s
+                    WHERE je.station_id=s.station_id AND je.status='posted'
+                      AND je.date<date(m.month||'-01','+1 month')
+                      AND a.code='1200'),0) beneficiary_receivable
+                FROM months m
+              ),
+              month_income AS (
+                SELECT substr(x.date,1,7) month,
+                  SUM(CASE WHEN x.hybrid_source='solar' THEN x.total_amount ELSE 0 END) solar_income,
+                  SUM(CASE WHEN x.hybrid_source='diesel' THEN x.total_amount ELSE 0 END) diesel_income,
+                  SUM(CASE WHEN x.hybrid_source IS NULL OR x.hybrid_source NOT IN ('solar','diesel') THEN x.total_amount ELSE 0 END) unknown_income,
+                  SUM(x.total_amount) income
+                FROM scoped_irrigations x WHERE $monthIncomeWhere GROUP BY substr(x.date,1,7)
+              ),
+              month_expenses AS (
+                SELECT substr(e.date,1,7) month, SUM(e.amount) expenses,
+                  SUM(CASE WHEN e.expense_system_type='solar' THEN e.amount ELSE 0 END) solar_direct_expenses,
+                  SUM(CASE WHEN e.expense_system_type='diesel' THEN e.amount ELSE 0 END) diesel_direct_expenses,
+                  SUM(CASE WHEN e.expense_system_type='shared' OR e.expense_system_type IS NULL THEN e.amount ELSE 0 END) shared_expenses
+                FROM scoped_expenses e GROUP BY substr(e.date,1,7)
               )
-              SELECT m.month,
-                COALESCE((
-                  SELECT SUM(x.total_amount)
-                  FROM scoped_irrigations x
-                  WHERE substr(x.date,1,7)=m.month AND x.status!='cancelled'
-                ),0) AS income,
-                COALESCE((
-                  SELECT SUM(e.amount)
-                  FROM scoped_expenses e
-                  WHERE substr(e.date,1,7)=m.month
-                ),0) AS expenses
-              FROM months m
-              ORDER BY m.month''',
+              SELECT m.month, COALESCE(i.income,0) income, COALESCE(e.expenses,0) expenses,
+                COALESCE(mc.collections,0) collections,
+                COALESCE(i.income,0)-COALESCE(mc.collections,0) uncollected_difference,
+                COALESCE(mr.beneficiary_receivable,0) beneficiary_receivable,
+                COALESCE(i.solar_income,0) solar_income, COALESCE(i.diesel_income,0) diesel_income,
+                COALESCE(i.unknown_income,0) unknown_income,
+                COALESCE(e.solar_direct_expenses,0) solar_direct_expenses,
+                COALESCE(e.diesel_direct_expenses,0) diesel_direct_expenses,
+                COALESCE(e.shared_expenses,0) shared_expenses,
+                CASE WHEN COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0)>0
+                  THEN ROUND(COALESCE(e.shared_expenses,0)*COALESCE(i.solar_income,0)*1.0/
+                    (COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0))) ELSE 0 END solar_shared_allocation,
+                CASE WHEN COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0)>0
+                  THEN COALESCE(e.shared_expenses,0)-ROUND(COALESCE(e.shared_expenses,0)*COALESCE(i.solar_income,0)*1.0/
+                    (COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0))) ELSE 0 END diesel_shared_allocation,
+                CASE WHEN COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0)=0
+                  THEN COALESCE(e.shared_expenses,0) ELSE 0 END unallocated_shared_expenses
+              FROM months m LEFT JOIN month_income i ON i.month=m.month
+                LEFT JOIN month_expenses e ON e.month=m.month
+                LEFT JOIN month_collections mc ON mc.month=m.month
+                LEFT JOIN month_receivables mr ON mr.month=m.month
+                ORDER BY m.month''',
             queryArgs,
           );
         }
       case 'income':
-        return _systemReportWithOverall(
-          "SELECT i.system_type,COUNT(*) operations,SUM(i.water_amount) water_income,SUM(i.diesel_amount) diesel_income,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY i.system_type",
-          args,
-        );
+        {
+          // Type 3 income is separated by irrigation source; preserve the
+          // generic income grouping for every other station type.
+          if (currentSystemType == 'equivalent_hybrid') {
+            return _systemReportWithOverall(
+              """SELECT
+                CASE
+                  WHEN COALESCE(i.hybrid_source,'')='solar' THEN 'solar'
+                  WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 'diesel'
+                  ELSE 'unclassified'
+                END system_type,
+                COUNT(*) operations,
+                SUM(i.water_amount) water_income,
+                SUM(i.diesel_amount) diesel_income,
+                SUM(i.total_amount) total
+                FROM irrigations i WHERE $iw
+                GROUP BY CASE
+                  WHEN COALESCE(i.hybrid_source,'')='solar' THEN 'solar'
+                  WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 'diesel'
+                  ELSE 'unclassified'
+                END""",
+              args,
+            );
+          }
+          return _systemReportWithOverall(
+            "SELECT i.system_type,COUNT(*) operations,SUM(i.water_amount) water_income,SUM(i.diesel_amount) diesel_income,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY i.system_type",
+            args,
+          );
+        }
       case 'payment_methods':
-        return db.rawQuery(
-          "SELECT pm.name method_name,pm.type,pm.account_number,pm.bank_name,COALESCE(SUM(p.amount),0) total FROM payment_methods pm LEFT JOIN payments p ON p.payment_method_id=pm.id AND p.status='posted' GROUP BY pm.id",
-        );
+        {
+          // Apply the same selected filters used by the preview and PDF export.
+          // Keep LEFT JOIN so configured methods remain visible with zero totals
+          // when a date/cashbox filter has no matching payments.
+          final paymentJoin = <String>[
+            "p.payment_method_id=pm.id",
+            "p.status='posted'",
+          ];
+          final a = <Object?>[];
+          if (from != null) {
+            paymentJoin.add('date(p.date)>=date(?)');
+            a.add(from.toIso8601String());
+          }
+          if (to != null) {
+            paymentJoin.add('date(p.date)<=date(?)');
+            a.add(to.toIso8601String());
+          }
+          if (cashboxId != null) {
+            paymentJoin.add('p.cashbox_id=?');
+            a.add(cashboxId);
+          }
+          final where = <String>[];
+          if (paymentMethodId != null) {
+            where.add('pm.id=?');
+            a.add(paymentMethodId);
+          }
+          return db.rawQuery(
+            '''SELECT pm.name method_name,pm.type,pm.account_number,pm.bank_name,
+                      COALESCE(SUM(p.amount),0) total
+               FROM payment_methods pm
+               LEFT JOIN payments p ON ${paymentJoin.join(' AND ')}
+               ${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'}
+               GROUP BY pm.id
+               ORDER BY pm.name''',
+            a,
+          );
+        }
       case 'expenses':
         {
           final a = <Object?>[];
@@ -3158,6 +3294,24 @@ class StationRepository {
           return combined;
         }
       case 'beneficiary_stats':
+        if (currentSystemType == 'equivalent_hybrid') {
+          return db.rawQuery(
+            """SELECT b.id,b.name,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'') IN ('solar','diesel') THEN 1 ELSE 0 END),0) irrigations,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'') IN ('solar','diesel') THEN i.minutes ELSE 0 END),0) minutes,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'') IN ('solar','diesel') THEN i.total_amount ELSE 0 END),0) total,
+              SUM(CASE WHEN COALESCE(i.hybrid_source,'')='solar' THEN 1 ELSE 0 END) solar_irrigations,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'')='solar' THEN i.minutes ELSE 0 END),0) solar_minutes,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'')='solar' THEN i.total_amount ELSE 0 END),0) solar_total,
+              SUM(CASE WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 1 ELSE 0 END) diesel_irrigations,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'')='diesel' THEN i.minutes ELSE 0 END),0) diesel_minutes,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'')='diesel' THEN i.total_amount ELSE 0 END),0) diesel_total
+              FROM beneficiaries b
+              LEFT JOIN irrigations i ON i.beneficiary_id=b.id AND $iw
+              GROUP BY b.id ORDER BY total DESC""",
+            args,
+          );
+        }
         return db.rawQuery(
           "SELECT b.id,b.name,COUNT(i.id) irrigations,COALESCE(SUM(i.minutes),0) minutes,COALESCE(SUM(i.total_amount),0) total FROM beneficiaries b LEFT JOIN irrigations i ON i.beneficiary_id=b.id AND i.status!='cancelled' GROUP BY b.id ORDER BY total DESC",
         );
@@ -3173,10 +3327,33 @@ class StationRepository {
           return rows;
         }
       case 'activity_overview':
-        return _systemReportWithOverall(
-          "SELECT i.system_type,COUNT(*) operations,SUM(i.minutes) minutes,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY i.system_type",
-          args,
-        );
+        {
+          if (currentSystemType == 'equivalent_hybrid') {
+            return _systemReportWithOverall(
+              """SELECT
+                CASE
+                  WHEN COALESCE(i.hybrid_source,'')='solar' THEN 'solar'
+                  WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 'diesel'
+                  ELSE 'unclassified'
+                END system_type,
+                COUNT(*) operations,
+                SUM(i.minutes) minutes,
+                SUM(i.total_amount) total,
+                SUM(CASE WHEN COALESCE(i.hybrid_source,'')='diesel' THEN i.diesel_amount ELSE 0 END) diesel_cost
+                FROM irrigations i WHERE $iw
+                GROUP BY CASE
+                  WHEN COALESCE(i.hybrid_source,'')='solar' THEN 'solar'
+                  WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 'diesel'
+                  ELSE 'unclassified'
+                END""",
+              args,
+            );
+          }
+          return _systemReportWithOverall(
+            "SELECT i.system_type,COUNT(*) operations,SUM(i.minutes) minutes,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY i.system_type",
+            args,
+          );
+        }
       case 'oil_status':
         return db.rawQuery(
           "SELECT category,SUM(amount) total FROM expenses WHERE status='posted' AND category IN ('oil','grease') GROUP BY category",
@@ -3342,10 +3519,37 @@ class StationRepository {
           args,
         );
       case 'system_comparison':
-        return _systemReportWithOverall(
-          "SELECT i.system_type,COUNT(*) operations,SUM(i.minutes) minutes,SUM(i.total_amount) total,SUM(i.diesel_amount) diesel_cost FROM irrigations i WHERE $iw GROUP BY i.system_type",
-          args,
-        );
+        {
+          // Type 3 has two distinct irrigation sources. Compare them separately
+          // instead of collapsing all hybrid irrigation into one system row.
+          // Keep the existing comparison query unchanged for other station types.
+          if (currentSystemType == 'equivalent_hybrid') {
+            return _systemReportWithOverall(
+              """SELECT
+                CASE
+                  WHEN COALESCE(i.hybrid_source,'')='solar' THEN 'solar'
+                  WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 'diesel'
+                  ELSE 'unclassified'
+                END system_type,
+                COUNT(*) operations,
+                SUM(i.minutes) minutes,
+                SUM(i.total_amount) total,
+                SUM(CASE WHEN COALESCE(i.hybrid_source,'')='diesel'
+                  THEN COALESCE(i.diesel_amount,0) ELSE 0 END) diesel_cost
+                FROM irrigations i WHERE $iw
+                GROUP BY CASE
+                  WHEN COALESCE(i.hybrid_source,'')='solar' THEN 'solar'
+                  WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 'diesel'
+                  ELSE 'unclassified'
+                END""",
+              args,
+            );
+          }
+          return _systemReportWithOverall(
+            "SELECT i.system_type,COUNT(*) operations,SUM(i.minutes) minutes,SUM(i.total_amount) total,SUM(i.diesel_amount) diesel_cost FROM irrigations i WHERE $iw GROUP BY i.system_type",
+            args,
+          );
+        }
       case 'journal':
         return journal(from: from, to: to);
       case 'ledger':

@@ -31,7 +31,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 36,
+      version: 39,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -253,6 +253,26 @@ class AppDatabase {
       if (!columns.any((row) => row['name'] == 'hybrid_diesel_hourly_rate_snapshot')) {
         await d.execute('ALTER TABLE irrigations ADD COLUMN hybrid_diesel_hourly_rate_snapshot INTEGER NOT NULL DEFAULT 0');
       }
+    }
+    if (oldV < 37) {
+      final columns = await d.rawQuery('PRAGMA table_info(workers)');
+      if (!columns.any((row) => row['name'] == 'source_affiliation')) await d.execute("ALTER TABLE workers ADD COLUMN source_affiliation TEXT NOT NULL DEFAULT 'shared'");
+      await d.execute("UPDATE workers SET source_affiliation='shared' WHERE source_affiliation IS NULL OR source_affiliation NOT IN ('solar','diesel','shared')");
+    }
+    if (oldV < 39) {
+      // Previous false was the legacy default, so enable crossing once on upgrade.
+      await d.update('settings', {'value': 'true'}, where: "key='allow_midnight_crossing' AND value='false'");
+      final stationSettings = await d.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='station_settings'");
+      if (stationSettings.isNotEmpty) {
+        await d.update('station_settings', {'value': 'true'}, where: "key='allow_midnight_crossing' AND value='false'");
+      }
+    }
+    if (oldV < 38) {
+      final columns = await d.rawQuery('PRAGMA table_info(expenses)');
+      if (!columns.any((row) => row['name'] == 'expense_system_type')) {
+        await d.execute("ALTER TABLE expenses ADD COLUMN expense_system_type TEXT NOT NULL DEFAULT 'shared'");
+      }
+      await d.execute("UPDATE expenses SET expense_system_type='shared' WHERE expense_system_type IS NULL OR expense_system_type NOT IN ('solar','diesel','shared')");
     }
     if (oldV < 19) {
       await d.execute(
@@ -815,7 +835,7 @@ class AppDatabase {
       'min_wait_days': '3',
       'manager_override_required': 'true',
       'absence_policy': 'keep_order',
-      'allow_midnight_crossing': 'false',
+      'allow_midnight_crossing': 'true',
       'diesel_warning_percent': '20',
       'diesel_warning_snoozed_until': '',
       'diesel_tank_capacity_liters': '0',

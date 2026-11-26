@@ -11,6 +11,7 @@ import 'beneficiary_irrigation_menu.dart';
 import '../domain/accounting/beneficiary_irrigation_actions.dart';
 import 'diesel_delivery_page.dart';
 import 'diesel_oil_page.dart';
+import '../domain/maintenance/diesel_oil_service.dart';
 import 'beneficiary_statement_card.dart';
 import '../services/party_statement_balance_display.dart';
 import '../domain/accounting/beneficiary_statement_totals.dart';
@@ -839,17 +840,130 @@ class InitialSetupPage extends StatefulWidget {
   @override State<InitialSetupPage> createState()=>_InitialSetupState();
 }
 class _InitialSetupState extends State<InitialSetupPage>{
-  final repo=StationRepository();late final TextEditingController stationName,currency;List<Map<String,Object?>> pumps=[];String type='diesel',timeSource='device';int? pumpId;bool loading=true,saving=false;String? error;
+  final repo=StationRepository();
+  late final TextEditingController stationName,currency;
+  final solarRate=TextEditingController();
+  final dieselRate=TextEditingController();
+  final dieselConsumption=TextEditingController();
+  final oilInterval=TextEditingController();
+  final oilWarning=TextEditingController();
+  final oilElapsed=TextEditingController(text:'0');
+  List<Map<String,Object?>> pumps=[];
+  String type='diesel',timeSource='device';
+  int? pumpId;
+  bool loading=true,saving=false;
+  String? error;
+  bool get needsOil=>type=='diesel'||type=='equivalent_hybrid';
   @override void initState(){super.initState();stationName=TextEditingController();currency=TextEditingController(text:'YER');_load();}
-  @override void dispose(){stationName.dispose();currency.dispose();super.dispose();}
-  Future<void> _load()async{try{final set=await repo.settings();final ps=await repo.db.query('pumps',where:'active=1',orderBy:'id');if(mounted)setState((){stationName.text=set['station_name']??'';currency.text=set['currency']??'YER';type=set['system_type']??'diesel';timeSource=set['time_source']??'device';pumps=ps;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
+  @override void dispose(){for(final c in [stationName,currency,solarRate,dieselRate,dieselConsumption,oilInterval,oilWarning,oilElapsed]){c.dispose();}super.dispose();}
+  Future<void> _load()async{try{final set=await repo.settings();final ps=await repo.db.query('pumps',where:'active=1',orderBy:'id');if(mounted)setState((){stationName.text=set['station_name']??'';currency.text=set['currency']??'YER';type=set['system_type']??'diesel';timeSource=set['time_source']??'device';solarRate.text=set['solar_hourly_rate']??'0';dieselRate.text=set[type=='diesel'?'diesel_hourly_water_rate':'hybrid_diesel_hourly_rate']??'0';dieselConsumption.text=set['diesel_liters_per_hour']??'0';pumps=ps;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   List<Map<String,Object?>> get compatiblePumps=>pumps.where((p)=>'${p['system_type']}'==type).toList();
-  Future<void> _finish()async{if(stationName.text.trim().isEmpty){setState(()=>error='اكتب اسم المحطة أولاً');return;}if(currency.text.trim().isEmpty){setState(()=>error='حدد العملة المستخدمة');return;}if(compatiblePumps.isNotEmpty&&pumpId==null){setState(()=>error='اختر المضخة الأساسية للمنظومة');return;}setState(()=>saving=true);try{await repo.setSetting('station_name',stationName.text.trim());await repo.setSetting('currency',currency.text.trim().toUpperCase());await repo.setSetting('time_source',timeSource);await repo.setSystemType(type);if(pumpId!=null)await repo.selectPump(pumpId!);await repo.setSetting('initial_setup_completed','true');await AppPrefs.apply(await repo.settings());if(!mounted)return;Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>AdminShell(role:widget.role,userName:widget.userName,userId:widget.userId)));}catch(e){if(mounted)setState((){error=friendlyError(e);saving=false;});}}
-  Widget _typeCard(String value,String title,String subtitle,IconData icon,Color color){final selected=type==value;return InkWell(onTap:(){setState((){type=value;pumpId=null;});},borderRadius:BorderRadius.circular(20),child:AnimatedContainer(duration:Duration(milliseconds:180),padding:EdgeInsets.all(15),decoration:BoxDecoration(color:selected?color.withValues(alpha: .1):_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:selected?color:_reportLine,width:selected?2:1)),child:Row(children:[Container(width:45,height:45,decoration:BoxDecoration(color:selected?color:color.withValues(alpha: .1),borderRadius:BorderRadius.circular(14)),child:Icon(icon,color:selected?Colors.white:color)),SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),SizedBox(height:4),Text(subtitle,style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:10))]),),Icon(selected?Icons.radio_button_checked_rounded:Icons.radio_button_unchecked_rounded,color:selected?color:_reportInk.withValues(alpha: .28))])));}
-  Widget _sectionTitle(String title,String sub,IconData icon)=>Padding(padding:EdgeInsets.only(bottom:10),child:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(11)),child:Icon(icon,color:_reportOliveDark,size:19)),SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),Text(sub,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))]) ]));
-  @override Widget build(BuildContext context){final ps=compatiblePumps;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,body:loading?Center(child:CircularProgressIndicator()):SafeArea(child:ListView(padding:EdgeInsets.fromLTRB(20,18,20,28),children:[Container(padding:EdgeInsets.all(22),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(29),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha: .18),blurRadius:18,offset:Offset(0,8))]),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('مرحباً ${widget.userName}',style:TextStyle(color:Colors.white.withValues(alpha: .75),fontSize:12)),SizedBox(height:7),Text('لنجهّز محطتك معاً',style:TextStyle(color:Colors.white,fontSize:25,fontWeight:FontWeight.w900)),SizedBox(height:8),Text('اختر المنظومة والإعدادات الأساسية مرة واحدة، وسنخصّص لك التطبيق تلقائياً.',style:TextStyle(color:Colors.white.withValues(alpha: .84),fontSize:11,height:1.5))]),),Container(width:62,height:62,decoration:BoxDecoration(color:_reportSurface.withValues(alpha: .14),borderRadius:BorderRadius.circular(21)),child:Icon(Icons.water_drop_rounded,color:Colors.white,size:34))])),SizedBox(height:18),Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('اختر منظومة المحطة','ستظهر لك الواجهات والتقارير المناسبة فقط',Icons.tune_rounded),_typeCard('diesel','منظومة الديزل','خزان ووقود وتنبيهات استهلاك',Icons.local_gas_station_rounded,_reportOrange),SizedBox(height:9),_typeCard('solar','المنظومة الشمسية','سقي شمسي وتسعير وتشغيل',Icons.wb_sunny_rounded,_reportGreen),SizedBox(height:9),_typeCard('equivalent_hybrid','النوع الثالث','منظومة مخصصة بإعداداتها الخاصة',Icons.bolt_rounded,_reportOliveDark)])),SizedBox(height:14),Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('بيانات المحطة','معلومات تظهر في الواجهات والتقارير',Icons.storefront_rounded),TextField(controller:stationName,decoration:InputDecoration(labelText:'اسم المحطة',prefixIcon:Icon(Icons.storefront_outlined),border:OutlineInputBorder())),SizedBox(height:10),TextField(controller:currency,decoration:InputDecoration(labelText:'العملة',prefixIcon:Icon(Icons.currency_exchange_rounded),border:OutlineInputBorder()),textCapitalization:TextCapitalization.characters),SizedBox(height:10),DropdownButtonFormField<String>(initialValue:timeSource,items:const[DropdownMenuItem(value:'device',child:Text('وقت الجهاز')) ,DropdownMenuItem(value:'server',child:Text('وقت الخادم'))],onChanged:(v)=>setState(()=>timeSource=v??'device'),decoration:InputDecoration(labelText:'مصدر الوقت',prefixIcon:Icon(Icons.access_time_rounded),border:OutlineInputBorder()))])),SizedBox(height:14),Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('المضخة الأساسية','تطابق نوع المنظومة المختار',Icons.settings_input_component_rounded),if(ps.isEmpty)Container(padding:EdgeInsets.all(13),decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:Row(children:[Icon(Icons.info_outline_rounded,color:_reportOliveDark),SizedBox(width:8),Expanded(child:Text('لا توجد مضخات متوافقة حالياً. يمكنك إكمال الإعداد وإضافتها لاحقاً من إدارة المضخات.',style:TextStyle(fontSize:11,fontWeight:FontWeight.w700))) ]))else DropdownButtonFormField<int>(initialValue:pumpId,items:[for(final p in ps)DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))],onChanged:(v)=>setState(()=>pumpId=v),decoration:InputDecoration(labelText:'اختر المضخة',prefixIcon:Icon(Icons.water_rounded),border:OutlineInputBorder()))])),if(error!=null)Padding(padding:EdgeInsets.only(top:14),child:Container(padding:EdgeInsets.all(12),decoration:BoxDecoration(color:_reportOrange.withValues(alpha: .1),borderRadius:BorderRadius.circular(12)),child:Row(children:[Icon(Icons.warning_amber_rounded,color:_reportOrange),SizedBox(width:8),Expanded(child:Text(error!,style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:11)))]))),SizedBox(height:18),FilledButton.icon(onPressed:saving?null:_finish,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,padding:EdgeInsets.symmetric(vertical:16),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(16))),icon:saving?SizedBox(width:19,height:19,child:CircularProgressIndicator(strokeWidth:2,color:Colors.white)):Icon(Icons.check_circle_outline_rounded),label:Text(saving?'جارٍ حفظ الإعدادات…':'حفظ وفتح لوحة التحكم',style:TextStyle(fontWeight:FontWeight.w900))),SizedBox(height:10),Text('يمكن للمدير تعديل هذه الإعدادات لاحقاً من صفحة الإعدادات.',textAlign:TextAlign.center,style:TextStyle(color:_reportInk.withValues(alpha: .52),fontSize:10))]))));}
+  int _minutesFromHours(TextEditingController c,String label,{bool allowZero=true}){final n=double.tryParse(c.text.trim());if(n==null||!n.isFinite||n<0||(!allowZero&&n==0)||n>1000000)throw ArgumentError('أدخل $label صحيحاً بالساعات');return (n*60).round();}
+  int _rate(TextEditingController c,String label){final v=int.tryParse(c.text.trim());if(v==null||v<0||v>1000000)throw ArgumentError('أدخل $label صحيحاً بين صفر ومليون');return v;}
+  double _liters(){final v=double.tryParse(dieselConsumption.text.trim());if(v==null||!v.isFinite||v<0||v>1000000)throw ArgumentError('أدخل استهلاك الديزل لكل ساعة صحيحاً');return v;}
+  Future<void> _finish()async{
+    if(stationName.text.trim().isEmpty){setState(()=>error='اكتب اسم المحطة أولاً');return;}
+    if(currency.text.trim().isEmpty){setState(()=>error='حدد العملة المستخدمة');return;}
+    if(compatiblePumps.isNotEmpty&&pumpId==null){setState(()=>error='اختر المضخة الأساسية للمنظومة');return;}
+    setState(()=>saving=true);
+    try{
+      final solar=_rate(solarRate,'سعر الساعة الشمسي');
+      final diesel=_rate(dieselRate,'سعر الساعة ديزل');
+      final liters=_liters();
+      final interval=needsOil?_minutesFromHours(oilInterval,'مدة تغيير الزيت',allowZero:false):0;
+      final warning=needsOil?_minutesFromHours(oilWarning,'التنبيه قبل تغيير الزيت'):0;
+      final elapsed=needsOil?_minutesFromHours(oilElapsed,'الساعات منذ آخر تغيير زيت'):0;
+      if(needsOil&&warning>=interval)throw ArgumentError('يجب أن يكون التنبيه قبل الموعد أقل من مدة تغيير الزيت');
+      await repo.setSetting('station_name',stationName.text.trim());
+      await repo.setSetting('currency',currency.text.trim().toUpperCase());
+      await repo.setSetting('time_source',timeSource);
+      await repo.setSystemType(type);
+      if(type=='solar'||type=='equivalent_hybrid')await repo.setSetting('solar_hourly_rate','$solar');
+      if(type=='diesel')await repo.setSetting('diesel_hourly_water_rate','$diesel');
+      if(type=='equivalent_hybrid')await repo.setSetting('hybrid_diesel_hourly_rate','$diesel');
+      if(type=='diesel'||type=='equivalent_hybrid')await repo.setSetting('diesel_liters_per_hour','$liters');
+      if(pumpId!=null)await repo.selectPump(pumpId!);
+      if(needsOil){
+        final station=await repo.accounting.currentStationId();
+        await DieselOilService(repo.db).configure(station:station,user:widget.userId,interval:interval,warning:warning,initial:elapsed);
+      }
+      await repo.setSetting('initial_setup_completed','true');
+      await AppPrefs.apply(await repo.settings());
+      if(!mounted)return;
+      Navigator.pushReplacement(context,MaterialPageRoute(builder:(_)=>AdminShell(role:widget.role,userName:widget.userName,userId:widget.userId)));
+    }catch(e){if(mounted)setState(()=>error=friendlyError(e));}
+    finally{if(mounted)setState(()=>saving=false);}
+  }
+  Widget _typeCard(String value,String title,String subtitle,IconData icon,Color color){
+    final selected=type==value;
+    return InkWell(
+      onTap:()=>setState((){type=value;pumpId=null;}),
+      borderRadius:BorderRadius.circular(20),
+      child:AnimatedContainer(
+        duration:const Duration(milliseconds:180),
+        padding:const EdgeInsets.all(15),
+        decoration:BoxDecoration(
+          color:selected?color.withValues(alpha:.1):_reportSurface,
+          borderRadius:BorderRadius.circular(20),
+          border:Border.all(color:selected?color:_reportLine,width:selected?2:1),
+        ),
+        child:Row(children:[
+          Container(
+            width:45,height:45,
+            decoration:BoxDecoration(color:selected?color:color.withValues(alpha:.1),borderRadius:BorderRadius.circular(14)),
+            child:Icon(icon,color:selected?Colors.white:color),
+          ),
+          const SizedBox(width:11),
+          Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:15)),
+            const SizedBox(height:4),
+            Text(subtitle,style:TextStyle(color:_reportInk.withValues(alpha:.58),fontSize:10)),
+          ])),
+          Icon(selected?Icons.radio_button_checked_rounded:Icons.radio_button_unchecked_rounded,color:selected?color:_reportInk.withValues(alpha:.28)),
+        ]),
+      ),
+    );
+  }
+  Widget _sectionTitle(String title,String sub,IconData icon)=>Padding(padding:EdgeInsets.only(bottom:10),child:Row(children:[Container(width:36,height:36,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(11)),child:Icon(icon,color:_reportOliveDark,size:19)),SizedBox(width:9),Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(title,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:16)),Text(sub,style:TextStyle(color:_reportInk.withValues(alpha:.55),fontSize:10))])]));
+  Widget _field(TextEditingController c,String label,{IconData? icon,String suffix=' ريال',bool decimal=false})=>TextField(controller:c,keyboardType:TextInputType.numberWithOptions(decimal:decimal),decoration:InputDecoration(labelText:label,prefixIcon:icon==null?null:Icon(icon),suffixText:suffix,border:OutlineInputBorder()));
+  @override Widget build(BuildContext context){
+    final ps=compatiblePumps;
+    return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,body:loading?Center(child:CircularProgressIndicator()):SafeArea(child:ListView(padding:EdgeInsets.fromLTRB(20,18,20,28),children:[
+      Container(padding:EdgeInsets.all(22),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(29),boxShadow:[BoxShadow(color:_reportOlive.withValues(alpha:.18),blurRadius:18,offset:Offset(0,8))]),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('مرحباً ${widget.userName}',style:TextStyle(color:Colors.white.withValues(alpha:.75),fontSize:12)),SizedBox(height:7),Text('لنجهّز محطتك معاً',style:TextStyle(color:Colors.white,fontSize:25,fontWeight:FontWeight.w900)),SizedBox(height:8),Text('اختر المنظومة والإعدادات الأساسية مرة واحدة، وسنخصّص لك التطبيق تلقائياً.',style:TextStyle(color:Colors.white.withValues(alpha:.84),fontSize:11,height:1.5))])),Container(width:62,height:62,decoration:BoxDecoration(color:_reportSurface.withValues(alpha:.14),borderRadius:BorderRadius.circular(21)),child:Icon(Icons.water_drop_rounded,color:Colors.white,size:34))])),
+      SizedBox(height:18),
+      Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[_sectionTitle('اختر منظومة المحطة','ستظهر لك الواجهات والتقارير المناسبة فقط',Icons.tune_rounded),_typeCard('diesel','منظومة الديزل','خزان ووقود وتنبيهات استهلاك',Icons.local_gas_station_rounded,_reportOrange),SizedBox(height:9),_typeCard('solar','المنظومة الشمسية','سقي شمسي وتسعير وتشغيل',Icons.wb_sunny_rounded,_reportGreen),SizedBox(height:9),_typeCard('equivalent_hybrid','النوع الثالث','منظومة مخصصة بإعداداتها الخاصة',Icons.bolt_rounded,_reportOliveDark)])),
+      SizedBox(height:14),
+      Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        _sectionTitle('بيانات المحطة','معلومات تظهر في الواجهات والتقارير',Icons.storefront_rounded),
+        TextField(controller:stationName,decoration:InputDecoration(labelText:'اسم المحطة',prefixIcon:Icon(Icons.storefront_outlined),border:OutlineInputBorder())),
+        SizedBox(height:10),TextField(controller:currency,decoration:InputDecoration(labelText:'العملة',prefixIcon:Icon(Icons.currency_exchange_rounded),border:OutlineInputBorder()),textCapitalization:TextCapitalization.characters),
+        SizedBox(height:10),DropdownButtonFormField<String>(initialValue:timeSource,items:const[DropdownMenuItem(value:'device',child:Text('وقت الجهاز')),DropdownMenuItem(value:'server',child:Text('وقت الخادم'))],onChanged:(v)=>setState(()=>timeSource=v??'device'),decoration:InputDecoration(labelText:'مصدر الوقت',prefixIcon:Icon(Icons.access_time_rounded),border:OutlineInputBorder()))
+      ])),
+      SizedBox(height:14),
+      Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        _sectionTitle('التسعير واستهلاك الديزل','تظهر الحقول حسب نوع المنظومة المحدد',Icons.price_change_rounded),
+        if(type=='solar'||type=='equivalent_hybrid')_field(solarRate,'سعر الساعة الشمسي',icon:Icons.wb_sunny_rounded),
+        if(type=='diesel'||type=='equivalent_hybrid')_field(dieselRate,'سعر الساعة ديزل',icon:Icons.local_gas_station_rounded),
+        if(type=='diesel'||type=='equivalent_hybrid')Padding(padding:EdgeInsets.only(top:10),child:_field(dieselConsumption,'استهلاك الديزل لكل ساعة',icon:Icons.oil_barrel_rounded,suffix:' لتر/ساعة',decimal:true))
+      ])),
+      if(needsOil)SizedBox(height:14),
+      if(needsOil)Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        _sectionTitle('إعداد موعد تغيير الزيت','يتم ضبطه مرة واحدة عند إعداد المحطة',Icons.oil_barrel_rounded),
+        _field(oilInterval,'تغيير الزيت كل مدة',icon:Icons.schedule_rounded,suffix:' ساعة'),
+        SizedBox(height:10),_field(oilWarning,'التنبيه قبل الموعد ب',icon:Icons.notifications_active_rounded,suffix:' ساعة'),
+        SizedBox(height:10),_field(oilElapsed,'الساعات التي مرت منذ آخر تغيير زيت',icon:Icons.history_rounded,suffix:' ساعة')
+      ])),
+      SizedBox(height:14),
+      Container(padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(23),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+        _sectionTitle('المضخة الأساسية','تطابق نوع المنظومة المختار',Icons.settings_input_component_rounded),
+        if(ps.isEmpty)Container(padding:EdgeInsets.all(13),decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:Row(children:[Icon(Icons.info_outline_rounded,color:_reportOliveDark),SizedBox(width:8),Expanded(child:Text('لا توجد مضخات متوافقة حالياً. يمكنك إكمال الإعداد وإضافتها لاحقاً من إدارة المضخات.',style:TextStyle(fontSize:11,fontWeight:FontWeight.w700)))]))
+        else DropdownButtonFormField<int>(initialValue:pumpId,items:[for(final p in ps)DropdownMenuItem(value:p['id'] as int,child:Text('${p['name']}'))],onChanged:(v)=>setState(()=>pumpId=v),decoration:InputDecoration(labelText:'اختر المضخة',prefixIcon:Icon(Icons.water_rounded),border:OutlineInputBorder()))
+      ])),
+      if(error!=null)Padding(padding:EdgeInsets.only(top:14),child:Container(padding:EdgeInsets.all(12),decoration:BoxDecoration(color:_reportOrange.withValues(alpha:.1),borderRadius:BorderRadius.circular(12)),child:Row(children:[Icon(Icons.warning_amber_rounded,color:_reportOrange),SizedBox(width:8),Expanded(child:Text(error!,style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w800,fontSize:11)))]))),
+      SizedBox(height:18),FilledButton.icon(onPressed:saving?null:_finish,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,padding:EdgeInsets.symmetric(vertical:16),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(16))),icon:saving?SizedBox(width:19,height:19,child:CircularProgressIndicator(strokeWidth:2,color:Colors.white)):Icon(Icons.check_circle_outline_rounded),label:Text(saving?'جارٍ حفظ الإعدادات…':'حفظ وفتح لوحة التحكم',style:TextStyle(fontWeight:FontWeight.w900))),SizedBox(height:10),Text('يمكن للمدير تعديل هذه الإعدادات لاحقاً من صفحة الإعدادات.',textAlign:TextAlign.center,style:TextStyle(color:_reportInk.withValues(alpha:.52),fontSize:10))
+    ]))));
+  }
 }
-
 class AdminShell extends StatefulWidget {
   final String role, userName;
   final int userId;
@@ -917,6 +1031,60 @@ class _ShellState extends State<AdminShell> {
 
   StreamSubscription<AppAlert>? _alertSub;
   StreamSubscription<void>? _oilSub;
+  OverlayEntry? _alertOverlay;
+  Timer? _alertTimer;
+
+  void _showAlertOverlay(AppAlert alert) {
+    if (!mounted) return;
+    _alertTimer?.cancel();
+    _alertOverlay?.remove();
+    _alertOverlay = null;
+    final overlay = Overlay.of(context, rootOverlay: true);
+    late final OverlayEntry entry;
+    entry = OverlayEntry(builder: (overlayContext) {
+      return Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFB3261E),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 18, offset: Offset(0, 6))],
+                  border: Border.all(color: Colors.white.withValues(alpha: .65), width: 1.2),
+                ),
+                child: ListTile(
+                  leading: const Icon(Icons.notifications_active_rounded, color: Colors.white, size: 30),
+                  title: Text(alert.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+                  subtitle: Text(alert.body, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                  trailing: IconButton(
+                    tooltip: 'إغلاق التنبيه',
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    onPressed: () {
+                      _alertTimer?.cancel();
+                      if (entry.mounted) entry.remove();
+                      if (identical(_alertOverlay, entry)) _alertOverlay = null;
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+    _alertOverlay = entry;
+    overlay.insert(entry);
+    _alertTimer = Timer(const Duration(seconds: 6), () {
+      if (entry.mounted) entry.remove();
+      if (identical(_alertOverlay, entry)) _alertOverlay = null;
+    });
+  }
 
   @override
   void initState() {
@@ -934,20 +1102,15 @@ class _ShellState extends State<AdminShell> {
     refreshCounts();
     _oilSub = watchDieselOilAlerts(repo);
     // النافذة المنبثقة (إن كان إعدادها مفعّلًا؛ الصوت يُشغَّل داخل AppAlerts نفسه).
-    _alertSub = AppAlerts.stream.listen((a) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text('${a.title}: ${a.body}'),
-        ),
-      );
-    });
+    _alertSub = AppAlerts.stream.listen(_showAlertOverlay);
   }
 
   @override
   void dispose() {
     _alertSub?.cancel();
+    _alertTimer?.cancel();
+    _alertOverlay?.remove();
+    _alertOverlay = null;
     _oilSub?.cancel();
     _floatingBubbleChannel.setMethodCallHandler(null);
     menuSearch.dispose();
@@ -2289,7 +2452,7 @@ class _DashboardState extends State<DashboardPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
               children: [
-                if (systemType == 'diesel') DieselOilCard(widget.r, userId: widget.userId, role: widget.role),
+                if (const {'diesel', 'equivalent_hybrid'}.contains(systemType)) DieselOilCard(widget.r, userId: widget.userId, role: widget.role),
                 Container(
                   padding: const EdgeInsets.all(19),
                   decoration: BoxDecoration(
@@ -2357,6 +2520,10 @@ class _DashboardState extends State<DashboardPage> {
                       if (systemType != 'diesel')
                         statCard('تشغيل المنظومة', '${d?['running_sessions'] ?? 0} جلسة',
                           systemType == 'solar' ? Icons.wb_sunny_rounded : Icons.bolt_rounded, neon),
+                      if (systemType == 'equivalent_hybrid') ...[
+                        statCard('إجمالي دخل المنظومة الشمسية', money(d?['solar_revenue']), Icons.wb_sunny_rounded, cyan),
+                        statCard('إجمالي دخل منظومة الديزل', money(d?['diesel_revenue']), Icons.local_gas_station_rounded, neon),
+                      ],
                     ].map((item) => Padding(
                       padding: const EdgeInsetsDirectional.only(end: 10),
                       child: item,
@@ -3959,7 +4126,11 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                     dieselEnabled: const {'diesel', 'equivalent_hybrid'}
                         .contains(currentSettings['system_type'] ?? 'diesel'),
                     hybridSystem: currentSettings['system_type'] == 'equivalent_hybrid',
-                    generate: (report) => report == 'diesel'
+                    generate: (report) => report == 'cash_movements'
+                      ? ReportService(widget.r).printPartyCashMovementsPdf(
+                          partyType: widget.kind, partyId: widget.id,
+                          from: filterFrom, to: filterTo)
+                      : report == 'diesel'
                       ? ReportService(widget.r).printPartyDieselPdf(
                           partyType: widget.kind, partyId: widget.id,
                           from: filterFrom, to: filterTo)
@@ -4850,11 +5021,6 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                           runSpacing: 8,
                                           children: [
                                             OutlinedButton.icon(
-                                              onPressed: () => details(x),
-                                              icon: const Icon(Icons.open_in_new),
-                                              label: const Text('التفاصيل'),
-                                            ),
-                                            OutlinedButton.icon(
                                               onPressed: () => sendAccountSummary(x),
                                               icon: const Icon(Icons.send_rounded),
                                               label: const Text('إرسال الحساب المختصر'),
@@ -4934,6 +5100,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   // لا يُحدَّد زر فترة البداية عند فتح الشاشة؛ يبقى الاختيار محفوظاً حتى dispose.
   bool isStartSelected = false;
   int timeStep = 0;
+  int minuteDiscount = 0;
   bool managerOverride = false,
       loading = true,
       saved = false,
@@ -4951,9 +5118,30 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   late Future<void> _initialLoadFuture;
   String? _initialPartyError;
 
+  Future<String?> _requireHybridSource() async {
+    if (type != 'equivalent_hybrid' || !mounted) return null;
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('مصدر تشغيل السقاية'),
+        content: const Text('اختر مصدر تشغيل هذه السقاية. لا يمكن حفظها دون تحديد المصدر.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('إلغاء')),
+          FilledButton.icon(onPressed: () => Navigator.of(dialogContext).pop('solar'), icon: const Icon(Icons.wb_sunny_outlined), label: const Text('شمسي')),
+          FilledButton.icon(onPressed: () => Navigator.of(dialogContext).pop('diesel'), icon: const Icon(Icons.local_gas_station_outlined), label: const Text('ديزل')),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loadInitialParty() async {
     await load();
     if (!mounted) return;
+    if (!widget.compactOnly && type == 'equivalent_hybrid') {
+      hybridSource = await _requireHybridSource();
+      if (!mounted) return;
+    }
     final kind = widget.initialPartyType;
     final id = widget.initialPartyId;
     if (kind == null && id == null) return;
@@ -5175,7 +5363,9 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     await _reloadParty();
   }
 
-  int get minutes => end.difference(start).inMinutes;
+  int get runtimeMinutes => end.difference(start).inMinutes;
+  int get minutes => (runtimeMinutes - minuteDiscount).clamp(0, runtimeMinutes).toInt();
+  DateTime get discountedEnd => end.subtract(Duration(minutes: minuteDiscount));
   int get cloudMin => quickCloudMode
       ? (int.tryParse(cloudQuickController.text.trim()) ?? 0)
       : cloudPeriods.fold<int>(
@@ -5221,48 +5411,52 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     final c = type == 'diesel'
         ? AccountingCalculations.diesel(
             start: start,
-            end: end,
+            end: discountedEnd,
             hourlyWaterRate: waterRate,
             litersPerHour: liters,
             dieselPrice: dieselPrice,
             cloudMinutes: 0,
             allowMidnightCrossing:
-                settings['allow_midnight_crossing'] == 'true',
+                (settings['allow_midnight_crossing'] ?? 'true') == 'true',
             rounding: settings['rounding'] ?? 'nearest',
             partialHour: settings['partial_hour'] != 'false',
+            dieselRuntimeMinutes: runtimeMinutes,
           )
         : type == 'solar'
         ? AccountingCalculations.solar(
             start: start,
-            end: end,
+            end: discountedEnd,
             hourlyRate: solarRate,
             cloudMinutes: cloudMin,
             allowMidnightCrossing:
-                settings['allow_midnight_crossing'] == 'true',
+                (settings['allow_midnight_crossing'] ?? 'true') == 'true',
             rounding: settings['rounding'] ?? 'nearest',
             partialHour: settings['partial_hour'] != 'false',
           )
         : hybridSource == 'solar'
         ? AccountingCalculations.solar(
-            start: start, end: end, hourlyRate: solarRate, cloudMinutes: cloudMin,
-            allowMidnightCrossing: settings['allow_midnight_crossing'] == 'true',
+            start: start, end: discountedEnd, hourlyRate: solarRate, cloudMinutes: cloudMin,
+            allowMidnightCrossing: (settings['allow_midnight_crossing'] ?? 'true') == 'true',
             rounding: settings['rounding'] ?? 'nearest', partialHour: settings['partial_hour'] != 'false',
           )
+        : type == 'equivalent_hybrid' && hybridSource == 'diesel'
+        ? AccountingCalculations.diesel(start: start, end: discountedEnd, hourlyWaterRate: hybridDieselRate, litersPerHour: liters, dieselPrice: 0, cloudMinutes: 0,
+            allowMidnightCrossing: (settings['allow_midnight_crossing'] ?? 'true') == 'true', rounding: settings['rounding'] ?? 'nearest', partialHour: settings['partial_hour'] != 'false', dieselRuntimeMinutes: runtimeMinutes)
         : AccountingCalculations.equivalent(
             start: start,
-            end: end,
+            end: discountedEnd,
             hourlyRate: type == 'equivalent_hybrid' ? hybridDieselRate : thirdRate,
             allowMidnightCrossing:
-                settings['allow_midnight_crossing'] == 'true',
+                (settings['allow_midnight_crossing'] ?? 'true') == 'true',
             rounding: settings['rounding'] ?? 'nearest',
             partialHour: settings['partial_hour'] != 'false',
           );
     final isBeneficiary = partyType == 'beneficiary';
-    final usedFuel = type == 'diesel' ? c.dieselLiters : 0.0;
-    final coveredFuel = isBeneficiary && type == 'diesel'
+    final usedFuel = (type == 'diesel' || (type == 'equivalent_hybrid' && hybridSource == 'diesel')) ? c.dieselLiters : 0.0;
+    final coveredFuel = isBeneficiary && (type == 'diesel' || (type == 'equivalent_hybrid' && hybridSource == 'diesel'))
         ? beneficiaryDiesel.clamp(0.0, usedFuel).toDouble()
         : 0.0;
-    final borrowedFuel = isBeneficiary && type == 'diesel'
+    final borrowedFuel = isBeneficiary && (type == 'diesel' || (type == 'equivalent_hybrid' && hybridSource == 'diesel'))
         ? usedFuel - coveredFuel : 0.0;
     // Match recordIrrigation's active work-minute tariff in the preview.
     // Only the beneficiary sees the special price; worker and partner
@@ -5304,7 +5498,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       msg('وقت نهاية الغيم يجب أن يكون بعد وقت بدايته');
       return false;
     }
-    if (cloudStart.isBefore(start) || cloudEnd.isAfter(end)) {
+    if (cloudStart.isBefore(start) || cloudEnd.isAfter(discountedEnd)) {
       msg('فترة الغيم يجب أن تكون داخل وقت السقاية');
       return false;
     }
@@ -5831,6 +6025,7 @@ int? parseClock(String raw) {
         endTimeController.text = _hm12(defaultEnd);
         endPeriod = defaultEnd.hour < 12 ? 'am' : 'pm';
         timeStep = 1;
+        minuteDiscount = 0;
       });
 
       final picked = await _showHybridTimePicker(
@@ -5866,6 +6061,7 @@ int? parseClock(String raw) {
       }
       setState(() {
         _applyManualEndTime();
+        minuteDiscount = 0;
         if (minutes > 0) timeStep = 2;
       });
       if (minutes <= 0) msg('وقت النهاية يجب أن يكون بعد وقت البداية');
@@ -5886,6 +6082,7 @@ int? parseClock(String raw) {
     if (d == null) return;
     setState(() {
       selectedDate = DateTime(d.year, d.month, d.day);
+      minuteDiscount = 0;
       start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, start.hour, start.minute);
       final startClock = start.hour * 60 + start.minute;
       final endClock = end.hour * 60 + end.minute;
@@ -5918,6 +6115,10 @@ int? parseClock(String raw) {
       return;
     }
     if (!mounted || loading || saved || _initialPartyError != null) return;
+    if (type == 'equivalent_hybrid') {
+      hybridSource = await _requireHybridSource();
+      if (!mounted || hybridSource == null) return;
+    }
 
     await showDialog<void>(
       context: context,
@@ -5959,6 +6160,7 @@ int? parseClock(String raw) {
                 endTimeController.text = _hm12(end);
               }
               timeStep = 2;
+              minuteDiscount = 0; // تغيير أوقات التشغيل يلغي خصم الدقائق السابق.
               cloudPeriods.removeWhere((p) => p['start']!.isBefore(start) || p['end']!.isAfter(end));
             });
             dialogSetState(() {});
@@ -5989,6 +6191,7 @@ int? parseClock(String raw) {
                         items: const [DropdownMenuItem(value: 'diesel', child: Text('ديزل')), DropdownMenuItem(value: 'solar', child: Text('طاقة شمسية'))],
                         onChanged: hybridSource == null ? (value) { setState(() { hybridSource = value; if (value == 'diesel') { cloudPeriods.clear(); cloudQuickController.clear(); quickCloudMode = false; } }); dialogSetState(() {}); } : null,
                       ),
+                      if (settings['third_type_cross_source_overlap_enabled'] == 'true') const Padding(padding: EdgeInsets.only(top: 6), child: Text('تداخل الديزل والشمس مسموح فقط عند اختلاف المصدر. السقايات من المصدر نفسه لا تتداخل.', style: TextStyle(fontSize: 12))),
                     ],
                     const SizedBox(height: 10),
                     OutlinedButton.icon(
@@ -6105,8 +6308,13 @@ int? parseClock(String raw) {
                     OutlinedButton.icon(
                       onPressed: () => chooseTime(false),
                       icon: const Icon(Icons.av_timer),
-                      label: Text('نهاية التشغيل: ${_hm12Label(end)}'),
+                      label: Text('نهاية السقاية: ${_hm12Label(discountedEnd)}'),
                     ),
+                    if (settings['irrigation_minute_discount_enabled'] == 'true') ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(onPressed: _setMinuteDiscount, icon: const Icon(Icons.remove_circle_outline),
+                        label: Text(minuteDiscount > 0 ? 'خصم دقائق ($minuteDiscount) • النهاية ${_hm12Label(discountedEnd)}' : 'خصم دقائق')),
+                    ],
                     if (type != 'diesel' && (type != 'equivalent_hybrid' || hybridSource == 'solar')) ...[
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
@@ -6134,7 +6342,7 @@ int? parseClock(String raw) {
               ),
               FilledButton.icon(
                 onPressed: loading ? null : () async {
-                  final savedEnd = end;
+                  final savedEnd = discountedEnd;
                   final hasSelectedParty =
                       (partyType == 'beneficiary' && bid != null) ||
                       (partyType == 'worker' && workerId != null) ||
@@ -6157,6 +6365,7 @@ int? parseClock(String raw) {
                     selectedDate = DateTime(previousEnd.year, previousEnd.month, previousEnd.day);
                     start = previousEnd;
                     end = start.add(const Duration(hours: 1));
+                    minuteDiscount = 0;
                     startTimeController.text = _hm12(start);
                     endTimeController.text = _hm12(end);
                     bid = null;
@@ -6170,6 +6379,7 @@ int? parseClock(String raw) {
                     search = '';
                     searchController.clear();
                     paid.text = '0';
+                    minuteDiscount = 0;
                     reason.clear();
                     cloudPeriods.clear();
                     cloudQuickController.clear();
@@ -6198,6 +6408,33 @@ int? parseClock(String raw) {
     );
   }
 
+  Future<void> _setMinuteDiscount() async {
+    if (settings['irrigation_minute_discount_enabled'] != 'true') return;
+    final controller = TextEditingController(text: '$minuteDiscount');
+    final value = await showDialog<int>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('خصم دقائق من السقاية'),
+        content: TextField(controller: controller, autofocus: true, keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'إجمالي دقائق الخصم', hintText: 'مثال: 5')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(d, int.tryParse(controller.text.trim())), child: const Text('اعتماد الخصم')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || value == null) return;
+    if (value < 0 || value >= runtimeMinutes) { msg('الخصم يجب أن يكون صفرًا أو أكبر وأقل من مدة التشغيل'); return; }
+    final candidateEnd = end.subtract(Duration(minutes: value));
+    if ((type == 'solar' || (type == 'equivalent_hybrid' && hybridSource == 'solar')) &&
+        (cloudMin > runtimeMinutes - value || cloudPeriods.any((p) => p['end']!.isAfter(candidateEnd)))) {
+      msg('خصم الدقائق يتعارض مع فترات الغيم؛ عدّل فترات الغيم أولاً');
+      return;
+    }
+    setState(() => minuteDiscount = value);
+  }
+
   Future<void> save({bool keepQuickForm = false}) async {
     if (_initialPartyError != null) {
       msg(_initialPartyError!);
@@ -6214,8 +6451,8 @@ int? parseClock(String raw) {
       msg('يجب اختيار صاحب الحساب والمضخة');
       return;
     }
-    if (minutes <= 0) {
-      msg('وقت النهاية يجب أن يكون بعد وقت البداية');
+    if (runtimeMinutes <= 0 || minutes <= 0) {
+      msg('وقت النهاية يجب أن يكون بعد وقت البداية، والخصم لا يجوز أن يلغي المدة');
       return;
     }
     if (type == 'equivalent_hybrid' && hybridSource == null) {
@@ -6274,6 +6511,7 @@ int? parseClock(String raw) {
         partyType,
         recipientId!,
       );
+      final effectiveEnd = discountedEnd;
       final irrigationId = await widget.r.accounting.recordIrrigation(
         stationId: stationId,
         pumpId: pumpId!,
@@ -6283,7 +6521,8 @@ int? parseClock(String raw) {
         partnerId: partyType == 'partner' ? partnerId : null,
         partyType: partyType,
         start: start,
-        end: end,
+        end: effectiveEnd,
+        actualRuntimeMinutes: runtimeMinutes,
         systemType: type,
         waterRate: waterRate,
         litersPerHour: liters,
@@ -6292,6 +6531,7 @@ int? parseClock(String raw) {
         thirdRate: thirdRate,
         hybridSource: type == 'equivalent_hybrid' ? hybridSource : null,
         cloudMinutes: cloudMin,
+        minuteDiscount: minuteDiscount,
         cloudPeriods: cloudPeriods
             .map(
               (p) => {
@@ -6311,7 +6551,7 @@ int? parseClock(String raw) {
         overrideReason: reason.text,
       );
       // لا ننقل الوقت إلا بعد نجاح حفظ السقاية والقيد المحاسبي.
-      nextStartFromPreviousEnd = end;
+      nextStartFromPreviousEnd = effectiveEnd;
       if (mounted) setState(() => saved = true);
       msg('تم حفظ السقاية والقيد المحاسبي بنجاح');
       await _refreshAfterSave();
@@ -6442,6 +6682,7 @@ int? parseClock(String raw) {
     setState(() {
       search = '';
       saved = false;
+      hybridSource = null;
       // تبدأ السقاية التالية من نهاية السقاية السابقة، بالتاريخ والوقت نفسيهما.
       // إن لم توجد سقاية سابقة محفوظة، استخدم الوقت الحالي.
       final clock = nextStartFromPreviousEnd ?? AppClock.now();
@@ -6454,6 +6695,7 @@ int? parseClock(String raw) {
       // تُهيّأ فترة النهاية فقط، ويظل زر البداية على حالته السابقة حتى dispose.
       endPeriod = end.hour < 12 ? 'am' : 'pm';
       timeStep = 0;
+      minuteDiscount = 0;
       paid.text = '0';
       cloudPeriods.clear();
       quickCloudMode = false;
@@ -6466,6 +6708,9 @@ int? parseClock(String raw) {
     });
     // أعد تحميل رصيد الديزل والسجل والأدوار والجلسات والرصيد بدل عرض بيانات ما قبل الحفظ.
     await load();
+    if (mounted && type == 'equivalent_hybrid') {
+      hybridSource = await _requireHybridSource();
+    }
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -6668,6 +6913,7 @@ int? parseClock(String raw) {
                   const Align(alignment: AlignmentDirectional.centerStart, child: Text('مصدر تشغيل السقاية', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(value: hybridSource, decoration: const InputDecoration(labelText: 'اختر مرة واحدة لهذه السقاية', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'diesel', child: Text('ديزل')), DropdownMenuItem(value: 'solar', child: Text('طاقة شمسية'))], onChanged: hybridSource == null ? (value) => setState(() { hybridSource = value; if (value == 'diesel') cloudPeriods.clear(); }) : null),
+                  if (settings['third_type_cross_source_overlap_enabled'] == 'true') const Padding(padding: EdgeInsets.only(top: 6), child: Text('تداخل الوقت مسموح عند اختيار مصدر مختلف فقط؛ لا يسمح بتداخل سقايتين من المصدر نفسه.', style: TextStyle(fontSize: 12))),
                   const SizedBox(height: 12),
                 ],
                 Align(alignment: AlignmentDirectional.centerStart, child: Text(type == 'solar' || (type == 'equivalent_hybrid' && hybridSource == 'solar') ? 'وقت السقاية وفترات الغيم' : 'وقت السقاية', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
@@ -6729,8 +6975,11 @@ int? parseClock(String raw) {
                   ),
                 ] else ...[
                   Text('البداية: ${_hm12Label(start)}'),
-                  Text('النهاية: ${_hm12Label(end)}'),
-                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.edit), label: const Text('تعديل الوقت')),
+                  Text('النهاية: ${_hm12Label(discountedEnd)}'),
+                  if (settings['irrigation_minute_discount_enabled'] == 'true')
+                    OutlinedButton.icon(onPressed: _setMinuteDiscount, icon: const Icon(Icons.remove_circle_outline),
+                      label: Text(minuteDiscount > 0 ? 'خصم دقائق ($minuteDiscount)' : 'خصم دقائق')),
+                  TextButton.icon(onPressed: () => setState(() { timeStep = 0; minuteDiscount = 0; }), icon: const Icon(Icons.edit), label: const Text('تعديل الوقت')),
                 ],
                 if (end.year != start.year || end.month != start.month || end.day != start.day)
                   const Chip(avatar: Icon(Icons.nights_stay_outlined), label: Text('وقت النهاية في اليوم التالي')),
@@ -10031,6 +10280,7 @@ class _ExpensesState extends State<ExpensesPage> {
   Timer? _searchDebounce;
   int _searchGeneration = 0;
   List<Map<String, Object?>> cash = [], methods = [], partners = [];
+  bool hybridSystem = false;
   String q = '';
   Future<void> load() async {
     final generation = ++_searchGeneration;
@@ -10052,6 +10302,7 @@ class _ExpensesState extends State<ExpensesPage> {
   @override
   void initState() {
     super.initState();
+    _loadHybridStationType();
     if (widget.compactOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
@@ -10072,9 +10323,20 @@ class _ExpensesState extends State<ExpensesPage> {
     super.dispose();
   }
 
+  String _expenseSystemName(Object? value) => switch (value) { 'solar' => 'شمسي مباشر', 'diesel' => 'ديزل مباشر', _ => 'مشترك' };
+
+  Future<void> _loadHybridStationType() async {
+    final settings = await widget.r.settings();
+    if (mounted) setState(() => hybridSystem = settings['system_type'] == 'equivalent_hybrid');
+  }
+
   Future<void> add() async {
+    final settings = await widget.r.settings();
+    if (!mounted) return;
+    hybridSystem = settings['system_type'] == 'equivalent_hybrid';
     String cat = 'other';
     String scope = 'general';
+    String expenseSystemType = 'shared';
     int? selectedPartnerId;
     int? pm = methods.isEmpty ? null : methods.first['id'] as int;
     int? cb = cashboxForMethod(methods, cash, pm, null);
@@ -10090,6 +10352,17 @@ class _ExpensesState extends State<ExpensesPage> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (hybridSystem)
+                DropdownButtonFormField<String>(
+                  initialValue: expenseSystemType,
+                  decoration: const InputDecoration(labelText: 'النظام الذي يتحمل المصروف'),
+                  items: const [
+                    DropdownMenuItem(value: 'solar', child: Text('شمسي مباشر')),
+                    DropdownMenuItem(value: 'diesel', child: Text('ديزل مباشر')),
+                    DropdownMenuItem(value: 'shared', child: Text('مشترك — يوزع حسب الإيرادات الشهرية')),
+                  ],
+                  onChanged: (v) => s(() => expenseSystemType = v ?? 'shared'),
+                ),
               DropdownButtonFormField<String>(
                 initialValue: scope,
                 decoration: const InputDecoration(labelText: 'نوع المصروف'),
@@ -10196,6 +10469,7 @@ class _ExpensesState extends State<ExpensesPage> {
           partnerId: scope == 'partner' ? selectedPartnerId : null,
           userId: widget.userId,
           notes: note.text,
+          expenseSystemType: hybridSystem ? expenseSystemType : 'shared',
         );
         await load();
       } catch (e) {
@@ -10278,7 +10552,7 @@ class _ExpensesState extends State<ExpensesPage> {
                 child: ListTile(
                   title: Text('${x['title']}'),
                   subtitle: Text(
-                    '${categoryName('${x['category']}')} • ${x['date']} • '
+                    '${categoryName('${x['category']}')} • ${x['date']} • ${hybridSystem ? '${_expenseSystemName(x['expense_system_type'])} • ' : ''}'
                     '${partnerId == null ? 'مصروف عام' : 'خاص بالشريك: $partnerName'} • '
                     '${statusName(x['status'])}',
                   ),
@@ -10377,6 +10651,7 @@ class _WorkersState extends State<WorkersPage> {
         salary = TextEditingController(),
         percent = TextEditingController();
     String type = 'hourly';
+    String sourceAffiliation = 'shared';
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => StatefulBuilder(
@@ -10392,6 +10667,7 @@ class _WorkersState extends State<WorkersPage> {
               ),
               ContactPhoneField(controller: phone, labelText: 'الهاتف'),
               if (dieselEnabled) PartyDieselRateField(fuelRate),
+              if (hybridSystem) DropdownButtonFormField<String>(initialValue: sourceAffiliation, items: const [DropdownMenuItem(value: 'solar', child: Text('شمسي فقط')), DropdownMenuItem(value: 'diesel', child: Text('ديزل فقط')), DropdownMenuItem(value: 'shared', child: Text('مشترك — من الدخل العام'))], onChanged: (v) => s(() => sourceAffiliation = v ?? 'shared'), decoration: const InputDecoration(labelText: 'مصدر استحقاق العامل')),
               TextField(
                 controller: open,
                 keyboardType: const TextInputType.numberWithOptions(
@@ -10467,6 +10743,7 @@ class _WorkersState extends State<WorkersPage> {
           fixedSalary: int.tryParse(salary.text) ?? 0,
           hourlyRate: int.tryParse(rate.text) ?? 0,
           percentageRate: double.tryParse(percent.text) ?? 0,
+          sourceAffiliation: hybridSystem ? sourceAffiliation : 'shared',
           userId: widget.userId,
         ),
       )) {
@@ -10485,6 +10762,7 @@ class _WorkersState extends State<WorkersPage> {
     final n = TextEditingController(text: '${x['name'] ?? ''}'),
         phone = TextEditingController(text: '${x['phone'] ?? ''}');
     String type = '${x['pay_type'] ?? 'hourly'}';
+    String sourceAffiliation = '${x['source_affiliation'] ?? 'shared'}';
     final rate = TextEditingController(text: '${x['hourly_rate'] ?? 0}'),
         salary = TextEditingController(text: '${x['fixed_salary'] ?? 0}'),
         pct = TextEditingController(text: '${x['percentage_rate'] ?? 0}');
@@ -10503,6 +10781,7 @@ class _WorkersState extends State<WorkersPage> {
               ),
               ContactPhoneField(controller: phone, labelText: 'الهاتف'),
               if (dieselEnabled) PartyDieselRateField(fuelRate),
+              if (hybridSystem) DropdownButtonFormField<String>(initialValue: sourceAffiliation, items: const [DropdownMenuItem(value: 'solar', child: Text('شمسي فقط')), DropdownMenuItem(value: 'diesel', child: Text('ديزل فقط')), DropdownMenuItem(value: 'shared', child: Text('مشترك — من الدخل العام'))], onChanged: (v) => s(() => sourceAffiliation = v ?? 'shared'), decoration: const InputDecoration(labelText: 'مصدر استحقاق العامل')),
               DropdownButtonFormField<String>(
                 initialValue: type,
                 items: const [
@@ -10564,6 +10843,7 @@ class _WorkersState extends State<WorkersPage> {
         'fixed_salary': int.tryParse(salary.text) ?? 0,
         'hourly_rate': int.tryParse(rate.text) ?? 0,
         'percentage_rate': double.tryParse(pct.text) ?? 0,
+        if (hybridSystem) 'source_affiliation': sourceAffiliation,
       }, widget.userId))) {
         return;
       }
@@ -12421,13 +12701,171 @@ List<Widget> reportQuickRangeButtons(
   ];
 }
 
+class HybridActivityOverviewReportPage extends StatefulWidget {
+  final StationRepository r;
+  final List<Map<String, Object?>> rows;
+  final DateTime? from, to;
+  const HybridActivityOverviewReportPage(this.r, {required this.rows, this.from, this.to, super.key});
+  @override
+  State<HybridActivityOverviewReportPage> createState() => _HybridActivityOverviewReportPageState();
+}
+class _HybridActivityOverviewReportPageState extends State<HybridActivityOverviewReportPage> {
+  int selectedTab = 0;
+  late final List<Map<String, Object?>> rows = List<Map<String, Object?>>.from(widget.rows);
+  final tabs = const ['solar', 'diesel', 'overall'];
+  int _num(Object? v) => (v as num?)?.round() ?? int.tryParse('${v ?? 0}') ?? 0;
+  String _money(Object? v) => NumberFormat('#,##0').format(_num(v));
+  String _period() => '${widget.from == null ? 'من البداية' : DateFormat('yyyy/MM/dd').format(widget.from!)} — ${widget.to == null ? 'حتى الآن' : DateFormat('yyyy/MM/dd').format(widget.to!)}';
+  Map<String, Object?>? get current {
+    final key = tabs[selectedTab];
+    for (final row in rows) { if ('${row['system_type']}' == key) return row; }
+    return null;
+  }
+  Future<void> _pdf() async {
+    try {
+      final data = current == null ? <Map<String, Object?>>[] : [current!];
+      await ReportService(widget.r).printPdf('activity_overview', from: widget.from, to: widget.to, systemType: 'equivalent_hybrid', sourceRows: data);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر تجهيز PDF: ${friendlyError(e)}')));
+    }
+  }
+  String _tabLabel(int i) => switch (i) { 0 => 'الشمسي', 1 => 'الديزل', _ => 'الإجمالي' };
+  Widget _stat(String label, String value, IconData icon, Color color) => Expanded(child: Container(
+    padding: const EdgeInsets.all(13), decoration: BoxDecoration(color: _reportSurface, border: Border.all(color: _reportLine), borderRadius: BorderRadius.circular(17)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, color: color, size: 20), const SizedBox(height: 8), Text(label, style: TextStyle(color: _reportInk.withValues(alpha: .55), fontSize: 11)), const SizedBox(height: 4), Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 16))]),
+  ));
+  @override Widget build(BuildContext context) {
+    final row = current;
+    return Directionality(textDirection: TextDirection.rtl, child: Scaffold(
+      backgroundColor: _reportCream,
+      appBar: AppBar(backgroundColor: _reportCream, foregroundColor: _reportInk, elevation: 0, title: const Text('نظرة عامة على النشاط', style: TextStyle(fontWeight: FontWeight.w900)), actions: [IconButton(onPressed: _pdf, tooltip: 'PDF', icon: const Icon(Icons.print_rounded))]),
+      body: ListView(padding: const EdgeInsets.fromLTRB(16,8,16,26), children: [
+        Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(gradient: LinearGradient(colors: [_reportOliveDark,_reportOlive]), borderRadius: BorderRadius.circular(23)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('ملخص النشاط',style:TextStyle(color:Colors.white.withValues(alpha:.8))),const SizedBox(height:7),Text(_tabLabel(selectedTab),style:const TextStyle(color:Colors.white,fontWeight:FontWeight.w900,fontSize:24)),const SizedBox(height:7),Text(_period(),style:TextStyle(color:Colors.white.withValues(alpha:.8)))])),
+        const SizedBox(height:14),
+        SegmentedButton<int>(segments: const [ButtonSegment(value:0,label:Text('☀️ شمسي')),ButtonSegment(value:1,label:Text('⛽ ديزل')),ButtonSegment(value:2,label:Text('📊 إجمالي'))],selected:{selectedTab},onSelectionChanged:(v)=>setState(()=>selectedTab=v.first)),
+        const SizedBox(height:14),
+        if(row==null) const EmptyView('لا توجد بيانات لهذا القسم') else Column(children: [
+          Row(children:[_stat('عدد العمليات',_money(row['operations']),Icons.water_drop_rounded,_reportOliveDark),const SizedBox(width:9),_stat('الدقائق',_money(row['minutes']),Icons.schedule_rounded,_reportGreen)]),
+          const SizedBox(height:9),
+          Row(children:[_stat('إجمالي الدخل',_money(row['total']),Icons.payments_rounded,_reportGreen),const SizedBox(width:9),_stat('تكلفة الديزل',_money(row['diesel_cost']),Icons.local_gas_station_rounded,_reportOrange)]),
+        ]),
+        const SizedBox(height:16),
+        Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(18),border:Border.all(color:_reportLine)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('تفاصيل النشاط',style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:17)),const SizedBox(height:10),if(row==null)const EmptyView('لا توجد بيانات')else ...[
+          _detail('عدد السقايات','${_money(row['operations'])}'),
+          _detail('إجمالي الدقائق','${_money(row['minutes'])}'),
+          _detail('إجمالي الدخل','${_money(row['total'])}'),
+          _detail('تكلفة الديزل المسجلة','${_money(row['diesel_cost'])}'),
+        ]]))
+      ]),
+    ));
+  }
+  Widget _detail(String label,String value)=>Padding(padding:const EdgeInsets.symmetric(vertical:6),child:Row(children:[Expanded(child:Text(label,style:TextStyle(color:_reportInk.withValues(alpha:.7)))),Text(value,style:TextStyle(color:_reportInk,fontWeight:FontWeight.w800))]));
+}
+
+class HybridSystemComparisonReportPage extends StatefulWidget {
+  final StationRepository r;
+  final List<Map<String, Object?>> rows;
+  final DateTime? from, to;
+  const HybridSystemComparisonReportPage(this.r, {required this.rows, this.from, this.to, super.key});
+  @override
+  State<HybridSystemComparisonReportPage> createState() => _HybridSystemComparisonReportPageState();
+}
+
+class _HybridSystemComparisonReportPageState extends State<HybridSystemComparisonReportPage> {
+  int selectedTab = 0;
+  late final List<Map<String, Object?>> rows = List<Map<String, Object?>>.from(widget.rows);
+  final tabs = const ['solar', 'diesel', 'overall'];
+  int _num(Object? v) => (v as num?)?.round() ?? int.tryParse('${v ?? 0}') ?? 0;
+  String _money(Object? v) => NumberFormat('#,##0').format(_num(v));
+  String _period() => '${widget.from == null ? 'من البداية' : DateFormat('yyyy/MM/dd').format(widget.from!)} — ${widget.to == null ? 'حتى الآن' : DateFormat('yyyy/MM/dd').format(widget.to!)}';
+  Map<String, Object?>? get current {
+    final key = tabs[selectedTab];
+    for (final row in rows) {
+      if ('${row['system_type']}' == key) return row;
+    }
+    return null;
+  }
+  Future<void> _pdf() async {
+    try {
+      final data = current == null ? <Map<String, Object?>>[] : [current!];
+      await ReportService(widget.r).printPdf('system_comparison', from: widget.from, to: widget.to, systemType: 'equivalent_hybrid', sourceRows: data);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر تجهيز PDF: ${friendlyError(e)}')));
+    }
+  }
+  Widget _stat(String label, String value, IconData icon, Color color) => Expanded(child: Container(
+    padding: const EdgeInsets.all(13), decoration: BoxDecoration(color: _reportSurface, border: Border.all(color: _reportLine), borderRadius: BorderRadius.circular(17)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Icon(icon, color: color, size: 20), const SizedBox(height: 8),
+      Text(label, style: TextStyle(color: _reportInk.withValues(alpha: .55), fontSize: 11)),
+      const SizedBox(height: 4), Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 16)),
+    ]),
+  ));
+  String _tabLabel(int i) => switch (i) { 0 => 'الشمسي', 1 => 'الديزل', _ => 'الإجمالي' };
+  @override
+  Widget build(BuildContext context) {
+    final row = current;
+    return Directionality(textDirection: TextDirection.rtl, child: Scaffold(
+      backgroundColor: _reportCream,
+      appBar: AppBar(backgroundColor: _reportCream, foregroundColor: _reportInk, elevation: 0,
+        title: const Text('مقارنة المنظومات', style: TextStyle(fontWeight: FontWeight.w900)),
+        actions: [IconButton(onPressed: _pdf, tooltip: 'PDF', icon: const Icon(Icons.print_rounded))],
+      ),
+      body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 26), children: [
+        Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(gradient: LinearGradient(colors: [_reportOliveDark, _reportOlive]), borderRadius: BorderRadius.circular(23)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('مقارنة أداء منظومة النوع الثالث', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8), Text(_period(), style: TextStyle(color: Colors.white.withValues(alpha: .82), fontSize: 12)),
+            const SizedBox(height: 8), const Text('تُعرض نتائج الشمس والديزل منفصلة مع إجمالي موحد، دون دمج إيراد المصدرين في بطاقة واحدة.', style: TextStyle(color: Colors.white, height: 1.45)),
+          ]),
+        ),
+        const SizedBox(height: 14),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (var i = 0; i < tabs.length; i++) ChoiceChip(
+            label: Text(_tabLabel(i)), selected: selectedTab == i,
+            onSelected: (_) => setState(() => selectedTab = i),
+            selectedColor: _reportOlive.withValues(alpha: .22),
+            backgroundColor: _reportSurface,
+            labelStyle: TextStyle(color: selectedTab == i ? _reportOliveDark : _reportInk, fontWeight: FontWeight.w800),
+            side: BorderSide(color: _reportLine),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        if (row == null) Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(18), border: Border.all(color: _reportLine)), child: const Text('لا توجد بيانات لهذا القسم خلال الفترة المحددة.')),
+        if (row != null) ...[
+          Row(children: [
+            _stat('عدد العمليات', _money(row['operations']), Icons.water_drop_rounded, _reportOliveDark),
+            const SizedBox(width: 9), _stat('الدقائق', _money(row['minutes']), Icons.timer_rounded, _reportInk),
+          ]),
+          const SizedBox(height: 9),
+          Row(children: [
+            _stat('الدخل', _money(row['total']), Icons.payments_rounded, _reportGreen),
+            const SizedBox(width: 9), _stat('تكلفة الديزل', _money(row['diesel_cost']), Icons.local_gas_station_rounded, _reportOrange),
+          ]),
+          const SizedBox(height: 12),
+          Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(19), border: Border.all(color: _reportLine)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_tabLabel(selectedTab), style: TextStyle(color: _reportInk, fontSize: 17, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 10),
+              Text('عدد السقايات: ${_money(row['operations'])}', style: TextStyle(color: _reportInk, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6), Text('إجمالي الدقائق: ${_money(row['minutes'])}', style: TextStyle(color: _reportInk)),
+              const SizedBox(height: 6), Text('إجمالي الدخل: ${_money(row['total'])}', style: TextStyle(color: _reportGreen, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 6), Text('تكلفة الديزل المسجلة: ${_money(row['diesel_cost'])}', style: TextStyle(color: _reportOrange, fontWeight: FontWeight.w800)),
+            ]),
+          ),
+        ],
+      ]),
+    ));
+  }
+}
+
 class ReportsPage extends StatefulWidget {
   final StationRepository r;
   final String? initialReportKey;
   const ReportsPage(this.r, {this.initialReportKey, super.key});
   static const keys = [
     'invoices','irrigations','time_comparison','monthly_financial','income',
-    'payment_methods','expenses','cashboxes','queue_bookings',
+    'payment_methods','payment_log','expenses','cashboxes','queue_bookings',
     'beneficiary_statement','beneficiary_detailed','beneficiary_stats','needy',
     'diesel_inventory','activity_overview','oil_status','debts','beneficiary_list',
     'revenue_comparison','system_comparison','journal','ledger',
@@ -12567,6 +13005,30 @@ class _ReportsState extends State<ReportsPage> {
       )));
       return;
     }
+    if (k == 'system_comparison' && currentType == 'equivalent_hybrid') {
+      try {
+        final rows = await _rows(k);
+        if (!mounted) return;
+        Navigator.push(context, MaterialPageRoute(builder: (_) => HybridSystemComparisonReportPage(
+          widget.r, rows: rows, from: from, to: to,
+        )));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر إنشاء التقرير: $e')));
+      }
+      return;
+    }
+    if (k == 'activity_overview' && currentType == 'equivalent_hybrid') {
+      try {
+        final rows = await _rows(k);
+        if (!mounted) return;
+        Navigator.push(context, MaterialPageRoute(builder: (_) => HybridActivityOverviewReportPage(
+          widget.r, rows: rows, from: from, to: to,
+        )));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر إنشاء التقرير: $e')));
+      }
+      return;
+    }
     try {
       final rows = await _rows(k);
       if (!mounted) return;
@@ -12577,10 +13039,10 @@ class _ReportsState extends State<ReportsPage> {
   }
   Future<void> printR(String k) async {try{if(k=='invoices'){final invoiceRows=await widget.r.report('invoices',from:from,to:to,systemType:'all');if(!mounted)return;await ReportService(widget.r).printInvoicesPdf(rows:invoiceRows,from:from,to:to);return;}final rows = await _rows(k);if(!mounted)return;await ReportService(widget.r).printPdf(k,from:from,to:to,beneficiaryId:bid,workerId:wid,partnerId:pid,systemType:type,cashboxId:cid,paymentMethodId:mid,category:category,status:status,sourceRows:rows);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}}
   Widget sel<T>(String label,T? v,List<DropdownMenuItem<T>> items,ValueChanged<T?> f)=>SizedBox(width:205,child:DropdownButtonFormField<T>(initialValue:v,items:items,onChanged:f,decoration:InputDecoration(labelText:label,filled:true,fillColor:_reportSurface,border:OutlineInputBorder(borderRadius:BorderRadius.circular(14),borderSide:BorderSide.none))));
-  IconData _icon(String k)=>switch(k){'invoices'=>Icons.receipt_long_rounded,'irrigations'=>Icons.water_drop_rounded,'expenses'=>Icons.receipt_long_rounded,'journal'=>Icons.menu_book_rounded,'ledger'=>Icons.account_balance_rounded,'worker_transactions'=>Icons.engineering_rounded,'partner_accounts'=>Icons.groups_rounded,'beneficiary_statement'=>Icons.person_pin_rounded,'monthly_financial'=>Icons.insights_rounded,'cashboxes'=>Icons.account_balance_wallet_rounded,_=>Icons.analytics_rounded};
+  IconData _icon(String k)=>switch(k){'invoices'=>Icons.receipt_long_rounded,'irrigations'=>Icons.water_drop_rounded,'payment_log'=>Icons.payments_rounded,'expenses'=>Icons.receipt_long_rounded,'journal'=>Icons.menu_book_rounded,'ledger'=>Icons.account_balance_rounded,'worker_transactions'=>Icons.engineering_rounded,'partner_accounts'=>Icons.groups_rounded,'beneficiary_statement'=>Icons.person_pin_rounded,'monthly_financial'=>Icons.insights_rounded,'cashboxes'=>Icons.account_balance_wallet_rounded,_=>Icons.analytics_rounded};
   String _group(String k)=>switch(k){
     'invoices'||'irrigations'||'time_comparison'||'income'||'monthly_financial'||'revenue_comparison'||'system_comparison'=>'السقايات والإيرادات',
-    'expenses'||'cashboxes'||'payment_methods'||'oil_status'||'diesel_inventory'=>'المالية والحركة',
+    'expenses'||'cashboxes'||'payment_methods'||'payment_log'||'oil_status'||'diesel_inventory'=>'المالية والحركة',
     'beneficiary_statement'||'beneficiary_detailed'||'beneficiary_stats'||'beneficiary_list'||'needy'||'debts'=>'كشوف الحساب',
     'journal'||'ledger'=>'دفتر الأستاذ',
     'worker_transactions'||'partner_accounts'||'partner_profit_distribution'||'queue_bookings'||'activity_overview'=>'التشغيل والمتابعة',
@@ -12593,6 +13055,7 @@ class _ReportsState extends State<ReportsPage> {
     'monthly_financial'=>'الدخل والمصروفات شهرياً بصورة مختصرة',
     'income'=>'مصادر الدخل حسب نوع المنظومة',
     'payment_methods'=>'إجمالي الاستخدام لكل طريقة دفع',
+    'payment_log'=>'سجل عمليات القبض والصرف مع الطرف وطريقة الدفع والصندوق والتاريخ، وفلاتر الفترة وطريقة الدفع والصندوق',
     'expenses'=>'توزيع المصروفات حسب التصنيف',
     'cashboxes'=>'الوارد والمنصرف والرصيد الحالي لكل صندوق',
     'queue_bookings'=>'حالة الطابور وطلبات الحجز',
@@ -13145,8 +13608,10 @@ class MonthlyFinancialReportPage extends StatefulWidget {
 }
 class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;bool loading=true;String? error;
+  bool hybridStation=false; String financialView='overall';
   @override void initState(){
     super.initState();
+    _loadHybridStation();
     from=widget.initialFrom;
     to=widget.initialTo;
     
@@ -13164,6 +13629,8 @@ class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
       systemType: null,
     );
   }
+  Future<void> _loadHybridStation() async { final settings=await widget.r.settings(); if(mounted)setState(()=>hybridStation=settings['system_type']=='equivalent_hybrid'); }
+  List<Map<String,Object?>> get visibleRows => rows.map((x){ if(!hybridStation || financialView=='overall') return x; final solar=financialView=='solar'; final income=_n(x[solar?'solar_income':'diesel_income']); final expenses=_n(x[solar?'solar_direct_expenses':'diesel_direct_expenses'])+_n(x[solar?'solar_shared_allocation':'diesel_shared_allocation']); return {...x,'income':income,'expenses':expenses}; }).toList();
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('monthly_financial',from:from,to:to);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -13175,9 +13642,9 @@ class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
   String _month(Object? v){final s='$v';final p=s.split('-');const names=['','يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];final m=int.tryParse(p.length>1?p[1]:'')??0;return m>0&&m<13?'${names[m]} ${p.first}':s;}
   String _date(Object? v){final d=DateTime.tryParse('$v');return d==null?'—':'${d.day}/${d.month}/${d.year}';}
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:EdgeInsets.all(15),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(icon,color:color)),SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),SizedBox(height:4),Text(value,style:TextStyle(color:_reportInk,fontSize:16,fontWeight:FontWeight.w900))]))])));
-  Widget _monthCard(Map<String,Object?> x,int maxValue){final income=_n(x['income']);final expenses=_n(x['expenses']);final net=income-expenses;final margin=income<=0?0:net*100/income;final color=net>=0?_reportGreen:_reportOrange;final incomeWidth=maxValue<=0?0.0:income/maxValue;final expenseWidth=maxValue<=0?0.0:expenses/maxValue;return Container(margin:EdgeInsets.only(bottom:12),padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(Icons.calendar_month_rounded,color:_reportOliveDark)),SizedBox(width:11),Expanded(child:Text(_month(x['month']),style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:17))),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text('صافي النتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),Text(money(net),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:17))])]),SizedBox(height:14),_bar('الإيرادات',income,incomeWidth,_reportGreen),SizedBox(height:8),_bar('المصروفات',expenses,expenseWidth,_reportOrange),SizedBox(height:12),Row(children:[Text('الهامش ${margin.toStringAsFixed(1)}%',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:11)),Spacer(),Text('إيرادات ${money(income)} • مصروفات ${money(expenses)}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))]) ]));}
+  Widget _monthCard(Map<String,Object?> x,int maxValue){final income=_n(x['income']);final expenses=_n(x['expenses']);final net=income-expenses;final margin=income<=0?0:net*100/income;final color=net>=0?_reportGreen:_reportOrange;final incomeWidth=maxValue<=0?0.0:income/maxValue;final expenseWidth=maxValue<=0?0.0:expenses/maxValue;return Container(margin:EdgeInsets.only(bottom:12),padding:EdgeInsets.all(17),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(21),border:Border.all(color:_reportLine)),child:Column(children:[Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(14)),child:Icon(Icons.calendar_month_rounded,color:_reportOliveDark)),SizedBox(width:11),Expanded(child:Text(_month(x['month']),style:TextStyle(color:_reportInk,fontWeight:FontWeight.w900,fontSize:17))),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text('صافي النتيجة',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),Text(money(net),style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:17))])]),SizedBox(height:14),_bar('الإيرادات',income,incomeWidth,_reportGreen),SizedBox(height:8),_bar('المصروفات',expenses,expenseWidth,_reportOrange),SizedBox(height:12),Row(children:[Expanded(child:Text('المقبوض خلال الشهر',style:TextStyle(color:_reportInk.withValues(alpha: .65),fontSize:11))),Text(money(_n(x['collections'])),style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:12))]),SizedBox(height:5),if(!hybridStation || financialView=='overall') Row(children:[Expanded(child:Text('فرق الإيرادات والمقبوضات',style:TextStyle(color:_reportInk.withValues(alpha: .65),fontSize:11))),Text(money(_n(x['uncollected_difference'])),style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:12))]),SizedBox(height:5),Row(children:[Expanded(child:Text('مديونية الرعية بنهاية الشهر (تراكمي)',style:TextStyle(color:_reportInk.withValues(alpha: .65),fontSize:11))),Text(money(_n(x['beneficiary_receivable'])),style:TextStyle(color:_reportOrange,fontWeight:FontWeight.w900,fontSize:12))]),SizedBox(height:12),Row(children:[Text('الهامش ${margin.toStringAsFixed(1)}%',style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:11)),Spacer(),Text('إيرادات ${money(income)} • مصروفات ${money(expenses)}',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10))]) ]));}
   Widget _bar(String label,int value,double width,Color color)=>Row(children:[SizedBox(width:65,child:Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .62),fontSize:11))),Expanded(child:ClipRRect(borderRadius:BorderRadius.circular(5),child:LinearProgressIndicator(value:width,minHeight:9,backgroundColor:_reportCream,color:color))),SizedBox(width:8),SizedBox(width:72,child:Text(money(value),textAlign:TextAlign.end,style:TextStyle(color:color,fontWeight:FontWeight.w900,fontSize:11))) ]);
-  @override Widget build(BuildContext context){final income=rows.fold<int>(0,(s,x)=>s+_n(x['income']));final expenses=rows.fold<int>(0,(s,x)=>s+_n(x['expenses']));final net=income-expenses;final maxValue=rows.fold<int>(0,(m,x){final a=_n(x['income']);final b=_n(x['expenses']);return a>b?(a>m?a:m):(b>m?b:m);});final margin=income<=0?0:net*100/income;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text('التقرير المالي الشهري',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),Padding(padding:EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
+  @override Widget build(BuildContext context){final displayRows=visibleRows;final income=displayRows.fold<int>(0,(s,x)=>s+_n(x['income']));final expenses=displayRows.fold<int>(0,(s,x)=>s+_n(x['expenses']));final net=income-expenses;final maxValue=displayRows.fold<int>(0,(m,x){final a=_n(x['income']);final b=_n(x['expenses']);return a>b?(a>m?a:m):(b>m?b:m);});final margin=income<=0?0:net*100/income;return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text('التقرير المالي الشهري',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),Padding(padding:EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_print),
   child: FilledButton.icon(onPressed:_print,style:FilledButton.styleFrom(backgroundColor:_reportOliveDark,foregroundColor:Colors.white,shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(13))),icon:Icon(Icons.picture_as_pdf_rounded,size:18),label:Text('PDF')),
 ))]),body:loading?Center(child:CircularProgressIndicator()):error!=null?ErrorBox(error!):ListView(padding:EdgeInsets.fromLTRB(18,4,18,30),children:[Container(padding:EdgeInsets.all(21),decoration:BoxDecoration(gradient:LinearGradient(colors:[_reportOliveDark,_reportOlive]),borderRadius:BorderRadius.circular(27)),child:Row(children:[Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('لوحة الأداء المالي',style:TextStyle(color:Colors.white.withValues(alpha: .72),fontSize:12)),SizedBox(height:6),Text('التقرير المالي الشهري',style:TextStyle(color:Colors.white,fontSize:23,fontWeight:FontWeight.w900)),SizedBox(height:7),Text('مقارنة الإيرادات والمصروفات وصافي النتيجة لكل شهر',style:TextStyle(color:Colors.white.withValues(alpha: .82),fontSize:11))]),),Icon(Icons.insights_rounded,color:Colors.white,size:46)])),SizedBox(height:14),Container(padding:EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Wrap(spacing:8,runSpacing:8,children:[OutlinedButton.icon(onPressed:()=>_pick(true),icon:Icon(Icons.calendar_today_rounded,size:16),label:Text(from==null?'من تاريخ':'من ${_date(from)}')),OutlinedButton.icon(onPressed:()=>_pick(false),icon:Icon(Icons.event_rounded,size:16),label:Text(to==null?'إلى تاريخ':'إلى ${_date(to)}')),
@@ -13187,7 +13654,7 @@ class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),TextButton.icon(onPressed:(){final now=AppClock.now();setState((){from=DateTime(now.year,1,1);to=DateTime(now.year,now.month,now.day);});_load();},icon:Icon(Icons.calendar_view_month_rounded,size:16),label:Text('هذا العام')),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:Text('مسح الفترة'))])),SizedBox(height:12),Row(children:[_kpi('الإيرادات',money(income),Icons.trending_up_rounded,_reportGreen),SizedBox(width:8),_kpi('المصروفات',money(expenses),Icons.receipt_long_rounded,_reportOrange),SizedBox(width:8),_kpi('صافي النتيجة',money(net),Icons.account_balance_wallet_rounded,net>=0?_reportGreen:_reportOrange)]),SizedBox(height:10),Container(padding:EdgeInsets.all(16),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.speed_rounded,color:_reportOliveDark),SizedBox(width:9),Text('الهامش المالي العام',style:TextStyle(fontWeight:FontWeight.w800)),Spacer(),Text('${margin.toStringAsFixed(1)}%',style:TextStyle(color:net>=0?_reportGreen:_reportOrange,fontSize:19,fontWeight:FontWeight.w900))])),SizedBox(height:18),Row(children:[Icon(Icons.bar_chart_rounded,color:_reportOliveDark),SizedBox(width:8),Text('الأداء حسب الشهر',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),Spacer(),Text('${rows.length} شهر',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),SizedBox(height:10),if(rows.isEmpty)EmptyView('لا توجد بيانات مالية في الفترة المحددة')else ...[for(final x in rows)_monthCard(x,maxValue)]])));}
+        ),TextButton.icon(onPressed:(){final now=AppClock.now();setState((){from=DateTime(now.year,1,1);to=DateTime(now.year,now.month,now.day);});_load();},icon:Icon(Icons.calendar_view_month_rounded,size:16),label:Text('هذا العام')),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:Text('مسح الفترة'))])),SizedBox(height:12),Row(children:[_kpi('الإيرادات',money(income),Icons.trending_up_rounded,_reportGreen),SizedBox(width:8),_kpi('المصروفات',money(expenses),Icons.receipt_long_rounded,_reportOrange),SizedBox(width:8),_kpi('صافي النتيجة',money(net),Icons.account_balance_wallet_rounded,net>=0?_reportGreen:_reportOrange)]),SizedBox(height:10),Container(padding:EdgeInsets.all(16),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.speed_rounded,color:_reportOliveDark),SizedBox(width:9),Text('الهامش المالي العام',style:TextStyle(fontWeight:FontWeight.w800)),Spacer(),Text('${margin.toStringAsFixed(1)}%',style:TextStyle(color:net>=0?_reportGreen:_reportOrange,fontSize:19,fontWeight:FontWeight.w900))])),SizedBox(height:18),Row(children:[Icon(Icons.bar_chart_rounded,color:_reportOliveDark),SizedBox(width:8),Text('الأداء حسب الشهر',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),Spacer(),Text('${displayRows.length} شهر',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),SizedBox(height:10),if(hybridStation)Container(padding:EdgeInsets.all(5),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(15),border:Border.all(color:_reportLine)),child:Row(children:[for(final entry in const {'solar':'☀️ شمسي','diesel':'⛽ ديزل','overall':'📊 إجمالي'}.entries)Expanded(child:Padding(padding:EdgeInsets.all(2),child:TextButton(onPressed:()=>setState(()=>financialView=entry.key),style:TextButton.styleFrom(backgroundColor:financialView==entry.key?_reportOliveDark:null,foregroundColor:financialView==entry.key?Colors.white:_reportInk),child:Text(entry.value,style:TextStyle(fontWeight:FontWeight.w800,fontSize:12)))))])),if(hybridStation&&financialView!='overall')Padding(padding:EdgeInsets.symmetric(vertical:6),child:Text('المصروف المشترك موزع بنسبة الإيرادات. المقبوض ومديونية الرعية أرقام إجمالية مشتركة بين المصدرين. فرق الإيرادات والمقبوضات مؤشر حسابي وليس تخصيصًا للقبض على ديون الشهر الحالي؛ قد يتضمن المقبوض تسديد ديون سابقة.',style:TextStyle(color:_reportInk.withValues(alpha:.65),fontSize:11))),SizedBox(height:10),if(displayRows.isEmpty)EmptyView('لا توجد بيانات مالية في الفترة المحددة')else ...[for(final x in displayRows)_monthCard(x,maxValue)]])));}
 }
 
 class CashboxesTransfersReportPage extends StatefulWidget {
@@ -13385,7 +13852,7 @@ class RevenueCollectionsReportPage extends StatefulWidget {
   @override State<RevenueCollectionsReportPage> createState()=>_RevenueCollectionsReportState();
 }
 class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>{
-  List<Map<String,Object?>> income=[],payments=[];DateTime? from,to;String systemType='all',search='';bool loading=true;String? error;
+  List<Map<String,Object?>> income=[],payments=[];DateTime? from,to;String systemType='all',search='';int incomeTab=0;bool loading=true;String? error;
   @override void initState(){
     super.initState();
     from=widget.initialFrom;
@@ -13418,7 +13885,7 @@ class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>
   Widget _kpi(String label,String value,IconData icon,Color color)=>Expanded(child:Container(padding:EdgeInsets.all(14),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(19),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:40,height:40,decoration:BoxDecoration(color:color.withValues(alpha: .12),borderRadius:BorderRadius.circular(12)),child:Icon(icon,color:color,size:20)),SizedBox(width:9),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(label,style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:10)),SizedBox(height:3),Text(value,style:TextStyle(color:_reportInk,fontSize:15,fontWeight:FontWeight.w900))]))])));
   Widget _incomeCard(Map<String,Object?> x){final total=_n(x['total']);return Container(margin:EdgeInsets.only(bottom:10),padding:EdgeInsets.all(15),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:44,height:44,decoration:BoxDecoration(color:_reportCream,borderRadius:BorderRadius.circular(13)),child:Icon(Icons.water_drop_rounded,color:_reportOliveDark)),SizedBox(width:11),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(_system(x['system_type']),style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk,fontSize:15)),SizedBox(height:4),Text('${_n(x['operations'])} عملية • ${_n(x['minutes'])} دقيقة',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(money(total),style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:17)),Text('إيراد',style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10))]) ]));}
   Widget _paymentCard(Map<String,Object?> x){final amount=_n(x['amount']);return Container(margin:EdgeInsets.only(bottom:10),padding:EdgeInsets.all(15),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Container(width:42,height:42,decoration:BoxDecoration(color:_reportGreen.withValues(alpha: .12),borderRadius:BorderRadius.circular(13)),child:Icon(Icons.payments_rounded,color:_reportGreen)),SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('${x['party_name']??'تحصيل عام'}',style:TextStyle(fontWeight:FontWeight.w900,color:_reportInk)),SizedBox(height:4),Text('${x['method_name']??'طريقة غير محددة'} • ${x['cashbox_name']??'صندوق غير محدد'}',style:TextStyle(color:_reportInk.withValues(alpha: .58),fontSize:11))])),Column(crossAxisAlignment:CrossAxisAlignment.end,children:[Text(money(amount),style:TextStyle(color:_reportGreen,fontWeight:FontWeight.w900,fontSize:16)),Text(_date(x['date']),style:TextStyle(color:_reportInk.withValues(alpha: .5),fontSize:10))]) ]));}
-  @override Widget build(BuildContext context){final revenue=income.where((x)=>'${x['system_type']}'!='الإجمالي العام').fold<int>(0,(s,x)=>s+_n(x['total']));final collected=payments.fold<int>(0,(s,x)=>s+_n(x['amount']));final due=revenue-collected;final rate=revenue<=0?0:collected*100/revenue;final q=search.trim().toLowerCase();final shownPayments=q.isEmpty?payments:payments.where((x)=>'${x['party_name']??''} ${x['method_name']??''} ${x['cashbox_name']??''}'.toLowerCase().contains(q)).toList();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text('الإيرادات والتحصيلات المالية',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),ReportPdfLongPress(
+  @override Widget build(BuildContext context){final revenue=income.where((x)=>'${x['system_type']}'!='الإجمالي العام').fold<int>(0,(s,x)=>s+_n(x['total']));final collected=payments.fold<int>(0,(s,x)=>s+_n(x['amount']));final hybridIncome=systemType=='equivalent_hybrid';final incomeTabKeys=const ['solar','diesel','الإجمالي العام'];final displayedIncome=hybridIncome?income.where((x)=>'${x['system_type']}'==incomeTabKeys[incomeTab]).toList():income.where((x)=>'${x['system_type']}'!='الإجمالي العام').toList();final due=revenue-collected;final rate=revenue<=0?0:collected*100/revenue;final q=search.trim().toLowerCase();final shownPayments=q.isEmpty?payments:payments.where((x)=>'${x['party_name']??''} ${x['method_name']??''} ${x['cashbox_name']??''}'.toLowerCase().contains(q)).toList();return Directionality(textDirection:TextDirection.rtl,child:Scaffold(backgroundColor:_reportCream,appBar:AppBar(backgroundColor:_reportCream,elevation:0,foregroundColor:_reportInk,title:Text('الإيرادات والتحصيلات المالية',style:TextStyle(fontWeight:FontWeight.w900)),actions:[IconButton(onPressed:_load,tooltip:'تحديث',icon:Icon(Icons.refresh_rounded)),ReportPdfLongPress(
   onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _print('payment_log')),
   child: IconButton(onPressed:()=>_print('payment_log'),icon:const Icon(Icons.receipt_long_rounded)),
 ),Padding(padding:const EdgeInsetsDirectional.only(end:10),child:ReportPdfLongPress(
@@ -13431,7 +13898,7 @@ class _RevenueCollectionsReportState extends State<RevenueCollectionsReportPage>
             setState(() { from = rangeFrom; to = rangeTo; });
             _load();
           },
-        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:Text('مسح الفترة'))])])),SizedBox(height:12),Row(children:[_kpi('الإيرادات',money(revenue),Icons.trending_up_rounded,_reportGreen),SizedBox(width:8),_kpi('التحصيلات',money(collected),Icons.payments_rounded,_reportOliveDark),SizedBox(width:8),_kpi('إجمالي عليه',money(due),Icons.pending_actions_rounded,_reportOrange)]),SizedBox(height:10),Container(padding:EdgeInsets.all(16),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.speed_rounded,color:_reportOliveDark),SizedBox(width:9),Text('نسبة التحصيل',style:TextStyle(fontWeight:FontWeight.w800)),Spacer(),Text('${rate.toStringAsFixed(1)}%',style:TextStyle(color:_reportGreen,fontSize:18,fontWeight:FontWeight.w900))])),SizedBox(height:18),Row(children:[Icon(Icons.trending_up_rounded,color:_reportOliveDark),SizedBox(width:8),Text('الإيرادات حسب المنظومة',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk))]),SizedBox(height:10),if(revenue==0)EmptyView('لا توجد إيرادات في الفترة المحددة')else ...[for(final x in income.where((x)=>'${x['system_type']}'!='الإجمالي العام'))_incomeCard(x)],SizedBox(height:15),Row(children:[Icon(Icons.payments_rounded,color:_reportOliveDark),SizedBox(width:8),Text('سجل التحصيلات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),Spacer(),Text('${shownPayments.length} عملية',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),SizedBox(height:10),if(shownPayments.isEmpty)Container(padding:EdgeInsets.all(30),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20)),child:Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد تحصيلات مطابقة للفلاتر')]))else ...[for(final x in shownPayments.take(300))_paymentCard(x)]])));}
+        ),if(from!=null||to!=null)TextButton(onPressed:(){setState((){from=null;to=null;});_load();},child:Text('مسح الفترة'))])])),SizedBox(height:12),Row(children:[_kpi('الإيرادات',money(revenue),Icons.trending_up_rounded,_reportGreen),SizedBox(width:8),_kpi('التحصيلات',money(collected),Icons.payments_rounded,_reportOliveDark),SizedBox(width:8),_kpi('إجمالي عليه',money(due),Icons.pending_actions_rounded,_reportOrange)]),SizedBox(height:10),Container(padding:EdgeInsets.all(16),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20),border:Border.all(color:_reportLine)),child:Row(children:[Icon(Icons.speed_rounded,color:_reportOliveDark),SizedBox(width:9),Text('نسبة التحصيل',style:TextStyle(fontWeight:FontWeight.w800)),Spacer(),Text('${rate.toStringAsFixed(1)}%',style:TextStyle(color:_reportGreen,fontSize:18,fontWeight:FontWeight.w900))])),SizedBox(height:18),Row(children:[Icon(Icons.trending_up_rounded,color:_reportOliveDark),SizedBox(width:8),Text('الإيرادات حسب المنظومة',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk))]),if(hybridIncome)Padding(padding:const EdgeInsets.only(top:10,bottom:8),child:SegmentedButton<int>(segments:const [ButtonSegment(value:0,label:Text('☀️ شمسي')),ButtonSegment(value:1,label:Text('⛽ ديزل')),ButtonSegment(value:2,label:Text('📊 إجمالي'))],selected:{incomeTab},onSelectionChanged:(v)=>setState(()=>incomeTab=v.first))),SizedBox(height:10),if(displayedIncome.isEmpty)EmptyView('لا توجد إيرادات في الفترة المحددة')else ...[for(final x in displayedIncome)_incomeCard(x)],SizedBox(height:15),Row(children:[Icon(Icons.payments_rounded,color:_reportOliveDark),SizedBox(width:8),Text('سجل التحصيلات',style:TextStyle(fontWeight:FontWeight.w900,fontSize:19,color:_reportInk)),Spacer(),Text('${shownPayments.length} عملية',style:TextStyle(color:_reportInk.withValues(alpha: .55),fontSize:12))]),SizedBox(height:10),if(shownPayments.isEmpty)Container(padding:EdgeInsets.all(30),decoration:BoxDecoration(color:_reportSurface,borderRadius:BorderRadius.circular(20)),child:Column(children:[Icon(Icons.inbox_rounded,size:42,color:_reportOlive),SizedBox(height:8),Text('لا توجد تحصيلات مطابقة للفلاتر')]))else ...[for(final x in shownPayments.take(300))_paymentCard(x)]])));}
 }
 
 class InventoryMovementReportPage extends StatefulWidget {
@@ -13563,6 +14030,7 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
   DateTime? from, to;
   String search = '';
   String hybridSourceFilter = 'all';
+  int _hybridSummaryTab = 0;
   String sortKey = 'start_datetime';
   String _reportSystemType = 'diesel';
   bool ascending = false, loading = true;
@@ -14053,15 +14521,39 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
                           if (isHybridType3) _summaryCard('المتبقي الإجمالي', '${_money(totalAmount - totalPaid)} ريال', Icons.account_balance_wallet_rounded, _reportOrange, 12),
                           if (isHybridType3) _summaryCard('استهلاك الديزل (لتر)', DieselQuantity.format(dieselRows.fold<num>(0, (sum, row) => sum + ((row['diesel_consumption_liters'] as num?) ?? 0))), Icons.local_gas_station, _reportOrange, 13),
                         ];
-                        return Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                        final selectedCards = isHybridType3
+                            ? (_hybridSummaryTab == 0
+                                ? cards.take(4).toList()
+                                : _hybridSummaryTab == 1
+                                    ? cards.skip(4).take(4).toList()
+                                    : cards.skip(8).toList())
+                            : cards;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            for (var i = 0; i < cards.length; i++)
-                              SizedBox(
-                                width: compact ? constraints.maxWidth : (constraints.maxWidth - 16) / 3,
-                                child: cards[i],
+                            if (isHybridType3) ...[
+                              SegmentedButton<int>(
+                                segments: const [
+                                  ButtonSegment(value: 0, label: Text('الشمس'), icon: Icon(Icons.sunny)),
+                                  ButtonSegment(value: 1, label: Text('الديزل'), icon: Icon(Icons.local_gas_station)),
+                                  ButtonSegment(value: 2, label: Text('الإجمالي'), icon: Icon(Icons.analytics_outlined)),
+                                ],
+                                selected: {_hybridSummaryTab},
+                                onSelectionChanged: (values) => setState(() => _hybridSummaryTab = values.first),
                               ),
+                              const SizedBox(height: 10),
+                            ],
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                for (var i = 0; i < selectedCards.length; i++)
+                                  SizedBox(
+                                    width: compact ? constraints.maxWidth : (constraints.maxWidth - 16) / 3,
+                                    child: selectedCards[i],
+                                  ),
+                              ],
+                            ),
                           ],
                         );
                       }),
@@ -16532,9 +17024,9 @@ class _SettingsState extends State<SettingsPage> {
     );
   }
 
-  Widget boolTile(String k, String label) => SwitchListTile.adaptive(
+  Widget boolTile(String k, String label, {bool defaultValue = false}) => SwitchListTile.adaptive(
     title: Text(label),
-    value: (s[k] ?? 'false') == 'true',
+    value: (s[k] ?? (defaultValue ? 'true' : 'false')) == 'true',
     onChanged: (v) async {
       if (!await runGuarded(
         context,
@@ -16674,7 +17166,7 @@ class _SettingsState extends State<SettingsPage> {
             margin: const EdgeInsets.only(bottom: 16),
             padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
             decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(18), border: Border.all(color: _reportLine)),
-            child: Row(children: [Icon(Icons.info_outline_rounded, color: _reportOliveDark), SizedBox(width: 9), Expanded(child: Text('اضغط على أي قسم لعرض إعداداته. يتم حفظ التغييرات مباشرة وتطبيق إعدادات الاسم والتنبيهات والحركة فوراً.', style: TextStyle(color: _reportInk.withValues(alpha: .68), fontSize: 11, fontWeight: FontWeight.w700)))]),
+            child: Row(children: [Icon(Icons.info_outline_rounded, color: _reportOliveDark), SizedBox(width: 9), Expanded(child: Text('اضغط على أي قسم لعرض إعداداته. يتم حفظ التغييرات مباشرة وتطبيق إعدادات التنبيهات والحركة فوراً.', style: TextStyle(color: _reportInk.withValues(alpha: .68), fontSize: 11, fontWeight: FontWeight.w700)))]),
           ),
           SettingGroup(
             title: 'بيانات المحطة',
@@ -16685,9 +17177,7 @@ class _SettingsState extends State<SettingsPage> {
               setTile('phone', 'الهاتف'),
               setTile('currency', 'العملة'),
               setTile('timezone', 'المنطقة الزمنية'),
-              setTile('app_name', 'اسم التطبيق'),
               _imageSettingTile('station_logo_path', 'شعار المحطة', Icons.image_outlined),
-              _imageSettingTile('app_icon_path', 'أيقونة التطبيق', Icons.app_registration_rounded),
             ],
           ),
           SettingGroup(
@@ -16717,6 +17207,7 @@ class _SettingsState extends State<SettingsPage> {
                 setTile('solar_hourly_rate', 'سعر السقي الشمسي بالساعة', true),
               if ((s['system_type'] ?? 'diesel') == 'equivalent_hybrid') ...[
                 setTile('hybrid_diesel_hourly_rate', 'سعر ساعة تشغيل الديزل في النوع الثالث', true),
+                boolTile('third_type_cross_source_overlap_enabled', 'السماح بتداخل سقاية الديزل والشمس بمصدرين مختلفين'),
                 setTile('solar_hourly_rate', 'سعر ساعة تشغيل الطاقة الشمسية', true),
               ],
               if (widget.manager) ...[
@@ -16729,6 +17220,7 @@ class _SettingsState extends State<SettingsPage> {
                   child: Text('زر فارق العمل يحدّد سعر السقايات الجديدة فقط: عند التفعيل تُحفظ فاتورة المستفيد بسعر الدقيقة الخاص، بينما يبقى أساس أرباح الشركاء والعمال بسعر الساعة العام. عند الإيقاف تُحفظ الفاتورة بالسعر العام. خيار العرض الثاني مستقل للتقارير، وكشف المستفيد يعرض سعر الدقيقة الخاص دائمًا. السقايات السابقة لا يعاد تسعيرها أو تعديل قيودها.', style: TextStyle(fontSize: 12, height: 1.5)),
                 ),
               ],
+              boolTile('irrigation_minute_discount_enabled', 'إظهار زر خصم دقائق السقاية', defaultValue: false),
               boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
               dropdownTile('rounding', 'سياسة التقريب', const [
                 MapEntry('nearest', 'التقريب إلى أقرب عدد صحيح'),
@@ -16768,7 +17260,7 @@ class _SettingsState extends State<SettingsPage> {
                 MapEntry('postpone', 'نقل لآخر الدور'),
                 MapEntry('cancel', 'إزالة من الدور'),
               ]),
-              boolTile('allow_midnight_crossing', 'السماح بعبور منتصف الليل'),
+              boolTile('allow_midnight_crossing', 'السماح بعبور منتصف الليل', defaultValue: true),
             ],
           ),
           SettingGroup(

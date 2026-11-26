@@ -20,6 +20,7 @@ class SaqiaServer {
   SaqiaServer(this.db, {required this.jwtSecret}) {
     _ensureFinancialStationOwnership();
     _ensurePartyDieselSchema();
+    _ensureWorkerSourceSchema();
     _ensureLoginRateLimitTable();
     _ensureSyncTables();
     _ensureP1Schema();
@@ -304,6 +305,7 @@ class SaqiaServer {
     catch(e){try{db.execute('ROLLBACK');}catch(_){} return _json({'error':'فشلت العملية الذرية: $e'},status:422);}
   }
   int _accountId(String code){final r=db.select('SELECT id FROM accounts WHERE code=? LIMIT 1',[code]);if(r.isEmpty)throw StateError('الحساب غير موجود: $code');return r.first['id'] as int;}
+  String _workerExpenseCode(int station,int workerId) { _ensureWorkerSourceSchema(); if(!_hasTable('station_settings'))return '5000'; final s=_settingsForStation(station); if(s['system_type']!='equivalent_hybrid')return '5000'; final r=db.select('SELECT source_affiliation FROM workers WHERE id=? AND station_id=? LIMIT 1',[workerId,station]); final x=r.isEmpty?'shared':'${r.first['source_affiliation']??'shared'}'; return x=='solar'?'5040':x=='diesel'?'5050':'5000'; }
   void _ensureSyncTables() {
     db.execute('''CREATE TABLE IF NOT EXISTS sync_entity_versions (
       station_id INTEGER NOT NULL REFERENCES stations(id) ON DELETE CASCADE,
@@ -1251,6 +1253,17 @@ void _ensurePartyFuelRates() {
   }
 }
 
+void _ensureWorkerSourceSchema() {
+  if (!_hasTable('workers')) return;
+  final columns = db.select('PRAGMA table_info(workers)').map((r) => '${r['name']}').toSet();
+  if (!columns.contains('source_affiliation')) db.execute("ALTER TABLE workers ADD COLUMN source_affiliation TEXT NOT NULL DEFAULT 'shared'");
+  db.execute("UPDATE workers SET source_affiliation='shared' WHERE source_affiliation IS NULL OR source_affiliation NOT IN ('solar','diesel','shared')");
+  if (!_hasTable('accounts')) return;
+  for (final row in const [['5040','مصروف أجور العمال الشمسية','expense'],['5050','مصروف أجور عمال الديزل','expense']]) {
+    if (db.select('SELECT id FROM accounts WHERE code=? LIMIT 1',[row[0]]).isEmpty) db.execute('INSERT INTO accounts(code,name,type) VALUES(?,?,?)',row);
+  }
+}
+
 void _ensurePartyDieselSchema() {
   _ensurePartyFuelRates();
   if (!_hasTable('diesel_movements')) {
@@ -1785,7 +1798,7 @@ void _applyPartyDieselReceipt({
       date: date,
       userId: userId,
       lines: [
-        {'account_id': _accountId('5000'), 'worker_id': workerId,
+        {'account_id': _accountId(_workerExpenseCode(station,workerId)), 'worker_id': workerId,
          'debit': amountValue, 'credit': 0},
         {'account_id': _syncWorkerAccountId(workerId), 'worker_id': workerId,
          'debit': 0, 'credit': amountValue},
@@ -1998,7 +2011,7 @@ void _applyPartyDieselReceipt({
         description:'استحقاق راتب ثابت للعامل',
         referenceType:'worker',referenceId:id,date:posted,userId:userId,
         lines:[
-          {'account_id':_accountId('5000'),'worker_id':workerId,
+          {'account_id':_accountId(_workerExpenseCode(station,workerId)),'worker_id':workerId,
            'debit':amount,'credit':0},
           {'account_id':_syncWorkerAccountId(workerId),'worker_id':workerId,
            'debit':0,'credit':amount},
@@ -2206,7 +2219,7 @@ void _applyPartyDieselReceipt({
         referenceType:'worker',referenceId:movementId,
         date:date,userId:userId,
         lines:[
-          {'account_id':_accountId('5000'),'worker_id':workerId,
+          {'account_id':_accountId(_workerExpenseCode(station,workerId)),'worker_id':workerId,
            'debit':amount,'credit':0},
           {'account_id':_syncWorkerAccountId(workerId),'worker_id':workerId,
            'debit':0,'credit':amount},
@@ -2378,7 +2391,7 @@ void _applyPartyDieselReceipt({
       referenceType: 'worker', referenceId: id,
       date: date, userId: userId,
       lines: [
-        {'account_id': _accountId('5000'), 'worker_id': workerId,
+        {'account_id': _accountId(_workerExpenseCode(station,workerId)), 'worker_id': workerId,
          'debit': amount, 'credit': 0},
         {'account_id': _syncWorkerAccountId(workerId), 'worker_id': workerId,
          'debit': 0, 'credit': amount},
@@ -2509,9 +2522,9 @@ void _applyPartyDieselReceipt({
     final rev = db.select(
       "SELECT COALESCE(SUM(CASE WHEN a.type='revenue' THEN jl.credit-jl.debit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
     final general = db.select(
-      "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code!='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
+      "SELECT COALESCE(SUM(CASE WHEN a.type='expense' AND a.code NOT IN ('5000','5040','5050') THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
     final worker = db.select(
-      "SELECT COALESCE(SUM(CASE WHEN a.code='5000' THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
+      "SELECT COALESCE(SUM(CASE WHEN a.code IN ('5000','5040','5050') THEN jl.debit-jl.credit ELSE 0 END),0) n FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id JOIN accounts a ON a.id=jl.account_id WHERE je.station_id=? AND je.status='posted' AND COALESCE(je.reference_type,'') NOT IN ('year_close','year_close_reversal') AND je.date>=? AND je.date<?",args);
     // A beneficiary's special-minute-rate surplus is not part of the
     // hourly basis for partners' PERIODIC profit distribution either.
     // The fixtures/old schemas may lack the V33 snapshots.
@@ -3026,11 +3039,16 @@ void _applyPartyDieselReceipt({
     const fields = <String, Set<String>>{
       'pumps': {'name', 'system_type', 'active', 'notes'},
       'partners': {'diesel_liters_per_hour', 'name', 'phone', 'ownership_mode', 'shares_count', 'ownership_percentage', 'active', 'notes'},
-      'workers': {'diesel_liters_per_hour', 'name', 'phone', 'job_title', 'pay_type', 'fixed_salary', 'hourly_rate', 'percentage_rate', 'active', 'notes'},
+      'workers': {'diesel_liters_per_hour', 'name', 'phone', 'job_title', 'pay_type', 'source_affiliation', 'fixed_salary', 'hourly_rate', 'percentage_rate', 'active', 'notes'},
       'payment_methods': {'name', 'type', 'account_number', 'bank_name', 'cashbox_id', 'ledger_account_code', 'active'},
       'cashboxes': {'name', 'currency', 'ledger_account_code', 'active'},
     };
     _ensurePartyFuelRates();
+    if (entityType == 'workers') _ensureWorkerSourceSchema();
+    if (payload.containsKey('source_affiliation') &&
+        !const {'solar', 'diesel', 'shared'}.contains(payload['source_affiliation'])) {
+      throw StateError('مصدر استحقاق العامل غير صالح');
+    }
     if (payload.containsKey('diesel_liters_per_hour')) {
       PartyDieselRate.validate(payload['diesel_liters_per_hour']);
     }
@@ -3523,12 +3541,17 @@ void _applyPartyDieselReceipt({
     }
     var totalWorkerEntitlement = 0;
     if (_hasTable('workers')) {
+      _ensureWorkerSourceSchema();
       final workers = db.select(
-        "SELECT id,pay_type,hourly_rate,percentage_rate FROM workers WHERE station_id=? AND active=1 AND pay_type IN ('hourly','percentage') ORDER BY id",
+        "SELECT id,pay_type,hourly_rate,percentage_rate,source_affiliation FROM workers WHERE station_id=? AND active=1 AND pay_type IN ('hourly','percentage') ORDER BY id",
         [station],
       );
       for (final worker in workers) {
         final workerId = (worker['id'] as num).toInt();
+        final affiliation = '${worker['source_affiliation'] ?? 'shared'}';
+        if (system == 'equivalent_hybrid' &&
+            ((affiliation == 'solar' && hybridSource != 'solar') ||
+             (affiliation == 'diesel' && hybridSource != 'diesel'))) continue;
         final payType = worker['pay_type'].toString();
         final hourlyRate = (worker['hourly_rate'] as num?)?.round() ?? 0;
         final percentageRate = (worker['percentage_rate'] as num?)?.toDouble() ?? 0;
@@ -3554,7 +3577,7 @@ void _applyPartyDieselReceipt({
           userId: userId,
           date: start,
           lines: [
-            {'account_id': _accountId('5000'), 'worker_id': workerId, 'debit': amount, 'credit': 0},
+            {'account_id': _accountId(_workerExpenseCode(station,workerId)), 'worker_id': workerId, 'debit': amount, 'credit': 0},
             {'account_id': _syncWorkerAccountId(workerId), 'worker_id': workerId, 'debit': 0, 'credit': amount},
           ],
         );
@@ -5056,15 +5079,15 @@ void _applyPartyDieselReceipt({
   Future<Response> _dieselMovementUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final station=_stationId(c);if(b['beneficiary_id']!=null)_requireOwn('beneficiaries',(b['beneficiary_id'] as num).toInt(),station,'المستفيد');if(b['cashbox_id']!=null)_requireOwn('cashboxes',(b['cashbox_id'] as num).toInt(),station,'الصندوق');if(b['irrigation_id']!=null)_requireOwn('irrigations',(b['irrigation_id'] as num).toInt(),station,'السقاية');final liters=(b['liters'] as num?)?.toDouble()??0;if(liters<=0)throw StateError('كمية الديزل يجب أن تكون أكبر من صفر');final kind='${b['kind']??'receipt'}';final price=(b['unit_price'] as num?)?.round()??0;final amount=(liters*price).round();final stock=(db.select("SELECT COALESCE(SUM(CASE WHEN kind IN ('receipt','opening_balance','correction') THEN liters WHEN kind IN ('delivery','consumption') THEN -liters ELSE 0 END),0) stock FROM diesel_movements dm WHERE dm.station_id=?",[_stationId(c)]).first['stock'] as num).toDouble();if((kind=='delivery'||kind=='consumption')&&liters>stock)throw StateError('كمية الديزل المطلوبة أكبر من المخزون المتاح');final cb=(b['cashbox_id'] as num?)?.toInt();if(kind=='receipt'&&cb!=null){final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cb]).first['current_balance'] as num).round();db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cb]);}final now=DateTime.now().toIso8601String();db.execute('INSERT INTO diesel_movements(station_id,beneficiary_id,irrigation_id,cashbox_id,kind,liters,unit_price,amount,date,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[station,b['beneficiary_id'],b['irrigation_id'],cb,kind,liters,price,amount,now,b['notes'],c['userId']]);final movementId=db.lastInsertRowId;if(kind=='receipt'){_journal(description:'شراء ديزل',referenceType:'diesel_receipt',referenceId:movementId,lines:[{'account_id':_accountId('1300'),'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else if(kind=='consumption'){_journal(description:'استهلاك ديزل',referenceType:'diesel_consumption',referenceId:movementId,lines:[{'account_id':_accountId('5010'),'debit':amount,'credit':0},{'account_id':_accountId('1300'),'debit':0,'credit':amount}],userId:c['userId']);}else if(kind=='advance'&&b['beneficiary_id']!=null){_journal(description:'سلفة ديزل',referenceType:'diesel_advance',referenceId:movementId,lines:[{'account_id':_accountId('1200'),'beneficiary_id':b['beneficiary_id'],'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else if(kind=='delivery'&&b['beneficiary_id']!=null){final financial=_settingsForStation(station)['diesel_delivery_financial_credit'];if(financial=='true')_journal(description:'تسليم ديزل',referenceType:'diesel_delivery',referenceId:movementId,lines:[{'account_id':_accountId('1200'),'beneficiary_id':b['beneficiary_id'],'debit':amount,'credit':0},{'account_id':_accountId('4010'),'debit':0,'credit':amount}],userId:c['userId']);}return _json({'id':movementId,'amount':amount,'stock_after':kind=='receipt'?stock+liters:(kind=='delivery'||kind=='consumption')?stock-liters:stock});}
   Future<Response> _dieselMovement(Request r,Map<String,dynamic> c) => _atomic(() => _dieselMovementUnsafe(r,c));
   Future<Response> _expenses(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT e.* FROM expenses e JOIN payment_methods pm ON pm.id=e.payment_method_id LEFT JOIN cashboxes cb ON cb.id=e.cashbox_id WHERE e.station_id=? AND pm.station_id=? AND (e.cashbox_id IS NULL OR cb.station_id=?) ORDER BY e.date DESC LIMIT 1000',[_stationId(c),_stationId(c),_stationId(c)])));
-  Future<Response> _expenseCreateUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final station=_stationId(c);final methodId=(b['payment_method_id'] as num?)?.toInt()??1;_requireOwn('payment_methods',methodId,station,'طريقة الدفع');final cash=(b['cashbox_id'] as num?)?.toInt();if(cash!=null)_requireOwn('cashboxes',cash,station,'الصندوق');if(b['beneficiary_id']!=null)_requireOwn('beneficiaries',(b['beneficiary_id'] as num).toInt(),station,'المستفيد');if(b['worker_id']!=null)_requireOwn('workers',(b['worker_id'] as num).toInt(),station,'العامل');if(b['partner_id']!=null)_requireOwn('partners',(b['partner_id'] as num).toInt(),station,'الشريك');final amount=(b['amount'] as num?)?.round()??0;if(amount<=0)return _json({'error':'قيمة المصروف يجب أن تكون أكبر من صفر'},status:422);if(cash!=null){final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cash]).first['current_balance'] as num).round();db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cash]);}db.execute('INSERT INTO expenses(station_id,category,title,amount,date,payment_method_id,cashbox_id,status,created_by,notes) VALUES(?,?,?,?,?,?,?,\'posted\',?,?)',[station,b['category']??'other',b['title']??'مصروف',amount,DateTime.now().toIso8601String(),methodId,cash,c['userId'],b['notes']]); final expenseId=db.lastInsertRowId;
+  Future<Response> _expenseCreateUnsafe(Request r,Map<String,dynamic> c) async {final b=await _body(r);final station=_stationId(c);final methodId=(b['payment_method_id'] as num?)?.toInt()??1;_requireOwn('payment_methods',methodId,station,'طريقة الدفع');final cash=(b['cashbox_id'] as num?)?.toInt();if(cash!=null)_requireOwn('cashboxes',cash,station,'الصندوق');if(b['beneficiary_id']!=null)_requireOwn('beneficiaries',(b['beneficiary_id'] as num).toInt(),station,'المستفيد');if(b['worker_id']!=null)_requireOwn('workers',(b['worker_id'] as num).toInt(),station,'العامل');if(b['partner_id']!=null)_requireOwn('partners',(b['partner_id'] as num).toInt(),station,'الشريك');final amount=(b['amount'] as num?)?.round()??0;if('${b['category']??'other'}'=='workers' && b['partner_id']==null)return _json({'error':'أجور العاملين تُسجل كاستحقاق ثم تُسوّى بالدفع، ولا تُسجل كمصروف نقدي منفصل'},status:422);if(amount<=0)return _json({'error':'قيمة المصروف يجب أن تكون أكبر من صفر'},status:422);if(cash!=null){final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cash]).first['current_balance'] as num).round();db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cash]);}db.execute('INSERT INTO expenses(station_id,category,title,amount,date,payment_method_id,cashbox_id,status,created_by,notes) VALUES(?,?,?,?,?,?,?,\'posted\',?,?)',[station,b['category']??'other',b['title']??'مصروف',amount,DateTime.now().toIso8601String(),methodId,cash,c['userId'],b['notes']]); final expenseId=db.lastInsertRowId;
     final expenseCode=switch('${b['category']??'other'}'){ 'fuel'=>'5010','oil'=>'5020','grease'=>'5020','maintenance'=>'5030','parts'=>'5030', 'workers'=>'5000','partners'=>'5000', _=>'5030'};
     final pm=db.select('SELECT ledger_account_code,type FROM payment_methods WHERE id=? LIMIT 1',[methodId]).first; final payCode='${pm['ledger_account_code']??'1000'}';
     _journal(description:'${b['title']??'مصروف'}',referenceType:'expense',referenceId:expenseId,lines:[{'account_id':_accountId(expenseCode),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':amount,'credit':0},{'account_id':_accountId(payCode),'beneficiary_id':b['beneficiary_id'],'worker_id':b['worker_id'],'partner_id':b['partner_id'],'debit':0,'credit':amount}],userId:c['userId']);
     return _json({'id':expenseId});}
   Future<Response> _expenseCreate(Request r,Map<String,dynamic> c) => _atomic(() => _expenseCreateUnsafe(r,c));
   Future<Response> _workers(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM workers WHERE active=1 AND station_id=? ORDER BY name',[_stationId(c)])));
-  Future<Response> _workerCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final name='${b['name']??''}'.trim();if(name.isEmpty)return _json({'error':'اسم العامل مطلوب'},status:422);db.execute('INSERT INTO workers(station_id,name,phone,job_title,pay_type,fixed_salary,hourly_rate,percentage_rate,active) VALUES(?,?,?,?,?,?,?,?,1)',[_stationId(c),name,b['phone'],b['job_title'],b['pay_type']??'hourly',b['fixed_salary']??0,b['hourly_rate']??0,b['percentage_rate']??0]);_audit(c['userId'] as int,'create','workers',db.lastInsertRowId);return _json({'id':db.lastInsertRowId});}
-  Future<Response> _workerTransactionUnsafe(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);_requireOwn('workers',id,_stationId(c),'العامل');final b=await _body(r);final type='${b['type']??'accrual'}';final amount=(b['amount'] as num?)?.round()??0;if(!const{'accrual','salary','payment'}.contains(type))throw StateError('نوع الحركة غير مدعوم');if(amount<=0)throw StateError('المبلغ يجب أن يكون أكبر من صفر');final now=DateTime.now().toIso8601String();db.execute('INSERT INTO worker_transactions(station_id,worker_id,date,type,hours,rate_snapshot,percentage_snapshot,amount,cashbox_id,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[_stationId(c),id,now,type,b['hours']??0,b['rate_snapshot']??0,b['percentage_snapshot']??0,b['amount'],b['cashbox_id'],b['notes'],c['userId']]);final txId=db.lastInsertRowId;if(type=='payment'){final cb=(b['cashbox_id'] as num?)?.toInt()??1;_requireOwn('cashboxes',cb,_stationId(c),'الصندوق');final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cb]).first['current_balance'] as num).round();/* الصندوق حساب للصراف ويُسمح بأن يصبح رصيده سالبًا؛ لا نمنع الصرف بسبب الرصيد. */db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cb]);_journal(description:'دفع عامل',referenceType:'worker_payment',referenceId:txId,lines:[{'account_id':_accountId('2100'),'worker_id':id,'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else{_journal(description:'استحقاق عامل',referenceType:'worker',referenceId:txId,lines:[{'account_id':_accountId('5000'),'worker_id':id,'debit':amount,'credit':0},{'account_id':_accountId('2100'),'worker_id':id,'debit':0,'credit':amount}],userId:c['userId']);}return _json({'id':txId});}
+  Future<Response> _workerCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final name='${b['name']??''}'.trim();if(name.isEmpty)return _json({'error':'اسم العامل مطلوب'},status:422);db.execute('INSERT INTO workers(station_id,name,phone,job_title,pay_type,source_affiliation,fixed_salary,hourly_rate,percentage_rate,active) VALUES(?,?,?,?,?,?,?,?,?,1)',[_stationId(c),name,b['phone'],b['job_title'],b['pay_type']??'hourly',const {'solar','diesel','shared'}.contains(b['source_affiliation'])?b['source_affiliation']:'shared',b['fixed_salary']??0,b['hourly_rate']??0,b['percentage_rate']??0]);_audit(c['userId'] as int,'create','workers',db.lastInsertRowId);return _json({'id':db.lastInsertRowId});}
+  Future<Response> _workerTransactionUnsafe(Request r,Map<String,dynamic> c) async {final id=int.parse(r.params['id']!);_requireOwn('workers',id,_stationId(c),'العامل');final b=await _body(r);final type='${b['type']??'accrual'}';final amount=(b['amount'] as num?)?.round()??0;if(!const{'accrual','salary','payment'}.contains(type))throw StateError('نوع الحركة غير مدعوم');if(amount<=0)throw StateError('المبلغ يجب أن يكون أكبر من صفر');final now=DateTime.now().toIso8601String();db.execute('INSERT INTO worker_transactions(station_id,worker_id,date,type,hours,rate_snapshot,percentage_snapshot,amount,cashbox_id,notes,created_by) VALUES(?,?,?,?,?,?,?,?,?,?,?)',[_stationId(c),id,now,type,b['hours']??0,b['rate_snapshot']??0,b['percentage_snapshot']??0,b['amount'],b['cashbox_id'],b['notes'],c['userId']]);final txId=db.lastInsertRowId;if(type=='payment'){final cb=(b['cashbox_id'] as num?)?.toInt()??1;_requireOwn('cashboxes',cb,_stationId(c),'الصندوق');final bal=(db.select('SELECT current_balance FROM cashboxes WHERE id=?',[cb]).first['current_balance'] as num).round();/* الصندوق حساب للصراف ويُسمح بأن يصبح رصيده سالبًا؛ لا نمنع الصرف بسبب الرصيد. */db.execute('UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',[amount,cb]);_journal(description:'دفع عامل',referenceType:'worker_payment',referenceId:txId,lines:[{'account_id':_accountId('2100'),'worker_id':id,'debit':amount,'credit':0},{'account_id':_accountId('1000'),'debit':0,'credit':amount}],userId:c['userId']);}else{_journal(description:'استحقاق عامل',referenceType:'worker',referenceId:txId,lines:[{'account_id':_accountId(_workerExpenseCode(_stationId(c),id)),'worker_id':id,'debit':amount,'credit':0},{'account_id':_accountId('2100'),'worker_id':id,'debit':0,'credit':amount}],userId:c['userId']);}return _json({'id':txId});}
   Future<Response> _workerTransaction(Request r,Map<String,dynamic> c) => _atomic(() => _workerTransactionUnsafe(r,c));
   Future<Response> _partners(Request r,Map<String,dynamic> c) async => _json(_rows(db.select('SELECT * FROM partners WHERE active=1 AND station_id=? ORDER BY name',[_stationId(c)])));
   Future<Response> _partnerCreate(Request r,Map<String,dynamic> c) async {final b=await _body(r);final name='${b['name']??''}'.trim();if(name.isEmpty)return _json({'error':'اسم الشريك مطلوب'},status:422);db.execute('INSERT INTO partners(station_id,name,phone,ownership_mode,shares_count,ownership_percentage,active) VALUES(?,?,?,?,?,?,1)',[_stationId(c),name,b['phone'],b['ownership_mode']??'percentage',b['shares_count'],b['ownership_percentage']??0]);_audit(c['userId'] as int,'create','partners',db.lastInsertRowId);return _json({'id':db.lastInsertRowId});}

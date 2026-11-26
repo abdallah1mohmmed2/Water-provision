@@ -61,6 +61,7 @@ void main() {
     DateTime end, {
     String type = 'diesel',
     String status = 'posted',
+    String? hybridSource,
   }) async => db.transaction(
     (tx) => tx.insert('irrigations', {
       'station_id': 1,
@@ -71,6 +72,7 @@ void main() {
       'minutes': end.difference(start).inMinutes,
       'chargeable_minutes': 999,
       'system_type': type,
+      'hybrid_source': type == 'equivalent_hybrid' ? (hybridSource ?? 'solar') : null,
       'status': status,
       'created_at': start.toIso8601String(),
       'updated_at': end.toIso8601String(),
@@ -89,6 +91,21 @@ void main() {
   Future<num> scalar(String sql) async =>
       (await db.query(sql)).first.values.first as num;
 
+  test('type 3 oil hours include diesel source only, excluding solar source', () async {
+    await db.transaction((tx) async {
+      await tx.update('settings', {'value': 'equivalent_hybrid'},
+        where: 'key=?', whereArgs: ['system_type']);
+    }, captureSync: false);
+    await configure(interval: 600, warning: 120);
+    await irrigation(clock, clock.add(const Duration(hours: 4)),
+      type: 'equivalent_hybrid', hybridSource: 'diesel');
+    await irrigation(clock, clock.add(const Duration(hours: 7)),
+      type: 'equivalent_hybrid', hybridSource: 'solar');
+    await irrigation(clock, clock.add(const Duration(hours: 2)),
+      type: 'diesel');
+    expect((await service.load(1)).usedMinutes, 360);
+    expect((await service.load(1)).remaining, 240);
+  });
   test(
     'legacy cycles retain clipped historical hours and exclude unrecorded future hours',
     () async {

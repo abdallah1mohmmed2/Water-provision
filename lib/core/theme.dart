@@ -187,8 +187,19 @@ class SaqiaTheme {
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: primary),
       snackBarTheme: SnackBarThemeData(
+        backgroundColor: const Color(0xff8a4b00),
+        contentTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 15,
+          fontWeight: FontWeight.w800,
+        ),
+        actionTextColor: const Color(0xffffe082),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        elevation: 12,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xffffc107), width: 2),
+        ),
       ),
     );
   }
@@ -323,10 +334,19 @@ class SaqiaTheme {
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: primary),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: const Color(0xff303c35),
-        contentTextStyle: const TextStyle(color: Color(0xfff2f5ee)),
+        backgroundColor: const Color(0xffb45309),
+        contentTextStyle: const TextStyle(
+          color: Colors.white,
+          fontSize: 15,
+          fontWeight: FontWeight.w800,
+        ),
+        actionTextColor: const Color(0xfffff176),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        elevation: 12,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xffffe082), width: 2),
+        ),
       ),
     );
   }

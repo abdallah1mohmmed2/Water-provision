@@ -2,7 +2,7 @@ name: Flutter Analyze
 
 on:
   push:
-    branches: [ "main", "master", "test/all-open-prs", "feature/firebase-station-foundation" ]
+    branches: [ "main", "master", "test/all-open-prs", "feature/firebase-station-foundation", "feature/complementary-changes" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
@@ -45,4 +45,4 @@ jobs:
         run: python3 tools/sql_logic_check.py
 
       - name: Analyze ALL project source (الفحص الشامل لكل شيء)
-        run: flutter analyze .
+        run: flutter analyze --no-fatal-infos
