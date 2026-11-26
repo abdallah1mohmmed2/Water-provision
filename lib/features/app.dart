@@ -6468,6 +6468,7 @@ int? parseClock(String raw) {
     setState(() {
       search = '';
       saved = false;
+      hybridSource = null;
       // تبدأ السقاية التالية من نهاية السقاية السابقة، بالتاريخ والوقت نفسيهما.
       // إن لم توجد سقاية سابقة محفوظة، استخدم الوقت الحالي.
       final clock = nextStartFromPreviousEnd ?? AppClock.now();
@@ -6492,6 +6493,9 @@ int? parseClock(String raw) {
     });
     // أعد تحميل رصيد الديزل والسجل والأدوار والجلسات والرصيد بدل عرض بيانات ما قبل الحفظ.
     await load();
+    if (mounted && type == 'equivalent_hybrid') {
+      hybridSource = await _requireHybridSource();
+    }
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
