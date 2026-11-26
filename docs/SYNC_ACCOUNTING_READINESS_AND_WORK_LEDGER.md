@@ -1382,3 +1382,6 @@ Files repaired: `server/lib/server.dart` (child projection operation), `server/t
 - التغيير: ZIP كـ Flutter asset، تشغيل MP3 native Android بالتسلسل عبر MediaPlayer/cache extraction، TTS fallback، اختبارات ترتيب الصوت، وتوثيق.
 - ملفات التغيير: pubspec.yaml، lib/services/irrigation_time_voice_service.dart، android/app/src/main/kotlin/com/saqia/saqia_station/MainActivity.kt، test/irrigation_time_voice_service_test.dart، docs/irrigation-time-voice.md، هذا السجل.
 - Flutter Analyze/Test/Build وCI: **غير متحقق** حتى تنفيذ Actions على commit التغيير. لا تُعلن الدفعة مكتملة دون نجاح نهائي.
+
+- Commits تنفيذ الصوتيات: `ddf4097d82a40fb19ae73eeee9871437a49513b1` (integration) ثم `b4291110e8c62f361387f6c79c553f5977690527` (حماية callback).
+- Actions على commit b4291110: Flutter Analyze run 45900657535 وBuild Flutter APK run 45900657521؛ الحالة عند تسجيلها: **in_progress**. Runs commit ddf4097: 45900584509 (Analyze) و45900584527 (Build) أيضًا in_progress. روابطها في GitHub Actions، ولا توجد نتائج نهائية بعد.
