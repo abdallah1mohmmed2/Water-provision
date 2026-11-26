@@ -168,6 +168,98 @@ class ReportService {
     );
   }
 
+  /// Person-scoped report of diesel delivery/receipt movements only.
+  /// This is a read-only detail report: it never changes stock or party balances.
+  Future<void> printPartyDeliveryReceiptPdf({
+    required String partyType,
+    required int partyId,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    const tables = <String, String>{
+      'beneficiary': 'beneficiaries',
+      'worker': 'workers',
+      'partner': 'partners',
+    };
+    const labels = <String, String>{
+      'beneficiary': 'المستفيد',
+      'worker': 'العامل',
+      'partner': 'الشريك',
+    };
+    final table = tables[partyType];
+    if (table == null || partyId <= 0) {
+      throw ArgumentError('نوع الطرف أو رقمه غير صالح');
+    }
+    if (from != null && to != null &&
+        DateTime(from.year, from.month, from.day)
+            .isAfter(DateTime(to.year, to.month, to.day))) {
+      throw ArgumentError('بداية الفترة بعد نهايتها');
+    }
+    final station = await repo.accounting.currentStationId();
+    final personRows = await repo.db.rawQuery(
+      'SELECT name FROM $table WHERE id=? AND station_id=?',
+      [partyId, station],
+    );
+    if (personRows.length != 1) {
+      throw StateError('صاحب التقرير لا يتبع المحطة الحالية');
+    }
+    final personName = '${personRows.single['name'] ?? labels[partyType]}';
+    final column = '${partyType}_id';
+    final movements = await repo.db.rawQuery(
+      """SELECT dm.id,dm.date,dm.kind,dm.liters,dm.party_receipt,
+                dm.irrigation_id,dm.reversal_of,dm.notes
+         FROM diesel_movements dm
+         LEFT JOIN irrigations i ON i.id=dm.irrigation_id
+         WHERE dm.station_id=? AND
+               (dm.$column=? OR (dm.$column IS NULL AND i.$column=?))
+           AND dm.kind IN ('delivery','receipt')
+           AND (? IS NULL OR date(dm.date)>=date(?))
+           AND (? IS NULL OR date(dm.date)<=date(?))
+         ORDER BY dm.date ASC,dm.id ASC""",
+      [station, partyId, partyId,
+       from?.toIso8601String(), from?.toIso8601String(),
+       to?.toIso8601String(), to?.toIso8601String()],
+    );
+    final settings = await repo.settings();
+    final now = AppClock.now();
+    String liters(num value) => DieselQuantity.format(value);
+    final title = 'تقرير المسلّمات والمستلمات — ${labels[partyType]} $personName';
+    await OfficialReportTemplate.preview(
+      rightHeader1: settings['station_name'] ?? 'منظومة السقاية',
+      rightHeader2: settings['organization_name'] ?? 'الإدارة المالية',
+      rightHeader3: 'الجمهورية اليمنية',
+      date: DateFormat('yyyy/MM/dd').format(now),
+      refNumber: 'MOV-${DateFormat('yyMMdd-HHmm').format(now)}',
+      attachments: 'الفترة: ${from == null ? 'من البداية' : DateFormat('yyyy/MM/dd').format(from)}'
+          ' إلى ${to == null ? 'الآن' : DateFormat('yyyy/MM/dd').format(to)}',
+      fileName: _pdfFileName(title),
+      reportTitle: title,
+      summaryBoxes: [
+        StatBoxData(number: '1', title: 'عدد الحركات', value: '${movements.length}'),
+        StatBoxData(number: '2', title: 'إجمالي التسليم (لتر)', value: liters(movements.where((m) => m['kind'] == 'delivery').fold<num>(0, (sum, m) => sum + ((m['liters'] as num?) ?? 0)))),
+        StatBoxData(number: '3', title: 'إجمالي الاستلام (لتر)', value: liters(movements.where((m) => m['kind'] == 'receipt').fold<num>(0, (sum, m) => sum + ((m['liters'] as num?) ?? 0)))),
+      ],
+      columns: const ['التاريخ', 'نوع الحركة', 'الكمية (لتر)', 'التفاصيل'],
+      rows: [
+        for (final movement in movements)
+          [
+            DateFormat('yyyy/MM/dd').format(DateTime.tryParse('${movement['date'] ?? ''}') ?? now),
+            movement['kind'] == 'delivery' ? 'تسليم' : 'استلام',
+            liters((movement['liters'] as num?) ?? 0),
+            [
+              if (movement['reversal_of'] != null) 'حركة عكسية',
+              if ('${movement['notes'] ?? ''}'.trim().isNotEmpty) '${movement['notes']}',
+              if (movement['irrigation_id'] != null) 'سقاية #${movement['irrigation_id']}',
+            ].join(' — '),
+          ],
+      ],
+      footerTotalRow: ['الإجمالي', '', liters(movements.fold<num>(0, (sum, m) => sum + ((m['liters'] as num?) ?? 0))), ''],
+      minTableRows: 1,
+      thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
+      preferredRowsPerPage: int.tryParse(settings['pdf_rows'] ?? '30') ?? 30,
+    );
+  }
+
   /// A third per-person PDF: liters issued, consumed and the exact signed
   /// balance, including reversals. No money or stock is posted by this reader.
   Future<void> printPartyDieselPdf({
