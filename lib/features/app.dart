@@ -10056,6 +10056,7 @@ class _ExpensesState extends State<ExpensesPage> {
   @override
   void initState() {
     super.initState();
+    _loadHybridStationType();
     if (widget.compactOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
@@ -13122,10 +13123,8 @@ class RevenueComparisonsPage extends StatefulWidget {
 }
 class _RevenueComparisonsState extends State<RevenueComparisonsPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;bool loading=true;String? error;
-  bool hybridStation=false; String financialView='overall';
   @override void initState(){
     super.initState();
-    _loadHybridStation();
     from=widget.initialFrom;
     to=widget.initialTo;
     
@@ -13143,8 +13142,6 @@ class _RevenueComparisonsState extends State<RevenueComparisonsPage>{
       systemType: null,
     );
   }
-  Future<void> _loadHybridStation() async { final settings=await widget.r.settings(); if(mounted)setState(()=>hybridStation=settings['system_type']=='equivalent_hybrid'); }
-  List<Map<String,Object?>> get visibleRows => rows.map((x){ if(!hybridStation || financialView=='overall') return x; final solar=financialView=='solar'; final income=_n(x[solar?'solar_income':'diesel_income']); final expenses=_n(x[solar?'solar_direct_expenses':'diesel_direct_expenses'])+_n(x[solar?'solar_shared_allocation':'diesel_shared_allocation']); return {...x,'income':income,'expenses':expenses}; }).toList();
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('time_comparison',from:from,to:to,systemType:'all');if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
@@ -13177,8 +13174,10 @@ class MonthlyFinancialReportPage extends StatefulWidget {
 }
 class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
   List<Map<String,Object?>> rows=[];DateTime? from,to;bool loading=true;String? error;
+  bool hybridStation=false; String financialView='overall';
   @override void initState(){
     super.initState();
+    _loadHybridStation();
     from=widget.initialFrom;
     to=widget.initialTo;
     
@@ -13196,6 +13195,8 @@ class _MonthlyFinancialReportState extends State<MonthlyFinancialReportPage>{
       systemType: null,
     );
   }
+  Future<void> _loadHybridStation() async { final settings=await widget.r.settings(); if(mounted)setState(()=>hybridStation=settings['system_type']=='equivalent_hybrid'); }
+  List<Map<String,Object?>> get visibleRows => rows.map((x){ if(!hybridStation || financialView=='overall') return x; final solar=financialView=='solar'; final income=_n(x[solar?'solar_income':'diesel_income']); final expenses=_n(x[solar?'solar_direct_expenses':'diesel_direct_expenses'])+_n(x[solar?'solar_shared_allocation':'diesel_shared_allocation']); return {...x,'income':income,'expenses':expenses}; }).toList();
   Future<void> _load()async{if(mounted)setState((){loading=true;error=null;});try{final x=await widget.r.report('monthly_financial',from:from,to:to);if(mounted)setState((){rows=x;loading=false;});}catch(e){if(mounted)setState((){error=friendlyError(e);loading=false;});}}
   Future<void> _pick(bool start)async{final d=await showDatePicker(context:context,firstDate:DateTime(2020),lastDate:DateTime(2100),initialDate:(start?from:to)??AppClock.now(),locale:const Locale('ar'));if(d!=null){setState((){if(start) {
     from=d;
