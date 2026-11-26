@@ -5248,7 +5248,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     final c = type == 'diesel'
         ? AccountingCalculations.diesel(
             start: start,
-            end: end,
+            end: discountedEnd,
             hourlyWaterRate: waterRate,
             litersPerHour: liters,
             dieselPrice: dieselPrice,
@@ -5257,11 +5257,12 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
                 (settings['allow_midnight_crossing'] ?? 'true') == 'true',
             rounding: settings['rounding'] ?? 'nearest',
             partialHour: settings['partial_hour'] != 'false',
+            dieselRuntimeMinutes: runtimeMinutes,
           )
-        : type == 'solar'
+        : type == 'solar
         ? AccountingCalculations.solar(
             start: start,
-            end: end,
+            end: discountedEnd,
             hourlyRate: solarRate,
             cloudMinutes: cloudMin,
             allowMidnightCrossing:
@@ -5271,13 +5272,16 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
           )
         : hybridSource == 'solar'
         ? AccountingCalculations.solar(
-            start: start, end: end, hourlyRate: solarRate, cloudMinutes: cloudMin,
+            start: start, end: discountedEnd, hourlyRate: solarRate, cloudMinutes: cloudMin,
             allowMidnightCrossing: (settings['allow_midnight_crossing'] ?? 'true') == 'true',
             rounding: settings['rounding'] ?? 'nearest', partialHour: settings['partial_hour'] != 'false',
           )
+        : type == 'equivalent_hybrid' && hybridSource == 'diesel'
+        ? AccountingCalculations.diesel(start: start, end: discountedEnd, hourlyWaterRate: hybridDieselRate, litersPerHour: liters, dieselPrice: 0, cloudMinutes: 0,
+            allowMidnightCrossing: (settings['allow_midnight_crossing'] ?? 'true') == 'true', rounding: settings['rounding'] ?? 'nearest', partialHour: settings['partial_hour'] != 'false', dieselRuntimeMinutes: runtimeMinutes)
         : AccountingCalculations.equivalent(
             start: start,
-            end: end,
+            end: discountedEnd,
             hourlyRate: type == 'equivalent_hybrid' ? hybridDieselRate : thirdRate,
             allowMidnightCrossing:
                 (settings['allow_midnight_crossing'] ?? 'true') == 'true',
@@ -5285,11 +5289,11 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             partialHour: settings['partial_hour'] != 'false',
           );
     final isBeneficiary = partyType == 'beneficiary';
-    final usedFuel = type == 'diesel' ? c.dieselLiters : 0.0;
-    final coveredFuel = isBeneficiary && type == 'diesel'
+    final usedFuel = (type == 'diesel' || (type == 'equivalent_hybrid' && hybridSource == 'diesel')) ? c.dieselLiters : 0.0;
+    final coveredFuel = isBeneficiary && (type == 'diesel' || (type == 'equivalent_hybrid' && hybridSource == 'diesel'))
         ? beneficiaryDiesel.clamp(0.0, usedFuel).toDouble()
         : 0.0;
-    final borrowedFuel = isBeneficiary && type == 'diesel'
+    final borrowedFuel = isBeneficiary && (type == 'diesel' || (type == 'equivalent_hybrid' && hybridSource == 'diesel'))
         ? usedFuel - coveredFuel : 0.0;
     // Match recordIrrigation's active work-minute tariff in the preview.
     // Only the beneficiary sees the special price; worker and partner
