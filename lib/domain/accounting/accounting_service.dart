@@ -3105,15 +3105,17 @@ class AccountingService {
         }
       }
     }
-    // المصروف الشخصي المرتبط بالعامل أو الشريك يخفض رصيد الرسالة
-    // في الحالتين، ولا يضيف أي استحقاق أرباح إلى الرسالة.
-    // نقرأ المصروفات المرحلة فقط ومن المحطة الحالية لتجنب خلط بيانات المحطات.
-    final expenses = await database.query(
-      "SELECT COALESCE(SUM(amount),0) amount FROM expenses "
-      "WHERE station_id=? AND $partyColumn=? AND status='posted'",
-      args: [stationId, partyId],
-    );
-    balance -= (expenses.first['amount'] as num?)?.round() ?? 0;
+    // مصروف العامل يُسجل في حساب مصروف عام مع حفظ worker_id كمرجع،
+    // لذلك نخصمه من رصيد الرسالة يدويًا. أما مصروف الشريك فيُرحّل مباشرة
+    // إلى حسابه الشخصي 2200.P، وهو داخل رصيد الأستاذ أعلاه؛ لا نخصمه ثانية.
+    if (isWorker) {
+      final expenses = await database.query(
+        "SELECT COALESCE(SUM(amount),0) amount FROM expenses "
+        "WHERE station_id=? AND worker_id=? AND status='posted' AND partner_id IS NULL",
+        args: [stationId, partyId],
+      );
+      balance -= (expenses.first['amount'] as num?)?.round() ?? 0;
+    }
     return balance;
   }
   Future<Map<String, int>> beneficiaryBalance(int id) async {
