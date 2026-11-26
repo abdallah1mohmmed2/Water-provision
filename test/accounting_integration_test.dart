@@ -760,6 +760,10 @@ void main() {
     expect(await glPayable('2100', 'worker_id', w), 500);
     expect(await glPayable('2200', 'partner_id', p1), 2250);
     expect(await glPayable('2200', 'partner_id', p2), 2250);
+    // أجور العامل وحصص الشركاء أرباح/استحقاقات داخلية لا تظهر في رسائلهم.
+    expect(await svc.partyOperationalMessageBalance(partyType: 'worker', partyId: w), 0);
+    expect(await svc.partyOperationalMessageBalance(partyType: 'partner', partyId: p1), 0);
+    expect(await svc.partyOperationalMessageBalance(partyType: 'partner', partyId: p2), 0);
     final workerRows = await db.query(
       "SELECT amount,percentage_snapshot FROM worker_transactions WHERE worker_id=? AND type='irrigation'",
       args: [w],
@@ -775,12 +779,15 @@ void main() {
     final id = await irrigationFor(workerId: w, start: DateTime(2026, 3, 1, 8));
     expect(await glPayable('2100', 'worker_id', w), 4000);
     expect((await svc.workerBalance(w))['balance'], 4000);
+    // تستبعد الرسالة استحقاق الأجر 10,000 وتعرض فقط خصم السقاية 6,000.
+    expect(await svc.partyOperationalMessageBalance(partyType: 'worker', partyId: w), -6000);
     // لا شيء على ذمم المستفيدين لهذا العامل
     expect(await glPayable('1200', 'worker_id', w), 0);
 
     await svc.cancelIrrigation(id, 1, 'خطأ إدخال');
     expect(await glPayable('2100', 'worker_id', w), 10000);
     expect((await svc.workerBalance(w))['balance'], 10000);
+    expect(await svc.partyOperationalMessageBalance(partyType: 'worker', partyId: w), 0);
     final kept = await db.query(
       "SELECT COUNT(*) n FROM worker_transactions WHERE worker_id=? AND type='irrigation'",
       args: [w],
@@ -801,9 +808,12 @@ void main() {
     final id = await irrigationFor(partnerId: p, start: DateTime(2026, 3, 3, 8));
     expect(await glPayable('2200', 'partner_id', p), 4000);
     expect((await svc.partnerBalance(p))['balance'], 4000);
+    // تستبعد الرسالة حصة الأرباح 10,000 وتعرض خصم السقاية 6,000 فقط.
+    expect(await svc.partyOperationalMessageBalance(partyType: 'partner', partyId: p), -6000);
     await svc.cancelIrrigation(id, 1, 'خطأ إدخال');
     expect(await glPayable('2200', 'partner_id', p), 10000);
     expect((await svc.partnerBalance(p))['balance'], 10000);
+    expect(await svc.partyOperationalMessageBalance(partyType: 'partner', partyId: p), 0);
   });
 
   test('كشف الشريك يعرض خصم السقاية ومدفوعاته ويطابق رصيد الأستاذ', () async {
