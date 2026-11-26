@@ -26,6 +26,9 @@ void main() {
     expect(accounting, contains('journal_lines'));
     expect(repo, contains('postponed'));
     expect(repo, contains('booking_requests'));
+    // Dashboard income cards include type-3 irrigations according to their hybrid source.
+    expect(repo, contains("system_type='equivalent_hybrid' AND hybrid_source='solar'"));
+    expect(repo, contains("system_type='equivalent_hybrid' AND hybrid_source='diesel'"));
     expect(app, contains('beneficiary_detailed'));
     expect(app, contains('system_comparison'));
     expect(server, contains('/api/v1/beneficiary/request-code'));
