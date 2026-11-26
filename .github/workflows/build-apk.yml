@@ -82,7 +82,32 @@ jobs:
       - name: Prepare SHA3-verified Android SQLite source
         run: python3 tooling/prepare_android_sqlite.py
 
-      - name: بناء تطبيق الأندرويد (Release)
+      - name: تجهيز مفتاح توقيع الإصدار
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_BASE64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing required GitHub Secret: $name"
+              exit 1
+            fi
+          done
+          KEYSTORE_PATH="$RUNNER_TEMP/saqia-release-keystore.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          test -s "$KEYSTORE_PATH"
+          echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: بناء تطبيق الأندرويد (Release) بتوقيع المنتج
+        env:
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           flutter build apk --release \
             --dart-define=SAQIA_FIREBASE_API_KEY="$SAQIA_FIREBASE_API_KEY" \
@@ -90,6 +115,16 @@ jobs:
             --dart-define=SAQIA_FIREBASE_MESSAGING_SENDER_ID="$SAQIA_FIREBASE_MESSAGING_SENDER_ID" \
             --dart-define=SAQIA_FIREBASE_PROJECT_ID="$SAQIA_FIREBASE_PROJECT_ID" \
             --dart-define=SAQIA_FIREBASE_STORAGE_BUCKET="$SAQIA_FIREBASE_STORAGE_BUCKET"
+
+      - name: التحقق من توقيع APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
 
       - name: ضغط APK والتحقق من سلامة الملف
         shell: bash
@@ -112,6 +147,14 @@ jobs:
             dist/Saqia-App-Release.zip.sha256
           if-no-files-found: error
           compression-level: 0
+
+      - name: تنظيف مفتاح التوقيع المؤقت
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${KEYSTORE_PATH:-}" && -f "${KEYSTORE_PATH}" ]]; then
+            shred -u "${KEYSTORE_PATH}" || rm -f "${KEYSTORE_PATH}"
+          fi
 
   publish-public-release:
     needs: build
