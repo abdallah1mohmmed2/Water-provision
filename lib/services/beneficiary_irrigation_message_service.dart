@@ -59,11 +59,14 @@ class BeneficiaryIrrigationMessageService {
         ? ((await repo.accounting.beneficiaryBalance(partyId))['balance'] ?? 0)
         : await repo.accounting.partyOperationalMessageBalance(
             partyType: partyType, partyId: partyId);
-    // The current operational balance already includes this posted irrigation.
-    // Reverse only this irrigation's charge to reconstruct its prior balance.
+    // Reconstruct the balance immediately before this saved irrigation.
+    // Only its unpaid amount changes the party balance: total - paid.
+    // Beneficiary convention: positive means due (subtract irrigation debit).
+    // Worker/partner message convention: irrigation debit is negative (add it back).
+    final irrigationOutstanding = total - paid;
     final previousBalance = partyType == 'beneficiary'
-        ? null
-        : balance + total;
+        ? balance - irrigationOutstanding
+        : balance + irrigationOutstanding;
     final fuel = await IrrigationMessageFuelService(repo).forIrrigation(irrigationId);
     final settings = await repo.settings();
     String money(int amount) => '$amount ريال';
@@ -82,7 +85,7 @@ class BeneficiaryIrrigationMessageService {
         'قيمة السقاية': money(total),
         'المبلغ المدفوع': money(paid),
         'المتبقي من السقاية': money(total - paid),
-        // No historical balance snapshot was stored by the old save path.
+        // Balance is reconstructed from the current balance and this irrigation's net effect.
         'الرصيد السابق': previousBalance == null ? 'غير محفوظ لهذه السقاية' : partyBalanceText(previousBalance),
         'الرصيد الحالي': balance == 0 ? 'متوازن (0 ريال)'
           : '${balance > 0 ? (partyType == 'beneficiary' ? 'عليه' : 'له') : (partyType == 'beneficiary' ? 'له' : 'عليه')} ${balance.abs()} ريال',
