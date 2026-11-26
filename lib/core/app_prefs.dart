@@ -57,10 +57,10 @@ class AppAlerts {
   static Stream<AppAlert> get stream => _c.stream;
 
   static void emit(String title, String body) {
-    AudioFeedbackService.play(
+    unawaited(AudioFeedbackService.play(
       AudioFeedbackEvent.notification,
       enabled: AppPrefs.current.sound,
-    );
+    ));
     if (AppPrefs.current.popup && _c.hasListener) {
       _c.add(AppAlert(title, body));
     }

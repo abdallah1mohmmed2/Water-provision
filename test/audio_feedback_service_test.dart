@@ -22,10 +22,19 @@ void main() {
 
   test('repeated success feedback is throttled', () async {
     var calls = 0;
-    AudioFeedbackService.soundPlayerForTesting = (_) async => calls++;
+    AudioFeedbackService.soundPlayerForTesting = (_) async { calls++; };
     await AudioFeedbackService.play(AudioFeedbackEvent.success, enabled: true);
     await AudioFeedbackService.play(AudioFeedbackEvent.success, enabled: true);
     expect(calls, 1);
+  });
+
+
+  test('success feedback is suppressed just after an important alert', () async {
+    final played = <SystemSoundType>[];
+    AudioFeedbackService.soundPlayerForTesting = (sound) async { played.add(sound); };
+    await AudioFeedbackService.play(AudioFeedbackEvent.notification, enabled: true);
+    await AudioFeedbackService.play(AudioFeedbackEvent.success, enabled: true);
+    expect(played, [SystemSoundType.alert]);
   });
 
   test('platform sound failure is swallowed safely', () async {
@@ -36,3 +45,4 @@ void main() {
     );
   });
 }
+

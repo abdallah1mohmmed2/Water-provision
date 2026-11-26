@@ -17,6 +17,10 @@ class AudioFeedbackService {
     if (!enabled) return;
     final now = DateTime.now();
     if (event == AudioFeedbackEvent.success) {
+      if (_lastAlertAt != null &&
+          now.difference(_lastAlertAt!) < const Duration(milliseconds: 850)) {
+        return; // Avoid a second success click immediately after an alert.
+      }
       if (_lastSuccessAt != null &&
           now.difference(_lastSuccessAt!) < const Duration(milliseconds: 260)) {
         return;
