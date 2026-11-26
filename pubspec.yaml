@@ -44,6 +44,7 @@ flutter:
     - assets/fonts/NotoNaskhArabic-Regular.ttf
     - assets/fonts/NotoNaskhArabic-Bold.ttf
     - assets/images/report_logo.png.b64
+    - assets/audio/irrigation_time/irrigation_audio.zip
 hooks:
   user_defines:
     sqlite3:

@@ -1375,3 +1375,10 @@ Files repaired: `server/lib/server.dart` (child projection operation), `server/t
 - **PDF الديزل:** `party_diesel_statement.dart` و`ReportService.printPartyDieselPdf` تجمعان اللترات الموقعة من `diesel_movements` كما في `DieselDeliveryService.balanceOn` بما يشمل حركات العكس والفترة، وتحفظان الرصيد الافتتاحي المرحل. السلفة التابعة للسقاية معلومة فقط ولا تعد لترات مسلمة ثانية. لا تغيير مخزون أو قيد مالي أو قاعدة.
 - **ملفات الكود:** `lib/features/app.dart`, `lib/features/party_quick_actions.dart`, `lib/features/beneficiary_irrigation_menu.dart`, `lib/domain/accounting/beneficiary_irrigation_actions.dart`, `lib/domain/accounting/party_diesel_statement.dart`, `lib/data/repositories/repositories.dart`, `lib/services/beneficiary_irrigation_message_service.dart`, `lib/services/report_service.dart`. **اختبارات جديدة:** `test/party_diesel_statement_test.dart`, `test/party_irrigation_actions_test.dart`, `test/party_pdf_choices_test.dart`.
 - **آخر SHA للكود قبل توثيق الحالة:** `25e60843d37d573021f4dd1ca234c8465a11515d`. الفحوص وAndroid Release غير متحققة بعد على هذا العمل. لا ادعاء النجاح أو APK أو الدمج قبل اكتمال CI وقبول أي أخطاء تظهر. لا مساس ببيانات الإنتاج أو ترحيل Schema/SQLite/Shelf/Outbox/Inbox.
+
+
+## دفعة دمج الصوتيات الأصلية — feature/app-audio-system (2026-11-27)
+- HEAD قبل الدفعة: 61d0b272826018961fe8057f8b40aaba4548b147; رفع ZIP الأصلي تأكد على commit 61d0b272826018961fe8057f8b40aaba4548b147.
+- التغيير: ZIP كـ Flutter asset، تشغيل MP3 native Android بالتسلسل عبر MediaPlayer/cache extraction، TTS fallback، اختبارات ترتيب الصوت، وتوثيق.
+- ملفات التغيير: pubspec.yaml، lib/services/irrigation_time_voice_service.dart، android/app/src/main/kotlin/com/saqia/saqia_station/MainActivity.kt، test/irrigation_time_voice_service_test.dart، docs/irrigation-time-voice.md، هذا السجل.
+- Flutter Analyze/Test/Build وCI: **غير متحقق** حتى تنفيذ Actions على commit التغيير. لا تُعلن الدفعة مكتملة دون نجاح نهائي.

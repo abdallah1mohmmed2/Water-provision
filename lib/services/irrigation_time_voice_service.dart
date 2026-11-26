@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 
-/// Arabic voice confirmation for start/end selection in the quick irrigation form.
-/// Voice feedback is optional and must never block accounting or navigation.
+/// Plays original Arabic MP3 time clips on Android, with native Arabic TTS
+/// fallback. Audio is optional and must never block the irrigation form.
 class IrrigationTimeVoiceService {
   IrrigationTimeVoiceService._();
 
@@ -16,21 +16,33 @@ class IrrigationTimeVoiceService {
     return '$label، الساعة $hour12$minuteText $period';
   }
 
-  static Future<void> announce(
-    DateTime time, {
+  /// Label, hour, optional conjunction + minute, then AM/PM.
+  static List<String> clipSequence(DateTime time, {required bool isStart}) {
+    final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+    final clips = <String>[isStart ? 'from' : 'to', 'h_$hour'];
+    if (time.minute > 0) clips.addAll(['and', 'n_${time.minute}']);
+    clips.add(time.hour < 12 ? 'am' : 'pm');
+    return clips;
+  }
+
+  static Future<void> announce(DateTime time, {
     required bool isStart,
     required bool enabled,
   }) async {
     if (!enabled) return;
+    final text = announcementText(time, isStart: isStart);
     try {
-      // Native Android returns immediately after enqueueing speech. Avoid a timeout
-      // timer here: fire-and-forget widget flows may dispose before it fires.
-      await _channel.invokeMethod<bool>(
-        'announceTime',
-        {'text': announcementText(time, isStart: isStart)},
+      final played = await _channel.invokeMethod<bool>(
+        'playTimeClips', {'clips': clipSequence(time, isStart: isStart)},
       );
+      if (played == true) return;
     } catch (_) {
-      // Arabic TTS may be unavailable; that is harmless and does not affect the form.
+      // MP3 playback may be unavailable on this platform or device.
+    }
+    try {
+      await _channel.invokeMethod<bool>('announceTime', {'text': text});
+    } catch (_) {
+      // Optional sound must not affect irrigation entry or saving.
     }
   }
 }

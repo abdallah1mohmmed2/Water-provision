@@ -1,6 +1,10 @@
 package com.saqia.saqia_station
 
 import android.app.Activity
+import android.media.MediaPlayer
+import java.io.File
+import java.io.FileOutputStream
+import java.util.zip.ZipInputStream
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.provider.ContactsContract
@@ -16,6 +20,97 @@ class MainActivity : FlutterFragmentActivity() {
     private var irrigationTimeTts: android.speech.tts.TextToSpeech? = null
     private var pendingTimeVoiceResult: MethodChannel.Result? = null
     private var timeVoiceSequence = 0
+    private var irrigationAudioPlayer: MediaPlayer? = null
+    private val irrigationAudioQueue = mutableListOf<File>()
+
+    private fun cachedIrrigationAudio(): File {
+        val cache = File(cacheDir, "irrigation_time_audio")
+        val expected = 76
+        if (cache.exists() && (cache.listFiles()?.count { it.extension == "mp3" } ?: 0) == expected) return cache
+        cache.deleteRecursively()
+        cache.mkdirs()
+        ZipInputStream(assets.open("flutter_assets/assets/audio/irrigation_time/irrigation_audio.zip")).use { zip ->
+            var entry = zip.nextEntry
+            while (entry != null) {
+                if (!entry.isDirectory && entry.name.endsWith(".mp3") && !entry.name.contains("..")) {
+                    FileOutputStream(File(cache, File(entry.name).name)).use { output -> zip.copyTo(output) }
+                }
+                zip.closeEntry()
+                entry = zip.nextEntry
+            }
+        }
+        if ((cache.listFiles()?.count { it.extension == "mp3" } ?: 0) != expected) {
+            cache.deleteRecursively()
+            throw IllegalStateException("Irrigation audio bundle incomplete")
+        }
+        return cache
+    }
+
+    private fun stopIrrigationAudio() {
+        irrigationAudioQueue.clear()
+        irrigationAudioPlayer?.let { player ->
+            try { player.stop() } catch (_: Exception) { }
+            player.release()
+        }
+        irrigationAudioPlayer = null
+    }
+
+    private fun playIrrigationClips(clips: List<String>, result: MethodChannel.Result) {
+        val safeClip = Regex("^(from|to|and|am|pm|h_(1[0-2]|[1-9])|n_([1-9]|[1-5][0-9]))$")
+        if (clips.isEmpty() || clips.any { !safeClip.matches(it) }) {
+            result.success(false)
+            return
+        }
+        try {
+            val cache = cachedIrrigationAudio()
+            stopIrrigationAudio()
+            irrigationAudioQueue.addAll(clips.map { File(cache, "$it.mp3") })
+            playNextIrrigationClip(result)
+        } catch (_: Exception) {
+            stopIrrigationAudio()
+            result.success(false)
+        }
+    }
+
+    private fun playNextIrrigationClip(initialResult: MethodChannel.Result? = null) {
+        if (irrigationAudioQueue.isEmpty()) return
+        val file = irrigationAudioQueue.removeAt(0)
+        val player = MediaPlayer()
+        irrigationAudioPlayer = player
+        try {
+            player.setDataSource(file.absolutePath)
+            player.setOnPreparedListener {
+                try {
+                    it.start()
+                    initialResult?.success(true)
+                } catch (_: Exception) {
+                    if (initialResult != null) initialResult.success(false)
+                    stopIrrigationAudio()
+                }
+            }
+            player.setOnCompletionListener {
+                it.release()
+                if (irrigationAudioPlayer === it) irrigationAudioPlayer = null
+                playNextIrrigationClip()
+            }
+            player.setOnErrorListener { failedPlayer, _, _ ->
+                failedPlayer.release()
+                if (irrigationAudioPlayer === failedPlayer) irrigationAudioPlayer = null
+                if (initialResult != null) {
+                    stopIrrigationAudio()
+                    initialResult.success(false)
+                } else playNextIrrigationClip()
+                true
+            }
+            player.prepareAsync()
+        } catch (_: Exception) {
+            player.release()
+            if (initialResult != null) {
+                stopIrrigationAudio()
+                initialResult.success(false)
+            } else playNextIrrigationClip()
+        }
+    }
 
     private fun announceIrrigationTime(text: String, result: MethodChannel.Result) {
         val current = irrigationTimeTts
@@ -55,6 +150,7 @@ class MainActivity : FlutterFragmentActivity() {
     override fun onDestroy() {
         pendingTimeVoiceResult?.success(false)
         pendingTimeVoiceResult = null
+        stopIrrigationAudio()
         irrigationTimeTts?.stop()
         irrigationTimeTts?.shutdown()
         irrigationTimeTts = null
@@ -224,15 +320,14 @@ class MainActivity : FlutterFragmentActivity() {
         }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "saqia/irrigation_time_voice")
             .setMethodCallHandler { call, result ->
-                if (call.method != "announceTime") {
-                    result.notImplemented()
-                } else {
-                    val text = call.argument<String>("text")?.trim()
-                    if (text.isNullOrEmpty()) {
-                        result.error("EMPTY_TIME_TEXT", "لا يوجد وقت للنطق", null)
-                    } else {
-                        announceIrrigationTime(text, result)
+                when (call.method) {
+                    "playTimeClips" -> playIrrigationClips(call.argument<List<String>>("clips") ?: emptyList(), result)
+                    "announceTime" -> {
+                        val text = call.argument<String>("text")?.trim()
+                        if (text.isNullOrEmpty()) result.error("EMPTY_TIME_TEXT", "لا يوجد وقت للنطق", null)
+                        else announceIrrigationTime(text, result)
                     }
+                    else -> result.notImplemented()
                 }
             }
     }
