@@ -3002,6 +3002,20 @@ class StationRepository {
         {
           final stationId = await accounting.currentStationId();
           final queryArgs = <Object?>[stationId, ...args];
+          final scopedExpenseFilters = <String>[];
+          if (from != null) {
+            scopedExpenseFilters.add('e.date>=?');
+            queryArgs.add(from.toIso8601String());
+          }
+          if (to != null) {
+            scopedExpenseFilters.add('e.date<?');
+            queryArgs.add(to.add(const Duration(days: 1)).toIso8601String());
+          }
+          final scopedExpenseWhere = scopedExpenseFilters.isEmpty
+              ? ''
+              : ' AND ${scopedExpenseFilters.join(' AND ')}';
+          // Months CTE also needs its own date placeholders to constrain the
+          // month list. The scoped expense rows above use the same range.
           final expenseMonthFilters = <String>[];
           if (from != null) {
             expenseMonthFilters.add('e.date>=?');
@@ -3022,11 +3036,8 @@ class StationRepository {
               ),
               scoped_expenses AS (
                 SELECT e.* FROM expenses e CROSS JOIN station_context s
-                WHERE e.status='posted' AND e.partner_id IS NULL AND (
-                  EXISTS (SELECT 1 FROM cashboxes c WHERE c.id=e.cashbox_id AND c.station_id=s.station_id)
-                  OR EXISTS (SELECT 1 FROM payment_methods pm WHERE pm.id=e.payment_method_id AND pm.station_id=s.station_id)
-                  OR EXISTS (SELECT 1 FROM app_users u WHERE u.id=e.created_by AND u.station_id=s.station_id)
-                )
+                WHERE e.status='posted' AND e.partner_id IS NULL
+                  AND e.station_id=s.station_id$scopedExpenseWhere
               ),
               months AS (
                 SELECT substr(i.date,1,7) AS month FROM scoped_irrigations i
