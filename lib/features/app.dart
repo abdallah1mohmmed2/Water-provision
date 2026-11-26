@@ -4854,11 +4854,6 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
                                           runSpacing: 8,
                                           children: [
                                             OutlinedButton.icon(
-                                              onPressed: () => details(x),
-                                              icon: const Icon(Icons.open_in_new),
-                                              label: const Text('التفاصيل'),
-                                            ),
-                                            OutlinedButton.icon(
                                               onPressed: () => sendAccountSummary(x),
                                               icon: const Icon(Icons.send_rounded),
                                               label: const Text('إرسال الحساب المختصر'),
