@@ -2166,6 +2166,7 @@ void main() {
     final settings = await svc.settings();
     final pumpId = int.parse(settings['selected_pump_id']!);
     final now = DateTime.now();
+    final reportEnd = now.add(const Duration(minutes: 1));
     final monthStart = DateTime(now.year, now.month, 1);
     final nextMonth = DateTime(now.year, now.month + 1, 1);
     final monthEnd = nextMonth.subtract(const Duration(days: 1));
@@ -3454,7 +3455,7 @@ void main() {
     final now = DateTime.now();
     final monthStart = DateTime(now.year, now.month, 1);
     final beneficiary = await repo.createBeneficiary(name: 'مستفيد اختبار الإيراد والتحصيل');
-    final before = await repo.report('monthly_financial', from: monthStart, to: now);
+    final before = await repo.report('monthly_financial', from: monthStart, to: reportEnd);
     final baseline = before.firstWhere(
       (row) => row['month'] == '${now.year}-${now.month.toString().padLeft(2, '0')}',
       orElse: () => <String, Object?>{'income': 0, 'collections': 0, 'beneficiary_receivable': 0},
