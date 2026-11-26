@@ -166,7 +166,6 @@ void main() {
       'name': 'عامل فصل الاستحقاق والدفع',
       'pay_type': 'fixed',
     });
-    final previousCashboxBalance = await cashboxBalance(1);
     await db.update('cashboxes', {'current_balance': 100000}, 'id=?', [1]);
     final cashBefore = await cashboxBalance(1);
     final expenseBefore = await accountNet('5000');
@@ -897,6 +896,7 @@ void main() {
 
     expect((irrigationRow['signed_amount'] as num).round(), -6000);
     expect((paymentRow['signed_amount'] as num).round(), -1000);
+    final previousCashboxBalance = await cashboxBalance(1);
     final accrualRows = await db.query(
       "SELECT amount FROM partner_transactions WHERE partner_id=? AND type='share_accrual' AND reference_type='irrigation_profit' AND reference_id=?",
       args: [partner, irrigationId],
