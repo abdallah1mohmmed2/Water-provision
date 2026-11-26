@@ -1,0 +1,43 @@
+name: Publish Complementary Branch Release
+
+on:
+  workflow_run:
+    workflows: ["Build Flutter APK"]
+    branches: ["feature/complementary-changes"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'feature/complementary-changes' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified APK package from successful build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh run download "$RUN_ID" --repo "${{ github.repository }}" --name "Saqia-App-Release-ZIP" --dir dist
+          test -s dist/Saqia-App-Release.zip
+          test -s dist/Saqia-App-Release.zip.sha256
+          sha256sum -c dist/Saqia-App-Release.zip.sha256
+
+      - name: Publish public prerelease download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${SHA:0:12}"
+          TAG="complementary-${SHORT_SHA}"
+          TITLE="Saqia Complementary Branch - ${SHORT_SHA}"
+          gh release create "$TAG" dist/Saqia-App-Release.zip dist/Saqia-App-Release.zip.sha256 \
+            --repo "${{ github.repository }}" \
+            --title "$TITLE" \
+            --prerelease \
+            --notes "Automated public Android APK release for feature/complementary-changes. Built from commit ${SHA}. Download Saqia-App-Release.zip and extract/install the APK. SHA-256 checksum is included."
