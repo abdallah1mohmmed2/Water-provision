@@ -3312,7 +3312,7 @@ void main() {
       expect((await accountNet('5040')) - beforeSolar, 1250);
       expect((await accountNet('5050')) - beforeDiesel, 1200);
       expect((await accountNet('5000')) - beforeShared, 1200);
-      final summary = await svc.partnerProfitSummary(from: DateTime(2051, 2, 1), to: DateTime(2051, 4, 1));
+      final summary = await repo.partnerProfitSummary(from: DateTime(2051, 2, 1), to: DateTime(2051, 4, 1));
       expect(summary['workers'], 3650);
       await repo.updateWorker(diesel, {'source_affiliation': 'shared'}, null);
       final updatePayload = await db.query("SELECT payload FROM sync_queue WHERE table_name='workers' AND record_id=? ORDER BY id DESC LIMIT 1", args: [diesel]);
