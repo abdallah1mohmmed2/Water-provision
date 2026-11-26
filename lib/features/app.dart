@@ -1031,6 +1031,60 @@ class _ShellState extends State<AdminShell> {
 
   StreamSubscription<AppAlert>? _alertSub;
   StreamSubscription<void>? _oilSub;
+  OverlayEntry? _alertOverlay;
+  Timer? _alertTimer;
+
+  void _showAlertOverlay(AppAlert alert) {
+    if (!mounted) return;
+    _alertTimer?.cancel();
+    _alertOverlay?.remove();
+    _alertOverlay = null;
+    final overlay = Overlay.of(context, rootOverlay: true);
+    late final OverlayEntry entry;
+    entry = OverlayEntry(builder: (overlayContext) {
+      return Positioned(
+        top: 0,
+        left: 0,
+        right: 0,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFB3261E),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 18, offset: Offset(0, 6))],
+                  border: Border.all(color: Colors.white.withValues(alpha: .65), width: 1.2),
+                ),
+                child: ListTile(
+                  leading: const Icon(Icons.notifications_active_rounded, color: Colors.white, size: 30),
+                  title: Text(alert.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+                  subtitle: Text(alert.body, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+                  trailing: IconButton(
+                    tooltip: 'إغلاق التنبيه',
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    onPressed: () {
+                      _alertTimer?.cancel();
+                      if (entry.mounted) entry.remove();
+                      if (identical(_alertOverlay, entry)) _alertOverlay = null;
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+    _alertOverlay = entry;
+    overlay.insert(entry);
+    _alertTimer = Timer(const Duration(seconds: 6), () {
+      if (entry.mounted) entry.remove();
+      if (identical(_alertOverlay, entry)) _alertOverlay = null;
+    });
+  }
 
   @override
   void initState() {
@@ -1048,20 +1102,15 @@ class _ShellState extends State<AdminShell> {
     refreshCounts();
     _oilSub = watchDieselOilAlerts(repo);
     // النافذة المنبثقة (إن كان إعدادها مفعّلًا؛ الصوت يُشغَّل داخل AppAlerts نفسه).
-    _alertSub = AppAlerts.stream.listen((a) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          content: Text('${a.title}: ${a.body}'),
-        ),
-      );
-    });
+    _alertSub = AppAlerts.stream.listen(_showAlertOverlay);
   }
 
   @override
   void dispose() {
     _alertSub?.cancel();
+    _alertTimer?.cancel();
+    _alertOverlay?.remove();
+    _alertOverlay = null;
     _oilSub?.cancel();
     _floatingBubbleChannel.setMethodCallHandler(null);
     menuSearch.dispose();
