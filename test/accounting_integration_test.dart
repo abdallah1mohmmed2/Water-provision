@@ -857,6 +857,7 @@ void main() {
 
   test('كشف الشريك يعرض خصم السقاية ومدفوعاته ويطابق رصيد الأستاذ', () async {
     await useSolar6000();
+    final previousPartnerStates = await db.query('SELECT id,active FROM partners');
     await db.update('partners', {'active': 0}, 'id>?', [0]);
     final repo = StationRepository(db);
     final partner = await db.insert('partners', {
@@ -901,6 +902,9 @@ void main() {
     expect((await svc.partnerBalance(partner))['balance'], 4800);
     expect(await glPayable('2200', 'partner_id', partner), 4800);
     expect((await repo.partyFinancialSummary('partner', partner))['paid'], 1000);
+    for (final row in previousPartnerStates) {
+      await db.update('partners', {'active': row['active']}, 'id=?', [row['id']]);
+    }
   });
 
   test('كشف الشريك يستعيد الحركات القديمة إذا كان الأستاذ فارغًا', () async {
