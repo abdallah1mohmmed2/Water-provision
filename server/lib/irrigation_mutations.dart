@@ -12,6 +12,8 @@ class _P1Mutations {
   int _accountIdTx(_P1Tx tx, String code) => server._accountId(code);
   int _workerAccountIdTx(_P1Tx tx, int id) => server._syncWorkerAccountId(id);
   int _partnerAccountIdTx(_P1Tx tx, int id) => server._syncPartnerAccountId(id);
+  void _ensureWorkerSourceSchema() => server._ensureWorkerSourceSchema();
+  String _workerExpenseCode(int stationId, int workerId) => server._workerExpenseCode(stationId, workerId);
   static const _beneficiaryDieselStockSql =
       "SELECT COALESCE((SELECT opening_diesel_liters FROM beneficiaries WHERE id=?),0)"
       "+COALESCE((SELECT carried_diesel_liters FROM beneficiaries WHERE id=?),0)"
