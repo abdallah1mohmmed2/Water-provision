@@ -3459,7 +3459,7 @@ void main() {
     final before = await repo.report('monthly_financial', from: monthStart, to: reportEnd);
     final baseline = before.firstWhere(
       (row) => row['month'] == '${now.year}-${now.month.toString().padLeft(2, '0')}',
-      orElse: () => <String, Object?>{'income': 0, 'collections': 0, 'beneficiary_receivable': 0},
+      orElse: () => <String, Object?>{'income': 0, 'collections': 0, 'uncollected_difference': 0, 'beneficiary_receivable': 0},
     );
     final irrigationId = await svc.recordIrrigation(
       stationId: 1, pumpId: 1, beneficiaryId: beneficiary,
