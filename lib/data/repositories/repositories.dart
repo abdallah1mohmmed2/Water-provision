@@ -3220,6 +3220,24 @@ class StationRepository {
           return combined;
         }
       case 'beneficiary_stats':
+        if (currentSystemType == 'equivalent_hybrid') {
+          return db.rawQuery(
+            """SELECT b.id,b.name,
+              COUNT(i.id) irrigations,
+              COALESCE(SUM(i.minutes),0) minutes,
+              COALESCE(SUM(i.total_amount),0) total,
+              SUM(CASE WHEN COALESCE(i.hybrid_source,'')='solar' THEN 1 ELSE 0 END) solar_irrigations,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'')='solar' THEN i.minutes ELSE 0 END),0) solar_minutes,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'')='solar' THEN i.total_amount ELSE 0 END),0) solar_total,
+              SUM(CASE WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 1 ELSE 0 END) diesel_irrigations,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'')='diesel' THEN i.minutes ELSE 0 END),0) diesel_minutes,
+              COALESCE(SUM(CASE WHEN COALESCE(i.hybrid_source,'')='diesel' THEN i.total_amount ELSE 0 END),0) diesel_total
+              FROM beneficiaries b
+              LEFT JOIN irrigations i ON i.beneficiary_id=b.id AND $iw
+              GROUP BY b.id ORDER BY total DESC""",
+            args,
+          );
+        }
         return db.rawQuery(
           "SELECT b.id,b.name,COUNT(i.id) irrigations,COALESCE(SUM(i.minutes),0) minutes,COALESCE(SUM(i.total_amount),0) total FROM beneficiaries b LEFT JOIN irrigations i ON i.beneficiary_id=b.id AND i.status!='cancelled' GROUP BY b.id ORDER BY total DESC",
         );
