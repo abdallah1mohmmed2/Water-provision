@@ -51,6 +51,16 @@ void main() {
       expect(summary, contains('2026/10/22 09:30'));
     });
 
+    test('afternoon account summary uses 12 hours in the WhatsApp composer', () {
+      final summary = ManualMessageService.accountSummaryMessage(
+        recipientName: 'سالم', partyLabel: 'الشريك', balanceLabel: 'له 100 ريال',
+        asOf: DateTime(2026, 11, 17, 15, 30),
+      );
+      expect(summary, contains('2026/11/17 03:30 م'));
+      expect(summary, isNot(contains('15:30')));
+      expect(ManualMessageService.whatsappUri(phone, summary).queryParameters['text'], summary);
+    });
+
     test('creates an SMS composer URI with the message prefilled', () {
       final uri = ManualMessageService.smsUri(phone, message);
 

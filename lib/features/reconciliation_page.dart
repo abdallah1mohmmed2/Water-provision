@@ -1,11 +1,14 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+
+import '../core/theme.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart' as pdf;
 import '../core/app_clock.dart';
 import '../data/repositories/repositories.dart';
 import '../domain/accounting/reconciliation_service.dart';
 import '../services/official_report_template.dart';
+import '../services/report_pdf_preview_service.dart';
 
 class ReconciliationPage extends StatefulWidget {
   final StationRepository repo;
@@ -125,7 +128,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
       rows: const [],
       cardsOnly: true,
       pageFormat: pdf.PdfPageFormat.a4,
-      fileName: 'reconciliation_${d['month_key']}.pdf',
+      fileName: 'بطاقات التسوية الشهرية — ${d['month_key']}',
       printAfterGenerate: true,
     );
   }
@@ -162,7 +165,11 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
           title: const Text('التسوية الشهرية'),
           actions: [
             IconButton(onPressed: loading ? null : _load, tooltip: 'تحديث', icon: const Icon(Icons.refresh_rounded)),
-            IconButton(onPressed: loading || d == null ? null : _exportPdf, tooltip: 'PDF بطاقات إحصائية', icon: const Icon(Icons.picture_as_pdf_rounded)),
+            ReportPdfLongPress(
+  enabled: !loading && d != null,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_exportPdf),
+  child: IconButton(onPressed: loading || d == null ? null : _exportPdf, icon: const Icon(Icons.picture_as_pdf_rounded)),
+),
           ],
         ),
         body: loading
@@ -189,9 +196,9 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                       ),
                       const SizedBox(height: 12),
                       _sectionTitle('أولاً: حساب الشركاء'),
-                      _card('إجمالي أرباح الشركاء لهذا الشهر', d?['partner_profit'], Icons.groups_rounded, Colors.teal),
-                      _card('المسلّم للشركاء من خلال سجلات التطبيق', d?['partner_app_paid'], Icons.payments_rounded, Colors.blue),
-                      _card(_n(d?['opening_balance']) < 0 ? 'المتبقي للمحاسب عند الشركاء من الأشهر السابقة' : 'المتبقي للشركاء عند المحاسب من الأشهر السابقة', _n(d?['opening_balance']).abs(), Icons.history_rounded, Colors.deepOrange, suffix: _n(d?['opening_balance']) < 0 ? 'ريال (على الشركاء للمحاسب)' : 'ريال (على المحاسب للشركاء)'),
+                      _card('إجمالي أرباح الشركاء لهذا الشهر', d?['partner_profit'], Icons.groups_rounded, Theme.of(context).colorScheme.primary),
+                      _card('المسلّم للشركاء من خلال سجلات التطبيق', d?['partner_app_paid'], Icons.payments_rounded, Theme.of(context).colorScheme.secondary),
+                      _card(_n(d?['opening_balance']) < 0 ? 'المتبقي للمحاسب عند الشركاء من الأشهر السابقة' : 'المتبقي للشركاء عند المحاسب من الأشهر السابقة', _n(d?['opening_balance']).abs(), Icons.history_rounded, SaqiaTheme.reportNegative, suffix: _n(d?['opening_balance']) < 0 ? 'ريال (على الشركاء للمحاسب)' : 'ريال (على المحاسب للشركاء)'),
                       Card(
                         elevation: 0,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
@@ -202,7 +209,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                             const SizedBox(height: 8),
                             TextField(controller: manualPaid, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المسلّم خلال هذا الشهر', suffixText: 'ريال', border: OutlineInputBorder())),
                             const SizedBox(height: 5),
-                            const Text('أدخل هنا ما سلّمه المحاسب خارج سجلات المدفوعات؛ المبالغ المسجلة في التطبيق محسوبة تلقائياً أعلاه.', style: TextStyle(fontSize: 11, color: Colors.black54)),
+                            Text('أدخل هنا ما سلّمه المحاسب خارج سجلات المدفوعات؛ المبالغ المسجلة في التطبيق محسوبة تلقائياً أعلاه.', key: null, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
                             if (!hasPrevious) ...[
                               const SizedBox(height: 14),
                               const Text('الرصيد الافتتاحي عند أول استخدام', style: TextStyle(fontWeight: FontWeight.w800)),
@@ -236,7 +243,7 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                       ),
                       Card(
                         elevation: 0,
-                        color: closing == 0 ? Colors.green.withValues(alpha: .07) : closing > 0 ? Colors.orange.withValues(alpha: .08) : Colors.red.withValues(alpha: .07),
+                        color: closing == 0 ? SaqiaTheme.reportPositive.withValues(alpha: .07) : closing > 0 ? SaqiaTheme.reportNegative.withValues(alpha: .08) : Theme.of(context).colorScheme.error.withValues(alpha: .07),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                         child: Padding(padding: const EdgeInsets.all(17), child: Column(children: [
                           const Text('نتيجة تسوية الشركاء', style: TextStyle(fontWeight: FontWeight.w900)),
@@ -246,15 +253,15 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                         ])),
                       ),
                       _sectionTitle('ثانياً: حساب المستفيدين (الرعية)'),
-                      _card('المتبقي على المستفيدين حتى نهاية الشهر', d?['beneficiary_due'], Icons.people_alt_rounded, Colors.deepOrange),
-                      _card('المسلّم من المستفيدين هذا الشهر', d?['beneficiary_paid'], Icons.receipt_long_rounded, Colors.teal),
-                      _card('الأرصدة التي للمستفيدين حتى نهاية الشهر', d?['beneficiary_credit'], Icons.account_balance_wallet_rounded, Colors.blue),
+                      _card('المتبقي على المستفيدين حتى نهاية الشهر', d?['beneficiary_due'], Icons.people_alt_rounded, SaqiaTheme.reportNegative),
+                      _card('المسلّم من المستفيدين هذا الشهر', d?['beneficiary_paid'], Icons.receipt_long_rounded, Theme.of(context).colorScheme.primary),
+                      _card('الأرصدة التي للمستفيدين حتى نهاية الشهر', d?['beneficiary_credit'], Icons.account_balance_wallet_rounded, Theme.of(context).colorScheme.secondary),
                       _sectionTitle('ثالثاً: حساب العمال'),
-                      _card('المتبقي للعمال حتى نهاية الشهر', d?['worker_due'], Icons.engineering_rounded, Colors.deepOrange),
-                      _card('المتبقي للمحطة عند العمال حتى نهاية الشهر', d?['worker_credit'], Icons.account_balance_wallet_rounded, Colors.blue),
-                      _card('إجمالي المسلّم للعمال هذا الشهر', d?['worker_paid'], Icons.payments_rounded, Colors.teal),
+                      _card('المتبقي للعمال حتى نهاية الشهر', d?['worker_due'], Icons.engineering_rounded, SaqiaTheme.reportNegative),
+                      _card('المتبقي للمحطة عند العمال حتى نهاية الشهر', d?['worker_credit'], Icons.account_balance_wallet_rounded, Theme.of(context).colorScheme.secondary),
+                      _card('إجمالي المسلّم للعمال هذا الشهر', d?['worker_paid'], Icons.payments_rounded, Theme.of(context).colorScheme.primary),
                       _sectionTitle('رابعاً: المصروفات'),
-                      _card('إجمالي المصروفات المسجلة لهذا الشهر', d?['expenses'], Icons.receipt_rounded, Colors.indigo),
+                      _card('إجمالي المصروفات المسجلة لهذا الشهر', d?['expenses'], Icons.receipt_rounded, Theme.of(context).colorScheme.tertiary),
                       if (error != null) Padding(padding: const EdgeInsets.all(8), child: Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
                       if ((d?['history'] as List? ?? const []).isNotEmpty) ...[
                         _sectionTitle('التسويات المحفوظة للأشهر السابقة'),
@@ -274,7 +281,11 @@ class _ReconciliationPageState extends State<ReconciliationPage> {
                           ),
                       ],
                       const SizedBox(height: 10),
-                      OutlinedButton.icon(onPressed: _exportPdf, icon: const Icon(Icons.picture_as_pdf_rounded), label: const Text('طباعة PDF — بطاقات إحصائية فقط')),
+                      ReportPdfLongPress(
+  enabled: !loading && data != null,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(_exportPdf),
+  child: OutlinedButton.icon(onPressed: _exportPdf, icon: const Icon(Icons.picture_as_pdf_rounded), label: const Text('طباعة PDF — بطاقات إحصائية فقط')),
+),
                     ],
                   ),
       ),

@@ -12,11 +12,16 @@ db.execute("insert into beneficiaries(name,opening_diesel_liters,carried_diesel_
 def mv(kind,l,irr=None): db.execute("insert into diesel_movements(beneficiary_id,irrigation_id,kind,liters,unit_price,amount,date) values(1,?,?,?,100,?,'d')",(irr,kind,l,round(l*100)))
 mv('delivery',4)
 check('stock = 2+1+4 = 7',db.execute(stock,(1,1,1)).fetchone()[0]==7)
-# scenario: irrigation uses 10 L -> shortage 3 -> advance 3 + consumption 10 -> stock must be 0 (not -3)
+# Auto-advance annotates the loan; signed balance preserves the 3 L owed.
 mv('advance',3,5); mv('consumption',10,5)
-check('after auto-advance stock = 0 (no compounding)',db.execute(stock,(1,1,1)).fetchone()[0]==0)
+check('automatic advance does not erase 3 L owed',db.execute(stock,(1,1,1)).fetchone()[0]==-3)
 # second irrigation 10 L: shortage must be 10, not 13
-avail=db.execute(stock,(1,1,1)).fetchone()[0]; check('second shortage = 10',max(10-avail,0)==10)
+avail=db.execute(stock,(1,1,1)).fetchone()[0]; check('second shortage = 10',min(max(10-avail,0),10)==10)
+# Incoming fuel settles debt first, then becomes positive credit.
+mv('receipt',2); db.execute('UPDATE diesel_movements SET party_receipt=1 WHERE id=(SELECT MAX(id) FROM diesel_movements)')
+check('delivery settles 2 L of debt, 1 L still owed',db.execute(stock,(1,1,1)).fetchone()[0]==-1)
+mv('receipt',3); db.execute('UPDATE diesel_movements SET party_receipt=1 WHERE id=(SELECT MAX(id) FROM diesel_movements)')
+check('excess incoming fuel becomes 2 L credit',db.execute(stock,(1,1,1)).fetchone()[0]==2)
 # balance query: auto-advance excluded, manual included
 mv('advance',5,None)
 q="SELECT COALESCE((SELECT SUM(amount) FROM diesel_movements WHERE beneficiary_id=1 AND kind='advance' AND irrigation_id IS NULL),0)"

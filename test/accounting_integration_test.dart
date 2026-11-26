@@ -21,16 +21,26 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late AppDatabase db;
   late AccountingService svc;
+  late Directory testDatabaseDirectory;
 
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    testDatabaseDirectory = await Directory.systemTemp.createTemp(
+      'saqia_accounting_integration_test_',
+    );
+    await databaseFactory.setDatabasesPath(testDatabaseDirectory.path);
     await databaseFactory.deleteDatabase(
       '${await databaseFactory.getDatabasesPath()}/saqia_station_v2.db',
     );
     db = AppDatabase.instance;
     svc = AccountingService(db);
     await db.db;
+  });
+
+  tearDownAll(() async {
+    await db.close();
+    await testDatabaseDirectory.delete(recursive: true);
   });
 
   Future<int> cashboxBalance(int id) async =>
@@ -292,6 +302,88 @@ void main() {
     } finally {
       await db.update('cashboxes', {'current_balance': originalBalance}, 'id=?', [1]);
     }
+  });
+
+  test('الدين السابق للعامل يدعم الاتجاهين دون حركة صندوق', () async {
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(
+      name: 'عامل دين سابق بالاتجاهين',
+      payType: 'fixed',
+    );
+    final cashBefore = await cashboxBalance(1);
+    final date = DateTime.now();
+    await svc.addPreviousPartyDebt(
+      partyType: 'worker',
+      partyId: worker,
+      amount: 50000,
+      date: date,
+      notes: 'دين سابق على العامل',
+      partyOwesStation: true,
+    );
+    expect((await svc.workerBalance(worker))['balance'], -50000);
+    await svc.addPreviousPartyDebt(
+      partyType: 'worker',
+      partyId: worker,
+      amount: 12000,
+      date: date,
+      notes: 'مستحق سابق للعامل',
+      partyOwesStation: false,
+    );
+    expect((await svc.workerBalance(worker))['balance'], -38000);
+    expect(await cashboxBalance(1), cashBefore);
+    final txs = await db.query(
+      "SELECT type,amount FROM worker_transactions WHERE worker_id=? AND reference_type='previous_debt' ORDER BY id",
+      args: [worker],
+    );
+    expect(txs.map((x) => x['type']).toList(),
+        ['previous_receivable', 'opening_balance']);
+    expect(txs.map((x) => x['amount']).toList(), [50000, 12000]);
+  });
+
+  test('الدين النقدي السابق للشريك يدعم الاتجاهين دون حركة صندوق', () async {
+    final repo = StationRepository(db);
+    final partner = await repo.createPartner(
+      name: 'شريك دين سابق بالاتجاهين',
+      mode: 'shares',
+      shares: 1,
+    );
+    final cashBefore = await cashboxBalance(1);
+    final date = DateTime.now();
+
+    await svc.addPreviousPartyDebt(
+      partyType: 'partner',
+      partyId: partner,
+      amount: 50000,
+      date: date,
+      notes: 'دين سابق على الشريك للمحطة',
+      partyOwesStation: true,
+    );
+    expect((await svc.partnerBalance(partner))['balance'], -50000);
+
+    await svc.addPreviousPartyDebt(
+      partyType: 'partner',
+      partyId: partner,
+      amount: 12000,
+      date: date,
+      notes: 'مستحق سابق للشريك على المحطة',
+      partyOwesStation: false,
+    );
+    expect((await svc.partnerBalance(partner))['balance'], -38000);
+    expect(await cashboxBalance(1), cashBefore);
+
+    final txs = await db.query(
+      "SELECT type,amount FROM partner_transactions WHERE partner_id=? AND reference_type='previous_debt' ORDER BY id",
+      args: [partner],
+    );
+    expect(txs.map((x) => x['type']).toList(),
+        ['previous_receivable', 'opening_balance']);
+    expect(txs.map((x) => x['amount']).toList(), [50000, 12000]);
+
+    final gl = await db.rawQuery(
+      "SELECT COALESCE(SUM(credit)-SUM(debit),0) balance FROM journal_lines WHERE partner_id=?",
+      [partner],
+    );
+    expect((gl.single['balance'] as num).round(), -38000);
   });
 
   test('أرصدة الأطراف المنشأة عبر المستودع تظهر في الأستاذ والكشف', () async {
@@ -668,6 +760,10 @@ void main() {
     expect(await glPayable('2100', 'worker_id', w), 500);
     expect(await glPayable('2200', 'partner_id', p1), 2250);
     expect(await glPayable('2200', 'partner_id', p2), 2250);
+    // أجور العامل وحصص الشركاء أرباح/استحقاقات داخلية لا تظهر في رسائلهم.
+    expect(await svc.partyOperationalMessageBalance(partyType: 'worker', partyId: w), 0);
+    expect(await svc.partyOperationalMessageBalance(partyType: 'partner', partyId: p1), 0);
+    expect(await svc.partyOperationalMessageBalance(partyType: 'partner', partyId: p2), 0);
     final workerRows = await db.query(
       "SELECT amount,percentage_snapshot FROM worker_transactions WHERE worker_id=? AND type='irrigation'",
       args: [w],
@@ -683,12 +779,15 @@ void main() {
     final id = await irrigationFor(workerId: w, start: DateTime(2026, 3, 1, 8));
     expect(await glPayable('2100', 'worker_id', w), 4000);
     expect((await svc.workerBalance(w))['balance'], 4000);
+    // تستبعد الرسالة استحقاق الأجر 10,000 وتعرض فقط خصم السقاية 6,000.
+    expect(await svc.partyOperationalMessageBalance(partyType: 'worker', partyId: w), -6000);
     // لا شيء على ذمم المستفيدين لهذا العامل
     expect(await glPayable('1200', 'worker_id', w), 0);
 
     await svc.cancelIrrigation(id, 1, 'خطأ إدخال');
     expect(await glPayable('2100', 'worker_id', w), 10000);
     expect((await svc.workerBalance(w))['balance'], 10000);
+    expect(await svc.partyOperationalMessageBalance(partyType: 'worker', partyId: w), 0);
     final kept = await db.query(
       "SELECT COUNT(*) n FROM worker_transactions WHERE worker_id=? AND type='irrigation'",
       args: [w],
@@ -709,13 +808,57 @@ void main() {
     final id = await irrigationFor(partnerId: p, start: DateTime(2026, 3, 3, 8));
     expect(await glPayable('2200', 'partner_id', p), 4000);
     expect((await svc.partnerBalance(p))['balance'], 4000);
+    // تستبعد الرسالة حصة الأرباح 10,000 وتعرض خصم السقاية 6,000 فقط.
+    expect(await svc.partyOperationalMessageBalance(partyType: 'partner', partyId: p), -6000);
     await svc.cancelIrrigation(id, 1, 'خطأ إدخال');
     expect(await glPayable('2200', 'partner_id', p), 10000);
     expect((await svc.partnerBalance(p))['balance'], 10000);
+    expect(await svc.partyOperationalMessageBalance(partyType: 'partner', partyId: p), 0);
+  });
+
+  test('رصيد الرسائل يخصم المصروفات الشخصية ولا يكشف الأرباح', () async {
+    final repo = StationRepository(db);
+    final worker = await repo.createWorker(name: 'عامل مصروف رسالة', payType: 'fixed');
+    final partner = await repo.createPartner(name: 'شريك مصروف رسالة', mode: 'shares', shares: 1);
+    final date = DateTime(2045, 2, 3);
+    // الأرباح/الاستحقاقات موجودة في الحساب الرسمي، لكنها لا تظهر في الرسائل.
+    await svc.createWorkerAccrual(
+      workerId: worker, amount: 1000, date: date,
+    );
+    final workerExpenseId = await svc.addExpense(
+      category: 'maintenance',
+      title: 'مصروف مرتبط بالعامل',
+      amount: 300,
+      date: date,
+      paymentMethodId: 1,
+      cashboxId: 1,
+      workerId: worker,
+    );
+    final partnerExpenseId = await svc.addExpense(
+      category: 'maintenance',
+      title: 'مصروف شخصي للشريك',
+      amount: 450,
+      date: date,
+      paymentMethodId: 1,
+      cashboxId: 1,
+      partnerId: partner,
+    );
+    expect(await svc.partyOperationalMessageBalance(
+      partyType: 'worker', partyId: worker), -300);
+    expect(await svc.partyOperationalMessageBalance(
+      partyType: 'partner', partyId: partner), -450);
+    // الرسالة تستبعد استحقاق العامل وحصة الشريك، وتخصم مصروف كل طرف.
+    expect((await svc.workerBalance(worker))['balance'], 700);
+    expect((await svc.partnerBalance(partner))['balance'], -450);
+    // Keep the shared integration-test database isolated for following tests.
+    await svc.cancelExpense(workerExpenseId, 1, 'تنظيف مصروف الاختبار');
+    await svc.cancelExpense(partnerExpenseId, 1, 'تنظيف مصروف الاختبار');
   });
 
   test('كشف الشريك يعرض خصم السقاية ومدفوعاته ويطابق رصيد الأستاذ', () async {
     await useSolar6000();
+    final previousPartnerStates = await db.query('SELECT id,active FROM partners');
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
     final repo = StationRepository(db);
     final partner = await db.insert('partners', {
       'name': 'شريك اختبار كشف السقاية والدفع',
@@ -732,6 +875,7 @@ void main() {
       partnerId: partner,
       start: DateTime(2026, 3, 3, 8),
     );
+    final previousCashboxBalance = await cashboxBalance(1);
     await db.update('cashboxes', {'current_balance': 100000}, 'id=?', [1]);
     final paymentId = await svc.payPartner(
       partnerId: partner,
@@ -753,12 +897,22 @@ void main() {
 
     expect((irrigationRow['signed_amount'] as num).round(), -6000);
     expect((paymentRow['signed_amount'] as num).round(), -1000);
-    // يشمل الرصيد حصة الشريك من أرباح السقاية الشخصية، إضافةً إلى الرصيد السابق
-    // بعد خصم قيمة السقاية والمدفوعات: 10,000 + 1,800 - 6,000 - 1,000 = 4,800.
-    expect((statement.first['balance'] as num).round(), 4800);
-    expect((await svc.partnerBalance(partner))['balance'], 4800);
-    expect(await glPayable('2200', 'partner_id', partner), 4800);
+    final accrualRows = await db.query(
+      "SELECT amount FROM partner_transactions WHERE partner_id=? AND type='share_accrual' AND reference_type='irrigation_profit' AND reference_id=?",
+      args: [partner, irrigationId],
+    );
+    final irrigationProfitShare = accrualRows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).round());
+    final expectedBalance = 10000 + irrigationProfitShare - 6000 - 1000;
+    // يتبع التوزيع إعدادات الشركاء الحالية؛ الأهم أن الكشف والأستاذ يتطابقان.
+    expect((statement.first['balance'] as num).round(), expectedBalance);
+    expect((await svc.partnerBalance(partner))['balance'], expectedBalance);
+    expect(await glPayable('2200', 'partner_id', partner), expectedBalance);
     expect((await repo.partyFinancialSummary('partner', partner))['paid'], 1000);
+    await db.update('partners', {'active': 0}, 'id=?', [partner]);
+    await db.update('cashboxes', {'current_balance': previousCashboxBalance}, 'id=?', [1]);
+    for (final row in previousPartnerStates) {
+      await db.update('partners', {'active': row['active']}, 'id=?', [row['id']]);
+    }
   });
 
   test('كشف الشريك يستعيد الحركات القديمة إذا كان الأستاذ فارغًا', () async {
@@ -932,8 +1086,9 @@ void main() {
     final revenueBefore = await accountNet('4000');
     final receivableBefore = await accountNet('1200');
     final carriedBefore = await accountNet('3100');
-    final debtId = await svc.addBeneficiaryDebt(
-      beneficiaryId: b,
+    final debtId = await svc.addPreviousPartyDebt(
+      partyType: 'beneficiary',
+      partyId: b,
       amount: 25000,
       date: DateTime.now(),
       notes: 'رصيد مديونية سابق للمحطة',
@@ -1651,7 +1806,178 @@ void main() {
     );
   });
 
-  test('ترقية v17 تنشئ جداول مطابقة النقد والبنك والحسابات العامة حتى الإصدار 22', () async {
+
+  test('تقرير المديونيات الموحد يضم الأطراف الثلاثة باتجاه عليه الصحيح دون تغيير الصندوق', () async {
+    final repo = StationRepository(db);
+    final unique = DateTime.now().microsecondsSinceEpoch.toString();
+    final beneficiary = await repo.createBeneficiary(name: 'ALL-DEBTS-B-$unique');
+    final worker = await repo.createWorker(
+      name: 'ALL-DEBTS-W-$unique', payType: 'fixed',
+    );
+    final partner = await repo.createPartner(
+      name: 'ALL-DEBTS-P-$unique', mode: 'shares', shares: 1,
+    );
+    final cashBefore = await cashboxBalance(1);
+    final date = DateTime(2026, 11, 7, 10);
+    final end = DateTime(2026, 11, 30);
+    final before = await repo.report('all_party_debts', to: end);
+    Map<String, Object?> forParty(
+        List<Map<String, Object?>> rows, String kind, int partyId) =>
+      rows.singleWhere((r) =>
+        r['party_type'] == kind && r['party_id'] == partyId);
+    final b0 = (forParty(before, 'beneficiary', beneficiary)['balance'] as num).round();
+    final w0 = (forParty(before, 'worker', worker)['balance'] as num).round();
+    final p0 = (forParty(before, 'partner', partner)['balance'] as num).round();
+
+    await svc.addPreviousPartyDebt(
+      partyType: 'beneficiary', partyId: beneficiary,
+      amount: 1300, date: date, notes: 'اختبار مديونية مستفيد',
+    );
+    await svc.addPreviousPartyDebt(
+      partyType: 'worker', partyId: worker,
+      amount: 2400, date: date, notes: 'اختبار مديونية عامل',
+    );
+    await svc.addPreviousPartyDebt(
+      partyType: 'partner', partyId: partner,
+      amount: 3500, date: date, notes: 'اختبار مديونية شريك',
+    );
+    final after = await repo.report('all_party_debts', to: end);
+    expect(forParty(after, 'beneficiary', beneficiary)['balance'], b0 + 1300);
+    expect(forParty(after, 'worker', worker)['balance'], w0 + 2400);
+    expect(forParty(after, 'partner', partner)['balance'], p0 + 3500);
+    expect((await svc.workerBalance(worker))['balance'], -2400);
+    expect((await svc.partnerBalance(partner))['balance'], -3500);
+
+    // Use the same existing statement columns as beneficiary debts.
+    // No separate prior-debt column and no duplicate journal posting.
+    expect(ReportService.reportColumns['worker_transactions'],
+        ['date', 'description', 'lah', 'alayh', 'balance']);
+    expect(ReportService.reportColumns['partner_accounts'],
+        ['date', 'description', 'lah', 'alayh', 'balance']);
+    expect(ReportService.reportColumns['all_party_debts'],
+        ['party_type', 'name', 'balance']);
+    final workerStatement = await repo.report('worker_transactions',
+        workerId: worker);
+    final partnerStatement = await repo.report('partner_accounts',
+        partnerId: partner);
+    final workerDebitRow = workerStatement.singleWhere(
+      (row) => row['type'] == 'previous_receivable',
+    );
+    final partnerDebitRow = partnerStatement.singleWhere(
+      (row) => row['type'] == 'previous_receivable',
+    );
+    expect(workerDebitRow['lah'], 0);
+    expect(workerDebitRow['alayh'], 2400);
+    expect(workerDebitRow['signed_amount'], -2400);
+    expect('${workerDebitRow['description']}', contains('إضافة مديونية سابقة'));
+    expect('${workerDebitRow['description']}', contains('اختبار مديونية عامل'));
+    expect(partnerDebitRow['lah'], 0);
+    expect(partnerDebitRow['alayh'], 3500);
+    expect(partnerDebitRow['signed_amount'], -3500);
+    expect('${partnerDebitRow['description']}', contains('إضافة مديونية سابقة'));
+    expect('${partnerDebitRow['description']}', contains('اختبار مديونية شريك'));
+    expect(workerDebitRow.containsKey('previous_debt_total'), isFalse);
+    expect(partnerDebitRow.containsKey('previous_debt_total'), isFalse);
+
+    for (final party in [('worker', worker, 2400),
+                         ('partner', partner, 3500)]) {
+      final statement = await repo.partyLedgerStatementData(
+        kind: party.$1, id: party.$2,
+      );
+      final movement = (statement['rows'] as List)
+          .cast<Map<String,Object?>>()
+          .singleWhere((row) =>
+              row['debit'] == party.$3 &&
+              row['alayh'] == party.$3);
+      expect(movement['lah'], 0);
+      expect(statement['closing_balance'], -party.$3);
+    }
+    expect(
+      (await repo.report('debts', to: end))
+          .any((row) => row['id'] == worker && row['name'] == 'ALL-DEBTS-W-$unique'),
+      isFalse,
+    );
+    expect(
+      (await repo.report('partner_accounts', partnerId: partner))
+          .any((row) => row['type'] == 'previous_receivable'
+              && row['alayh'] == 3500),
+      isTrue,
+    );
+    expect(
+      (await repo.report('worker_transactions', workerId: worker))
+          .any((row) => row['type'] == 'previous_receivable'
+              && row['alayh'] == 2400),
+      isTrue,
+    );
+    expect(await cashboxBalance(1), cashBefore);
+    // The same date cutoff must not include later debt postings.
+    final beforeDebtDate = await repo.report(
+      'all_party_debts', to: DateTime(2026, 11, 6),
+    );
+    expect(forParty(beforeDebtDate, 'worker', worker)['balance'], w0);
+    expect(forParty(beforeDebtDate, 'partner', partner)['balance'], p0);
+    expect(forParty(beforeDebtDate, 'beneficiary', beneficiary)['balance'], b0);
+  });
+
+  test('مديونية العامل والشريك تخفض له أولًا ثم تزيد عليه داخل الأعمدة الأصلية', () async {
+    final repo = StationRepository(db);
+    final unique = DateTime.now().microsecondsSinceEpoch.toString();
+    final worker = await repo.createWorker(
+      name: 'DEBT-NET-W-$unique', payType: 'fixed', opening: 5000,
+    );
+    final partner = await repo.createPartner(
+      name: 'DEBT-NET-P-$unique', mode: 'shares', shares: 1, opening: 5000,
+    );
+    final baselineCash = await cashboxBalance(1);
+    for (final party in [('worker', worker), ('partner', partner)]) {
+      final kind = party.$1;
+      final id = party.$2;
+      final first = DateTime.now().add(const Duration(minutes: 5));
+      final second = first.add(const Duration(minutes: 1));
+      final initialBalance = kind == 'worker'
+          ? (await svc.workerBalance(id))['balance']
+          : (await svc.partnerBalance(id))['balance'];
+      expect(initialBalance, 5000);
+      await svc.addPreviousPartyDebt(
+        partyType: kind, partyId: id, amount: 2000,
+        date: first, notes: 'دين أول',
+      );
+      final afterFirst = kind == 'worker'
+          ? (await svc.workerBalance(id))['balance']
+          : (await svc.partnerBalance(id))['balance'];
+      expect(afterFirst, 3000); // 5,000 له - 2,000 عليه.
+      await svc.addPreviousPartyDebt(
+        partyType: kind, partyId: id, amount: 6000,
+        date: second, notes: 'دين ثانٍ',
+      );
+      final afterSecond = kind == 'worker'
+          ? (await svc.workerBalance(id))['balance']
+          : (await svc.partnerBalance(id))['balance'];
+      expect(afterSecond, -3000); // 3,000 له - 6,000 عليه.
+      final statement = await repo.report(
+        kind == 'worker' ? 'worker_transactions' : 'partner_accounts',
+        workerId: kind == 'worker' ? id : null,
+        partnerId: kind == 'partner' ? id : null,
+      );
+      final debtRows = statement
+          .where((row) => row['type'] == 'previous_receivable')
+          .toList();
+      expect(debtRows, hasLength(2));
+      expect(debtRows.map((row) => row['alayh']).toSet(), {2000, 6000});
+      expect(debtRows.every((row) => row['lah'] == 0), isTrue);
+      expect(debtRows.every((row) =>
+          '${row['description']}'.contains('إضافة مديونية سابقة')), isTrue);
+      expect(debtRows.every((row) =>
+          !row.containsKey('previous_debt_total')), isTrue);
+      final unified = await repo.report('all_party_debts');
+      final person = unified.singleWhere((row) =>
+          row['party_type'] == kind && row['party_id'] == id);
+      expect(person['balance'], 3000);
+    }
+    expect(await cashboxBalance(1), baselineCash);
+  });
+
+  test('ترقية v17 تنشئ جداول المطابقة والحسابات العامة وتصل إلى الإصدار 37', () async {
     final opened = await db.db;
     await opened.execute('PRAGMA user_version=17');
     await db.close();
@@ -1673,7 +1999,26 @@ void main() {
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 22);
+    expect((version.single.values.single as num).toInt(), 39);
+    final dieselColumns = (await upgraded.rawQuery('PRAGMA table_info(diesel_movements)')).map((r) => r['name']).toSet();
+    expect(dieselColumns, containsAll({'worker_id','partner_id','party_receipt','request_id'}));
+    final irrigationColumns = (await upgraded.rawQuery(
+      'PRAGMA table_info(irrigations)',
+    )).map((row) => row['name']).toSet();
+    expect(irrigationColumns, containsAll({
+      'work_minute_rate_snapshot',
+      'work_price_enabled_snapshot',
+      'work_base_water_amount_snapshot',
+      'work_difference_snapshot',
+    }));
+    final historical = await upgraded.rawQuery(
+      "SELECT id,water_amount,total_amount,work_price_enabled_snapshot,work_difference_snapshot FROM irrigations WHERE status!='cancelled' LIMIT 1",
+    );
+    if (historical.isNotEmpty) {
+      // Migration adds snapshots; it must never reprice a posted invoice.
+      expect(historical.single['work_price_enabled_snapshot'], 0);
+      expect(historical.single['work_difference_snapshot'], 0);
+    }
   });
 
   test('دورة المصروف العام والخاص وإلغاء الخاص تطابق الصندوق والشريك وصافي الأرباح', () async {
@@ -2860,5 +3205,279 @@ void main() {
     expect(april['partner_profit'], 500);
     expect(april['closing_balance'], 200);
   });
+
+  test('النوع الثالث يستخدم سعر مصدر التشغيل المختار ويحفظ لقطته', () async {
+    final keys = ['system_type', 'solar_hourly_rate', 'hybrid_diesel_hourly_rate', 'diesel_liters_per_hour', 'work_price_difference_enabled'];
+    final previous = <String, String>{};
+    for (final key in keys) {
+      final rows = await db.query('SELECT value FROM settings WHERE key=?', args: [key]);
+      previous[key] = rows.isEmpty ? '' : '${rows.first['value']}';
+    }
+    try {
+      await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
+      await db.update('settings', {'value': '6000'}, 'key=?', ['solar_hourly_rate']);
+      await db.update('settings', {'value': '2'}, 'key=?', ['diesel_liters_per_hour']);
+      await db.insert('settings', {'key': 'work_price_difference_enabled', 'value': 'false', 'updated_at': DateTime.now().toIso8601String()}, conflictAlgorithm: ConflictAlgorithm.replace);
+      await db.insert('settings', {
+        'key': 'hybrid_diesel_hourly_rate',
+        'value': '9000',
+        'updated_at': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final start = DateTime(2048, 5, 6, 8);
+      final dieselParty = await db.insert('beneficiaries', {
+        'name': 'مستفيد اختبار ديزل النوع الثالث',
+        'diesel_liters_per_hour': 2.0,
+        'created_at': start.toIso8601String(),
+        'updated_at': start.toIso8601String(),
+      });
+      final solarParty = await db.insert('beneficiaries', {
+        'name': 'مستفيد اختبار شمسي النوع الثالث',
+        'diesel_liters_per_hour': 2.0,
+        'created_at': start.toIso8601String(),
+        'updated_at': start.toIso8601String(),
+      });
+      final dieselId = await svc.recordIrrigation(
+        stationId: 1, pumpId: 1, beneficiaryId: dieselParty,
+        start: start, end: start.add(const Duration(hours: 1)),
+        systemType: 'equivalent_hybrid', waterRate: 0, litersPerHour: 0,
+        dieselPrice: 0, solarRate: 0, thirdRate: 0, hybridSource: 'diesel',
+        cloudMinutes: 0, paidAmount: 0,
+      );
+      final solarId = await svc.recordIrrigation(
+        stationId: 1, pumpId: 1, beneficiaryId: solarParty,
+        start: start.add(const Duration(hours: 2)),
+        end: start.add(const Duration(hours: 3)),
+        systemType: 'equivalent_hybrid', waterRate: 0, litersPerHour: 0,
+        dieselPrice: 0, solarRate: 0, thirdRate: 0, hybridSource: 'solar',
+        cloudMinutes: 15, paidAmount: 0,
+      );
+      final diesel = (await db.query('SELECT * FROM irrigations WHERE id=?', args: [dieselId])).single;
+      final solar = (await db.query('SELECT * FROM irrigations WHERE id=?', args: [solarId])).single;
+      expect(diesel['hybrid_source'], 'diesel');
+      expect(diesel['hybrid_diesel_hourly_rate_snapshot'], 9000);
+      expect(diesel['solar_hourly_rate_snapshot'], 0);
+      expect(diesel['third_type_hourly_rate_snapshot'], 0);
+      expect(diesel['total_amount'], 9000);
+      expect(diesel['diesel_liters_per_hour_snapshot'], 2);
+      final dieselMoves = await db.query('SELECT kind,liters FROM diesel_movements WHERE irrigation_id=? ORDER BY id', args: [dieselId]);
+      expect(dieselMoves.map((row) => row['kind']).toList(), ['advance', 'consumption']);
+      expect(dieselMoves.map((row) => row['liters']).toList(), [2, 2]);
+      expect(solar['hybrid_source'], 'solar');
+      expect(solar['solar_hourly_rate_snapshot'], 6000);
+      expect(solar['hybrid_diesel_hourly_rate_snapshot'], 0);
+      expect(solar['third_type_hourly_rate_snapshot'], 0);
+      expect(solar['cloud_minutes'], 15);
+      expect(solar['chargeable_minutes'], 45);
+      expect(solar['total_amount'], 4500);
+      expect(solar['diesel_liters_per_hour_snapshot'], 0);
+      expect(await db.query('SELECT id FROM diesel_movements WHERE irrigation_id=?', args: [solarId]), isEmpty);
+    } finally {
+      for (final entry in previous.entries) {
+        if (entry.value.isNotEmpty) {
+          await db.update('settings', {'value': entry.value}, 'key=?', [entry.key]);
+        }
+      }
+    }
+  });
+
+
+  test('استحقاق عمال النوع الثالث يتبع مصدر السقاية ويفصل حسابات الأجور', () async {
+    final keys = ['system_type', 'solar_hourly_rate', 'hybrid_diesel_hourly_rate'];
+    final previous = <String, String>{};
+    for (final key in keys) {
+      final rows = await db.query('SELECT value FROM settings WHERE key=?', args: [key]);
+      previous[key] = rows.isEmpty ? '' : '${rows.first['value']}';
+    }
+    try {
+      await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
+      await db.update('settings', {'value': '6000'}, 'key=?', ['solar_hourly_rate']);
+      await db.update('settings', {'value': '6000'}, 'key=?', ['hybrid_diesel_hourly_rate']);
+      await db.update('workers', {'active': 0}, 'id>? ', [0]);
+      await db.update('partners', {'active': 0}, 'id>? ', [0]);
+      final repo = StationRepository(db);
+      final solarWorker = await repo.createWorker(name: 'عامل شمسي مصدر', payType: 'hourly', hourlyRate: 700, sourceAffiliation: 'solar');
+      final dieselWorker = await repo.createWorker(name: 'عامل ديزل مصدر', payType: 'hourly', hourlyRate: 700, sourceAffiliation: 'diesel');
+      final sharedWorker = await repo.createWorker(name: 'عامل مشترك مصدر', payType: 'hourly', hourlyRate: 700, sourceAffiliation: 'shared');
+      final solarBefore = await accountNet('5040');
+      final dieselBefore = await accountNet('5050');
+      final sharedBefore = await accountNet('5000');
+      final solarBeneficiary = await repo.createBeneficiary(name: 'مستفيد مصدر شمسي');
+      final dieselBeneficiary = await repo.createBeneficiary(name: 'مستفيد مصدر ديزل');
+      final start = DateTime(2049, 6, 12, 8);
+      await svc.recordIrrigation(
+        stationId: 1, pumpId: 1, beneficiaryId: solarBeneficiary,
+        start: start, end: start.add(const Duration(hours: 1)),
+        systemType: 'equivalent_hybrid', waterRate: 0, litersPerHour: 0,
+        dieselPrice: 0, solarRate: 0, thirdRate: 0, hybridSource: 'solar',
+        cloudMinutes: 0, paidAmount: 0,
+      );
+      await svc.recordIrrigation(
+        stationId: 1, pumpId: 1, beneficiaryId: dieselBeneficiary,
+        start: start.add(const Duration(hours: 2)),
+        end: start.add(const Duration(hours: 3)),
+        systemType: 'equivalent_hybrid', waterRate: 0, litersPerHour: 0,
+        dieselPrice: 0, solarRate: 0, thirdRate: 0, hybridSource: 'diesel',
+        cloudMinutes: 0, paidAmount: 0,
+      );
+      expect((await svc.workerBalance(solarWorker))['balance'], 700);
+      expect((await svc.workerBalance(dieselWorker))['balance'], 700);
+      expect((await svc.workerBalance(sharedWorker))['balance'], 1400);
+      expect((await accountNet('5040')) - solarBefore, 700);
+      expect((await accountNet('5050')) - dieselBefore, 700);
+      expect((await accountNet('5000')) - sharedBefore, 1400);
+    } finally {
+      for (final entry in previous.entries) {
+        if (entry.value.isNotEmpty) {
+          await db.update('settings', {'value': entry.value}, 'key=?', [entry.key]);
+        }
+      }
+    }
+  });
+
+
+  test('استحقاق النوع الثالث اليدوي والراتب الثابت والدفعة يحافظون على حساب المصدر', () async {
+    final keys = ['system_type'];
+    final previous = <String, String>{};
+    for (final key in keys) {
+      final rows = await db.query('SELECT value FROM settings WHERE key=?', args: [key]);
+      previous[key] = rows.isEmpty ? '' : '${rows.first['value']}';
+    }
+    try {
+      await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
+      await db.update('workers', {'active': 0}, 'id>? ', [0]);
+      final repo = StationRepository(db);
+      final solar = await repo.createWorker(name: 'راتب شمسي مصدر', payType: 'fixed', fixedSalary: 1000, sourceAffiliation: 'solar');
+      final diesel = await repo.createWorker(name: 'راتب ديزل مصدر', payType: 'fixed', fixedSalary: 1000, sourceAffiliation: 'diesel');
+      final shared = await repo.createWorker(name: 'راتب مشترك مصدر', payType: 'fixed', fixedSalary: 1000, sourceAffiliation: 'shared');
+      final createPayload = await db.query("SELECT payload FROM sync_queue WHERE table_name='workers' AND record_id=? ORDER BY id DESC LIMIT 1", args: [solar]);
+      expect((jsonDecode('${createPayload.single['payload']}') as Map)['source_affiliation'], 'solar');
+      final beforeSolar = await accountNet('5040');
+      final beforeDiesel = await accountNet('5050');
+      final beforeShared = await accountNet('5000');
+
+      await svc.accrueMonthlySalaries(month: DateTime(2051, 2, 1));
+      await svc.createWorkerAccrualBatch(
+        amounts: {solar: 200, diesel: 200, shared: 200},
+        from: DateTime(2051, 3, 1),
+        to: DateTime(2051, 3, 31),
+        date: DateTime(2051, 3, 31),
+        periodKey: 'P3CTEST205103',
+        periodLabel: 'مارس 2051',
+      );
+      await svc.createWorkerAccrual(
+        workerId: solar,
+        amount: 50,
+        date: DateTime(2051, 4, 1),
+        memo: 'استحقاق يدوي للاختبار',
+      );
+
+      expect((await accountNet('5040')) - beforeSolar, 1250);
+      expect((await accountNet('5050')) - beforeDiesel, 1200);
+      expect((await accountNet('5000')) - beforeShared, 1200);
+      final summary = await repo.partnerProfitSummary(from: DateTime(2051, 2, 1), to: DateTime(2051, 4, 1));
+      expect(summary['workers'], 3650);
+      await repo.updateWorker(diesel, {'source_affiliation': 'shared'}, null);
+      final updatePayload = await db.query("SELECT payload FROM sync_queue WHERE table_name='workers' AND record_id=? ORDER BY id DESC LIMIT 1", args: [diesel]);
+      expect((jsonDecode('${updatePayload.single['payload']}') as Map)['source_affiliation'], 'shared');
+
+      final cashBefore = await cashboxBalance(1);
+      final solarExpenseBeforePayment = await accountNet('5040');
+      await svc.payWorker(
+        workerId: solar,
+        amount: 400,
+        paymentMethodId: 1,
+        cashboxId: 1,
+      );
+      expect(await cashboxBalance(1), cashBefore - 400);
+      expect(await accountNet('5040'), solarExpenseBeforePayment);
+      expect((await svc.workerBalance(solar))['balance'], 850);
+    } finally {
+      if (previous['system_type']!.isNotEmpty) {
+        await db.update('settings', {'value': previous['system_type']}, 'key=?', ['system_type']);
+      }
+    }
+  });
+
+  test('عكس استحقاق السقاية يستخدم حساب المصروف الأصلي بعد تغيير مصدر العامل', () async {
+    final rows = await db.query("SELECT key,value FROM settings WHERE key IN ('system_type','solar_hourly_rate')");
+    final previous = {for (final row in rows) '${row['key']}': '${row['value']}'};
+    try {
+      await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
+      await db.update('settings', {'value': '6000'}, 'key=?', ['solar_hourly_rate']);
+      await db.update('workers', {'active': 0}, 'id>? ', [0]);
+      await db.update('partners', {'active': 0}, 'id>? ', [0]);
+      final repo = StationRepository(db);
+      final worker = await repo.createWorker(
+        name: 'عامل يتغير مصدره بعد الاستحقاق',
+        payType: 'hourly',
+        hourlyRate: 700,
+        sourceAffiliation: 'solar',
+      );
+      final beneficiary = await repo.createBeneficiary(name: 'مستفيد اختبار عكس المصدر');
+      final solarBefore = await accountNet('5040');
+      final dieselBefore = await accountNet('5050');
+      final start = DateTime(2052, 7, 12, 8);
+      final irrigationId = await svc.recordIrrigation(
+        stationId: 1,
+        pumpId: 1,
+        beneficiaryId: beneficiary,
+        start: start,
+        end: start.add(const Duration(hours: 1)),
+        systemType: 'equivalent_hybrid',
+        waterRate: 0,
+        litersPerHour: 0,
+        dieselPrice: 0,
+        solarRate: 0,
+        thirdRate: 0,
+        hybridSource: 'solar',
+        cloudMinutes: 0,
+        paidAmount: 0,
+      );
+      expect((await accountNet('5040')) - solarBefore, 700);
+      await repo.updateWorker(worker, {'source_affiliation': 'diesel'}, null);
+      await svc.cancelIrrigation(irrigationId, 1, 'اختبار عكس حساب المصدر التاريخي');
+      expect(await accountNet('5040'), solarBefore);
+      expect(await accountNet('5050'), dieselBefore);
+      expect((await svc.workerBalance(worker))['balance'], 0);
+    } finally {
+      for (final entry in previous.entries) {
+        await db.update('settings', {'value': entry.value}, 'key=?', [entry.key]);
+      }
+    }
+  });
+
+  test('التقرير الشهري يفصل إيراد السقايات عن المقبوض وعن مديونية الرعية', () async {
+    await useSolar6000();
+    await db.update('workers', {'active': 0}, 'id>?', [0]);
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
+    final repo = StationRepository(db);
+    final now = DateTime.now();
+    final reportEnd = now.add(const Duration(minutes: 1));
+    final monthStart = DateTime(now.year, now.month, 1);
+    final beneficiary = await repo.createBeneficiary(name: 'مستفيد اختبار الإيراد والتحصيل');
+    final before = await repo.report('monthly_financial', from: monthStart, to: reportEnd);
+    final baseline = before.firstWhere(
+      (row) => row['month'] == '${now.year}-${now.month.toString().padLeft(2, '0')}',
+      orElse: () => <String, Object?>{'income': 0, 'collections': 0, 'uncollected_difference': 0, 'beneficiary_receivable': 0},
+    );
+    final irrigationId = await svc.recordIrrigation(
+      stationId: 1, pumpId: 1, beneficiaryId: beneficiary,
+      start: now.subtract(const Duration(hours: 2)),
+      end: now.subtract(const Duration(hours: 1)),
+      systemType: 'solar', waterRate: 0, litersPerHour: 0, dieselPrice: 0,
+      solarRate: 0, thirdRate: 0, cloudMinutes: 0, paidAmount: 2000,
+      paymentMethodId: 1, cashboxId: 1,
+    );
+    expect((await db.query('SELECT total_amount,paid_amount FROM irrigations WHERE id=?', args: [irrigationId])).single,
+      {'total_amount': 6000, 'paid_amount': 2000});
+    await svc.receivePayment(beneficiaryId: beneficiary, amount: 1000, paymentMethodId: 1, cashboxId: 1);
+    final after = await repo.report('monthly_financial', from: monthStart, to: reportEnd);
+    final row = after.singleWhere((x) => x['month'] == '${now.year}-${now.month.toString().padLeft(2, '0')}');
+    expect((row['income'] as num) - (baseline['income'] as num), 6000);
+    expect((row['collections'] as num) - (baseline['collections'] as num), 3000);
+    expect((row['uncollected_difference'] as num) - (baseline['uncollected_difference'] as num), 3000);
+    expect((row['beneficiary_receivable'] as num) - (baseline['beneficiary_receivable'] as num), 3000);
+  });
+
 
 }

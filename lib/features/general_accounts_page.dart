@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+
+import '../core/theme.dart';
 import 'package:sqflite/sqflite.dart';
 import '../core/app_clock.dart';
 import '../data/repositories/repositories.dart';
 import '../services/manual_message_service.dart';
 import '../services/official_report_template.dart';
+import '../services/report_pdf_preview_service.dart';
+import 'contact_phone_field.dart';
 
 /// Signed balance: positive means "لنا عليه"; negative means "له علينا".
 /// A receipt reduces the amount owed to us; a payment increases it.
@@ -107,7 +111,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
             child: SingleChildScrollView(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 TextFormField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: 'اسم الحساب *'), validator: (v) => v == null || v.trim().isEmpty ? 'اسم الحساب مطلوب' : null),
-                TextFormField(controller: phone, decoration: const InputDecoration(labelText: 'رقم الهاتف (اختياري)'), keyboardType: TextInputType.phone),
+                ContactPhoneField(controller: phone, labelText: 'رقم الهاتف (اختياري)'),
                 TextFormField(controller: address, decoration: const InputDecoration(labelText: 'العنوان (اختياري)')),
                 TextFormField(controller: opening, decoration: const InputDecoration(labelText: 'الرصيد الافتتاحي'), keyboardType: TextInputType.number, validator: (v) => int.tryParse((v ?? '').trim()) == null || int.parse(v!.trim()) < 0 ? 'أدخل مبلغًا صحيحًا موجبًا أو صفرًا' : null),
                 const SizedBox(height: 8),
@@ -252,7 +256,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
                   decoration: const InputDecoration(labelText: 'اسم الحساب *'),
                   validator: (v) => v == null || v.trim().isEmpty ? 'اسم الحساب مطلوب' : null,
                 ),
-                TextFormField(controller: phone, decoration: const InputDecoration(labelText: 'رقم الهاتف (اختياري)'), keyboardType: TextInputType.phone),
+                ContactPhoneField(controller: phone, labelText: 'رقم الهاتف (اختياري)'),
                 TextFormField(controller: address, decoration: const InputDecoration(labelText: 'العنوان (اختياري)')),
                 TextFormField(
                   controller: opening,
@@ -377,7 +381,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
         ],
         columns: const ['التاريخ', 'نوع الحركة', 'المبلغ (ريال)', 'المرجع / الملاحظات', 'الرصيد الجاري'],
         rows: rows,
-        fileName: 'general_account_$accountId.pdf',
+        fileName: 'كشف حساب عام — ${account['name'] ?? 'حساب رقم $accountId'}',
         preferredRowsPerPage: 20,
         printAfterGenerate: true,
       );
@@ -459,14 +463,17 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
                                 spacing: 0,
                                 runSpacing: 0,
                                 children: [
-                                  IconButton(
-                                    tooltip: 'كشف حساب PDF',
+                                  ReportPdfLongPress(
+  enabled: true,
+  onLongPress: () => ReportPdfPreviewService.shareOnLongPress(() => _exportAccountPdf(account)),
+  child: IconButton(
                                     visualDensity: VisualDensity.compact,
                                     constraints: const BoxConstraints.tightFor(width: 36, height: 36),
                                     padding: EdgeInsets.zero,
                                     onPressed: () => _exportAccountPdf(account),
                                     icon: const Icon(Icons.picture_as_pdf_outlined, size: 20),
                                   ),
+),
                                   IconButton(
                                     tooltip: 'تعديل الحساب',
                                     visualDensity: VisualDensity.compact,
@@ -505,7 +512,7 @@ class _GeneralAccountsPageState extends State<GeneralAccountsPage> {
                                 final receipt = row['type'] == 'receipt';
                                 return ListTile(
                                   dense: true,
-                                  leading: Icon(receipt ? Icons.south_west_rounded : Icons.north_east_rounded, color: receipt ? Colors.green : Colors.orange),
+                                  leading: Icon(receipt ? Icons.south_west_rounded : Icons.north_east_rounded, color: receipt ? SaqiaTheme.reportPositive : SaqiaTheme.reportNegative),
                                   title: Text('${receipt ? 'قبض' : 'صرف'} — ${_money((row['amount'] as num).toInt())} ريال'),
                                   subtitle: Text('${row['date']}\n${[row['reference_number'], row['notes']].where((x) => x != null && '$x'.trim().isNotEmpty).join(' • ')}'),
                                   isThreeLine: true,

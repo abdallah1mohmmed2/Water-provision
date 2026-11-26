@@ -1,6 +1,10 @@
 package com.saqia.saqia_station
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.provider.ContactsContract
+import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -11,6 +15,43 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterFragmentActivity() {
     private val channel = "saqia/device_settings"
     private val bubbleChannel = "saqia/floating_bubble"
+    private val contactsChannel = "saqia/contacts"
+    private var pendingContactResult: MethodChannel.Result? = null
+    private val contactPickerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { selection ->
+            val callback = pendingContactResult ?: return@registerForActivityResult
+            pendingContactResult = null
+            if (selection.resultCode != Activity.RESULT_OK) {
+                callback.success(null)
+                return@registerForActivityResult
+            }
+            val contactUri = selection.data?.data
+            if (contactUri == null) {
+                callback.error("NO_CONTACT", "لم يتم اختيار رقم هاتف", null)
+                return@registerForActivityResult
+            }
+            try {
+                // ACTION_PICK grants temporary access to the chosen phone row,
+                // without broad READ_CONTACTS permission.
+                val projection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                val number = contentResolver.query(contactUri, projection, null, null, null)?.use { cursor ->
+                    if (!cursor.moveToFirst()) null
+                    else {
+                        val index = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                        if (index < 0) null else cursor.getString(index)
+                    }
+                }
+                if (number.isNullOrBlank()) {
+                    callback.error("NO_PHONE", "جهة الاتصال المختارة لا تحتوي على رقم هاتف", null)
+                } else {
+                    callback.success(number)
+                }
+            } catch (exception: SecurityException) {
+                callback.error("CONTACT_ACCESS_DENIED", "تعذر قراءة رقم جهة الاتصال المختارة", null)
+            } catch (exception: Exception) {
+                callback.error("CONTACT_PICK_FAILED", "تعذر جلب رقم الهاتف من جهات الاتصال", null)
+            }
+        }
     private var pendingQuickAction: String? = null
     private var bubbleMethodChannel: MethodChannel? = null
     private var activityResumed = false
@@ -36,7 +77,53 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "saqia/message_composer")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "composeSms") {
+                    result.notImplemented()
+                } else {
+                    val phone = call.argument<String>("phone")
+                    val message = call.argument<String>("message")
+                    if (phone == null || !phone.matches(Regex("[0-9]{8,15}")) || message == null) {
+                        result.error("INVALID_MESSAGE", "تعذر تجهيز رقم الهاتف ونص الرسالة", null)
+                    } else {
+                        try {
+                            // ACTION_SENDTO opens a composer; the user still presses Send.
+                            startActivity(Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", phone, null)).apply {
+                                putExtra("sms_body", message)
+                            })
+                            result.success(true)
+                        } catch (exception: ActivityNotFoundException) {
+                            result.success(false)
+                        } catch (exception: SecurityException) {
+                            result.success(false)
+                        }
+                    }
+                }
+            }
         pendingQuickAction = intent?.getStringExtra(EXTRA_QUICK_ACTION)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, contactsChannel)
+            .setMethodCallHandler { call, result ->
+                if (call.method != "pickPhoneNumber") {
+                    result.notImplemented()
+                } else if (pendingContactResult != null) {
+                    result.error("PICK_IN_PROGRESS", "يتم اختيار رقم هاتف بالفعل", null)
+                } else {
+                    pendingContactResult = result
+                    try {
+                        val pickIntent = Intent(Intent.ACTION_PICK).apply {
+                            type = ContactsContract.CommonDataKinds.Phone.CONTENT_TYPE
+                        }
+                        contactPickerLauncher.launch(pickIntent)
+                    } catch (exception: ActivityNotFoundException) {
+                        pendingContactResult = null
+                        result.error("NO_CONTACTS_APP", "لا يوجد تطبيق جهات اتصال يدعم اختيار الأرقام", null)
+                    } catch (exception: Exception) {
+                        pendingContactResult = null
+                        result.error("CONTACT_PICK_FAILED", "تعذر فتح جهات الاتصال", null)
+                    }
+                }
+            }
         bubbleMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, bubbleChannel)
         bubbleMethodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
