@@ -6174,7 +6174,9 @@ int? parseClock(String raw) {
               cloudPeriods.removeWhere((p) => p['start']!.isBefore(start) || p['end']!.isAfter(end));
             });
                         dialogSetState(() {});
-            await IrrigationTimeVoiceService.announce(
+            // Voice confirmation is queued in the background so it never delays
+            // the transition from the start picker to the end picker.
+            IrrigationTimeVoiceService.announce(
               isStart ? start : end,
               isStart: isStart,
               enabled: AppPrefs.current.sound,

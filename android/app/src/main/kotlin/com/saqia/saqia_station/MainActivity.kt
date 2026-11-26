@@ -47,33 +47,9 @@ class MainActivity : FlutterFragmentActivity() {
         text: String,
         result: MethodChannel.Result,
     ) {
-        pendingTimeVoiceResult?.success(false)
-        pendingTimeVoiceResult = result
-        engine.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) = Unit
-            override fun onDone(utteranceId: String?) {
-                runOnUiThread {
-                    val callback = pendingTimeVoiceResult
-                    pendingTimeVoiceResult = null
-                    callback?.success(true)
-                }
-            }
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) {
-                runOnUiThread {
-                    val callback = pendingTimeVoiceResult
-                    pendingTimeVoiceResult = null
-                    callback?.success(false)
-                }
-            }
-            override fun onError(utteranceId: String?, errorCode: Int) = onError(utteranceId)
-        })
         val utteranceId = "saqia-time-${++timeVoiceSequence}"
-        val status = engine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, utteranceId)
-        if (status == android.speech.tts.TextToSpeech.ERROR) {
-            pendingTimeVoiceResult = null
-            result.success(false)
-        }
+        val status = engine.speak(text, android.speech.tts.TextToSpeech.QUEUE_ADD, null, utteranceId)
+        result.success(status != android.speech.tts.TextToSpeech.ERROR)
     }
 
     override fun onDestroy() {

@@ -9,7 +9,7 @@
 
 ## التنفيذ
 - `lib/services/irrigation_time_voice_service.dart`: صياغة الإعلان واستدعاء قناة Android.
-- `MainActivity.kt`: محرك النطق العربي مع انتظار انتهاء الصوت قبل متابعة اختيار النهاية.
+- `MainActivity.kt`: محرك النطق العربي مع إضافة المقاطع إلى طابور الصوت دون تعطيل الفورم.
 - `test/irrigation_time_voice_service_test.dart`: صياغة البداية والنهاية، منتصف الليل/الظهر، والدقائق.
 
 ## حزمة MP3 المرفوعة
