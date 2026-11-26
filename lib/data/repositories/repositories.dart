@@ -3049,7 +3049,7 @@ class StationRepository {
               ),
               scoped_expenses AS (
                 SELECT e.* FROM expenses e CROSS JOIN station_context s
-                WHERE e.status='posted' AND e.partner_id IS NULL
+                WHERE e.status='posted' AND e.partner_id IS NULL AND e.worker_id IS NULL
                   AND e.station_id=s.station_id$scopedExpenseWhere
               ),
               scoped_payments AS (
