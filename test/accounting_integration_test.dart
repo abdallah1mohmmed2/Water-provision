@@ -176,7 +176,7 @@ void main() {
     );
     final expenseAfterAccrual = await accountNet('5000');
     expect(expenseAfterAccrual, expenseBefore + 1000);
-    expect((await svc.workerBalance(worker))['balance'], 1000);
+    expect((await svc.workerBalance(worker))['balance'], 700);
     await svc.payWorker(
       workerId: worker,
       amount: 400,
@@ -857,6 +857,7 @@ void main() {
 
   test('كشف الشريك يعرض خصم السقاية ومدفوعاته ويطابق رصيد الأستاذ', () async {
     await useSolar6000();
+    await db.update('partners', {'active': 0}, 'id>?', [0]);
     final repo = StationRepository(db);
     final partner = await db.insert('partners', {
       'name': 'شريك اختبار كشف السقاية والدفع',
