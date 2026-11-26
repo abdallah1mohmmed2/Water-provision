@@ -108,7 +108,7 @@ class MainActivity : FlutterFragmentActivity() {
         val player = MediaPlayer()
         irrigationAudioPlayer = player
         val clipId = file.nameWithoutExtension
-        val startTrimMs = 170
+        val startTrimMs = 120
         var initialResultSent = false
         fun replyInitial(value: Boolean) {
             if (!initialResultSent) {
