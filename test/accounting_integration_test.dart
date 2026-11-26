@@ -1999,7 +1999,7 @@ void main() {
     }));
     expect(cashIndex, isNotEmpty);
     expect(generalIndex, isNotEmpty);
-    expect((version.single.values.single as num).toInt(), 38);
+    expect((version.single.values.single as num).toInt(), 39);
     final dieselColumns = (await upgraded.rawQuery('PRAGMA table_info(diesel_movements)')).map((r) => r['name']).toSet();
     expect(dieselColumns, containsAll({'worker_id','partner_id','party_receipt','request_id'}));
     final irrigationColumns = (await upgraded.rawQuery(
