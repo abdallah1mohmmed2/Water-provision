@@ -5335,7 +5335,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
       msg('وقت نهاية الغيم يجب أن يكون بعد وقت بدايته');
       return false;
     }
-    if (cloudStart.isBefore(start) || cloudEnd.isAfter(end)) {
+    if (cloudStart.isBefore(start) || cloudEnd.isAfter(discountedEnd)) {
       msg('فترة الغيم يجب أن تكون داخل وقت السقاية');
       return false;
     }
@@ -6263,6 +6263,12 @@ int? parseClock(String raw) {
     controller.dispose();
     if (!mounted || value == null) return;
     if (value < 0 || value >= runtimeMinutes) { msg('الخصم يجب أن يكون صفرًا أو أكبر وأقل من مدة التشغيل'); return; }
+    final candidateEnd = end.subtract(Duration(minutes: value));
+    if ((type == 'solar' || (type == 'equivalent_hybrid' && hybridSource == 'solar')) &&
+        (cloudMin > runtimeMinutes - value || cloudPeriods.any((p) => p['end']!.isAfter(candidateEnd)))) {
+      msg('خصم الدقائق يتعارض مع فترات الغيم؛ عدّل فترات الغيم أولاً');
+      return;
+    }
     setState(() => minuteDiscount = value);
   }
 
