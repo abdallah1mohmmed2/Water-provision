@@ -3091,10 +3091,35 @@ class StationRepository {
           );
         }
       case 'income':
-        return _systemReportWithOverall(
-          "SELECT i.system_type,COUNT(*) operations,SUM(i.water_amount) water_income,SUM(i.diesel_amount) diesel_income,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY i.system_type",
-          args,
-        );
+        {
+          // Type 3 income is separated by irrigation source; preserve the
+          // generic income grouping for every other station type.
+          if (currentSystemType == 'equivalent_hybrid') {
+            return _systemReportWithOverall(
+              """SELECT
+                CASE
+                  WHEN COALESCE(i.hybrid_source,'')='solar' THEN 'solar'
+                  WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 'diesel'
+                  ELSE 'unclassified'
+                END system_type,
+                COUNT(*) operations,
+                SUM(i.water_amount) water_income,
+                SUM(i.diesel_amount) diesel_income,
+                SUM(i.total_amount) total
+                FROM irrigations i WHERE $iw
+                GROUP BY CASE
+                  WHEN COALESCE(i.hybrid_source,'')='solar' THEN 'solar'
+                  WHEN COALESCE(i.hybrid_source,'')='diesel' THEN 'diesel'
+                  ELSE 'unclassified'
+                END""",
+              args,
+            );
+          }
+          return _systemReportWithOverall(
+            "SELECT i.system_type,COUNT(*) operations,SUM(i.water_amount) water_income,SUM(i.diesel_amount) diesel_income,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY i.system_type",
+            args,
+          );
+        }
       case 'payment_methods':
         return db.rawQuery(
           "SELECT pm.name method_name,pm.type,pm.account_number,pm.bank_name,COALESCE(SUM(p.amount),0) total FROM payment_methods pm LEFT JOIN payments p ON p.payment_method_id=pm.id AND p.status='posted' GROUP BY pm.id",
