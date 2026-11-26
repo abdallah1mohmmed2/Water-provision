@@ -13,6 +13,79 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
+    private var irrigationTimeTts: android.speech.tts.TextToSpeech? = null
+    private var pendingTimeVoiceResult: MethodChannel.Result? = null
+    private var timeVoiceSequence = 0
+
+    private fun announceIrrigationTime(text: String, result: MethodChannel.Result) {
+        val current = irrigationTimeTts
+        if (current != null) {
+            speakIrrigationText(current, text, result)
+            return
+        }
+        var created: android.speech.tts.TextToSpeech? = null
+        created = android.speech.tts.TextToSpeech(this) { status ->
+            val engine = created
+            if (engine == null || status != android.speech.tts.TextToSpeech.SUCCESS) {
+                result.success(false)
+                return@TextToSpeech
+            }
+            irrigationTimeTts = engine
+            val language = engine.setLanguage(java.util.Locale("ar"))
+            if (language == android.speech.tts.TextToSpeech.LANG_MISSING_DATA ||
+                language == android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED) {
+                result.success(false)
+                return@TextToSpeech
+            }
+            speakIrrigationText(engine, text, result)
+        }
+        irrigationTimeTts = created
+    }
+
+    private fun speakIrrigationText(
+        engine: android.speech.tts.TextToSpeech,
+        text: String,
+        result: MethodChannel.Result,
+    ) {
+        pendingTimeVoiceResult?.success(false)
+        pendingTimeVoiceResult = result
+        engine.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) = Unit
+            override fun onDone(utteranceId: String?) {
+                runOnUiThread {
+                    val callback = pendingTimeVoiceResult
+                    pendingTimeVoiceResult = null
+                    callback?.success(true)
+                }
+            }
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+                runOnUiThread {
+                    val callback = pendingTimeVoiceResult
+                    pendingTimeVoiceResult = null
+                    callback?.success(false)
+                }
+            }
+            override fun onError(utteranceId: String?, errorCode: Int) = onError(utteranceId)
+        })
+        val utteranceId = "saqia-time-${++timeVoiceSequence}"
+        val status = engine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        if (status == android.speech.tts.TextToSpeech.ERROR) {
+            pendingTimeVoiceResult = null
+            result.success(false)
+        }
+    }
+
+    override fun onDestroy() {
+        pendingTimeVoiceResult?.success(false)
+        pendingTimeVoiceResult = null
+        irrigationTimeTts?.stop()
+        irrigationTimeTts?.shutdown()
+        irrigationTimeTts = null
+        super.onDestroy()
+    }
+
+
     private val channel = "saqia/device_settings"
     private val bubbleChannel = "saqia/floating_bubble"
     private val contactsChannel = "saqia/contacts"
@@ -173,6 +246,19 @@ class MainActivity : FlutterFragmentActivity() {
                 result.success(true)
             } else result.notImplemented()
         }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "saqia/irrigation_time_voice")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "announceTime") {
+                    result.notImplemented()
+                } else {
+                    val text = call.argument<String>("text")?.trim()
+                    if (text.isNullOrEmpty()) {
+                        result.error("EMPTY_TIME_TEXT", "لا يوجد وقت للنطق", null)
+                    } else {
+                        announceIrrigationTime(text, result)
+                    }
+                }
+            }
     }
 
     override fun onNewIntent(intent: Intent) {

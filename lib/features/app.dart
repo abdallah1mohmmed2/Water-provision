@@ -22,6 +22,7 @@ import 'auth/firebase_access_gate.dart';
 import '../core/app_clock.dart';
 import '../core/app_prefs.dart';
 import '../services/audio_feedback_service.dart';
+import '../services/irrigation_time_voice_service.dart';
 import '../core/period_ranges.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
@@ -6172,7 +6173,12 @@ int? parseClock(String raw) {
               minuteDiscount = 0; // تغيير أوقات التشغيل يلغي خصم الدقائق السابق.
               cloudPeriods.removeWhere((p) => p['start']!.isBefore(start) || p['end']!.isAfter(end));
             });
-            dialogSetState(() {});
+                        dialogSetState(() {});
+            await IrrigationTimeVoiceService.announce(
+              isStart ? start : end,
+              isStart: isStart,
+              enabled: AppPrefs.current.sound,
+            );
             if (isStart) {
               // Keep the quick form open and continue immediately to its existing end picker.
               await chooseTime(false);
