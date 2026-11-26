@@ -12454,6 +12454,100 @@ List<Widget> reportQuickRangeButtons(
   ];
 }
 
+class HybridSystemComparisonReportPage extends StatefulWidget {
+  final StationRepository r;
+  final List<Map<String, Object?>> rows;
+  final DateTime? from, to;
+  const HybridSystemComparisonReportPage(this.r, {required this.rows, this.from, this.to, super.key});
+  @override
+  State<HybridSystemComparisonReportPage> createState() => _HybridSystemComparisonReportPageState();
+}
+
+class _HybridSystemComparisonReportPageState extends State<HybridSystemComparisonReportPage> {
+  int selectedTab = 0;
+  late final List<Map<String, Object?>> rows = List<Map<String, Object?>>.from(widget.rows);
+  final tabs = const ['solar', 'diesel', 'overall'];
+  int _num(Object? v) => (v as num?)?.round() ?? int.tryParse('${v ?? 0}') ?? 0;
+  String _money(Object? v) => NumberFormat('#,##0').format(_num(v));
+  String _period() => '${widget.from == null ? 'من البداية' : DateFormat('yyyy/MM/dd').format(widget.from!)} — ${widget.to == null ? 'حتى الآن' : DateFormat('yyyy/MM/dd').format(widget.to!)}';
+  Map<String, Object?>? get current {
+    final key = tabs[selectedTab];
+    return rows.where((r) => '${r['system_type']}' == key).cast<Map<String, Object?>>().firstOrNull;
+  }
+  Future<void> _pdf() async {
+    try {
+      final data = current == null ? <Map<String, Object?>>[] : [current!];
+      await ReportService(widget.r).printPdf('system_comparison', from: widget.from, to: widget.to, systemType: 'equivalent_hybrid', sourceRows: data);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر تجهيز PDF: ${friendlyError(e)}')));
+    }
+  }
+  Widget _stat(String label, String value, IconData icon, Color color) => Expanded(child: Container(
+    padding: const EdgeInsets.all(13), decoration: BoxDecoration(color: _reportSurface, border: Border.all(color: _reportLine), borderRadius: BorderRadius.circular(17)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Icon(icon, color: color, size: 20), const SizedBox(height: 8),
+      Text(label, style: TextStyle(color: _reportInk.withValues(alpha: .55), fontSize: 11)),
+      const SizedBox(height: 4), Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 16)),
+    ]),
+  ));
+  String _tabLabel(int i) => switch (i) { 0 => 'الشمسي', 1 => 'الديزل', _ => 'الإجمالي' };
+  @override
+  Widget build(BuildContext context) {
+    final row = current;
+    return Directionality(textDirection: TextDirection.rtl, child: Scaffold(
+      backgroundColor: _reportCream,
+      appBar: AppBar(backgroundColor: _reportCream, foregroundColor: _reportInk, elevation: 0,
+        title: const Text('مقارنة المنظومات', style: TextStyle(fontWeight: FontWeight.w900)),
+        actions: [IconButton(onPressed: _pdf, tooltip: 'PDF', icon: const Icon(Icons.print_rounded))],
+      ),
+      body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 26), children: [
+        Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(gradient: LinearGradient(colors: [_reportOliveDark, _reportOlive]), borderRadius: BorderRadius.circular(23)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('مقارنة أداء منظومة النوع الثالث', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8), Text(_period(), style: TextStyle(color: Colors.white.withValues(alpha: .82), fontSize: 12)),
+            const SizedBox(height: 8), const Text('تُعرض نتائج الشمس والديزل منفصلة مع إجمالي موحد، دون دمج إيراد المصدرين في بطاقة واحدة.', style: TextStyle(color: Colors.white, height: 1.45)),
+          ]),
+        ),
+        const SizedBox(height: 14),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (var i = 0; i < tabs.length; i++) ChoiceChip(
+            label: Text(_tabLabel(i)), selected: selectedTab == i,
+            onSelected: (_) => setState(() => selectedTab = i),
+            selectedColor: _reportOlive.withValues(alpha: .22),
+            backgroundColor: _reportSurface,
+            labelStyle: TextStyle(color: selectedTab == i ? _reportOliveDark : _reportInk, fontWeight: FontWeight.w800),
+            side: BorderSide(color: _reportLine),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        if (row == null) Container(padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(18), border: Border.all(color: _reportLine)), child: const Text('لا توجد بيانات لهذا القسم خلال الفترة المحددة.')),
+        if (row != null) ...[
+          Row(children: [
+            _stat('عدد العمليات', _money(row['operations']), Icons.water_drop_rounded, _reportOliveDark),
+            const SizedBox(width: 9), _stat('الدقائق', _money(row['minutes']), Icons.timer_rounded, _reportInk),
+          ]),
+          const SizedBox(height: 9),
+          Row(children: [
+            _stat('الدخل', _money(row['total']), Icons.payments_rounded, _reportGreen),
+            const SizedBox(width: 9), _stat('تكلفة الديزل', _money(row['diesel_cost']), Icons.local_gas_station_rounded, _reportOrange),
+          ]),
+          const SizedBox(height: 12),
+          Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(19), border: Border.all(color: _reportLine)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(_tabLabel(selectedTab), style: TextStyle(color: _reportInk, fontSize: 17, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 10),
+              Text('عدد السقايات: ${_money(row['operations'])}', style: TextStyle(color: _reportInk, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6), Text('إجمالي الدقائق: ${_money(row['minutes'])}', style: TextStyle(color: _reportInk)),
+              const SizedBox(height: 6), Text('إجمالي الدخل: ${_money(row['total'])}', style: TextStyle(color: _reportGreen, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 6), Text('تكلفة الديزل المسجلة: ${_money(row['diesel_cost'])}', style: TextStyle(color: _reportOrange, fontWeight: FontWeight.w800)),
+            ]),
+          ),
+        ],
+      ]),
+    ));
+  }
+}
+
 class ReportsPage extends StatefulWidget {
   final StationRepository r;
   final String? initialReportKey;
@@ -12598,6 +12692,18 @@ class _ReportsState extends State<ReportsPage> {
         initialFrom: from,
         initialTo: to,
       )));
+      return;
+    }
+    if (k == 'system_comparison' && currentType == 'equivalent_hybrid') {
+      try {
+        final rows = await _rows(k);
+        if (!mounted) return;
+        Navigator.push(context, MaterialPageRoute(builder: (_) => HybridSystemComparisonReportPage(
+          widget.r, rows: rows, from: from, to: to,
+        )));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر إنشاء التقرير: $e')));
+      }
       return;
     }
     try {
