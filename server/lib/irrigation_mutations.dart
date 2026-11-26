@@ -163,6 +163,7 @@ class _P1Mutations {
     required DateTime date,
     int? userId,
   }) {
+    _ensureWorkerSourceSchema();
     final w = tx.query(
       'workers',
       columns: ['pay_type', 'hourly_rate', 'percentage_rate', 'source_affiliation', 'station_id'],
