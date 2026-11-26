@@ -643,7 +643,6 @@ class ReportService {
       reportTitle: reportTitle,
       summaryBoxes: summaryBoxes,
       columns: headers,
-      pageFormat: hybridBeneficiaryStats ? PdfPageFormat.a4.landscape : PdfPageFormat.a4,
       rows: tableRows,
       footerTotalRow: partnerClosing == null ? null : [
         for (final field in sourceHeaders)
@@ -658,7 +657,7 @@ class ReportService {
       thirdSignatureLabel: 'اعتماد وختم المحطة: ....................',
       fileName: _pdfFileName(reportTitle),
       minTableRows: 7,
-      pageFormat: sourceHeaders.length >= 5 ||
+      pageFormat: hybridBeneficiaryStats || sourceHeaders.length >= 5 ||
               const {
                 'irrigations',
                 'payment_methods',
