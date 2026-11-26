@@ -118,36 +118,39 @@ class MainActivity : FlutterFragmentActivity() {
         }
         try {
             player.setDataSource(file.absolutePath)
-            player.setOnPreparedListener {
+            player.setOnPreparedListener { prepared ->
                 try {
                     // Skip short lead-in silence. Slightly soften connectors, and gently
                     // speed up the number/hour clips to balance the perceived cadence.
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        val speed = when (clipId) {
-                            "from", "to", "and" -> 0.94f
-                            else -> if (clipId.startsWith("h_") || clipId.startsWith("n_")) 1.05f else 1.0f
-                        }
-                        it.playbackParams = it.playbackParams.setSpeed(speed)
-                    }
-                    it.seekTo(startTrimMs)
-                    it.start()
-                    replyInitial(true)
                     val speed = when (clipId) {
                         "from", "to", "and" -> 0.94f
                         else -> if (clipId.startsWith("h_") || clipId.startsWith("n_")) 1.05f else 1.0f
                     }
-                    val audibleEnd = audibleEndMs[clipId] ?: (it.duration - 120)
-                    val playbackMs = (((audibleEnd - startTrimMs - 70).coerceAtLeast(180)) / speed).toLong()
-                    val trim = Runnable {
-                        if (irrigationAudioPlayer === player) {
-                            try { player.stop() } catch (_: Exception) { }
-                            player.release()
-                            irrigationAudioPlayer = null
-                            playNextIrrigationClip()
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        prepared.playbackParams = prepared.playbackParams.setSpeed(speed)
+                    }
+                    prepared.setOnSeekCompleteListener { seeked ->
+                        try {
+                            seeked.start()
+                            replyInitial(true)
+                            val audibleEnd = audibleEndMs[clipId] ?: (seeked.duration - 120)
+                            val playbackMs = (((audibleEnd - startTrimMs - 70).coerceAtLeast(180)) / speed).toLong()
+                            val trim = Runnable {
+                                if (irrigationAudioPlayer === player) {
+                                    try { player.stop() } catch (_: Exception) { }
+                                    player.release()
+                                    irrigationAudioPlayer = null
+                                    playNextIrrigationClip()
+                                }
+                            }
+                            irrigationAudioTrimRunnable = trim
+                            irrigationAudioHandler.postDelayed(trim, playbackMs)
+                        } catch (_: Exception) {
+                            replyInitial(false)
+                            stopIrrigationAudio()
                         }
                     }
-                    irrigationAudioTrimRunnable = trim
-                    irrigationAudioHandler.postDelayed(trim, playbackMs)
+                    prepared.seekTo(startTrimMs)
                 } catch (_: Exception) {
                     replyInitial(false)
                     stopIrrigationAudio()
