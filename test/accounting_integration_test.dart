@@ -166,6 +166,7 @@ void main() {
       'name': 'عامل فصل الاستحقاق والدفع',
       'pay_type': 'fixed',
     });
+    final previousCashboxBalance = await cashboxBalance(1);
     await db.update('cashboxes', {'current_balance': 100000}, 'id=?', [1]);
     final cashBefore = await cashboxBalance(1);
     final expenseBefore = await accountNet('5000');
@@ -902,6 +903,8 @@ void main() {
     expect((await svc.partnerBalance(partner))['balance'], 4800);
     expect(await glPayable('2200', 'partner_id', partner), 4800);
     expect((await repo.partyFinancialSummary('partner', partner))['paid'], 1000);
+    await db.update('partners', {'active': 0}, 'id=?', [partner]);
+    await db.update('cashboxes', {'current_balance': previousCashboxBalance}, 'id=?', [1]);
     for (final row in previousPartnerStates) {
       await db.update('partners', {'active': row['active']}, 'id=?', [row['id']]);
     }
