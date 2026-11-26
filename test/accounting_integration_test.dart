@@ -821,7 +821,7 @@ void main() {
     final worker = await repo.createWorker(name: 'عامل مصروف رسالة', payType: 'fixed');
     final partner = await repo.createPartner(name: 'شريك مصروف رسالة', mode: 'shares', shares: 1);
     final date = DateTime(2045, 2, 3);
-    await svc.addExpense(
+    final workerExpenseId = await svc.addExpense(
       category: 'maintenance',
       title: 'مصروف مرتبط بالعامل',
       amount: 300,
@@ -830,7 +830,7 @@ void main() {
       cashboxId: 1,
       workerId: worker,
     );
-    await svc.addExpense(
+    final partnerExpenseId = await svc.addExpense(
       category: 'maintenance',
       title: 'مصروف شخصي للشريك',
       amount: 450,
@@ -846,6 +846,9 @@ void main() {
     // رصيد الأستاذ الرسمي لا يتغير بسبب حساب الرسالة المخصص.
     expect((await svc.workerBalance(worker))['balance'], 0);
     expect((await svc.partnerBalance(partner))['balance'], -450);
+    // Keep the shared integration-test database isolated for following tests.
+    await svc.cancelExpense(workerExpenseId, 1, 'تنظيف مصروف الاختبار');
+    await svc.cancelExpense(partnerExpenseId, 1, 'تنظيف مصروف الاختبار');
   });
 
   test('كشف الشريك يعرض خصم السقاية ومدفوعاته ويطابق رصيد الأستاذ', () async {
