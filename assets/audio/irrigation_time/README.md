@@ -1,6 +1,10 @@
 # MP3 irrigation-time assets
 
-The original MP3 files are not committed yet. Upload the original files here without renaming:
-`n_1.mp3` to `n_59.mp3`, `h_1.mp3` to `h_12.mp3`, plus `from.mp3`, `to.mp3`, `and.mp3`, `am.mp3`, and `pm.mp3`.
+The ZIP supplied by the user was inspected and contains 76 original MP3 files:
+- `n_1.mp3` to `n_59.mp3`
+- `h_1.mp3` to `h_12.mp3`
+- `from.mp3`, `to.mp3`, `and.mp3`, `am.mp3`, `pm.mp3`
 
-Current quick-form time announcements use Android Arabic TTS as a temporary fallback. MP3 playback is not yet connected.
+**The original binary files have not yet been committed to this repository, and MP3 playback is not yet connected.** Current quick-form announcements use Android Arabic TTS as a temporary fallback.
+
+Next: copy the originals here without renaming, configure Flutter asset declarations, integrate ordered playback for start/end time announcements only in the quick irrigation form, keep playback nonblocking, retain TTS fallback, test sequence and time edge cases, and document CI.
