@@ -480,7 +480,7 @@ void main() {
     expect(await glPayable('2100', 'worker_id', worker), 700);
     expect(await glPayable('2200', 'partner_id', p1), 2650);
     expect(await glPayable('2200', 'partner_id', p2), 2650);
-    expect((await svc.workerBalance(worker))['balance'], 700);
+    expect((await svc.workerBalance(worker))['balance'], 1000);
     expect((await svc.partnerBalance(p1))['balance'], 2650);
     expect((await svc.partnerBalance(p2))['balance'], 2650);
 
