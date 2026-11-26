@@ -1968,6 +1968,7 @@ class AccountingService {
     int? userId,
     String? attachmentPath,
     String? notes,
+    String expenseSystemType = 'shared',
     Future<void> Function(Transaction tx, int expenseId)? afterPosting,
   }) async => database.transaction((tx) async {
     await _assertPeriodOpen(tx, date);
@@ -2002,6 +2003,7 @@ class AccountingService {
       'notes': notes,
       'status': 'posted',
       'created_by': userId,
+      'expense_system_type': expenseSystemType,
     });
     await tx.rawUpdate(
       'UPDATE cashboxes SET current_balance=current_balance-? WHERE id=?',
