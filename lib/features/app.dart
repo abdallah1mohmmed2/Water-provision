@@ -5251,7 +5251,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             dieselPrice: dieselPrice,
             cloudMinutes: 0,
             allowMidnightCrossing:
-                settings['allow_midnight_crossing'] == 'true',
+                (settings['allow_midnight_crossing'] ?? 'true') == 'true',
             rounding: settings['rounding'] ?? 'nearest',
             partialHour: settings['partial_hour'] != 'false',
           )
@@ -5262,14 +5262,14 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             hourlyRate: solarRate,
             cloudMinutes: cloudMin,
             allowMidnightCrossing:
-                settings['allow_midnight_crossing'] == 'true',
+                (settings['allow_midnight_crossing'] ?? 'true') == 'true',
             rounding: settings['rounding'] ?? 'nearest',
             partialHour: settings['partial_hour'] != 'false',
           )
         : hybridSource == 'solar'
         ? AccountingCalculations.solar(
             start: start, end: end, hourlyRate: solarRate, cloudMinutes: cloudMin,
-            allowMidnightCrossing: settings['allow_midnight_crossing'] == 'true',
+            allowMidnightCrossing: (settings['allow_midnight_crossing'] ?? 'true') == 'true',
             rounding: settings['rounding'] ?? 'nearest', partialHour: settings['partial_hour'] != 'false',
           )
         : AccountingCalculations.equivalent(
@@ -5277,7 +5277,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
             end: end,
             hourlyRate: type == 'equivalent_hybrid' ? hybridDieselRate : thirdRate,
             allowMidnightCrossing:
-                settings['allow_midnight_crossing'] == 'true',
+                (settings['allow_midnight_crossing'] ?? 'true') == 'true',
             rounding: settings['rounding'] ?? 'nearest',
             partialHour: settings['partial_hour'] != 'false',
           );
@@ -16809,9 +16809,9 @@ class _SettingsState extends State<SettingsPage> {
     );
   }
 
-  Widget boolTile(String k, String label) => SwitchListTile.adaptive(
+  Widget boolTile(String k, String label, {bool defaultValue = false}) => SwitchListTile.adaptive(
     title: Text(label),
-    value: (s[k] ?? 'false') == 'true',
+    value: (s[k] ?? (defaultValue ? 'true' : 'false')) == 'true',
     onChanged: (v) async {
       if (!await runGuarded(
         context,
@@ -16962,9 +16962,7 @@ class _SettingsState extends State<SettingsPage> {
               setTile('phone', 'الهاتف'),
               setTile('currency', 'العملة'),
               setTile('timezone', 'المنطقة الزمنية'),
-              setTile('app_name', 'اسم التطبيق'),
               _imageSettingTile('station_logo_path', 'شعار المحطة', Icons.image_outlined),
-              _imageSettingTile('app_icon_path', 'أيقونة التطبيق', Icons.app_registration_rounded),
             ],
           ),
           SettingGroup(
@@ -17046,7 +17044,7 @@ class _SettingsState extends State<SettingsPage> {
                 MapEntry('postpone', 'نقل لآخر الدور'),
                 MapEntry('cancel', 'إزالة من الدور'),
               ]),
-              boolTile('allow_midnight_crossing', 'السماح بعبور منتصف الليل'),
+              boolTile('allow_midnight_crossing', 'السماح بعبور منتصف الليل', defaultValue: true),
             ],
           ),
           SettingGroup(
