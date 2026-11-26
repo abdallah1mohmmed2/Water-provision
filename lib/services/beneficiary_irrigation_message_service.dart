@@ -72,7 +72,7 @@ class BeneficiaryIrrigationMessageService {
     String money(int amount) => '$amount ريال';
     String partyBalanceText(int amount) => amount == 0
         ? 'متوازن (0 ريال)'
-        : (amount > 0 ? 'له ' : 'عليه ') + amount.abs().toString() + ' ريال';
+        : '${amount > 0 ? 'له' : 'عليه'} ${amount.abs()} ريال';
     final text = MessageTemplateService.render(
       settings[MessageTemplateService.irrigationKey],
       MessageTemplateService.irrigationKey,
@@ -86,7 +86,7 @@ class BeneficiaryIrrigationMessageService {
         'المبلغ المدفوع': money(paid),
         'المتبقي من السقاية': money(total - paid),
         // Balance is reconstructed from the current balance and this irrigation's net effect.
-        'الرصيد السابق': previousBalance == null ? 'غير محفوظ لهذه السقاية' : partyBalanceText(previousBalance),
+        'الرصيد السابق': partyBalanceText(previousBalance),
         'الرصيد الحالي': balance == 0 ? 'متوازن (0 ريال)'
           : '${balance > 0 ? (partyType == 'beneficiary' ? 'عليه' : 'له') : (partyType == 'beneficiary' ? 'له' : 'عليه')} ${balance.abs()} ريال',
         'رقم العملية': '$irrigationId',
