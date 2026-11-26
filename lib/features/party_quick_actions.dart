@@ -45,8 +45,8 @@ Future<void> showPartyPdfChoices(
             Text(name, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             for (final report in hybridSystem
-                ? ['solar_irrigations', 'diesel_irrigations', 'statement', if (dieselEnabled) 'diesel']
-                : ['irrigations', 'statement', if (dieselEnabled) 'diesel'])
+                ? ['solar_irrigations', 'diesel_irrigations', 'statement', if (dieselEnabled) 'diesel', 'deliveries']
+                : ['irrigations', 'statement', if (dieselEnabled) 'diesel', 'deliveries'])
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: ReportPdfLongPress(
@@ -57,6 +57,7 @@ Future<void> showPartyPdfChoices(
                     icon: Icon(switch (report) {
                       'irrigations' || 'solar_irrigations' || 'diesel_irrigations' => Icons.water_drop_outlined,
                       'diesel' => Icons.local_gas_station_outlined,
+                      'deliveries' => Icons.swap_horiz_rounded,
                       _ => Icons.receipt_long_outlined,
                     }),
                     label: Text(switch (report) {
@@ -64,6 +65,7 @@ Future<void> showPartyPdfChoices(
                       'solar_irrigations' => 'السقايات الشمسية لهذا الشخص',
                       'diesel_irrigations' => 'سقايات الديزل لهذا الشخص',
                       'diesel' => 'المسلّم والمستهلك والمتبقي من الديزل',
+                      'deliveries' => 'تقرير المسلّمات والمستلمات لهذا الشخص',
                       _ => 'كشف حساب هذا الشخص',
                     }),
                   ),
@@ -109,6 +111,10 @@ class PartyQuickActions extends StatelessWidget {
         partyId: partyId,
         source: report == 'solar_irrigations' ? 'solar' : 'diesel',
       );
+    }
+    if (report == 'deliveries') {
+      return ReportService(repository).printPartyDeliveryReceiptPdf(
+        partyType: partyType, partyId: partyId);
     }
     if (report == 'diesel') {
       return ReportService(repository).printPartyDieselPdf(
