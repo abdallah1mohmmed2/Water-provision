@@ -106,7 +106,7 @@ class ReportService {
   'beneficiary_stats': ['name', 'irrigations', 'minutes', 'total'],
   'needy': ['name', 'balance'],
   'diesel_inventory': ['date', 'kind', 'liters', 'amount', 'beneficiary_name'],
-  'activity_overview': ['system_type', 'operations', 'minutes', 'total'],
+  'activity_overview': ['system_type', 'operations', 'minutes', 'total', 'diesel_cost'],
   'oil_status': ['category', 'total'],
   'debts': ['id', 'name', 'balance'],
   'all_party_debts': ['party_type', 'name', 'balance'],
