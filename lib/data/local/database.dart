@@ -31,7 +31,7 @@ class AppDatabase {
     final path = p.join(dir, 'saqia_station_v2.db');
     _db = await openDatabase(
       path,
-      version: 38,
+      version: 39,
       // المفاتيح الأجنبية تُعطَّل أثناء الإنشاء/الترقية لأن SQLite لا يسمح بتغيير
       // PRAGMA foreign_keys داخل معاملة الترقية، وتُفعَّل في onOpen بعد انتهائها.
       onConfigure: (d) async => d.execute('PRAGMA foreign_keys=OFF'),
@@ -258,6 +258,14 @@ class AppDatabase {
       final columns = await d.rawQuery('PRAGMA table_info(workers)');
       if (!columns.any((row) => row['name'] == 'source_affiliation')) await d.execute("ALTER TABLE workers ADD COLUMN source_affiliation TEXT NOT NULL DEFAULT 'shared'");
       await d.execute("UPDATE workers SET source_affiliation='shared' WHERE source_affiliation IS NULL OR source_affiliation NOT IN ('solar','diesel','shared')");
+    }
+    if (oldV < 39) {
+      // Previous false was the legacy default, so enable crossing once on upgrade.
+      await d.update('settings', {'value': 'true'}, where: "key='allow_midnight_crossing' AND value='false'");
+      final stationSettings = await d.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='station_settings'");
+      if (stationSettings.isNotEmpty) {
+        await d.update('station_settings', {'value': 'true'}, where: "key='allow_midnight_crossing' AND value='false'");
+      }
     }
     if (oldV < 38) {
       final columns = await d.rawQuery('PRAGMA table_info(expenses)');
@@ -827,7 +835,7 @@ class AppDatabase {
       'min_wait_days': '3',
       'manager_override_required': 'true',
       'absence_policy': 'keep_order',
-      'allow_midnight_crossing': 'false',
+      'allow_midnight_crossing': 'true',
       'diesel_warning_percent': '20',
       'diesel_warning_snoozed_until': '',
       'diesel_tank_capacity_liters': '0',
