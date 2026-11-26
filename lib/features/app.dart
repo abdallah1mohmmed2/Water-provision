@@ -12472,7 +12472,10 @@ class _HybridSystemComparisonReportPageState extends State<HybridSystemCompariso
   String _period() => '${widget.from == null ? 'من البداية' : DateFormat('yyyy/MM/dd').format(widget.from!)} — ${widget.to == null ? 'حتى الآن' : DateFormat('yyyy/MM/dd').format(widget.to!)}';
   Map<String, Object?>? get current {
     final key = tabs[selectedTab];
-    return rows.where((r) => '${r['system_type']}' == key).cast<Map<String, Object?>>().firstOrNull;
+    for (final row in rows) {
+      if ('${row['system_type']}' == key) return row;
+    }
+    return null;
   }
   Future<void> _pdf() async {
     try {
