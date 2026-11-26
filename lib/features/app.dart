@@ -6526,6 +6526,7 @@ int? parseClock(String raw) {
       // تُهيّأ فترة النهاية فقط، ويظل زر البداية على حالته السابقة حتى dispose.
       endPeriod = end.hour < 12 ? 'am' : 'pm';
       timeStep = 0;
+      minuteDiscount = 0;
       paid.text = '0';
       cloudPeriods.clear();
       quickCloudMode = false;
