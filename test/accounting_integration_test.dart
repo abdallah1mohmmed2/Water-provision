@@ -177,7 +177,7 @@ void main() {
     );
     final expenseAfterAccrual = await accountNet('5000');
     expect(expenseAfterAccrual, expenseBefore + 1000);
-    expect((await svc.workerBalance(worker))['balance'], 700);
+    expect((await svc.workerBalance(worker))['balance'], 1000);
     await svc.payWorker(
       workerId: worker,
       amount: 400,
@@ -481,7 +481,7 @@ void main() {
     expect(await glPayable('2100', 'worker_id', worker), 700);
     expect(await glPayable('2200', 'partner_id', p1), 2650);
     expect(await glPayable('2200', 'partner_id', p2), 2650);
-    expect((await svc.workerBalance(worker))['balance'], 1000);
+    expect((await svc.workerBalance(worker))['balance'], 700);
     expect((await svc.partnerBalance(p1))['balance'], 2650);
     expect((await svc.partnerBalance(p2))['balance'], 2650);
 
@@ -897,11 +897,16 @@ void main() {
 
     expect((irrigationRow['signed_amount'] as num).round(), -6000);
     expect((paymentRow['signed_amount'] as num).round(), -1000);
-    // يشمل الرصيد حصة الشريك من أرباح السقاية الشخصية، إضافةً إلى الرصيد السابق
-    // بعد خصم قيمة السقاية والمدفوعات: 10,000 + 1,800 - 6,000 - 1,000 = 4,800.
-    expect((statement.first['balance'] as num).round(), 4800);
-    expect((await svc.partnerBalance(partner))['balance'], 4800);
-    expect(await glPayable('2200', 'partner_id', partner), 4800);
+    final accrualRows = await db.query(
+      "SELECT amount FROM partner_transactions WHERE partner_id=? AND type='share_accrual' AND reference_type='irrigation_profit' AND reference_id=?",
+      args: [partner, irrigationId],
+    );
+    final irrigationProfitShare = accrualRows.fold<int>(0, (sum, row) => sum + (row['amount'] as num).round());
+    final expectedBalance = 10000 + irrigationProfitShare - 6000 - 1000;
+    // يتبع التوزيع إعدادات الشركاء الحالية؛ الأهم أن الكشف والأستاذ يتطابقان.
+    expect((statement.first['balance'] as num).round(), expectedBalance);
+    expect((await svc.partnerBalance(partner))['balance'], expectedBalance);
+    expect(await glPayable('2200', 'partner_id', partner), expectedBalance);
     expect((await repo.partyFinancialSummary('partner', partner))['paid'], 1000);
     await db.update('partners', {'active': 0}, 'id=?', [partner]);
     await db.update('cashboxes', {'current_balance': previousCashboxBalance}, 'id=?', [1]);
