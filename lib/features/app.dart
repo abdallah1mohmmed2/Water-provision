@@ -4937,6 +4937,7 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
   // لا يُحدَّد زر فترة البداية عند فتح الشاشة؛ يبقى الاختيار محفوظاً حتى dispose.
   bool isStartSelected = false;
   int timeStep = 0;
+  int minuteDiscount = 0;
   bool managerOverride = false,
       loading = true,
       saved = false,
@@ -5199,7 +5200,9 @@ class _NewIrrigationState extends State<NewIrrigationPage> {
     await _reloadParty();
   }
 
-  int get minutes => end.difference(start).inMinutes;
+  int get runtimeMinutes => end.difference(start).inMinutes;
+  int get minutes => (runtimeMinutes - minuteDiscount).clamp(0, runtimeMinutes);
+  DateTime get discountedEnd => end.subtract(Duration(minutes: minuteDiscount));
   int get cloudMin => quickCloudMode
       ? (int.tryParse(cloudQuickController.text.trim()) ?? 0)
       : cloudPeriods.fold<int>(
@@ -6136,6 +6139,11 @@ int? parseClock(String raw) {
                       icon: const Icon(Icons.av_timer),
                       label: Text('نهاية التشغيل: ${_hm12Label(end)}'),
                     ),
+                    if (settings['irrigation_minute_discount_enabled'] == 'true') ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(onPressed: _setMinuteDiscount, icon: const Icon(Icons.remove_circle_outline),
+                        label: Text(minuteDiscount > 0 ? 'خصم دقائق ($minuteDiscount) • النهاية ${_hm12Label(discountedEnd)}' : 'خصم دقائق')),
+                    ],
                     if (type != 'diesel' && (type != 'equivalent_hybrid' || hybridSource == 'solar')) ...[
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
@@ -6186,6 +6194,7 @@ int? parseClock(String raw) {
                     selectedDate = DateTime(previousEnd.year, previousEnd.month, previousEnd.day);
                     start = previousEnd;
                     end = start.add(const Duration(hours: 1));
+                    minuteDiscount = 0;
                     startTimeController.text = _hm12(start);
                     endTimeController.text = _hm12(end);
                     bid = null;
@@ -6199,6 +6208,7 @@ int? parseClock(String raw) {
                     search = '';
                     searchController.clear();
                     paid.text = '0';
+                    minuteDiscount = 0;
                     reason.clear();
                     cloudPeriods.clear();
                     cloudQuickController.clear();
@@ -6227,6 +6237,27 @@ int? parseClock(String raw) {
     );
   }
 
+  Future<void> _setMinuteDiscount() async {
+    if (settings['irrigation_minute_discount_enabled'] != 'true') return;
+    final controller = TextEditingController(text: '$minuteDiscount');
+    final value = await showDialog<int>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('خصم دقائق من السقاية'),
+        content: TextField(controller: controller, autofocus: true, keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'إجمالي دقائق الخصم', hintText: 'مثال: 5')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(d, int.tryParse(controller.text.trim())), child: const Text('اعتماد الخصم')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (!mounted || value == null) return;
+    if (value < 0 || value >= runtimeMinutes) { msg('الخصم يجب أن يكون صفرًا أو أكبر وأقل من مدة التشغيل'); return; }
+    setState(() => minuteDiscount = value);
+  }
+
   Future<void> save({bool keepQuickForm = false}) async {
     if (_initialPartyError != null) {
       msg(_initialPartyError!);
@@ -6243,8 +6274,8 @@ int? parseClock(String raw) {
       msg('يجب اختيار صاحب الحساب والمضخة');
       return;
     }
-    if (minutes <= 0) {
-      msg('وقت النهاية يجب أن يكون بعد وقت البداية');
+    if (runtimeMinutes <= 0 || minutes <= 0) {
+      msg('وقت النهاية يجب أن يكون بعد وقت البداية، والخصم لا يجوز أن يلغي المدة');
       return;
     }
     if (type == 'equivalent_hybrid' && hybridSource == null) {
@@ -6303,6 +6334,8 @@ int? parseClock(String raw) {
         partyType,
         recipientId!,
       );
+      final actualEnd = end;
+      final effectiveEnd = discountedEnd;
       final irrigationId = await widget.r.accounting.recordIrrigation(
         stationId: stationId,
         pumpId: pumpId!,
@@ -6312,7 +6345,8 @@ int? parseClock(String raw) {
         partnerId: partyType == 'partner' ? partnerId : null,
         partyType: partyType,
         start: start,
-        end: end,
+        end: effectiveEnd,
+        actualRuntimeMinutes: runtimeMinutes,
         systemType: type,
         waterRate: waterRate,
         litersPerHour: liters,
@@ -6321,6 +6355,7 @@ int? parseClock(String raw) {
         thirdRate: thirdRate,
         hybridSource: type == 'equivalent_hybrid' ? hybridSource : null,
         cloudMinutes: cloudMin,
+        minuteDiscount: minuteDiscount,
         cloudPeriods: cloudPeriods
             .map(
               (p) => {
@@ -6340,7 +6375,7 @@ int? parseClock(String raw) {
         overrideReason: reason.text,
       );
       // لا ننقل الوقت إلا بعد نجاح حفظ السقاية والقيد المحاسبي.
-      nextStartFromPreviousEnd = end;
+      nextStartFromPreviousEnd = effectiveEnd;
       if (mounted) setState(() => saved = true);
       msg('تم حفظ السقاية والقيد المحاسبي بنجاح');
       await _refreshAfterSave();
@@ -17005,6 +17040,7 @@ class _SettingsState extends State<SettingsPage> {
                   child: Text('زر فارق العمل يحدّد سعر السقايات الجديدة فقط: عند التفعيل تُحفظ فاتورة المستفيد بسعر الدقيقة الخاص، بينما يبقى أساس أرباح الشركاء والعمال بسعر الساعة العام. عند الإيقاف تُحفظ الفاتورة بالسعر العام. خيار العرض الثاني مستقل للتقارير، وكشف المستفيد يعرض سعر الدقيقة الخاص دائمًا. السقايات السابقة لا يعاد تسعيرها أو تعديل قيودها.', style: TextStyle(fontSize: 12, height: 1.5)),
                 ),
               ],
+              boolTile('irrigation_minute_discount_enabled', 'إظهار زر خصم دقائق السقاية', defaultValue: false),
               boolTile('partial_hour', 'محاسبة الجزء من الساعة'),
               dropdownTile('rounding', 'سياسة التقريب', const [
                 MapEntry('nearest', 'التقريب إلى أقرب عدد صحيح'),
