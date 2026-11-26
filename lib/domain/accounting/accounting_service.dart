@@ -1460,7 +1460,7 @@ class AccountingService {
         'date': start.toIso8601String().substring(0, 10),
         'start_datetime': start.toIso8601String(),
         'end_datetime': endDt.toIso8601String(),
-        'minutes': runtimeMinutes,
+        'minutes': calc.minutes,
         'system_type': effectiveType,
         'hybrid_source': effectiveType == 'equivalent_hybrid' ? hybridSource : null,
         'hybrid_diesel_hourly_rate_snapshot': effectiveType == 'equivalent_hybrid' && hybridSource == 'diesel' ? effectiveHybridDieselRate : 0,
