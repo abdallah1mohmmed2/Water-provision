@@ -821,6 +821,13 @@ void main() {
     final worker = await repo.createWorker(name: 'عامل مصروف رسالة', payType: 'fixed');
     final partner = await repo.createPartner(name: 'شريك مصروف رسالة', mode: 'shares', shares: 1);
     final date = DateTime(2045, 2, 3);
+    // الأرباح/الاستحقاقات موجودة في الحساب الرسمي، لكنها لا تظهر في الرسائل.
+    await svc.createWorkerAccrual(
+      workerId: worker, amount: 1000, date: date,
+    );
+    await svc.createPartnerShare(
+      partnerId: partner, amount: 1200, date: date,
+    );
     final workerExpenseId = await svc.addExpense(
       category: 'maintenance',
       title: 'مصروف مرتبط بالعامل',
@@ -843,9 +850,9 @@ void main() {
       partyType: 'worker', partyId: worker), -300);
     expect(await svc.partyOperationalMessageBalance(
       partyType: 'partner', partyId: partner), -450);
-    // رصيد الأستاذ الرسمي لا يتغير بسبب حساب الرسالة المخصص.
-    expect((await svc.workerBalance(worker))['balance'], 0);
-    expect((await svc.partnerBalance(partner))['balance'], -450);
+    // الرسالة تستبعد استحقاق العامل وحصة الشريك، وتخصم مصروف كل طرف.
+    expect((await svc.workerBalance(worker))['balance'], 700);
+    expect((await svc.partnerBalance(partner))['balance'], 750);
     // Keep the shared integration-test database isolated for following tests.
     await svc.cancelExpense(workerExpenseId, 1, 'تنظيف مصروف الاختبار');
     await svc.cancelExpense(partnerExpenseId, 1, 'تنظيف مصروف الاختبار');
