@@ -3272,4 +3272,108 @@ void main() {
     }
   });
 
+
+  test('استحقاق النوع الثالث اليدوي والراتب الثابت والدفعة يحافظون على حساب المصدر', () async {
+    final keys = ['system_type'];
+    final previous = <String, String>{};
+    for (final key in keys) {
+      final rows = await db.query('SELECT value FROM settings WHERE key=?', args: [key]);
+      previous[key] = rows.isEmpty ? '' : '${rows.first['value']}';
+    }
+    try {
+      await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
+      await db.update('workers', {'active': 0}, 'id>? ', [0]);
+      final repo = StationRepository(db);
+      final solar = await repo.createWorker(name: 'راتب شمسي مصدر', payType: 'fixed', fixedSalary: 1000, sourceAffiliation: 'solar');
+      final diesel = await repo.createWorker(name: 'راتب ديزل مصدر', payType: 'fixed', fixedSalary: 1000, sourceAffiliation: 'diesel');
+      final shared = await repo.createWorker(name: 'راتب مشترك مصدر', payType: 'fixed', fixedSalary: 1000, sourceAffiliation: 'shared');
+      final beforeSolar = await accountNet('5040');
+      final beforeDiesel = await accountNet('5050');
+      final beforeShared = await accountNet('5000');
+
+      await svc.accrueMonthlySalaries(month: DateTime(2051, 2, 1));
+      await svc.createWorkerAccrualBatch(
+        amounts: {solar: 200, diesel: 200, shared: 200},
+        from: DateTime(2051, 3, 1),
+        to: DateTime(2051, 3, 31),
+        date: DateTime(2051, 3, 31),
+        periodKey: 'P3CTEST205103',
+        periodLabel: 'مارس 2051',
+      );
+      await svc.createWorkerAccrual(
+        workerId: solar,
+        amount: 50,
+        date: DateTime(2051, 4, 1),
+        memo: 'استحقاق يدوي للاختبار',
+      );
+
+      expect((await accountNet('5040')) - beforeSolar, 1250);
+      expect((await accountNet('5050')) - beforeDiesel, 1200);
+      expect((await accountNet('5000')) - beforeShared, 1200);
+
+      final cashBefore = await cashboxBalance(1);
+      final solarExpenseBeforePayment = await accountNet('5040');
+      await svc.payWorker(
+        workerId: solar,
+        amount: 400,
+        paymentMethodId: 1,
+        cashboxId: 1,
+      );
+      expect(await cashboxBalance(1), cashBefore - 400);
+      expect(await accountNet('5040'), solarExpenseBeforePayment);
+      expect((await svc.workerBalance(solar))['balance'], 850);
+    } finally {
+      if (previous['system_type']!.isNotEmpty) {
+        await db.update('settings', {'value': previous['system_type']}, 'key=?', ['system_type']);
+      }
+    }
+  });
+
+  test('عكس استحقاق السقاية يستخدم حساب المصروف الأصلي بعد تغيير مصدر العامل', () async {
+    final rows = await db.query("SELECT value FROM settings WHERE key='system_type'");
+    final previous = rows.isEmpty ? '' : '${rows.first['value']}';
+    try {
+      await db.update('settings', {'value': 'equivalent_hybrid'}, 'key=?', ['system_type']);
+      await db.update('workers', {'active': 0}, 'id>? ', [0]);
+      await db.update('partners', {'active': 0}, 'id>? ', [0]);
+      final repo = StationRepository(db);
+      final worker = await repo.createWorker(
+        name: 'عامل يتغير مصدره بعد الاستحقاق',
+        payType: 'hourly',
+        hourlyRate: 700,
+        sourceAffiliation: 'solar',
+      );
+      final beneficiary = await repo.createBeneficiary(name: 'مستفيد اختبار عكس المصدر');
+      final solarBefore = await accountNet('5040');
+      final dieselBefore = await accountNet('5050');
+      final start = DateTime(2052, 7, 12, 8);
+      final irrigationId = await svc.recordIrrigation(
+        stationId: 1,
+        pumpId: 1,
+        beneficiaryId: beneficiary,
+        start: start,
+        end: start.add(const Duration(hours: 1)),
+        systemType: 'equivalent_hybrid',
+        waterRate: 0,
+        litersPerHour: 0,
+        dieselPrice: 0,
+        solarRate: 0,
+        thirdRate: 0,
+        hybridSource: 'solar',
+        cloudMinutes: 0,
+        paidAmount: 0,
+      );
+      expect((await accountNet('5040')) - solarBefore, 700);
+      await repo.updateWorker(worker, {'source_affiliation': 'diesel'}, null);
+      await svc.cancelIrrigation(irrigationId, 1, 'اختبار عكس حساب المصدر التاريخي');
+      expect(await accountNet('5040'), solarBefore);
+      expect(await accountNet('5050'), dieselBefore);
+      expect((await svc.workerBalance(worker))['balance'], 0);
+    } finally {
+      if (previous.isNotEmpty) {
+        await db.update('settings', {'value': previous}, 'key=?', ['system_type']);
+      }
+    }
+  });
+
 }
