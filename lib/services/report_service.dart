@@ -206,7 +206,7 @@ class ReportService {
     final dateFrom = from == null ? null : DateFormat('yyyy-MM-dd').format(from);
     final dateTo = to == null ? null : DateFormat('yyyy-MM-dd').format(to);
     final payments = await repo.db.rawQuery(
-      """SELECT p.id,p.date,p.amount,p.currency,p.reference_number,p.notes,
+      """SELECT p.id,p.date,p.amount,p.reference_number,p.notes,
                 pm.name method_name,c.name cashbox_name,
                 CASE WHEN p.beneficiary_id IS NOT NULL THEN 'قبض من الشخص'
                      ELSE 'دفع للشخص' END movement
@@ -238,7 +238,7 @@ class ReportService {
           'movement': row['movement'], 'title': 'سند قبض/صرف',
           'notes': row['notes'], 'reference': row['reference_number'],
           'method': row['method_name'], 'cashbox': row['cashbox_name'],
-          'currency': row['currency'] ?? '',
+          'currency': '',
         },
       for (final row in expenses)
         <String, Object?>{
