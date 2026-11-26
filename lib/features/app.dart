@@ -5994,6 +5994,7 @@ int? parseClock(String raw) {
                 endTimeController.text = _hm12(end);
               }
               timeStep = 2;
+              minuteDiscount = 0; // تغيير أوقات التشغيل يلغي خصم الدقائق السابق.
               cloudPeriods.removeWhere((p) => p['start']!.isBefore(start) || p['end']!.isAfter(end));
             });
             dialogSetState(() {});
