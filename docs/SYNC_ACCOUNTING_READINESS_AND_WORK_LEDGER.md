@@ -1394,3 +1394,5 @@ Files repaired: `server/lib/server.dart` (child projection operation), `server/t
 - Commits على نفس الفرع `feature/app-audio-system`: `d74df202ad5c499e69b4fd6312a7c96fab1ac611` (pacing/trim) و`e7f731006e188df8bbb4fb53c52a0a3704ed940f` (انتظار seek قبل start)، ثم `0b5b00b1e6adb161576dc3bb55bb89302c2b6e59` (تحديث توثيق النطق).
 - ملفات: `MainActivity.kt` و`docs/irrigation-time-voice.md` وهذا السجل. لا تغيير بالترتيب أو الحساب أو البيانات أو قاعدة البيانات.
 - **CI/الاستماع الفعلي:** لا نتائج نهائية بعد لهذه التعديلات. يلزم Flutter Analyze/Tests/Android build على SHA الأحدث، وتجربة الجهاز للتأكد من عدم قص نهاية الكلام وأن الإيقاع طبيعي؛ لا اعتماد قبلها.
+
+- ضبط إضافي بعد مراجعة مقدمة المقاطع: خفض تجاوز البداية إلى 120ms (بدل 170ms) لتجنب قص بداية النطق، والتشغيل يبدأ بعد callback إكمال seek. Commit: `a3def53828ef050bdb3f9dc2d8d87dfd707a308e`; توثيق ذلك commit `8896c61561cf177b2e633f2ab4924aaed387df1a`. CI ما زال ينتظر SHA الأخير.
