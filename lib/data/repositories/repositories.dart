@@ -3001,7 +3001,10 @@ class StationRepository {
       case 'monthly_financial':
         {
           final stationId = await accounting.currentStationId();
-          final queryArgs = <Object?>[stationId, ...args];
+          // SQL placeholder order: station context, scoped expense date range,
+          // irrigation filters in months CTE, month expense date filters, then
+          // the same irrigation filters in month_income CTE.
+          final queryArgs = <Object?>[stationId];
           final scopedExpenseFilters = <String>[];
           if (from != null) {
             scopedExpenseFilters.add('e.date>=?');
@@ -3028,6 +3031,9 @@ class StationRepository {
           final expenseMonthWhere = expenseMonthFilters.isEmpty
               ? ''
               : ' AND ${expenseMonthFilters.join(' AND ')}';
+          queryArgs.addAll(args);
+          queryArgs.addAll(expenseMonthFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
+          queryArgs.addAll(args);
           return db.rawQuery(
             '''WITH station_context AS (SELECT ? AS station_id),
               scoped_irrigations AS (
