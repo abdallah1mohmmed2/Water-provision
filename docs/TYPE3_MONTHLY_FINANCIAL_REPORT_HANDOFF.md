@@ -188,3 +188,5 @@
 - [x] الأنواع الأخرى تبقى على استعلامها وأعمدتها السابقة.
 - Commits: Query `22a3b99fc731c2d12cf3aad9f9008396bed6e161`; PDF `720798e4e97d694a908115bac22263bfa56f8052`; header correction `219a3806b7260bbff9e13ec57bff6d6dfcad9190`; exclude legacy unknown source `ba2698e898fbed8256b42a6d71dd14db1d7426da`; numeric formatting `deeb3348395bade0ee983300071aa65a3082beca`.
 - [ ] Flutter Analyze, tests, APK build and PDF visual validation are pending CI.
+
+- CI catch-and-fix: the first PDF implementation had a malformed header ternary and duplicate `pageFormat` argument. GitHub Analyze caught these compile errors. The header mapping was corrected in `219a3806`; page orientation was corrected in `b1f3934f` by combining the hybrid report's landscape condition into the existing orientation expression. Recheck CI on the latest commit.
