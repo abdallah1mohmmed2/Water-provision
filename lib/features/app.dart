@@ -10077,6 +10077,8 @@ class _ExpensesState extends State<ExpensesPage> {
     super.dispose();
   }
 
+  String _expenseSystemName(Object? value) => switch (value) { 'solar' => 'شمسي مباشر', 'diesel' => 'ديزل مباشر', _ => 'مشترك' };
+
   Future<void> _loadHybridStationType() async {
     final settings = await widget.r.settings();
     if (mounted) setState(() => hybridSystem = settings['system_type'] == 'equivalent_hybrid');
@@ -10304,7 +10306,7 @@ class _ExpensesState extends State<ExpensesPage> {
                 child: ListTile(
                   title: Text('${x['title']}'),
                   subtitle: Text(
-                    '${categoryName('${x['category']}')} • ${x['date']} • '
+                    '${categoryName('${x['category']}')} • ${x['date']} • ${hybridSystem ? '${_expenseSystemName(x['expense_system_type'])} • ' : ''}'
                     '${partnerId == null ? 'مصروف عام' : 'خاص بالشريك: $partnerName'} • '
                     '${statusName(x['status'])}',
                   ),
