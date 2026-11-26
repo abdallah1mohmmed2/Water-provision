@@ -4384,6 +4384,7 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   @override
   void initState() {
     super.initState();
+    _loadHybridStationType();
     if (widget.compactOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
@@ -10033,6 +10034,7 @@ class _ExpensesState extends State<ExpensesPage> {
   Timer? _searchDebounce;
   int _searchGeneration = 0;
   List<Map<String, Object?>> cash = [], methods = [], partners = [];
+  bool hybridSystem = false;
   String q = '';
   Future<void> load() async {
     final generation = ++_searchGeneration;
@@ -10074,9 +10076,15 @@ class _ExpensesState extends State<ExpensesPage> {
     super.dispose();
   }
 
+  Future<void> _loadHybridStationType() async {
+    final settings = await widget.r.settings();
+    if (mounted) setState(() => hybridSystem = settings['system_type'] == 'equivalent_hybrid');
+  }
+
   Future<void> add() async {
     String cat = 'other';
     String scope = 'general';
+    String expenseSystemType = 'shared';
     int? selectedPartnerId;
     int? pm = methods.isEmpty ? null : methods.first['id'] as int;
     int? cb = cashboxForMethod(methods, cash, pm, null);
@@ -10092,6 +10100,17 @@ class _ExpensesState extends State<ExpensesPage> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (hybridSystem)
+                DropdownButtonFormField<String>(
+                  initialValue: expenseSystemType,
+                  decoration: const InputDecoration(labelText: 'النظام الذي يتحمل المصروف'),
+                  items: const [
+                    DropdownMenuItem(value: 'solar', child: Text('شمسي مباشر')),
+                    DropdownMenuItem(value: 'diesel', child: Text('ديزل مباشر')),
+                    DropdownMenuItem(value: 'shared', child: Text('مشترك — يوزع حسب الإيرادات الشهرية')),
+                  ],
+                  onChanged: (v) => s(() => expenseSystemType = v ?? 'shared'),
+                ),
               DropdownButtonFormField<String>(
                 initialValue: scope,
                 decoration: const InputDecoration(labelText: 'نوع المصروف'),
@@ -10198,6 +10217,7 @@ class _ExpensesState extends State<ExpensesPage> {
           partnerId: scope == 'partner' ? selectedPartnerId : null,
           userId: widget.userId,
           notes: note.text,
+          expenseSystemType: hybridSystem ? expenseSystemType : 'shared',
         );
         await load();
       } catch (e) {
