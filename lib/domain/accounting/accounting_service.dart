@@ -1261,7 +1261,7 @@ class AccountingService {
         if (ps == null || pe == null || !pe.isAfter(ps)) {
           throw ArgumentError('فترة الغيم يجب أن تحتوي وقت بداية ونهاية صحيحين');
         }
-        if (ps.isBefore(start) || pe.isAfter(runtimeEndDt)) {
+        if (ps.isBefore(start) || pe.isAfter(endDt)) {
           throw ArgumentError('فترة الغيم يجب أن تقع داخل وقت السقاية');
         }
         parsed.add({'start': ps, 'end': pe, 'minutes': pe.difference(ps).inMinutes});
