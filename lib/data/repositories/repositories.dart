@@ -3033,6 +3033,10 @@ class StationRepository {
               : ' AND ${expenseMonthFilters.join(' AND ')}';
           queryArgs.addAll(args);
           queryArgs.addAll(expenseMonthFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
+          // Apply the exact same date, beneficiary, and system filters to the
+          // income aggregation; otherwise a partial-month report allocates shared
+          // expenses using revenue outside the selected range.
+          final monthIncomeWhere = iw.replaceAll('i.', 'x.');
           queryArgs.addAll(args);
           return db.rawQuery(
             '''WITH station_context AS (SELECT ? AS station_id),
@@ -3058,7 +3062,7 @@ class StationRepository {
                   SUM(CASE WHEN x.hybrid_source='diesel' THEN x.total_amount ELSE 0 END) diesel_income,
                   SUM(CASE WHEN x.hybrid_source IS NULL OR x.hybrid_source NOT IN ('solar','diesel') THEN x.total_amount ELSE 0 END) unknown_income,
                   SUM(x.total_amount) income
-                FROM scoped_irrigations x WHERE x.status!='cancelled' GROUP BY substr(x.date,1,7)
+                FROM scoped_irrigations x WHERE $monthIncomeWhere GROUP BY substr(x.date,1,7)
               ),
               month_expenses AS (
                 SELECT substr(e.date,1,7) month, SUM(e.amount) expenses,
