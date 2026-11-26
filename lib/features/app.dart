@@ -3959,8 +3959,8 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                     dieselEnabled: const {'diesel', 'equivalent_hybrid'}
                         .contains(currentSettings['system_type'] ?? 'diesel'),
                     hybridSystem: currentSettings['system_type'] == 'equivalent_hybrid',
-                    generate: (report) => report == 'deliveries'
-                      ? ReportService(widget.r).printPartyDeliveryReceiptPdf(
+                    generate: (report) => report == 'cash_movements'
+                      ? ReportService(widget.r).printPartyCashMovementsPdf(
                           partyType: widget.kind, partyId: widget.id,
                           from: filterFrom, to: filterTo)
                       : report == 'diesel'
