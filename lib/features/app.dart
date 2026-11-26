@@ -2289,7 +2289,7 @@ class _DashboardState extends State<DashboardPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
               children: [
-                if (systemType == 'diesel') DieselOilCard(widget.r, userId: widget.userId, role: widget.role),
+                if (const {'diesel', 'equivalent_hybrid'}.contains(systemType)) DieselOilCard(widget.r, userId: widget.userId, role: widget.role),
                 Container(
                   padding: const EdgeInsets.all(19),
                   decoration: BoxDecoration(
