@@ -3030,12 +3030,19 @@ class StationRepository {
           final paymentMonthWhere = paymentMonthFilters.isEmpty
               ? ''
               : ' AND ${paymentMonthFilters.join(' AND ')}';
+          final collectionFilters = <String>[];
+          if (from != null) collectionFilters.add('p.date>=?');
+          if (to != null) collectionFilters.add('p.date<?');
+          final collectionWhere = collectionFilters.isEmpty
+              ? ''
+              : ' AND ${collectionFilters.join(' AND ')}';
           // SQL placeholder order after the scoped expense filters:
-          // irrigation-month filter, expense-month filter, payment-month filter,
+          // irrigation month, expense month, payment month, collection dates,
           // then the repeated irrigation filter for month_income.
           queryArgs.addAll(args);
           queryArgs.addAll(expenseMonthFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
           queryArgs.addAll(paymentMonthFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
+          queryArgs.addAll(collectionFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
           // Apply the exact same date, beneficiary, and system filters to the
           // income aggregation; otherwise a partial-month report allocates shared
           // expenses using revenue outside the selected range.
@@ -3069,7 +3076,7 @@ class StationRepository {
               ),
               month_collections AS (
                 SELECT substr(p.date,1,7) month, SUM(p.amount) collections
-                FROM scoped_payments p GROUP BY substr(p.date,1,7)
+                FROM scoped_payments p WHERE 1=1${collectionWhere} GROUP BY substr(p.date,1,7)
               ),
               month_receivables AS (
                 SELECT m.month,
