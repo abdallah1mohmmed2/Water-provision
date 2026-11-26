@@ -248,20 +248,19 @@ void main() {
         )));
         await tester.tap(find.text('فتح السقاية السريعة'));
         await tester.pump();
+        if (system == 'equivalent_hybrid') {
+          // Hybrid quick irrigation must choose the source before the time form
+          // is shown. This is a required source-confirmation dialog, not a field
+          // inside the quick form (which appears only after this choice).
+          await waitFor(tester, () =>
+              find.text('مصدر تشغيل السقاية').evaluate().isNotEmpty);
+          expect(find.text('بطاقة وقت التشغيل'), findsNothing);
+          await tester.tap(find.text('شمسي'));
+          await tester.pumpAndSettle();
+        }
         await waitFor(tester, () =>
             find.text('بطاقة وقت التشغيل').evaluate().isNotEmpty);
         await tester.pumpAndSettle();
-        if (system == 'equivalent_hybrid') {
-          final sourceSelector = find.byWidgetPredicate(
-            (widget) => widget is DropdownButtonFormField<String> &&
-                widget.decoration.labelText == 'مصدر تشغيل هذه السقاية',
-          );
-          expect(sourceSelector, findsOneWidget);
-          await tester.tap(sourceSelector);
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('طاقة شمسية').last);
-          await tester.pumpAndSettle();
-        }
         await tester.tap(find.textContaining('بداية التشغيل:'));
         await tester.pumpAndSettle();
         final startPicker = find.byKey(const ValueKey('quick-time-picker-start'));
