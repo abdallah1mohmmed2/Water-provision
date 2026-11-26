@@ -1975,6 +1975,9 @@ class AccountingService {
     if (amount <= 0) {
       throw ArgumentError('قيمة المصروف يجب أن تكون أكبر من صفر');
     }
+    if (!const ['solar','diesel','shared'].contains(expenseSystemType)) {
+      throw ArgumentError('تصنيف النظام للمصروف غير صالح');
+    }
     // رواتب وأجور العاملين تُسجل من سجل العامل كاستحقاق ثم تُسوّى بالدفع.
     // منع تسجيلها كمصروف نقدي عام يحمي من احتساب الأجر مرتين.
     if (partnerId == null && category == 'workers') {
