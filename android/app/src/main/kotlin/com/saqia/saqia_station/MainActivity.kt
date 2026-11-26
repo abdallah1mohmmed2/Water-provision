@@ -11,6 +11,8 @@ import android.provider.ContactsContract
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -22,6 +24,32 @@ class MainActivity : FlutterFragmentActivity() {
     private var timeVoiceSequence = 0
     private var irrigationAudioPlayer: MediaPlayer? = null
     private val irrigationAudioQueue = mutableListOf<File>()
+    private val irrigationAudioHandler = Handler(Looper.getMainLooper())
+    private var irrigationAudioTrimRunnable: Runnable? = null
+
+    // Measured audible-end positions (ms) in the original MP3s, after their long trailing silence.
+    // Keep originals unchanged; trim silence at runtime to avoid awkward gaps between words.
+    private val audibleEndMs = mapOf(
+        "am" to 781, "and" to 386, "from" to 530, "to" to 416, "pm" to 843,
+        "h_1" to 1273, "h_2" to 1221, "h_3" to 1268, "h_4" to 1206,
+        "h_5" to 1299, "h_6" to 1322, "h_7" to 1225, "h_8" to 1225,
+        "h_9" to 1250, "h_10" to 1258, "h_11" to 1711, "h_12" to 1683,
+        "n_1" to 1258, "n_2" to 994, "n_3" to 1058, "n_4" to 935,
+        "n_5" to 942, "n_6" to 949, "n_7" to 950, "n_8" to 1075,
+        "n_9" to 917, "n_10" to 986, "n_11" to 1300, "n_12" to 1511,
+        "n_13" to 1454, "n_14" to 1434, "n_15" to 571, "n_16" to 1378,
+        "n_17" to 1381, "n_18" to 1523, "n_19" to 1381, "n_20" to 1162,
+        "n_21" to 1731, "n_22" to 1635, "n_23" to 1670, "n_24" to 1572,
+        "n_25" to 1608, "n_26" to 1607, "n_27" to 1591, "n_28" to 1679,
+        "n_29" to 1578, "n_30" to 711, "n_31" to 1799, "n_32" to 1694,
+        "n_33" to 1735, "n_34" to 1656, "n_35" to 1663, "n_36" to 1642,
+        "n_37" to 1688, "n_38" to 1736, "n_39" to 1643, "n_40" to 1159,
+        "n_41" to 1755, "n_42" to 1685, "n_43" to 1709, "n_44" to 1612,
+        "n_45" to 1659, "n_46" to 1627, "n_47" to 1628, "n_48" to 1705,
+        "n_49" to 1621, "n_50" to 1151, "n_51" to 1727, "n_52" to 1663,
+        "n_53" to 1656, "n_54" to 1575, "n_55" to 1615, "n_56" to 1619,
+        "n_57" to 1634, "n_58" to 1674, "n_59" to 1572
+    )
 
     private fun cachedIrrigationAudio(): File {
         val cache = File(cacheDir, "irrigation_time_audio")
@@ -47,6 +75,8 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun stopIrrigationAudio() {
+        irrigationAudioTrimRunnable?.let { irrigationAudioHandler.removeCallbacks(it) }
+        irrigationAudioTrimRunnable = null
         irrigationAudioQueue.clear()
         irrigationAudioPlayer?.let { player ->
             try { player.stop() } catch (_: Exception) { }
@@ -77,6 +107,8 @@ class MainActivity : FlutterFragmentActivity() {
         val file = irrigationAudioQueue.removeAt(0)
         val player = MediaPlayer()
         irrigationAudioPlayer = player
+        val clipId = file.nameWithoutExtension
+        val startTrimMs = 170
         var initialResultSent = false
         fun replyInitial(value: Boolean) {
             if (!initialResultSent) {
@@ -88,19 +120,49 @@ class MainActivity : FlutterFragmentActivity() {
             player.setDataSource(file.absolutePath)
             player.setOnPreparedListener {
                 try {
+                    // Skip short lead-in silence. Slightly soften connectors, and gently
+                    // speed up the number/hour clips to balance the perceived cadence.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val speed = when (clipId) {
+                            "from", "to", "and" -> 0.94f
+                            else -> if (clipId.startsWith("h_") || clipId.startsWith("n_")) 1.05f else 1.0f
+                        }
+                        it.playbackParams = it.playbackParams.setSpeed(speed)
+                    }
+                    it.seekTo(startTrimMs)
                     it.start()
                     replyInitial(true)
+                    val speed = when (clipId) {
+                        "from", "to", "and" -> 0.94f
+                        else -> if (clipId.startsWith("h_") || clipId.startsWith("n_")) 1.05f else 1.0f
+                    }
+                    val audibleEnd = audibleEndMs[clipId] ?: (it.duration - 120)
+                    val playbackMs = (((audibleEnd - startTrimMs - 70).coerceAtLeast(180)) / speed).toLong()
+                    val trim = Runnable {
+                        if (irrigationAudioPlayer === player) {
+                            try { player.stop() } catch (_: Exception) { }
+                            player.release()
+                            irrigationAudioPlayer = null
+                            playNextIrrigationClip()
+                        }
+                    }
+                    irrigationAudioTrimRunnable = trim
+                    irrigationAudioHandler.postDelayed(trim, playbackMs)
                 } catch (_: Exception) {
                     replyInitial(false)
                     stopIrrigationAudio()
                 }
             }
             player.setOnCompletionListener {
+                irrigationAudioTrimRunnable?.let { runnable -> irrigationAudioHandler.removeCallbacks(runnable) }
+                irrigationAudioTrimRunnable = null
                 it.release()
                 if (irrigationAudioPlayer === it) irrigationAudioPlayer = null
                 playNextIrrigationClip()
             }
             player.setOnErrorListener { failedPlayer, _, _ ->
+                irrigationAudioTrimRunnable?.let { runnable -> irrigationAudioHandler.removeCallbacks(runnable) }
+                irrigationAudioTrimRunnable = null
                 failedPlayer.release()
                 if (irrigationAudioPlayer === failedPlayer) irrigationAudioPlayer = null
                 if (initialResult != null && !initialResultSent) {
