@@ -6802,8 +6802,11 @@ int? parseClock(String raw) {
                   ),
                 ] else ...[
                   Text('البداية: ${_hm12Label(start)}'),
-                  Text('النهاية: ${_hm12Label(end)}'),
-                  TextButton.icon(onPressed: () => setState(() => timeStep = 0), icon: const Icon(Icons.edit), label: const Text('تعديل الوقت')),
+                  Text('النهاية: ${_hm12Label(discountedEnd)}'),
+                  if (settings['irrigation_minute_discount_enabled'] == 'true')
+                    OutlinedButton.icon(onPressed: _setMinuteDiscount, icon: const Icon(Icons.remove_circle_outline),
+                      label: Text(minuteDiscount > 0 ? 'خصم دقائق ($minuteDiscount)' : 'خصم دقائق')),
+                  TextButton.icon(onPressed: () => setState(() { timeStep = 0; minuteDiscount = 0; }), icon: const Icon(Icons.edit), label: const Text('تعديل الوقت')),
                 ],
                 if (end.year != start.year || end.month != start.month || end.day != start.day)
                   const Chip(avatar: Icon(Icons.nights_stay_outlined), label: Text('وقت النهاية في اليوم التالي')),
