@@ -3035,6 +3035,86 @@ class AccountingService {
     );
   }, captureSyncTables: const {'partner_transactions'});
 
+  /// Balance suitable for messages sent to a worker or partner.
+  /// Excludes unliquidated earnings; official balances and profit reports stay unchanged.
+  Future<int> partyOperationalMessageBalance({
+    required String partyType,
+    required int partyId,
+  }) async {
+    if (partyId <= 0 || !const {'worker', 'partner'}.contains(partyType)) {
+      throw ArgumentError('نوع الطرف أو رقمه غير صالح');
+    }
+    final stationId = await currentStationId();
+    final isWorker = partyType == 'worker';
+    final personalCode = isWorker ? '2100.W$partyId' : '2200.P$partyId';
+    final legacyCode = isWorker ? '2100' : '2200';
+    final partyColumn = isWorker ? 'worker_id' : 'partner_id';
+    final transactionTable = isWorker ? 'worker_transactions' : 'partner_transactions';
+    final partyReference = isWorker ? 'worker' : 'partner';
+    final profitTypes = isWorker
+        ? "('accrual','salary','worker_entitlement')"
+        : "('share_accrual','share_adjustment','share_adjustment_reversal')";
+    final transactionAlias = isWorker ? 'wt' : 'pt';
+    final excludedEarning = isWorker
+        ? "wt.type IN $profitTypes OR (wt.type='irrigation' AND COALESCE(wt.notes,'') LIKE 'استحقاق%')"
+        : "pt.type IN $profitTypes";
+    final rows = await database.query(
+      "SELECT COUNT(jl.id) entry_count,COALESCE(SUM(jl.credit-jl.debit),0) balance "
+      "FROM journal_lines jl JOIN journal_entries je ON je.id=jl.journal_entry_id "
+      "JOIN accounts a ON a.id=jl.account_id "
+      "WHERE je.station_id=? AND je.status='posted' "
+      "AND (a.code=? OR (a.code=? AND jl.$partyColumn=?)) "
+      "AND NOT EXISTS (SELECT 1 FROM $transactionTable $transactionAlias "
+      "WHERE $transactionAlias.$partyColumn=? AND $transactionAlias.id=CASE "
+      "WHEN je.reference_type='$partyReference' THEN je.reference_id "
+      "WHEN je.reference_type='reversal' THEN (SELECT original.reference_id "
+      "FROM journal_entries original WHERE original.id=je.reference_id "
+      "AND original.reference_type='$partyReference') ELSE NULL END "
+      "AND ($excludedEarning))",
+      args: [stationId, personalCode, legacyCode, partyId, partyId],
+    );
+    final hasLedger = ((rows.first['entry_count'] as num?)?.toInt() ?? 0) > 0;
+    var balance = (rows.first['balance'] as num?)?.round() ?? 0;
+    if (!hasLedger) {
+      final legacyRows = await database.query(transactionTable,
+        where: '$partyColumn=?', whereArgs: [partyId], orderBy: 'date,id');
+      balance = 0;
+      for (final row in legacyRows) {
+        final type = '${row['type'] ?? ''}';
+        final amount = (row['amount'] as num?)?.round() ?? 0;
+        final notes = '${row['notes'] ?? ''}';
+        if (isWorker) {
+          if (const {'accrual','salary','worker_entitlement'}.contains(type) ||
+              (type == 'irrigation' && notes.startsWith('استحقاق'))) continue;
+          balance += switch (type) {
+            'opening_balance' => amount,
+            'previous_receivable' || 'payment' || 'irrigation' => -amount,
+            'payment_reversal' => amount,
+            'irrigation_reversal' => notes.startsWith('عكس استحقاق العامل') ? 0 : amount,
+            _ => 0,
+          };
+        } else {
+          if (const {'share_accrual','share_adjustment','share_adjustment_reversal'}.contains(type)) continue;
+          balance += switch (type) {
+            'opening_balance' || 'contribution' => amount,
+            'previous_receivable' || 'payment' || 'irrigation' => -amount,
+            'payment_reversal' => amount,
+            'irrigation_reversal' => notes.startsWith('عكس سقاية الشريك') ? amount : 0,
+            _ => 0,
+          };
+        }
+      }
+    }
+    if (isWorker) {
+      final expenses = await database.query(
+        "SELECT COALESCE(SUM(amount),0) amount FROM expenses "
+        "WHERE station_id=? AND worker_id=? AND status='posted' AND partner_id IS NULL",
+        args: [stationId, partyId],
+      );
+      balance -= (expenses.first['amount'] as num?)?.round() ?? 0;
+    }
+    return balance;
+  }
   Future<Map<String, int>> beneficiaryBalance(int id) async {
     final r = await database.query(
       'SELECT ${BalanceSql.beneficiary('b')} balance FROM beneficiaries b WHERE b.id=?',
