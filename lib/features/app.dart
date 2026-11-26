@@ -5862,6 +5862,7 @@ int? parseClock(String raw) {
         endTimeController.text = _hm12(defaultEnd);
         endPeriod = defaultEnd.hour < 12 ? 'am' : 'pm';
         timeStep = 1;
+        minuteDiscount = 0;
       });
 
       final picked = await _showHybridTimePicker(
@@ -5897,6 +5898,7 @@ int? parseClock(String raw) {
       }
       setState(() {
         _applyManualEndTime();
+        minuteDiscount = 0;
         if (minutes > 0) timeStep = 2;
       });
       if (minutes <= 0) msg('وقت النهاية يجب أن يكون بعد وقت البداية');
@@ -5917,6 +5919,7 @@ int? parseClock(String raw) {
     if (d == null) return;
     setState(() {
       selectedDate = DateTime(d.year, d.month, d.day);
+      minuteDiscount = 0;
       start = DateTime(selectedDate.year, selectedDate.month, selectedDate.day, start.hour, start.minute);
       final startClock = start.hour * 60 + start.minute;
       final endClock = end.hour * 60 + end.minute;
