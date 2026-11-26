@@ -4384,7 +4384,6 @@ class _BeneficiariesState extends State<BeneficiariesPage> {
   @override
   void initState() {
     super.initState();
-    _loadHybridStationType();
     if (widget.compactOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted) return;
