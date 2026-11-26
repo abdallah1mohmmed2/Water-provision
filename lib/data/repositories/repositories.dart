@@ -3031,8 +3031,21 @@ class StationRepository {
           final expenseMonthWhere = expenseMonthFilters.isEmpty
               ? ''
               : ' AND ${expenseMonthFilters.join(' AND ')}';
+          final paymentMonthFilters = <String>[];
+          if (from != null) {
+            paymentMonthFilters.add('p.date>=?');
+            queryArgs.add(from.toIso8601String());
+          }
+          if (to != null) {
+            paymentMonthFilters.add('p.date<?');
+            queryArgs.add(to.add(const Duration(days: 1)).toIso8601String());
+          }
+          final paymentMonthWhere = paymentMonthFilters.isEmpty
+              ? ''
+              : ' AND ${paymentMonthFilters.join(' AND ')}';
           queryArgs.addAll(args);
           queryArgs.addAll(expenseMonthFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
+          queryArgs.addAll(paymentMonthFilters.map((filter) => filter.contains('>=') ? from!.toIso8601String() : to!.add(const Duration(days: 1)).toIso8601String()));
           // Apply the exact same date, beneficiary, and system filters to the
           // income aggregation; otherwise a partial-month report allocates shared
           // expenses using revenue outside the selected range.
@@ -3049,12 +3062,36 @@ class StationRepository {
                 WHERE e.status='posted' AND e.partner_id IS NULL
                   AND e.station_id=s.station_id$scopedExpenseWhere
               ),
+              scoped_payments AS (
+                SELECT p.* FROM payments p JOIN beneficiaries b ON b.id=p.beneficiary_id
+                CROSS JOIN station_context s
+                WHERE p.status='posted' AND b.station_id=s.station_id
+              ),
               months AS (
                 SELECT substr(i.date,1,7) AS month FROM scoped_irrigations i
                 WHERE $iw GROUP BY substr(i.date,1,7)
                 UNION
                 SELECT substr(e.date,1,7) AS month FROM scoped_expenses e
                 WHERE 1=1$expenseMonthWhere GROUP BY substr(e.date,1,7)
+                UNION
+                SELECT substr(p.date,1,7) AS month FROM scoped_payments p
+                WHERE 1=1$paymentMonthWhere GROUP BY substr(p.date,1,7)
+              ),
+              month_collections AS (
+                SELECT substr(p.date,1,7) month, SUM(p.amount) collections
+                FROM scoped_payments p GROUP BY substr(p.date,1,7)
+              ),
+              month_receivables AS (
+                SELECT m.month,
+                  COALESCE((SELECT SUM(jl.debit-jl.credit)
+                    FROM journal_lines jl
+                    JOIN journal_entries je ON je.id=jl.journal_entry_id
+                    JOIN accounts a ON a.id=jl.account_id
+                    CROSS JOIN station_context s
+                    WHERE je.station_id=s.station_id AND je.status='posted'
+                      AND je.date<date(m.month||'-01','+1 month')
+                      AND a.code='1200'),0) beneficiary_receivable
+                FROM months m
               ),
               month_income AS (
                 SELECT substr(x.date,1,7) month,
@@ -3072,6 +3109,8 @@ class StationRepository {
                 FROM scoped_expenses e GROUP BY substr(e.date,1,7)
               )
               SELECT m.month, COALESCE(i.income,0) income, COALESCE(e.expenses,0) expenses,
+                COALESCE(mc.collections,0) collections,
+                COALESCE(mr.beneficiary_receivable,0) beneficiary_receivable,
                 COALESCE(i.solar_income,0) solar_income, COALESCE(i.diesel_income,0) diesel_income,
                 COALESCE(i.unknown_income,0) unknown_income,
                 COALESCE(e.solar_direct_expenses,0) solar_direct_expenses,
@@ -3086,7 +3125,10 @@ class StationRepository {
                 CASE WHEN COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0)=0
                   THEN COALESCE(e.shared_expenses,0) ELSE 0 END unallocated_shared_expenses
               FROM months m LEFT JOIN month_income i ON i.month=m.month
-                LEFT JOIN month_expenses e ON e.month=m.month ORDER BY m.month''',
+                LEFT JOIN month_expenses e ON e.month=m.month
+                LEFT JOIN month_collections mc ON mc.month=m.month
+                LEFT JOIN month_receivables mr ON mr.month=m.month
+                ORDER BY m.month''',
             queryArgs,
           );
         }
