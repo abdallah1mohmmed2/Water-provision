@@ -16951,7 +16951,7 @@ class _SettingsState extends State<SettingsPage> {
             margin: const EdgeInsets.only(bottom: 16),
             padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
             decoration: BoxDecoration(color: _reportSurface, borderRadius: BorderRadius.circular(18), border: Border.all(color: _reportLine)),
-            child: Row(children: [Icon(Icons.info_outline_rounded, color: _reportOliveDark), SizedBox(width: 9), Expanded(child: Text('اضغط على أي قسم لعرض إعداداته. يتم حفظ التغييرات مباشرة وتطبيق إعدادات الاسم والتنبيهات والحركة فوراً.', style: TextStyle(color: _reportInk.withValues(alpha: .68), fontSize: 11, fontWeight: FontWeight.w700)))]),
+            child: Row(children: [Icon(Icons.info_outline_rounded, color: _reportOliveDark), SizedBox(width: 9), Expanded(child: Text('اضغط على أي قسم لعرض إعداداته. يتم حفظ التغييرات مباشرة وتطبيق إعدادات التنبيهات والحركة فوراً.', style: TextStyle(color: _reportInk.withValues(alpha: .68), fontSize: 11, fontWeight: FontWeight.w700)))]),
           ),
           SettingGroup(
             title: 'بيانات المحطة',
