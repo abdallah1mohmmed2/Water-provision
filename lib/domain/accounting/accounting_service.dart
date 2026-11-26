@@ -2015,11 +2015,14 @@ class AccountingService {
       [amount, cashboxId],
     );
     final cash = await _accountIdTx(tx, await _cashboxLedgerCode(tx, cashboxId));
-    // المصروف الخاص بالشريك يُحمّل مباشرة على حسابه الشخصي، ولا يدخل ضمن
-    // المصروفات العامة أو يُخصم مرة ثانية عند احتساب الربح القابل للتوزيع.
-    final debitAccount = partnerId == null
-        ? await _accountIdTx(tx, _expenseAccount(category))
-        : await _partnerAccountIdTx(tx, partnerId);
+    // المصروف الشخصي المدفوع نيابة عن العامل/الشريك يُحمّل على حساب الطرف
+    // (ذمة/مستحق) ولا يُحسب كمصروف تشغيل للمحطة مرة أخرى في صافي الربح.
+    // المصروف العام فقط يذهب إلى حساب المصروف التشغيلي.
+    final debitAccount = partnerId != null
+        ? await _partnerAccountIdTx(tx, partnerId)
+        : workerId != null
+        ? await _workerAccountIdTx(tx, workerId)
+        : await _accountIdTx(tx, _expenseAccount(category));
     await _entry(
       tx,
       description: partnerId == null ? title : '$title (مصروف خاص بالشريك)',
