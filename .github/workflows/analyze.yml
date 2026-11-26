@@ -32,8 +32,8 @@ jobs:
       - name: Test Firebase activation gate
         run: flutter test test/firebase_access_gate_test.dart
 
-      - name: Run audio feedback unit tests
-        run: flutter test test/audio_feedback_service_test.dart
+      - name: Run audio feedback and local preference tests
+        run: flutter test test/audio_feedback_service_test.dart test/audio_feedback_persistence_test.dart
 
       - name: Run accounting integration tests (اختبارات المحاسبة والتراجع)
         run: flutter test test/accounting_integration_test.dart
