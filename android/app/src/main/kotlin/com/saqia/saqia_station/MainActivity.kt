@@ -77,14 +77,21 @@ class MainActivity : FlutterFragmentActivity() {
         val file = irrigationAudioQueue.removeAt(0)
         val player = MediaPlayer()
         irrigationAudioPlayer = player
+        var initialResultSent = false
+        fun replyInitial(value: Boolean) {
+            if (!initialResultSent) {
+                initialResultSent = true
+                initialResult?.success(value)
+            }
+        }
         try {
             player.setDataSource(file.absolutePath)
             player.setOnPreparedListener {
                 try {
                     it.start()
-                    initialResult?.success(true)
+                    replyInitial(true)
                 } catch (_: Exception) {
-                    if (initialResult != null) initialResult.success(false)
+                    replyInitial(false)
                     stopIrrigationAudio()
                 }
             }
@@ -96,18 +103,18 @@ class MainActivity : FlutterFragmentActivity() {
             player.setOnErrorListener { failedPlayer, _, _ ->
                 failedPlayer.release()
                 if (irrigationAudioPlayer === failedPlayer) irrigationAudioPlayer = null
-                if (initialResult != null) {
+                if (initialResult != null && !initialResultSent) {
                     stopIrrigationAudio()
-                    initialResult.success(false)
+                    replyInitial(false)
                 } else playNextIrrigationClip()
                 true
             }
             player.prepareAsync()
         } catch (_: Exception) {
             player.release()
-            if (initialResult != null) {
+            if (initialResult != null && !initialResultSent) {
                 stopIrrigationAudio()
-                initialResult.success(false)
+                replyInitial(false)
             } else playNextIrrigationClip()
         }
     }
