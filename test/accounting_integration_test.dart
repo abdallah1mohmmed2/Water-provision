@@ -2166,7 +2166,6 @@ void main() {
     final settings = await svc.settings();
     final pumpId = int.parse(settings['selected_pump_id']!);
     final now = DateTime.now();
-    final reportEnd = now.add(const Duration(minutes: 1));
     final monthStart = DateTime(now.year, now.month, 1);
     final nextMonth = DateTime(now.year, now.month + 1, 1);
     final monthEnd = nextMonth.subtract(const Duration(days: 1));
