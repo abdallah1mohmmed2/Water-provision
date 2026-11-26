@@ -3023,38 +3023,49 @@ class StationRepository {
               scoped_expenses AS (
                 SELECT e.* FROM expenses e CROSS JOIN station_context s
                 WHERE e.status='posted' AND (
-                  EXISTS (SELECT 1 FROM cashboxes c
-                          WHERE c.id=e.cashbox_id AND c.station_id=s.station_id)
-                  OR EXISTS (SELECT 1 FROM payment_methods pm
-                             WHERE pm.id=e.payment_method_id AND pm.station_id=s.station_id)
-                  OR EXISTS (SELECT 1 FROM app_users u
-                             WHERE u.id=e.created_by AND u.station_id=s.station_id)
+                  EXISTS (SELECT 1 FROM cashboxes c WHERE c.id=e.cashbox_id AND c.station_id=s.station_id)
+                  OR EXISTS (SELECT 1 FROM payment_methods pm WHERE pm.id=e.payment_method_id AND pm.station_id=s.station_id)
+                  OR EXISTS (SELECT 1 FROM app_users u WHERE u.id=e.created_by AND u.station_id=s.station_id)
                 )
               ),
               months AS (
-                SELECT substr(i.date,1,7) AS month
-                FROM scoped_irrigations i
-                WHERE $iw
-                GROUP BY substr(i.date,1,7)
+                SELECT substr(i.date,1,7) AS month FROM scoped_irrigations i
+                WHERE $iw GROUP BY substr(i.date,1,7)
                 UNION
-                SELECT substr(e.date,1,7) AS month
-                FROM scoped_expenses e
-                WHERE 1=1$expenseMonthWhere
-                GROUP BY substr(e.date,1,7)
+                SELECT substr(e.date,1,7) AS month FROM scoped_expenses e
+                WHERE 1=1$expenseMonthWhere GROUP BY substr(e.date,1,7)
+              ),
+              month_income AS (
+                SELECT substr(x.date,1,7) month,
+                  SUM(CASE WHEN x.hybrid_source='solar' THEN x.total_amount ELSE 0 END) solar_income,
+                  SUM(CASE WHEN x.hybrid_source='diesel' THEN x.total_amount ELSE 0 END) diesel_income,
+                  SUM(CASE WHEN x.hybrid_source IS NULL OR x.hybrid_source NOT IN ('solar','diesel') THEN x.total_amount ELSE 0 END) unknown_income,
+                  SUM(x.total_amount) income
+                FROM scoped_irrigations x WHERE x.status!='cancelled' GROUP BY substr(x.date,1,7)
+              ),
+              month_expenses AS (
+                SELECT substr(e.date,1,7) month, SUM(e.amount) expenses,
+                  SUM(CASE WHEN e.expense_system_type='solar' THEN e.amount ELSE 0 END) solar_direct_expenses,
+                  SUM(CASE WHEN e.expense_system_type='diesel' THEN e.amount ELSE 0 END) diesel_direct_expenses,
+                  SUM(CASE WHEN e.expense_system_type='shared' OR e.expense_system_type IS NULL THEN e.amount ELSE 0 END) shared_expenses
+                FROM scoped_expenses e GROUP BY substr(e.date,1,7)
               )
-              SELECT m.month,
-                COALESCE((
-                  SELECT SUM(x.total_amount)
-                  FROM scoped_irrigations x
-                  WHERE substr(x.date,1,7)=m.month AND x.status!='cancelled'
-                ),0) AS income,
-                COALESCE((
-                  SELECT SUM(e.amount)
-                  FROM scoped_expenses e
-                  WHERE substr(e.date,1,7)=m.month
-                ),0) AS expenses
-              FROM months m
-              ORDER BY m.month''',
+              SELECT m.month, COALESCE(i.income,0) income, COALESCE(e.expenses,0) expenses,
+                COALESCE(i.solar_income,0) solar_income, COALESCE(i.diesel_income,0) diesel_income,
+                COALESCE(i.unknown_income,0) unknown_income,
+                COALESCE(e.solar_direct_expenses,0) solar_direct_expenses,
+                COALESCE(e.diesel_direct_expenses,0) diesel_direct_expenses,
+                COALESCE(e.shared_expenses,0) shared_expenses,
+                CASE WHEN COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0)>0
+                  THEN ROUND(COALESCE(e.shared_expenses,0)*COALESCE(i.solar_income,0)*1.0/
+                    (COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0))) ELSE 0 END solar_shared_allocation,
+                CASE WHEN COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0)>0
+                  THEN COALESCE(e.shared_expenses,0)-ROUND(COALESCE(e.shared_expenses,0)*COALESCE(i.solar_income,0)*1.0/
+                    (COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0))) ELSE 0 END diesel_shared_allocation,
+                CASE WHEN COALESCE(i.solar_income,0)+COALESCE(i.diesel_income,0)=0
+                  THEN COALESCE(e.shared_expenses,0) ELSE 0 END unallocated_shared_expenses
+              FROM months m LEFT JOIN month_income i ON i.month=m.month
+                LEFT JOIN month_expenses e ON e.month=m.month ORDER BY m.month''',
             queryArgs,
           );
         }
