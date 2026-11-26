@@ -109,6 +109,10 @@ void main() {
         partyId: entry.$2, irrigationId: entry.$3);
       expect(message.name, entry.$4);
       expect(message.text, contains(entry.$4));
+      // Re-sending must reconstruct the balance before the irrigation instead
+      // of displaying the unavailable historical snapshot placeholder.
+      expect(message.text, isNot(contains('غير محفوظ لهذه السقاية')));
+      expect(message.text, contains('الرصيد السابق: متوازن (0 ريال)'));
     }
     await expectLater(service.prepareForParty(
       userId: 1, partyType: 'worker',
