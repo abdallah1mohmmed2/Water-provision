@@ -34,5 +34,6 @@
 ## سجل التسليم
 - الأساس: `feature/firebase-station-foundation`، commit `10f392bcbe91c5c8d9f68eb909af97e039883223`.
 - فرع العمل: `feature/app-audio-system`.
-- آخر commit: يحدّث بعد اكتمال الإضافة والتحقق.
+- آخر commit عند تحديث هذا التوثيق: سيتم تسجيل SHA بعد commit الوثيقة.
+- التوثيق تحديث مستقل؛ التحقق النهائي للبناء جار.
 - Release: لم ينشر.
