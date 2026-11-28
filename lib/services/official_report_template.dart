@@ -149,13 +149,7 @@ class OfficialReportTemplate {
           if (summaryBoxes.isNotEmpty) ...[
             _buildStatsGrid(summaryBoxes, arabicFont, arabicBold),
             pw.SizedBox(height: 18),
-          ],          if (!cardsOnly) ...additionalSections.expand((section) => [
-            pw.SizedBox(height: 12),
-            pw.Text(section.title, textDirection: pw.TextDirection.rtl, style: pw.TextStyle(font: arabicBold, fontSize: 14)),
-            pw.SizedBox(height: 6),
-            _buildOfficialTable(columns: section.columns, rows: section.rows.map((row) => _fitRow(row, section.columns.length)).toList(), footerRow: null, font: arabicFont, boldFont: arabicBold, cellFontSize: cellFontSize, cellVerticalPadding: cellVerticalPadding),
-          ]),
-          if (!cardsOnly) _buildOfficialTable(
+          ],          if (!cardsOnly) _buildOfficialTable(
               columns: columns,
               rows: normalizedRows,
               footerRow: normalizedFooter,
@@ -164,6 +158,12 @@ class OfficialReportTemplate {
               cellFontSize: cellFontSize,
               cellVerticalPadding: cellVerticalPadding,
             ),
+if (!cardsOnly) ...additionalSections.expand((section) => [
+            pw.SizedBox(height: 12),
+            pw.Text(section.title, textDirection: pw.TextDirection.rtl, style: pw.TextStyle(font: arabicBold, fontSize: 14)),
+            pw.SizedBox(height: 6),
+            _buildOfficialTable(columns: section.columns, rows: section.rows.map((row) => _fitRow(row, section.columns.length)).toList(), footerRow: null, font: arabicFont, boldFont: arabicBold, cellFontSize: cellFontSize, cellVerticalPadding: cellVerticalPadding),
+          ]),
           if (!cardsOnly) pw.SizedBox(height: 35),
           if (!cardsOnly)
             _buildOfficialSignatures(arabicBold, thirdLabel: thirdSignatureLabel),
