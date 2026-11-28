@@ -21,7 +21,14 @@ class StatBoxData {
   });
 }
 
-class OfficialReportTableSection {\n  final String title;\n  final List<String> columns;\n  final List<List<String>> rows;\n  const OfficialReportTableSection({required this.title, required this.columns, required this.rows});\n}\n\n/// قالب التقرير المالي والإحصائي الرسمي، مستقل عن قالب الطباعة الحالي.
+class OfficialReportTableSection {
+  final String title;
+  final List<String> columns;
+  final List<List<String>> rows;
+  const OfficialReportTableSection({required this.title, required this.columns, required this.rows});
+}
+
+/// قالب التقرير المالي والإحصائي الرسمي، مستقل عن قالب الطباعة الحالي.
 ///
 /// يعتمد على خطوط المشروع المحلية لتجنب تنزيل الخطوط من الإنترنت وقت الطباعة.
 class OfficialReportTemplate {
@@ -51,7 +58,8 @@ class OfficialReportTemplate {
     required List<StatBoxData> summaryBoxes,
     required List<String> columns,
     required List<List<String>> rows,
-    List<String>? footerTotalRow,\n    List<OfficialReportTableSection> additionalSections = const [],
+    List<String>? footerTotalRow,
+    List<OfficialReportTableSection> additionalSections = const [],
     Uint8List? emblemImageBytes,
     String thirdSignatureLabel = 'الاعتماد والختم: ....................',
     String? fileName,
@@ -141,7 +149,13 @@ class OfficialReportTemplate {
           if (summaryBoxes.isNotEmpty) ...[
             _buildStatsGrid(summaryBoxes, arabicFont, arabicBold),
             pw.SizedBox(height: 18),
-          ],\n          if (!cardsOnly) ...additionalSections.expand((section) => [\n            pw.SizedBox(height: 12),\n            pw.Text(section.title, textDirection: pw.TextDirection.rtl, style: pw.TextStyle(font: arabicBold, fontSize: 14)),\n            pw.SizedBox(height: 6),\n            _buildOfficialTable(columns: section.columns, rows: section.rows.map((row) => _fitRow(row, section.columns.length)).toList(), footerRow: null, font: arabicFont, boldFont: arabicBold, cellFontSize: cellFontSize, cellVerticalPadding: cellVerticalPadding),\n          ]),\n          if (!cardsOnly) _buildOfficialTable(
+          ],          if (!cardsOnly) ...additionalSections.expand((section) => [
+            pw.SizedBox(height: 12),
+            pw.Text(section.title, textDirection: pw.TextDirection.rtl, style: pw.TextStyle(font: arabicBold, fontSize: 14)),
+            pw.SizedBox(height: 6),
+            _buildOfficialTable(columns: section.columns, rows: section.rows.map((row) => _fitRow(row, section.columns.length)).toList(), footerRow: null, font: arabicFont, boldFont: arabicBold, cellFontSize: cellFontSize, cellVerticalPadding: cellVerticalPadding),
+          ]),
+          if (!cardsOnly) _buildOfficialTable(
               columns: columns,
               rows: normalizedRows,
               footerRow: normalizedFooter,
