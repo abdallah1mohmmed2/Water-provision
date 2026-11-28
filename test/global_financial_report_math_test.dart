@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/features/global_financial_report.dart';
+import 'package:saqia_station/features/global_financial_report.dart';
 
 void main() {
   group('Global financial report arithmetic', () {
