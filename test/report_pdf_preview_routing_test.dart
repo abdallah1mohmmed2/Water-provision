@@ -20,9 +20,9 @@ void main() {
     expect(ReportService.titles.keys.toSet().containsAll(batch), isTrue);
   });
 
-  test('all 28 report types are assigned to unified PDF preview', () {
-    expect(ReportService.titles.keys.length, 28);
-    expect(ReportService.previewReportKeys.length, 28);
+  test('all 29 report types are assigned to unified PDF preview', () {
+    expect(ReportService.titles.keys.length, 29);
+    expect(ReportService.previewReportKeys.length, 29);
     expect(ReportService.previewReportKeys, ReportService.titles.keys.toSet());
   });
 
