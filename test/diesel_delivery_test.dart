@@ -326,6 +326,26 @@ void main() {
       );
     },
   );
+  test('party diesel balances are loaded for diesel and hybrid cards, not solar', () async {
+    await repo.setSetting('system_type', 'equivalent_hybrid');
+    for (final type in ['beneficiary', 'worker', 'partner']) {
+      await receive(type, 9);
+      final rows = <Map<String, Object?>>[
+        {'id': ids[type], 'name': 'اختبار $type'},
+      ];
+      final loaded = await PartyDieselBalance.loadRows(repo, type, rows);
+      expect(loaded.single['party_diesel_balance'], 9.0, reason: '$type card should show hybrid diesel balance');
+    }
+
+    await repo.setSetting('system_type', 'solar');
+    final solarRows = <Map<String, Object?>>[
+      {'id': ids['worker'], 'name': 'عامل شمسي'},
+    ];
+    final solarLoaded = await PartyDieselBalance.loadRows(repo, 'worker', solarRows);
+    expect(solarLoaded.single.containsKey('party_diesel_balance'), isFalse,
+        reason: 'solar-only cards should not show diesel balance');
+  });
+
   test(
     'hybrid diesel inventory report includes stock additions and party movements',
     () async {
