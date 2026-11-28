@@ -25,6 +25,8 @@ void main() {
           await tester.tap(find.text('PDF'));
           await tester.pumpAndSettle();
           expect(find.text('كشف حساب هذا الشخص'), findsOneWidget);
+          expect(find.text('من تاريخ'), findsOneWidget);
+          expect(find.text('إلى تاريخ'), findsOneWidget);
           if (hybridSystem) {
             expect(find.text('السقايات الشمسية لهذا الشخص'), findsOneWidget);
             expect(find.text('سقايات الديزل لهذا الشخص'), findsOneWidget);
