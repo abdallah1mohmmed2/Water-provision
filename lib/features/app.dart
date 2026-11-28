@@ -3695,7 +3695,9 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
     return true;
   }).toList();
 
-  Future<void> printPersonReport() async {
+  Future<void> printPersonReport({DateTime? from, DateTime? to}) async {
+    final selectedFrom = from;
+    final selectedTo = to;
     final key = widget.kind == 'worker'
         ? 'worker_transactions'
         : widget.kind == 'partner'
@@ -3710,13 +3712,13 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                 return true;
               }
               final rawDate = DateTime.tryParse('${row['date'] ?? ''}');
-              if (rawDate == null) return filterFrom == null && filterTo == null;
-              if (filterFrom != null &&
-                  rawDate.isBefore(DateTime(filterFrom!.year, filterFrom!.month, filterFrom!.day))) {
+              if (rawDate == null) return selectedFrom == null && selectedTo == null;
+              if (selectedFrom != null &&
+                  rawDate.isBefore(DateTime(selectedFrom.year, selectedFrom.month, selectedFrom.day))) {
                 return false;
               }
-              if (filterTo != null &&
-                  rawDate.isAfter(DateTime(filterTo!.year, filterTo!.month, filterTo!.day, 23, 59, 59))) {
+              if (selectedTo != null &&
+                  rawDate.isAfter(DateTime(selectedTo.year, selectedTo.month, selectedTo.day, 23, 59, 59))) {
                 return false;
               }
               return true;
@@ -3724,8 +3726,8 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
           : null;
       await ReportService(widget.r).printPdf(
         key,
-        from: filterFrom,
-        to: filterTo,
+        from: selectedFrom,
+        to: selectedTo,
         beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
         workerId: widget.kind == 'worker' ? widget.id : null,
         partnerId: widget.kind == 'partner' ? widget.id : null,
@@ -4136,26 +4138,26 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
                     dieselEnabled: const {'diesel', 'equivalent_hybrid'}
                         .contains(currentSettings['system_type'] ?? 'diesel'),
                     hybridSystem: currentSettings['system_type'] == 'equivalent_hybrid',
-                    generate: (report) => report == 'cash_movements'
+                    generate: (report, from, to) => report == 'cash_movements'
                       ? ReportService(widget.r).printPartyCashMovementsPdf(
                           partyType: widget.kind, partyId: widget.id,
-                          from: filterFrom, to: filterTo)
+                          from: from, to: to)
                       : report == 'diesel'
                       ? ReportService(widget.r).printPartyDieselPdf(
                           partyType: widget.kind, partyId: widget.id,
-                          from: filterFrom, to: filterTo)
+                          from: from, to: to)
                       : report == 'solar_irrigations' || report == 'diesel_irrigations'
                         ? ReportService(widget.r).printHybridPartyIrrigationsPdf(
                             partyType: widget.kind, partyId: widget.id,
                             source: report == 'solar_irrigations' ? 'solar' : 'diesel',
-                            from: filterFrom, to: filterTo)
+                            from: from, to: to)
                       : report == 'irrigations'
                         ? ReportService(widget.r).printPdf('irrigations',
                             beneficiaryId: widget.kind == 'beneficiary' ? widget.id : null,
                             workerId: widget.kind == 'worker' ? widget.id : null,
                             partnerId: widget.kind == 'partner' ? widget.id : null,
-                            from: filterFrom, to: filterTo, systemType: 'all')
-                        : printPersonReport(),
+                            from: from, to: to, systemType: 'all')
+                        : printPersonReport(from: from, to: to),
                   );
                 },
                 icon: const Icon(Icons.picture_as_pdf_rounded),
