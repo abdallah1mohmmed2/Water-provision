@@ -99,6 +99,10 @@ void main() {
           'diesel' => 'المسلّم والمستهلك والمتبقي من الديزل',
           _ => 'كشف حساب هذا الشخص',
         });
+        // Date-range controls increase the sheet height; bring the report
+        // action into the scrollable viewport before interacting with it.
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
         if (share) {
           await tester.longPress(button);
         } else {
