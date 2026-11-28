@@ -13,7 +13,10 @@ class PartyDieselBalance extends StatelessWidget {
   static Future<List<Map<String, Object?>>> loadRows(
     StationRepository repo, String type, List<Map<String, Object?>> rows,
   ) async {
-    if ((await repo.settings())['system_type'] != 'diesel') {
+    final systemType = (await repo.settings())['system_type'];
+    // Party diesel ledgers are shown in both the diesel system and type 3.
+    // Solar-only stations must not load or display diesel balances.
+    if (!const ['diesel', 'equivalent_hybrid'].contains(systemType)) {
       return rows;
     }
     final station = await repo.accounting.currentStationId();
