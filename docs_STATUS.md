@@ -68,3 +68,11 @@ V14: unified the user-facing concept of queue/booking into one turn workflow con
 - إلغاء: السقاية، المصروف، الدفعة، حركة الديزل، الحجز؛ تعديل/حذف الصناديق وطرق الدفع؛ منع الرصيد السالب عند عكس قبض؛ `postponeSession` للجلسات قيد التشغيل فقط.
 - إعدادات فُعِّلت: app_name, reduced_motion, popup/sound_notifications, time_source (+server_url ومسار /api/v1/time), manager_override_required, absence_policy, week_start, financial_year_start.
 - لم يُشغَّل Flutter هنا: شغّل `flutter pub get && flutter analyze && flutter test`.
+
+
+## 2026-11-28 — عرض رصيد الديزل فوق بطاقات النوع الثالث
+
+- **الطلب:** إظهار رصيد الديزل (له/عليه باللترات) فوق بطاقات المستفيد والشريك والعامل في النوع الثالث، بنفس عرض منظومة الديزل.
+- **التنفيذ:** تم تعديل `PartyDieselBalance.loadRows` لقراءة رصيد الطرف من سجل حركات الديزل عند `diesel` و`equivalent_hybrid`، مع استمرار إخفائه في النظام الشمسي فقط. عرض البطاقة يستخدم مكون الرصيد الحالي؛ لا تُنشأ قيود ولا يتغير الحساب.
+- **الاختبار:** أضيف اختبار يثبت تحميل أرصدة الأطراف الثلاثة في النوع الثالث، والتأكد من عدم تحميلها للنظام الشمسي.
+- **التحقق:** ينتظر اكتمال GitHub Actions على الفرع `feature/app-audio-system`.
