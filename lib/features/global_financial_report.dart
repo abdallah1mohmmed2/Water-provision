@@ -15,7 +15,7 @@ class GlobalFinancialReportService {
  static int totalReceivable(Iterable<int> balances)=>balances.fold<int>(0,(sum,b)=>sum+(b>0?b:0));
  static int estimatePreviousDebtCollected(Iterable<Map<String,int>> parties)=>parties.fold<int>(0,(sum,p)=>sum+(p['prior_debt']??0).clamp(0,p['period_collections']??0).toInt());
  int n(Object? x)=>(x is num?x:num.tryParse('$x')??0).round();
- String range(String col,DateTime? f,DateTime? t,List<Object?> a){final w=<String>[];if(f!=null){w.add('date($col)>=date(?)');a.add(DateTime(f.year,f.month,f.day).toIso8601String());}if(t!=null){w.add('date($col)<=date(?)');a.add(DateTime(t.year,t.month,t.day+1).toIso8601String());}return w.isEmpty?'':' AND ${w.join(' AND ')}';}
+ String range(String col,DateTime? f,DateTime? t,List<Object?> a){final w=<String>[];if(f!=null){w.add('date($col)>=date(?)');a.add(DateTime(f.year,f.month,f.day).toIso8601String());}if(t!=null){w.add('date($col)<=date(?)');a.add(DateTime(t.year,t.month,t.day).toIso8601String());}return w.isEmpty?'':' AND ${w.join(' AND ')}';}
  Future<GlobalFinancialData> load({DateTime? from,DateTime? to}) async {
  if(from!=null&&to!=null&&DateTime(from.year,from.month,from.day).isAfter(DateTime(to.year,to.month,to.day)))throw ArgumentError('الفترة غير صحيحة');
  final station=await repo.accounting.currentStationId();final cfg=await repo.settings();final endDate=to??DateTime.now();final end=DateTime(endDate.year,endDate.month,endDate.day+1).toIso8601String();
