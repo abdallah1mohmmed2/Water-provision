@@ -25,6 +25,7 @@ class ReportService {
     'irrigations',
     'time_comparison',
     'monthly_financial',
+    'global_financial',
     'income',
     'revenue_comparison',
     'system_comparison',
