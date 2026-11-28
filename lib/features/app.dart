@@ -12953,7 +12953,8 @@ class _ReportsState extends State<ReportsPage> {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => GlobalFinancialReportPage(widget.r, initialFrom: from, initialTo: to)));
       return;
-    }\n    if (k == 'monthly_financial') {
+    }
+    if (k == 'monthly_financial') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => MonthlyFinancialReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
