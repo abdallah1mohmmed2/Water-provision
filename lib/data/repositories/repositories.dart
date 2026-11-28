@@ -2998,6 +2998,8 @@ class StationRepository {
           final q = "SELECT substr(i.date,1,7) month,i.system_type,SUM(i.minutes) minutes,SUM(i.chargeable_minutes) chargeable_minutes,COUNT(*) operations,SUM(i.total_amount) total FROM irrigations i WHERE $iw GROUP BY month,i.system_type ORDER BY month,i.system_type";
           return db.rawQuery(q, args);
         }
+      case 'global_financial':
+        return <Map<String,Object?>>[];
       case 'monthly_financial':
         {
           final stationId = await accounting.currentStationId();
