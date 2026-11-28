@@ -175,7 +175,7 @@ class PartyQuickActions extends StatelessWidget {
     }
     if (report == 'diesel') {
       return ReportService(repository).printPartyDieselPdf(
-        partyType: partyType, partyId: partyId);
+        partyType: partyType, partyId: partyId, from: from, to: to);
     }
     return ReportService(repository).printPdf(
       report == 'irrigations' ? 'irrigations' : switch (partyType) {
