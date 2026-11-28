@@ -3160,7 +3160,8 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
         });
       }
     } catch (e, st) {
-      debugPrint('RecordDetailsPage.load(${widget.kind}#${widget.id}) failed: $e\n$st');
+      debugPrint('RecordDetailsPage.load(${widget.kind}#${widget.id}) failed: $e 
+$st');
       if (mounted) {
         setState(() {
           loadError = '$e';
@@ -4045,7 +4046,8 @@ class _RecordDetailsState extends State<RecordDetailsPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ErrorBox('تعذر تحميل بيانات هذا السجل:\n$loadError'),
+                ErrorBox('تعذر تحميل بيانات هذا السجل: 
+$loadError'),
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed: () {
@@ -6630,7 +6632,8 @@ int? parseClock(String raw) {
               'قيمة السقاية الحالية: $total ريال',
               'المدفوع: $paidAmount ريال',
               'الرصيد بعد السقاية: ${balanceText(currentBalance)}',
-            ].join('\n'),
+            ].join(' 
+'),
           );
         } catch (_) {
           // لا نعتبر حفظ السقاية فاشلًا إذا تعذر تسجيل الإشعار.
@@ -11070,10 +11073,17 @@ class _WorkersState extends State<WorkersPage> {
         builder: (d) => AlertDialog(
           title: const Text('تأكيد ترحيل استحقاقات العمال'),
           content: Text(
-            'الفترة: $periodLabel\n'
-            'عدد العمال ذوي المبالغ المدخلة: ${amounts.length}\n'
-            'إجمالي الاستحقاقات: ${money(total)}\n\n'
-            '${details.isEmpty ? 'لم تُدخل أي مبالغ موجبة.' : details.join('\n')}\n\n'
+            'الفترة: $periodLabel 
+'
+            'عدد العمال ذوي المبالغ المدخلة: ${amounts.length} 
+'
+            'إجمالي الاستحقاقات: ${money(total)} 
+ 
+'
+            '${details.isEmpty ? 'لم تُدخل أي مبالغ موجبة.' : details.join(' 
+')} 
+ 
+'
             'لن تُرحّل استحقاقات عمال الساعة أو النسبة يدويًا، ولن يتم توزيع أرباح الشركاء من هذه الشاشة.',
           ),
           actions: [
@@ -12282,7 +12292,8 @@ class _JournalState extends State<JournalPage> {
             child: loading
                 ? const LoadingView()
                 : error != null
-                ? ErrorBox('تعذر تحميل القيود:\n$error')
+                ? ErrorBox('تعذر تحميل القيود: 
+$error')
                 : list.isEmpty
                 ? const EmptyView('لا توجد قيود مطابقة')
                 : ListView.builder(
@@ -12571,7 +12582,8 @@ class _LedgerState extends State<LedgerPage> {
             child: loading
                 ? const LoadingView()
                 : error != null
-                ? ErrorBox('تعذر تحميل الأستاذ:\n$error')
+                ? ErrorBox('تعذر تحميل الأستاذ: 
+$error')
                 : rows.isEmpty
                 ? const EmptyView('لا توجد حركات لهذا الحساب في الفترة المحددة')
                 : ListView.builder(
@@ -12949,7 +12961,12 @@ class _ReportsState extends State<ReportsPage> {
       Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueComparisonsPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
-    if (k == 'global_financial') {\n      if (!mounted) return;\n      Navigator.push(context, MaterialPageRoute(builder: (_) => GlobalFinancialReportPage(widget.r, initialFrom: from, initialTo: to)));\n      return;\n    }\n    if (k == 'monthly_financial') {
+    if (k == 'global_financial') { 
+      if (!mounted) return; 
+      Navigator.push(context, MaterialPageRoute(builder: (_) => GlobalFinancialReportPage(widget.r, initialFrom: from, initialTo: to))); 
+      return; 
+    } 
+    if (k == 'monthly_financial') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => MonthlyFinancialReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
@@ -13072,7 +13089,8 @@ class _ReportsState extends State<ReportsPage> {
     'invoices'=>'فواتير السقايات بجدول مرتب وملخص إجمالي ومعاينة وطباعة ومشاركة PDF',
     'irrigations'=>'تفاصيل كل سقاية ومدتها ومبلغها والمدفوع منها',
     'time_comparison'=>'مقارنة الدقائق والعمليات بين الأشهر والمنظومات',
-    'monthly_financial'=>'الدخل والمصروفات شهرياً بصورة مختصرة',\n    'global_financial'=>'إيراد السقايات والقبوضات والمصروفات وأرصدة المستفيدين وحصص الشركاء',
+    'monthly_financial'=>'الدخل والمصروفات شهرياً بصورة مختصرة', 
+    'global_financial'=>'إيراد السقايات والقبوضات والمصروفات وأرصدة المستفيدين وحصص الشركاء',
     'income'=>'مصادر الدخل حسب نوع المنظومة',
     'payment_methods'=>'إجمالي الاستخدام لكل طريقة دفع',
     'payment_log'=>'سجل عمليات القبض والصرف مع الطرف وطريقة الدفع والصندوق والتاريخ، وفلاتر الفترة وطريقة الدفع والصندوق',
@@ -14348,7 +14366,9 @@ class _InvoicesReportPageState extends State<InvoicesReportPage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('تأكيد تعديل السقاية'),
-        content: Text('سيعاد احتساب مدة السقاية وقيمتها وإعادة ترحيل قيدها.\nمن: ${DateFormat('yyyy/MM/dd HH:mm').format(start)}\nإلى: ${DateFormat('yyyy/MM/dd HH:mm').format(end)}'),
+        content: Text('سيعاد احتساب مدة السقاية وقيمتها وإعادة ترحيل قيدها. 
+من: ${DateFormat('yyyy/MM/dd HH:mm').format(start)} 
+إلى: ${DateFormat('yyyy/MM/dd HH:mm').format(end)}'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('إلغاء')),
           FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('تأكيد التعديل')),
@@ -14776,7 +14796,9 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
       context: context,
       builder: (d) => AlertDialog(
         title: const Text('تأكيد فترة الترحيل'),
-        content: Text('الفترة من ${DateFormat('yyyy/MM/dd').format(from)} إلى ${DateFormat('yyyy/MM/dd').format(to)}.\n\nسيُطلب إدخال مبالغ العمال ذوي الراتب الثابت فقط. عمال النسبة والساعة مستبعدون لأن استحقاقاتهم تُسجّل تلقائيًا.'),
+        content: Text('الفترة من ${DateFormat('yyyy/MM/dd').format(from)} إلى ${DateFormat('yyyy/MM/dd').format(to)}. 
+ 
+سيُطلب إدخال مبالغ العمال ذوي الراتب الثابت فقط. عمال النسبة والساعة مستبعدون لأن استحقاقاتهم تُسجّل تلقائيًا.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
           FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('متابعة')),
@@ -14855,7 +14877,13 @@ class _PartnerProfitDistributionState extends State<PartnerProfitDistributionPag
         context: context,
         builder: (d) => AlertDialog(
           title: const Text('تأكيد الترحيل النهائي'),
-          content: Text('الفترة: ${DateFormat('yyyy/MM/dd').format(startDate)} إلى ${DateFormat('yyyy/MM/dd').format(to)}\nإجمالي استحقاقات الرواتب الثابتة: ${_money(sum)}\n\n${lines.isEmpty ? 'لا توجد مبالغ يدوية للعمال.' : lines.join('\n')}\n\nسيُرحّل توزيع أرباح الشركاء بعد تسجيل هذه الاستحقاقات.'),
+          content: Text('الفترة: ${DateFormat('yyyy/MM/dd').format(startDate)} إلى ${DateFormat('yyyy/MM/dd').format(to)} 
+إجمالي استحقاقات الرواتب الثابتة: ${_money(sum)} 
+ 
+${lines.isEmpty ? 'لا توجد مبالغ يدوية للعمال.' : lines.join(' 
+')} 
+ 
+سيُرحّل توزيع أرباح الشركاء بعد تسجيل هذه الاستحقاقات.'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('إلغاء')),
             FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('تأكيد الترحيل')),
@@ -16148,7 +16176,8 @@ class _NotificationsState extends State<NotificationsPage> {
   String snoozeNote(Map<String, Object?> x) {
     final until = DateTime.tryParse('${x['snoozed_until'] ?? ''}');
     return until != null && until.isAfter(AppClock.now())
-        ? '\nمؤجّل حتى ${until.toString().substring(0, 16)}'
+        ? ' 
+مؤجّل حتى ${until.toString().substring(0, 16)}'
         : '';
   }
 
@@ -16191,7 +16220,8 @@ class _NotificationsState extends State<NotificationsPage> {
                     ),
                     title: Text('${x['title']}'),
                     subtitle: Text(
-                      '${x['body']}\n${x['created_at']}${snoozeNote(x)}',
+                      '${x['body']} 
+${x['created_at']}${snoozeNote(x)}',
                     ),
                     trailing: PopupMenuButton<int>(
                       tooltip: 'تأجيل التنبيه',
@@ -16717,14 +16747,17 @@ class _SettingsState extends State<SettingsPage> {
       if (!mounted) return;
       final resultLines = results.map((row) =>
         '${row['account_code']}: دفتر ${money(row['book_balance'])} / فعلي ${money(row['actual_balance'])} / فرق ${money(row['difference'])}'
-      ).join('\n');
+      ).join(' 
+');
       final hasDifference = results.any((row) => row['difference'] != 0);
       await showDialog<void>(
         context: context,
         builder: (d) => AlertDialog(
           title: Text(hasDifference ? 'سُجلت فروق — الإقفال ممنوع' : 'تم اعتماد المطابقات الصفرية'),
           content: SingleChildScrollView(
-            child: Text('$resultLines\n\n${hasDifference ? 'راجع سبب الفرق وسجّل أي تسوية مبررة في فترة مفتوحة، ثم أعد العدّ/المطابقة. لا ينشئ التطبيق قيد تسوية تلقائيًا.' : 'أعيد فحص رصيد الأستاذ عند الإقفال؛ أي حركة لاحقة تغيّر الرصيد ستجعل المطابقة قديمة وتمنع الإقفال.'}'),
+            child: Text('$resultLines 
+ 
+${hasDifference ? 'راجع سبب الفرق وسجّل أي تسوية مبررة في فترة مفتوحة، ثم أعد العدّ/المطابقة. لا ينشئ التطبيق قيد تسوية تلقائيًا.' : 'أعيد فحص رصيد الأستاذ عند الإقفال؛ أي حركة لاحقة تغيّر الرصيد ستجعل المطابقة قديمة وتمنع الإقفال.'}'),
           ),
           actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('إغلاق'))],
         ),
@@ -16764,7 +16797,8 @@ class _SettingsState extends State<SettingsPage> {
           _ => 'فرق ${money(row['difference'] ?? 0)}',
         };
         return '${row['account_code']} • ${row['account_name']}: دفتر ${money(row['book_balance'])} / فعلي ${row['actual_balance'] == null ? '—' : money(row['actual_balance'])} / $state';
-      }).join('\n');
+      }).join(' 
+');
       String subledgerName(String kind) => switch (kind) {
         'beneficiaries' => 'المستفيدون',
         'workers' => 'العمال',
@@ -16776,8 +16810,10 @@ class _SettingsState extends State<SettingsPage> {
             .cast<Map<String, Object?>>()
             .map((party) => '${party['name']}: فرق ${money(party['difference'])}')
             .join('، ');
-        return '${subledgerName('${row['kind']}')}: دفتر فرعي ${money(row['subledger_balance'])} / أستاذ ${money(row['general_ledger_balance'])} / فرق ${money(row['difference'])}${details.isEmpty ? '' : '\n$details'}';
-      }).join('\n');
+        return '${subledgerName('${row['kind']}')}: دفتر فرعي ${money(row['subledger_balance'])} / أستاذ ${money(row['general_ledger_balance'])} / فرق ${money(row['difference'])}${details.isEmpty ? '' : ' 
+$details'}';
+      }).join(' 
+');
       if (preview['valid'] != true) {
         await showDialog<void>(
           context: context,
@@ -16786,9 +16822,14 @@ class _SettingsState extends State<SettingsPage> {
             content: SingleChildScrollView(
               child: Text([
                 ...(preview['errors'] as List).map((error) => '$error'),
-                if (actualCashLines.isNotEmpty) '\nمطابقة العدّ النقدي وكشوف الحسابات:\n$actualCashLines',
-                if (subledgerLines.isNotEmpty) '\nمطابقة الدفاتر الفرعية:\n$subledgerLines',
-              ].join('\n')),
+                if (actualCashLines.isNotEmpty) ' 
+مطابقة العدّ النقدي وكشوف الحسابات: 
+$actualCashLines',
+                if (subledgerLines.isNotEmpty) ' 
+مطابقة الدفاتر الفرعية: 
+$subledgerLines',
+              ].join(' 
+')),
             ),
             actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('إغلاق'))],
           ),
@@ -16798,27 +16839,51 @@ class _SettingsState extends State<SettingsPage> {
       final lastDay = endExclusive.subtract(const Duration(days: 1));
       final cashLines = (preview['cashbox_reconciliation'] as List)
           .map((r) => 'حساب ${r['code']}: صندوق ${money(r['cashbox_balance'])} / أستاذ ${money(r['ledger_balance'])}')
-          .join('\n');
+          .join(' 
+');
       final carryRows = (preview['carry_accounts'] as List)
           .where((r) => ['2100', '2200', '3000', '3100', '3200', '3300'].contains('${r['code']}'))
           .map((r) => '${r['code']} ${r['name']}: ${money(r['credit_balance'])}')
-          .join('\n');
-      final warningLines = (preview['warnings'] as List).map((w) => '• $w').join('\n');
+          .join(' 
+');
+      final warningLines = (preview['warnings'] as List).map((w) => '• $w').join(' 
+');
       final accepted = await showDialog<bool>(
         context: context,
         builder: (d) => AlertDialog(
           title: const Text('مراجعة إقفال السنة المالية'),
           content: Text(
-            'الفترة: ${DateFormat('yyyy/MM/dd').format(start)} – ${DateFormat('yyyy/MM/dd').format(lastDay)}\n'
-            'الإيرادات: ${money(preview['income'])}\n'
-            'المصروفات: ${money(preview['expenses'])}\n'
-            'صافي النتيجة: ${money(preview['net_profit'])}\n\n'
-            'ميزان المراجعة: مدين ${money(preview['trial_balance_debit'])} / دائن ${money(preview['trial_balance_credit'])}\n'
-            'مطابقة الصناديق الحالية:\n${cashLines.isEmpty ? 'لا توجد صناديق مسجلة' : cashLines}\n\n'
-            'العدّ النقدي وكشوف الحسابات عند نهاية السنة:\n${actualCashLines.isEmpty ? 'لا توجد حسابات تتطلب شهادة مطابقة' : actualCashLines}\n\n'
-            'مطابقة الدفاتر الفرعية مع الأستاذ:\n${subledgerLines.isEmpty ? 'لا توجد بيانات' : subledgerLines}\n\n'
-            'الأرصدة المرحّلة:\n${carryRows.isEmpty ? 'لا توجد أرصدة في الحسابات المحددة' : carryRows}\n\n'
-            'تنبيهات قبل الاعتماد:\n$warningLines\n\n'
+            'الفترة: ${DateFormat('yyyy/MM/dd').format(start)} – ${DateFormat('yyyy/MM/dd').format(lastDay)} 
+'
+            'الإيرادات: ${money(preview['income'])} 
+'
+            'المصروفات: ${money(preview['expenses'])} 
+'
+            'صافي النتيجة: ${money(preview['net_profit'])} 
+ 
+'
+            'ميزان المراجعة: مدين ${money(preview['trial_balance_debit'])} / دائن ${money(preview['trial_balance_credit'])} 
+'
+            'مطابقة الصناديق الحالية: 
+${cashLines.isEmpty ? 'لا توجد صناديق مسجلة' : cashLines} 
+ 
+'
+            'العدّ النقدي وكشوف الحسابات عند نهاية السنة: 
+${actualCashLines.isEmpty ? 'لا توجد حسابات تتطلب شهادة مطابقة' : actualCashLines} 
+ 
+'
+            'مطابقة الدفاتر الفرعية مع الأستاذ: 
+${subledgerLines.isEmpty ? 'لا توجد بيانات' : subledgerLines} 
+ 
+'
+            'الأرصدة المرحّلة: 
+${carryRows.isEmpty ? 'لا توجد أرصدة في الحسابات المحددة' : carryRows} 
+ 
+'
+            'تنبيهات قبل الاعتماد: 
+$warningLines 
+ 
+'
             'سيُقفل صافي النتائج في 3300. تبقى الأصول والالتزامات في الدفتر المتصل دون قيود افتتاحية مكررة.',
           ),
           actions: [
@@ -16908,7 +16973,8 @@ class _SettingsState extends State<SettingsPage> {
                     final range = start == null || end == null ? '' : '${DateFormat('yyyy/MM/dd').format(start)} – ${DateFormat('yyyy/MM/dd').format(end.subtract(const Duration(days: 1)))}';
                     return ListTile(
                       title: Text('$title • ${status == 'closed' ? 'مقفلة' : status == 'reopened' ? 'أعيد فتحها' : 'مقفلة سابقًا'}'),
-                      subtitle: Text('$range\nصافي النتيجة: ${money(row['net_profit'] ?? 0)}'),
+                      subtitle: Text('$range 
+صافي النتيجة: ${money(row['net_profit'] ?? 0)}'),
                       isThreeLine: true,
                       trailing: status == 'closed'
                           ? TextButton(
