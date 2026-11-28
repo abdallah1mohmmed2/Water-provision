@@ -13,7 +13,7 @@ class GlobalFinancialReportService {
  final StationRepository repo; GlobalFinancialReportService(this.repo);
  static int netDistributable(int collections,int expenses)=>collections-expenses;
  static int totalReceivable(Iterable<int> balances)=>balances.fold<int>(0,(sum,b)=>sum+(b>0?b:0));
- static int estimatePreviousDebtCollected(Iterable<Map<String,int>> parties)=>parties.fold<int>(0,(sum,p)=>sum+(p['prior_debt']??0).clamp(0,p['period_collections']??0));
+ static int estimatePreviousDebtCollected(Iterable<Map<String,int>> parties)=>parties.fold<int>(0,(sum,p)=>sum+(p['prior_debt']??0).clamp(0,p['period_collections']??0).toInt());
  int n(Object? x)=>(x is num?x:num.tryParse('$x')??0).round();
  String range(String col,DateTime? f,DateTime? t,List<Object?> a){final w=<String>[];if(f!=null){w.add('$col>=?');a.add(DateTime(f.year,f.month,f.day).toIso8601String());}if(t!=null){w.add('$col<?');a.add(DateTime(t.year,t.month,t.day+1).toIso8601String());}return w.isEmpty?'':' AND ${w.join(' AND ')}';}
  Future<GlobalFinancialData> load({DateTime? from,DateTime? to}) async {
