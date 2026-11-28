@@ -39,6 +39,7 @@ import '../services/admin_service.dart';
 import '../services/local_security_service.dart';
 import '../services/backup_service.dart';
 import '../services/report_service.dart';
+import 'global_financial_report.dart';
 import '../services/automatic_irrigation_period.dart';
 import '../services/report_file_name_service.dart';
 import '../services/report_pdf_preview_service.dart';
@@ -12883,7 +12884,7 @@ class ReportsPage extends StatefulWidget {
   final String? initialReportKey;
   const ReportsPage(this.r, {this.initialReportKey, super.key});
   static const keys = [
-    'invoices','irrigations','time_comparison','monthly_financial','income',
+    'invoices','irrigations','time_comparison','monthly_financial','global_financial','income',
     'payment_methods','payment_log','expenses','cashboxes','queue_bookings',
     'beneficiary_statement','beneficiary_detailed','beneficiary_stats','needy',
     'diesel_inventory','activity_overview','oil_status','debts','beneficiary_list',
@@ -12948,7 +12949,7 @@ class _ReportsState extends State<ReportsPage> {
       Navigator.push(context, MaterialPageRoute(builder: (_) => RevenueComparisonsPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
     }
-    if (k == 'monthly_financial') {
+    if (k == 'global_financial') {\n      if (!mounted) return;\n      Navigator.push(context, MaterialPageRoute(builder: (_) => GlobalFinancialReportPage(widget.r, initialFrom: from, initialTo: to)));\n      return;\n    }\n    if (k == 'monthly_financial') {
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => MonthlyFinancialReportPage(widget.r, autoSelectPeriod: !_dateFilterEdited, initialFrom: from, initialTo: to)));
       return;
@@ -13056,11 +13057,11 @@ class _ReportsState extends State<ReportsPage> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر إنشاء التقرير: $e')));
     }
   }
-  Future<void> printR(String k) async {try{if(k=='invoices'){final invoiceRows=await widget.r.report('invoices',from:from,to:to,systemType:'all');if(!mounted)return;await ReportService(widget.r).printInvoicesPdf(rows:invoiceRows,from:from,to:to);return;}final rows = await _rows(k);if(!mounted)return;await ReportService(widget.r).printPdf(k,from:from,to:to,beneficiaryId:bid,workerId:wid,partnerId:pid,systemType:type,cashboxId:cid,paymentMethodId:mid,category:category,status:status,sourceRows:rows);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}}
+  Future<void> printR(String k) async {try{if(k=='invoices'){final invoiceRows=await widget.r.report('invoices',from:from,to:to,systemType:'all');if(!mounted)return;await ReportService(widget.r).printInvoicesPdf(rows:invoiceRows,from:from,to:to);return;}if(k=='global_financial'){if(!mounted)return;final data=await GlobalFinancialReportService(widget.r).load(from:from,to:to);await GlobalFinancialReportService(widget.r).pdf(data);return;}final rows = await _rows(k);if(!mounted)return;await ReportService(widget.r).printPdf(k,from:from,to:to,beneficiaryId:bid,workerId:wid,partnerId:pid,systemType:type,cashboxId:cid,paymentMethodId:mid,category:category,status:status,sourceRows:rows);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}}
   Widget sel<T>(String label,T? v,List<DropdownMenuItem<T>> items,ValueChanged<T?> f)=>SizedBox(width:205,child:DropdownButtonFormField<T>(initialValue:v,items:items,onChanged:f,decoration:InputDecoration(labelText:label,filled:true,fillColor:_reportSurface,border:OutlineInputBorder(borderRadius:BorderRadius.circular(14),borderSide:BorderSide.none))));
   IconData _icon(String k)=>switch(k){'invoices'=>Icons.receipt_long_rounded,'irrigations'=>Icons.water_drop_rounded,'payment_log'=>Icons.payments_rounded,'expenses'=>Icons.receipt_long_rounded,'journal'=>Icons.menu_book_rounded,'ledger'=>Icons.account_balance_rounded,'worker_transactions'=>Icons.engineering_rounded,'partner_accounts'=>Icons.groups_rounded,'beneficiary_statement'=>Icons.person_pin_rounded,'monthly_financial'=>Icons.insights_rounded,'cashboxes'=>Icons.account_balance_wallet_rounded,_=>Icons.analytics_rounded};
   String _group(String k)=>switch(k){
-    'invoices'||'irrigations'||'time_comparison'||'income'||'monthly_financial'||'revenue_comparison'||'system_comparison'=>'السقايات والإيرادات',
+    'invoices'||'irrigations'||'time_comparison'||'income'||'monthly_financial'||'global_financial'||'revenue_comparison'||'system_comparison'=>'السقايات والإيرادات',
     'expenses'||'cashboxes'||'payment_methods'||'payment_log'||'oil_status'||'diesel_inventory'=>'المالية والحركة',
     'beneficiary_statement'||'beneficiary_detailed'||'beneficiary_stats'||'beneficiary_list'||'needy'||'debts'=>'كشوف الحساب',
     'journal'||'ledger'=>'دفتر الأستاذ',
@@ -13071,7 +13072,7 @@ class _ReportsState extends State<ReportsPage> {
     'invoices'=>'فواتير السقايات بجدول مرتب وملخص إجمالي ومعاينة وطباعة ومشاركة PDF',
     'irrigations'=>'تفاصيل كل سقاية ومدتها ومبلغها والمدفوع منها',
     'time_comparison'=>'مقارنة الدقائق والعمليات بين الأشهر والمنظومات',
-    'monthly_financial'=>'الدخل والمصروفات شهرياً بصورة مختصرة',
+    'monthly_financial'=>'الدخل والمصروفات شهرياً بصورة مختصرة',\n    'global_financial'=>'إيراد السقايات والقبوضات والمصروفات وأرصدة المستفيدين وحصص الشركاء',
     'income'=>'مصادر الدخل حسب نوع المنظومة',
     'payment_methods'=>'إجمالي الاستخدام لكل طريقة دفع',
     'payment_log'=>'سجل عمليات القبض والصرف مع الطرف وطريقة الدفع والصندوق والتاريخ، وفلاتر الفترة وطريقة الدفع والصندوق',
