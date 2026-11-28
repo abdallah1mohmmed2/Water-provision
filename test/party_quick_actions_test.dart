@@ -83,7 +83,7 @@ void main() {
       testWidgets('PDF choice report=$report share=$share uses same callback', (tester) async {
         final calls = <(String, bool)>[];
         await tester.pumpWidget(MaterialApp(home: Scaffold(body: Builder(builder: (context) => TextButton(
-          onPressed: () => showPartyPdfChoices(context, name: 'الشخص المحدد', dieselEnabled: true, hybridSystem: false, generate: (water) async {
+          onPressed: () => showPartyPdfChoices(context, name: 'الشخص المحدد', dieselEnabled: true, hybridSystem: false, generate: (water, from, to) async {
             calls.add((water, ReportPdfPreviewService.sharingFromLongPress));
           }),
           child: const Text('PDF'),
